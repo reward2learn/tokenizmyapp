@@ -32,6 +32,8 @@ export async function GET(request: Request): Promise<NextResponse> {
   let db: DbClient;
   try {
     db = createRawClient() as unknown as DbClient;
+    // Quick connectivity test
+    await (db as any).$queryRawUnsafe('SELECT 1 as ok');
   } catch (err) {
     console.error('[admin/users] GET createRawClient error:', err instanceof Error ? err.message : String(err));
     return jsonError('Database unavailable', 503);
