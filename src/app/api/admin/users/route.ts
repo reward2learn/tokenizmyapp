@@ -8,6 +8,21 @@ import { setSecret, deleteSecret } from '@/lib/secrets';
 
 export const maxDuration = 30;
 
+type UserAccountRow = {
+  id: string;
+  sub: string;
+  email: string | null;
+  name: string | null;
+  tier: string;
+  role_code: string | null;
+  is_active: boolean;
+  last_seen_at: Date | null;
+  created_at: Date;
+};
+
+type GroupCodeRow = { code: string };
+type SubRow = { sub: string };
+
 export interface AdminUserView {
   id: string;
   sub: string;
@@ -43,7 +58,7 @@ export async function GET(request: Request): Promise<NextResponse> {
       `SELECT id, sub, email, name, tier, role_code, is_active, last_seen_at, created_at
        FROM user_accounts
        ORDER BY created_at DESC
-       LIMIT 200;`);
+       LIMIT 200;`) as UserAccountRow[];
 
     const users: AdminUserView[] = await Promise.all(
       rows.map(async (r) => ({
@@ -75,7 +90,7 @@ async function resolveGroups(db: DbClient, userId: string): Promise<string[]> {
        JOIN user_groups ug ON ug.group_id = sg.id
        WHERE ug.user_id = $1;`,
       userId,
-    );
+    ) as GroupCodeRow[];
     return (rows ?? []).map((r) => r.code);
   } catch {
     return [];
@@ -156,7 +171,7 @@ export async function POST(request: Request): Promise<NextResponse> {
       const user = await (db as any).$queryRawUnsafe(
         `SELECT sub FROM user_accounts WHERE id = $1;`,
         id,
-      );
+      ) as SubRow[];
       const sub = user[0]?.sub;
       if (sub) {
         await setSecret(`USER_PIN_${sub}`, pin.trim());
@@ -191,7 +206,7 @@ export async function DELETE(request: Request): Promise<NextResponse> {
     const user = await (db as any).$queryRawUnsafe(
       `SELECT sub FROM user_accounts WHERE id = $1;`,
       id,
-    );
+    ) as SubRow[];
     // Cascade deletes user_groups rows automatically.
     await (db as any).$executeRawUnsafe(`DELETE FROM user_accounts WHERE id = $1;`, id);
     // Also delete the PIN secret so the user cannot re-authenticate via PIN.
