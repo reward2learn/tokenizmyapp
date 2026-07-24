@@ -37,7 +37,8 @@ function getBasePrisma(): PrismaClient {
 /** Request-scoped ZenStack client; pass session tier for @@allow policies. */
 export function createClient(session: DbSession = { tier: 'public' }) {
   const prisma = getBasePrisma();
-  return enhance(prisma, {
+  try {
+    return enhance(prisma, {
     user: {
       id: session.sub ?? session.tier,
       tier: session.tier,
