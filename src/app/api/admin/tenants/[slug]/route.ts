@@ -4,7 +4,7 @@
 
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
-import { createClient } from '@/lib/db';
+import { createRawClient } from '@/lib/db';
 import { requireWriteAuth } from '@/lib/auth/guards';
 import { jsonError, jsonOk } from '@/lib/api/response';
 import { ensureTenantsTable } from '@/domain/tenant/tenant-service';
@@ -33,13 +33,15 @@ export async function GET(
   if (!guard.ok) return guard.response;
 
   const { slug } = await params;
-  const db = createClient();
+  const db = createRawClient() as any;
 
   try {
     await ensureTenantsTable(db);
-    const tenant = await db.tenant.findUnique({ where: { slug } });
-    if (!tenant) return jsonError('Tenant not found', 404);
-    return jsonOk({ tenant });
+    const rows = await db.$queryRawUnsafe(
+      `SELECT * FROM tenants WHERE slug = $1 LIMIT 1;`, slug,
+    ) as Record<string, unknown>[];
+    if (rows.length === 0) return jsonError('Tenant not found', 404);
+    return jsonOk({ tenant: rows[0] });
   } catch (err) {
     console.error(`[tenants] GET /${slug} error:`, err);
     return jsonError('Failed to fetch tenant', 500);
@@ -67,19 +69,41 @@ export async function PUT(
     return jsonError(`Validation failed: ${parsed.error.issues.map((i) => i.message).join(', ')}`, 400);
   }
 
-  const db = createClient();
+  const db = createRawClient() as any;
   try {
     await ensureTenantsTable(db);
-    const existing = await db.tenant.findUnique({ where: { slug } });
-    if (!existing) return jsonError('Tenant not found', 404);
+    const existingRows = await db.$queryRawUnsafe(
+      `SELECT id FROM tenants WHERE slug = $1 LIMIT 1;`, slug,
+    ) as { id: string }[];
+    if (existingRows.length === 0) return jsonError('Tenant not found', 404);
 
-    const tenant = await db.tenant.update({
-      where: { slug },
-      data: {
-        ...parsed.data,
-        metadata: parsed.data.metadata as never,
-      },
-    });
+    // Build SET clause from parsed data
+    const updates: string[] = [];
+    const values: unknown[] = [];
+    let idx = 1;
+    if (parsed.data.displayName !== undefined) { updates.push(`display_name = $${idx++}`); values.push(parsed.data.displayName); }
+    if (parsed.data.template !== undefined) { updates.push(`template = $${idx++}`); values.push(parsed.data.template); }
+    if (parsed.data.status !== undefined) { updates.push(`status = $${idx++}`); values.push(parsed.data.status); }
+    if (parsed.data.primaryColor !== undefined) { updates.push(`primary_color = $${idx++}`); values.push(parsed.data.primaryColor); }
+    if (parsed.data.secondaryColor !== undefined) { updates.push(`secondary_color = $${idx++}`); values.push(parsed.data.secondaryColor); }
+    if (parsed.data.appUrl !== undefined) { updates.push(`app_url = $${idx++}`); values.push(parsed.data.appUrl); }
+    if (parsed.data.vercelProjectId !== undefined) { updates.push(`vercel_project_id = $${idx++}`); values.push(parsed.data.vercelProjectId); }
+    if (parsed.data.dbUrl !== undefined) { updates.push(`db_url = $${idx++}`); values.push(parsed.data.dbUrl); }
+    if (parsed.data.metadata !== undefined) { updates.push(`metadata = $${idx++}`); values.push(JSON.stringify(parsed.data.metadata)); }
+
+    if (updates.length > 0) {
+      updates.push(`updated_at = CURRENT_TIMESTAMP`);
+      values.push(slug);
+      await db.$executeRawUnsafe(
+        `UPDATE tenants SET ${updates.join(', ')} WHERE slug = $${idx};`,
+        ...values,
+      );
+    }
+
+    const updatedRows = await db.$queryRawUnsafe(
+      `SELECT * FROM tenants WHERE slug = $1 LIMIT 1;`, slug,
+    ) as Record<string, unknown>[];
+    const tenant = updatedRows[0];
 
     return jsonOk({ tenant });
   } catch (err) {
@@ -99,17 +123,18 @@ export async function DELETE(
 
   const { slug } = await params;
 
-  const db = createClient();
+  const db = createRawClient() as any;
   try {
     await ensureTenantsTable(db);
-    const existing = await db.tenant.findUnique({ where: { slug } });
-    if (!existing) return jsonError('Tenant not found', 404);
+    const existingRows = await db.$queryRawUnsafe(
+      `SELECT id FROM tenants WHERE slug = $1 LIMIT 1;`, slug,
+    ) as { id: string }[];
+    if (existingRows.length === 0) return jsonError('Tenant not found', 404);
 
     // Soft-delete: set status to 'error' instead of hard delete
-    await db.tenant.update({
-      where: { slug },
-      data: { status: 'error' },
-    });
+    await db.$executeRawUnsafe(
+      `UPDATE tenants SET status = 'error', updated_at = CURRENT_TIMESTAMP WHERE slug = $1;`, slug,
+    );
 
     return jsonOk({ deleted: true });
   } catch (err) {

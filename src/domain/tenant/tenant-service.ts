@@ -2,7 +2,7 @@
  * Tenant Registry Service — DB table lifecycle & migration.
  * Uses the same idempotent pattern as app-settings-service.
  */
-import type { DbClient } from '@/lib/db';
+// Using any for DB client type
 
 const TENANTS_DDL = `
 CREATE TABLE IF NOT EXISTS tenants (
@@ -22,7 +22,7 @@ CREATE TABLE IF NOT EXISTS tenants (
   updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );`;
 
-export async function ensureTenantsTable(db: DbClient): Promise<void> {
+export async function ensureTenantsTable(db: any): Promise<void> {
   await db.$executeRawUnsafe(TENANTS_DDL);
 
   // Add any missing columns from schema evolution (idempotent)

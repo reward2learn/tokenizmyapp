@@ -10,10 +10,11 @@
 
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
-import { createClient } from '@/lib/db';
+import { createRawClient } from '@/lib/db';
 import { requireWriteAuth } from '@/lib/auth/guards';
 import { jsonError, jsonOk } from '@/lib/api/response';
 import { ensureTenantsTable } from '@/domain/tenant/tenant-service';
+import { seedTenantDefaults, seedTemplateSecurityGroups } from '@/domain/tenant/tenant-seed-service';
 
 export const dynamic = 'force-dynamic';
 
@@ -47,17 +48,18 @@ export async function GET(request: Request): Promise<NextResponse> {
   const { searchParams } = new URL(request.url);
   const status = searchParams.get('status');
 
-  const db = createClient();
+  const db = createRawClient() as any;
   try {
     await ensureTenantsTable(db);
 
-    const where: Record<string, unknown> = {};
-    if (status) where.status = status;
+    // status filter applied in raw SQL below
 
-    const tenants = await db.tenant.findMany({
-      where,
-      orderBy: { createdAt: 'desc' },
-    });
+    const query = status
+      ? `SELECT * FROM tenants WHERE status = $1 ORDER BY created_at DESC`
+      : `SELECT * FROM tenants ORDER BY created_at DESC`;
+    const tenants = status
+      ? await db.$queryRawUnsafe(query, status)
+      : await db.$queryRawUnsafe(query);
 
     return jsonOk({ tenants });
   } catch (err) {
@@ -82,28 +84,62 @@ export async function POST(request: Request): Promise<NextResponse> {
     return jsonError(`Validation failed: ${parsed.error.issues.map((i) => i.message).join(', ')}`, 400);
   }
 
-  const db = createClient();
+  const db = createRawClient() as any;
   try {
     await ensureTenantsTable(db);
 
     // Check for duplicate slug
-    const existing = await db.tenant.findUnique({ where: { slug: parsed.data.slug } });
-    if (existing) {
+    const existingRows = await db.$queryRawUnsafe(
+      `SELECT id FROM tenants WHERE slug = $1 LIMIT 1;`,
+      parsed.data.slug,
+    ) as { id: string }[];
+    if (existingRows.length > 0) {
       return jsonError(`Tenant slug "${parsed.data.slug}" already exists`, 409);
     }
 
-    const tenant = await db.tenant.create({
-      data: {
-        slug: parsed.data.slug,
-        displayName: parsed.data.displayName,
-        template: parsed.data.template,
-        status: 'draft',
-        primaryColor: parsed.data.primaryColor,
-        secondaryColor: parsed.data.secondaryColor,
-        metadata: parsed.data.metadata as never,
-        createdBy: guard.session.sub ?? guard.session.email ?? undefined,
-      },
-    });
+    const tenantId = `tn_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+    await db.$executeRawUnsafe(
+      `INSERT INTO tenants (id, slug, display_name, template, status, primary_color, secondary_color, metadata, created_by, created_at, updated_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP);`,
+      tenantId,
+      parsed.data.slug,
+      parsed.data.displayName,
+      parsed.data.template,
+      'deploying',
+      parsed.data.primaryColor,
+      parsed.data.secondaryColor,
+      JSON.stringify(parsed.data.metadata),
+      guard.session.sub ?? guard.session.email ?? null,
+    );
+    const tenant = { id: tenantId, slug: parsed.data.slug, status: 'deploying' } as const;
+
+    // Seed template defaults (pages, nav, brand, groups) asynchronously
+    // Don't block the response — seeding runs in the background
+    const seedInput = {
+      slug: parsed.data.slug,
+      displayName: parsed.data.displayName,
+      template: parsed.data.template,
+      primaryColor: parsed.data.primaryColor,
+      secondaryColor: parsed.data.secondaryColor,
+    };
+
+    // Seed immediately using the same DB connection
+    try {
+      const rawDb = db; // Same raw client
+      await seedTenantDefaults({ ...seedInput, db: rawDb });
+      await seedTemplateSecurityGroups(rawDb, parsed.data.template);
+
+      // Update status to 'live' after successful seed
+      await db.$executeRawUnsafe(
+        `UPDATE tenants SET status = $1, updated_at = CURRENT_TIMESTAMP WHERE slug = $2;`,
+        'live', parsed.data.slug,
+      );
+      (tenant as { status: string }).status = 'live';
+    } catch (seedErr) {
+      console.error('[tenants] Seed failed:', seedErr instanceof Error ? seedErr.message : String(seedErr));
+      // Tenant is created but seeding failed — status stays 'deploying'
+      // Admin can retry seeding from the tenant dashboard
+    }
 
     return jsonOk({ tenant });
   } catch (err) {

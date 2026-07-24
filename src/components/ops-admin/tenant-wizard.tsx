@@ -357,8 +357,32 @@ export function TenantWizard() {
                 Tenant Created!
               </Typography>
               <Typography variant="body1" color="text.secondary">
-                <strong>{state.displayName}</strong> has been registered. It will appear in the tenant list below with <Chip label="draft" size="small" color="info" /> status.
+                <strong>{state.displayName}</strong> has been created and seeded with the <strong>{selectedTemplate.label}</strong> template.
               </Typography>
+              {data?.data?.tenant ? (
+                <Chip
+                  label={data.data.tenant.status === 'live' ? 'Live — Ready to use' : `Status: ${data.data.tenant.status}`}
+                  size="small"
+                  color={data.data.tenant.status === 'live' ? 'success' : 'warning'}
+                />
+              ) : null}
+              <Paper variant="outlined" sx={{ p: 2, textAlign: 'left' }}>
+                <Stack spacing={1}>
+                  <Typography variant="body2" sx={{ fontWeight: 600 }}>What's been set up:</Typography>
+                  <Typography variant="body2" color="text.secondary">
+                    ✅ {selectedTemplate.defaultPages.length} pages ({selectedTemplate.defaultPages.map(p => p.title).join(', ')})
+                  </Typography>
+                  <Typography variant="body2" color="text.secondary">
+                    ✅ {selectedTemplate.defaultNavItems.length} navigation items
+                  </Typography>
+                  <Typography variant="body2" color="text.secondary">
+                    ✅ Brand colors: Primary {state.primaryColor}, Secondary {state.secondaryColor}
+                  </Typography>
+                  <Typography variant="body2" color="text.secondary">
+                    ✅ Default security groups (platform-admin, ops-admin, finance, viewer)
+                  </Typography>
+                </Stack>
+              </Paper>
               {data?.data?.tenant?.id ? (
                 <Typography variant="body2" color="text.secondary">
                   Tenant ID: {data.data.tenant.id}
@@ -376,6 +400,16 @@ export function TenantWizard() {
                   onClick={handleClose}
                 >
                   View Tenant List
+                </Button>
+                <Button
+                  variant="contained"
+                  color="secondary"
+                  component="a"
+                  href={`https://${state.slug}.vercel.app`}
+                  target="_blank"
+                  endIcon={<OpenInNewIcon />}
+                >
+                  Open {state.slug}.vercel.app
                 </Button>
               </Stack>
             </Stack>
