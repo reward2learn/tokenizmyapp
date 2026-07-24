@@ -17,16 +17,19 @@ import TableRow from '@mui/material/TableRow';
 import Tooltip from '@mui/material/Tooltip';
 import Typography from '@mui/material/Typography';
 import DeleteIcon from '@mui/icons-material/Delete';
+import EditIcon from '@mui/icons-material/Edit';
 import PeopleIcon from '@mui/icons-material/People';
 import OpenInNewIcon from '@mui/icons-material/OpenInNew';
 import RefreshIcon from '@mui/icons-material/Refresh';
 import {
   useListTenantsQuery,
   useDeleteTenantMutation,
+  type TenantEntry,
 } from '@/store/apis/tenant-api';
 import { getTemplate } from '@/domain/tenant/template-catalog';
 import { TenantWizard } from '@/components/ops-admin/tenant-wizard';
 import { TenantUserManager } from '@/components/ops-admin/tenant-user-manager';
+import { TenantEditor } from '@/components/ops-admin/tenant-editor';
 
 const STATUS_COLORS: Record<string, 'info' | 'warning' | 'success' | 'error'> = {
   draft: 'info',
@@ -40,6 +43,7 @@ export function TenantDashboard() {
   const [deleteTenant, { isLoading: isDeleting }] = useDeleteTenantMutation();
   const [deleting, setDeleting] = useState<string | null>(null);
   const [userManager, setUserManager] = useState<{ slug: string; displayName: string } | null>(null);
+  const [editor, setEditor] = useState<TenantEntry | null>(null);
 
   const tenants = data?.data?.tenants ?? [];
 
@@ -91,6 +95,7 @@ export function TenantDashboard() {
                 <TableCell>Tenant</TableCell>
                 <TableCell>Template</TableCell>
                 <TableCell>Status</TableCell>
+                <TableCell>License</TableCell>
                 <TableCell>URL</TableCell>
                 <TableCell>Created</TableCell>
                 <TableCell align="right">Actions</TableCell>
@@ -118,6 +123,13 @@ export function TenantDashboard() {
                         size="small"
                         color={STATUS_COLORS[t.status] ?? 'default'}
                       />
+                    </TableCell>
+                    <TableCell>
+                      {t.apiKey ? (
+                        <Chip label="Licensed" size="small" color="success" variant="outlined" />
+                      ) : (
+                        <Chip label="Unlicensed" size="small" color="warning" variant="outlined" />
+                      )}
                     </TableCell>
                     <TableCell>
                       {t.appUrl ? (
@@ -157,6 +169,14 @@ export function TenantDashboard() {
                     </TableCell>
                     <TableCell align="right">
                       <Stack direction="row" spacing={0.5} sx={{ justifyContent: 'flex-end' }}>
+                        <Tooltip title="Edit tenant">
+                          <IconButton
+                            size="small"
+                            onClick={() => setEditor(t)}
+                          >
+                            <EditIcon fontSize="small" />
+                          </IconButton>
+                        </Tooltip>
                         <Tooltip title="Manage users">
                           <IconButton
                             size="small"
@@ -185,6 +205,15 @@ export function TenantDashboard() {
           </Table>
         )}
       </Paper>
+
+      {/* Tenant Editor Modal */}
+      {editor && (
+        <TenantEditor
+          open={Boolean(editor)}
+          onClose={() => { setEditor(null); refetch(); }}
+          tenant={editor}
+        />
+      )}
 
       {/* Tenant User Manager Modal */}
       {userManager && (

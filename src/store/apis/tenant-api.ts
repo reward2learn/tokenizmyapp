@@ -11,6 +11,7 @@ export interface TenantEntry {
   vercelProjectId: string | null;
   appUrl: string | null;
   dbUrl: string | null;
+  apiKey: string | null;
   primaryColor: string;
   secondaryColor: string;
   metadata: Record<string, unknown>;

@@ -8,6 +8,7 @@ import { createRawClient } from '@/lib/db';
 import { requireWriteAuth } from '@/lib/auth/guards';
 import { jsonError, jsonOk } from '@/lib/api/response';
 import { ensureTenantsTable } from '@/domain/tenant/tenant-service';
+import { ensureTenantConfigColumns } from '@/domain/tenant/tenant-config-service';
 
 export const dynamic = 'force-dynamic';
 
@@ -20,6 +21,7 @@ const updateSchema = z.object({
   appUrl: z.string().max(500).optional().nullable(),
   vercelProjectId: z.string().max(100).optional().nullable(),
   dbUrl: z.string().max(500).optional().nullable(),
+  apiKey: z.string().max(200).optional().nullable(),
   metadata: z.record(z.unknown()).optional(),
 });
 
@@ -37,6 +39,7 @@ export async function GET(
 
   try {
     await ensureTenantsTable(db);
+    await ensureTenantConfigColumns(db);
     const rows = await db.$queryRawUnsafe(
       `SELECT * FROM tenants WHERE slug = $1 LIMIT 1;`, slug,
     ) as Record<string, unknown>[];
@@ -72,6 +75,7 @@ export async function PUT(
   const db = createRawClient() as any;
   try {
     await ensureTenantsTable(db);
+    await ensureTenantConfigColumns(db);
     const existingRows = await db.$queryRawUnsafe(
       `SELECT id FROM tenants WHERE slug = $1 LIMIT 1;`, slug,
     ) as { id: string }[];
@@ -89,7 +93,8 @@ export async function PUT(
     if (parsed.data.appUrl !== undefined) { updates.push(`app_url = $${idx++}`); values.push(parsed.data.appUrl); }
     if (parsed.data.vercelProjectId !== undefined) { updates.push(`vercel_project_id = $${idx++}`); values.push(parsed.data.vercelProjectId); }
     if (parsed.data.dbUrl !== undefined) { updates.push(`db_url = $${idx++}`); values.push(parsed.data.dbUrl); }
-    if (parsed.data.metadata !== undefined) { updates.push(`metadata = $${idx++}`); values.push(JSON.stringify(parsed.data.metadata)); }
+    if (parsed.data.apiKey !== undefined) { updates.push(`api_key = $${idx++}`); values.push(parsed.data.apiKey); }
+    if (parsed.data.metadata !== undefined) { updates.push(`metadata = $${idx++}::jsonb`); values.push(JSON.stringify(parsed.data.metadata)); }
 
     if (updates.length > 0) {
       updates.push(`updated_at = CURRENT_TIMESTAMP`);
