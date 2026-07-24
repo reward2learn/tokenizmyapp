@@ -386,15 +386,27 @@ export function AppShell({ children }: { children: ReactNode }) {
         <Divider />
         <Box sx={{ p: 2, display: 'flex', flexDirection: 'column', gap: 1.5 }}>
           {tier === 'public' ? (
-            <Button
-              component="a"
-              href={`/api/auth?action=google&redirect=${encodeURIComponent(pathname || '/dashboard')}`}
-              variant="outlined"
-              size="small"
-              fullWidth
-            >
-              Sign in with Google
-            </Button>
+            <>
+              <Button
+                component="a"
+                href={`/api/auth?action=google&redirect=${encodeURIComponent(pathname || '/dashboard')}`}
+                variant="outlined"
+                size="small"
+                fullWidth
+              >
+                Sign in with Google
+              </Button>
+              <Button
+                component="a"
+                href={`/dashboard?show=signin`}
+                variant="outlined"
+                size="small"
+                fullWidth
+                color="primary"
+              >
+                Sign in with PIN
+              </Button>
+            </>
           ) : (
             <Button
               component="a"

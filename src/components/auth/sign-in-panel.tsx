@@ -56,7 +56,7 @@ export function SignInPanel({ requiredTier }: SignInPanelProps) {
   const { refetch: refetchSession } = useGetSessionQuery();
 
   const oauthError = searchParams.get('auth') === 'error';
-  const showPin = requiredTier === 'pin';
+  const showPin = requiredTier !== 'google';
   const googleHref = googleAuthHref(pathname || '/dashboard');
 
   const handlePinSubmit = async (event: FormEvent) => {
@@ -79,12 +79,12 @@ export function SignInPanel({ requiredTier }: SignInPanelProps) {
     >
       <Box sx={{ maxWidth: 420, mx: 'auto' }}>
         <Typography variant="h5" sx={{ fontWeight: 700, mb: 1 }}>
-          {requiredTier === 'pin' ? 'Ops Sign-In' : 'Sign in to Access'}
+          {requiredTier === 'google' ? 'Sign in to Access' : 'Ops Sign-In'}
         </Typography>
         <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
-          {requiredTier === 'pin'
-            ? 'Enter the ops PIN or sign in with Google for full access.'
-            : 'Sign in with Google to view the full business review, AI chat, and operations tracking.'}
+          {requiredTier === 'google'
+            ? 'Sign in with Google to view the full business review, AI chat, and operations tracking.'
+            : 'Enter the ops PIN or sign in with Google for full access.'}
         </Typography>
 
         {oauthError ? (

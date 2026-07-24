@@ -1,4 +1,5 @@
 import { AuthGate } from '@/components/auth/auth-gate';
+import { SignInErrorOverlay } from '@/components/auth/sign-in-error-overlay';
 import { SignInPanelGate } from '@/components/auth/sign-in-panel';
 import { DynamicPage } from '@/components/dynamic/dynamic-page';
 import { AiFindingsBlock } from '@/components/blocks/ai-findings-block';
@@ -12,9 +13,12 @@ export default function DashboardPage() {
   }
 
   return (
-    <AuthGate requiredTier={page.authTier} fallback={<SignInPanelGate requiredTier={page.authTier} />}>
-      <DynamicPage page={page} />
-      <AiFindingsBlock />
-    </AuthGate>
+    <>
+      <AuthGate requiredTier={page.authTier} fallback={<SignInPanelGate requiredTier={page.authTier} />}>
+        <DynamicPage page={page} />
+        <AiFindingsBlock />
+      </AuthGate>
+      <SignInErrorOverlay />
+    </>
   );
 }
