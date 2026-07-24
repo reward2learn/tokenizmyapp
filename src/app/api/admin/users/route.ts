@@ -28,14 +28,12 @@ export async function GET(request: Request): Promise<NextResponse> {
   if (!guard.ok) return guard.response;
   if (!sessionIsPlatformAdmin(guard.session)) return jsonError('Platform admin only', 403);
 
-  let db;
+  // Use raw Prisma client (tables created by prisma db push during build)
+  let db: DbClient;
   try {
     db = createRawClient() as unknown as DbClient;
-    // Ensure tables exist but don't backfill known accounts here — that
-    // would re-create users that an admin has deliberately deleted.
-    await ensureSecurityTables(db);
   } catch (err) {
-    console.error('[admin/users] GET db init error:', err instanceof Error ? err.message : String(err));
+    console.error('[admin/users] GET createRawClient error:', err instanceof Error ? err.message : String(err));
     return jsonError('Database unavailable', 503);
   }
 
@@ -123,12 +121,12 @@ export async function POST(request: Request): Promise<NextResponse> {
 
   if (!id || typeof id !== 'string') return jsonError('id is required', 400);
 
-  let db;
+  // Use raw Prisma client (tables created by prisma db push during build)
+  let db: DbClient;
   try {
     db = createRawClient() as unknown as DbClient;
-    await ensureSecurityTables(db);
   } catch (err) {
-    console.error('[admin/users] POST db init error:', err instanceof Error ? err.message : String(err));
+    console.error('[admin/users] POST createRawClient error:', err instanceof Error ? err.message : String(err));
     return jsonError('Database unavailable', 503);
   }
 
