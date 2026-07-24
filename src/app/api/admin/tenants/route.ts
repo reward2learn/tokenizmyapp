@@ -14,6 +14,7 @@ import { createRawClient } from '@/lib/db';
 import { requireWriteAuth } from '@/lib/auth/guards';
 import { jsonError, jsonOk } from '@/lib/api/response';
 import { ensureTenantsTable } from '@/domain/tenant/tenant-service';
+import { deployTenant } from '@/domain/tenant/vercel-deploy-service';
 import { seedTenantDefaults, seedTemplateSecurityGroups } from '@/domain/tenant/tenant-seed-service';
 
 export const dynamic = 'force-dynamic';
@@ -135,6 +136,25 @@ export async function POST(request: Request): Promise<NextResponse> {
         'live', parsed.data.slug,
       );
       (tenant as { status: string }).status = 'live';
+
+      // Trigger Vercel project creation asynchronously (non-blocking)
+      deployTenant({
+        slug: parsed.data.slug,
+        displayName: parsed.data.displayName,
+        template: parsed.data.template,
+        primaryColor: parsed.data.primaryColor,
+        secondaryColor: parsed.data.secondaryColor,
+      }).then((result) => {
+        console.log('[tenants] Vercel project created:', result.projectId);
+        // Update tenant record with Vercel project ID
+        db.$executeRawUnsafe(
+          `UPDATE tenants SET vercel_project_id = $1, app_url = $2, updated_at = CURRENT_TIMESTAMP WHERE slug = $3;`,
+          result.projectId, result.appUrl, parsed.data.slug,
+        ).catch((e) => console.error('[tenants] Failed to save vercel_project_id:', e));
+      }).catch((deployErr) => {
+        console.error('[tenants] Vercel deploy failed:', deployErr instanceof Error ? deployErr.message : String(deployErr));
+      });
+
     } catch (seedErr) {
       console.error('[tenants] Seed failed:', seedErr instanceof Error ? seedErr.message : String(seedErr));
       // Tenant is created but seeding failed — status stays 'deploying'
