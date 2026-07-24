@@ -221,7 +221,7 @@ export async function ensureSecurityTables(
 
   // Use the raw (un-enhanced) client so DDL/seed/backfill never hit ZenStack
   // policy enforcement — these are internal bootstrap operations.
-  const raw = createBaseClient();
+  const raw = getBasePrisma();
 
   await withRetry(async () => {
     await runStatements(raw, SECURITY_TABLES_DDL);

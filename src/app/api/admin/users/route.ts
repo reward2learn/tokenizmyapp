@@ -30,20 +30,13 @@ export async function GET(request: Request): Promise<NextResponse> {
 
   let db;
   try {
-    db = createBaseClient();
+    db = createRawClient() as unknown as DbClient;
     // Ensure tables exist but don't backfill known accounts here — that
     // would re-create users that an admin has deliberately deleted.
     await ensureSecurityTables(db);
   } catch (err) {
-    console.error('[admin/users] GET db init error (base):', err instanceof Error ? err.message : String(err));
-    // Try raw client as fallback
-    try {
-      db = createRawClient() as unknown as DbClient;
-      console.log('[admin/users] Using raw client fallback');
-    } catch (err2) {
-      console.error('[admin/users] Raw client also failed:', err2 instanceof Error ? err2.message : String(err2));
-      return jsonError('Database unavailable', 503);
-    }
+    console.error('[admin/users] GET db init error:', err instanceof Error ? err.message : String(err));
+    return jsonError('Database unavailable', 503);
   }
 
   try {
@@ -132,17 +125,11 @@ export async function POST(request: Request): Promise<NextResponse> {
 
   let db;
   try {
-    db = createBaseClient();
+    db = createRawClient() as unknown as DbClient;
     await ensureSecurityTables(db);
   } catch (err) {
-    console.error('[admin/users] POST db init error (base):', err instanceof Error ? err.message : String(err));
-    try {
-      db = createRawClient() as unknown as DbClient;
-      console.log('[admin/users] POST using raw client fallback');
-    } catch (err2) {
-      console.error('[admin/users] POST raw client also failed:', err2 instanceof Error ? err2.message : String(err2));
-      return jsonError('Database unavailable', 503);
-    }
+    console.error('[admin/users] POST db init error:', err instanceof Error ? err.message : String(err));
+    return jsonError('Database unavailable', 503);
   }
 
   try {

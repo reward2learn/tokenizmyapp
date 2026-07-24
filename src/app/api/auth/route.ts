@@ -101,12 +101,22 @@ async function handleGoogleConfig(): Promise<NextResponse> {
     const { PrismaClient } = await import('@/generated/prisma');
     const raw = new PrismaClient();
     const result = await raw.$queryRawUnsafe('SELECT 1 as ok');
-    await raw.$disconnect();
     return NextResponse.json({ success: true, data: { dbTest: 'ok', result } });
   } catch (err) {
-    await (async () => {})();
     return NextResponse.json({ success: false, error: 'DB test failed: ' + (err instanceof Error ? err.message : String(err)) });
   }
+  const config = await getGoogleOAuthPublicConfig();
+  if (!config) {
+    return jsonError('Google OAuth not configured', 503);
+  }
+  return NextResponse.json({
+    success: true,
+    data: {
+      clientId: config.clientId,
+      projectId: config.projectId,
+      authUri: config.authUri,
+    },
+  });
 }
 
 async function handleGoogleRedirect(request: Request, url: URL): Promise<NextResponse> {
