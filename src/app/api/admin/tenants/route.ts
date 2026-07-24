@@ -100,7 +100,7 @@ export async function POST(request: Request): Promise<NextResponse> {
     const tenantId = `tn_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
     await db.$executeRawUnsafe(
       `INSERT INTO tenants (id, slug, display_name, template, status, primary_color, secondary_color, metadata, created_by, created_at, updated_at)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP);`,
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP);`,
       tenantId,
       parsed.data.slug,
       parsed.data.displayName,
