@@ -137,7 +137,7 @@ export async function PATCH(request: Request): Promise<NextResponse> {
   let db;
   try {
     db = createBaseClient();
-    await ensureSecurityTables(db);
+    // ensureSecurityTables skipped — tables from prisma db push
   } catch {
     return jsonError('Database unavailable', 503);
   }
