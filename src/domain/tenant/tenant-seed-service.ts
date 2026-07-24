@@ -142,7 +142,7 @@ export async function seedTenantDefaults(input: SeedTenantInput): Promise<{
         const sectionId = `${tplPage.slug}:section:${i}`;
         await db.$executeRawUnsafe(
           `INSERT INTO page_sections (id, page_id, sort_order, block_type, config)
-           VALUES ($1, $2, $3, CAST($4 AS "BlockType"), $5);`,
+           VALUES ($1, $2, $3, CAST($4 AS "BlockType"), CAST($5 AS jsonb));`,
           sectionId,
           pageId,
           i,
