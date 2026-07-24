@@ -17,7 +17,7 @@ import TableRow from '@mui/material/TableRow';
 import Tooltip from '@mui/material/Tooltip';
 import Typography from '@mui/material/Typography';
 import DeleteIcon from '@mui/icons-material/Delete';
-import EditIcon from '@mui/icons-material/Edit';
+import PeopleIcon from '@mui/icons-material/People';
 import OpenInNewIcon from '@mui/icons-material/OpenInNew';
 import RefreshIcon from '@mui/icons-material/Refresh';
 import {
@@ -26,6 +26,7 @@ import {
 } from '@/store/apis/tenant-api';
 import { getTemplate } from '@/domain/tenant/template-catalog';
 import { TenantWizard } from '@/components/ops-admin/tenant-wizard';
+import { TenantUserManager } from '@/components/ops-admin/tenant-user-manager';
 
 const STATUS_COLORS: Record<string, 'info' | 'warning' | 'success' | 'error'> = {
   draft: 'info',
@@ -38,6 +39,7 @@ export function TenantDashboard() {
   const { data, isLoading, isError, refetch } = useListTenantsQuery();
   const [deleteTenant, { isLoading: isDeleting }] = useDeleteTenantMutation();
   const [deleting, setDeleting] = useState<string | null>(null);
+  const [userManager, setUserManager] = useState<{ slug: string; displayName: string } | null>(null);
 
   const tenants = data?.data?.tenants ?? [];
 
@@ -155,6 +157,15 @@ export function TenantDashboard() {
                     </TableCell>
                     <TableCell align="right">
                       <Stack direction="row" spacing={0.5} sx={{ justifyContent: 'flex-end' }}>
+                        <Tooltip title="Manage users">
+                          <IconButton
+                            size="small"
+                            color="primary"
+                            onClick={() => setUserManager({ slug: t.slug, displayName: t.displayName })}
+                          >
+                            <PeopleIcon fontSize="small" />
+                          </IconButton>
+                        </Tooltip>
                         <Tooltip title="Delete tenant">
                           <IconButton
                             size="small"
@@ -174,6 +185,16 @@ export function TenantDashboard() {
           </Table>
         )}
       </Paper>
+
+      {/* Tenant User Manager Modal */}
+      {userManager && (
+        <TenantUserManager
+          open={Boolean(userManager)}
+          onClose={() => setUserManager(null)}
+          tenantSlug={userManager.slug}
+          tenantDisplayName={userManager.displayName}
+        />
+      )}
     </Stack>
   );
 }

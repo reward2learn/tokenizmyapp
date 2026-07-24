@@ -19,10 +19,25 @@ export interface TenantEntry {
   updatedAt: string;
 }
 
+export interface TenantUserView {
+  id: string;
+  sub: string;
+  email: string | null;
+  name: string | null;
+  tier: string;
+  roleCode: string | null;
+  isActive: boolean;
+  groups: string[];
+  permissions: string[];
+  lastSeenAt: string | null;
+  createdAt: string;
+  tenantSlug: string;
+}
+
 export const tenantApi = createApi({
   reducerPath: 'tenantApi',
   baseQuery,
-  tagTypes: ['Tenants'],
+  tagTypes: ['Tenants', 'TenantUsers'],
   endpoints: (builder) => ({
     listTenants: builder.query<ApiEnvelope<{ tenants: TenantEntry[] }>, { status?: string } | void>({
       query: (params) => {
@@ -82,6 +97,43 @@ export const tenantApi = createApi({
       }),
       invalidatesTags: ['Tenants'],
     }),
+
+    // ── Tenant-scoped Users ─────────────────────────
+
+    listTenantUsers: builder.query<ApiEnvelope<{ users: TenantUserView[] }>, string>({
+      query: (slug) => `admin/tenants/${slug}/users`,
+      providesTags: (_result, _error, slug) => [{ type: 'TenantUsers', id: slug }],
+    }),
+
+    upsertTenantUser: builder.mutation<
+      ApiEnvelope<{ id: string; created: boolean }>,
+      {
+        slug: string;
+        sub: string;
+        email?: string | null;
+        name?: string | null;
+        tier?: string;
+        roleCode?: string | null;
+        groupCodes?: string[];
+        pin?: string;
+        isActive?: boolean;
+      }
+    >({
+      query: ({ slug, ...body }) => ({
+        url: `admin/tenants/${slug}/users`,
+        method: 'POST',
+        body,
+      }),
+      invalidatesTags: (_result, _error, { slug }) => [{ type: 'TenantUsers', id: slug }],
+    }),
+
+    deleteTenantUser: builder.mutation<ApiEnvelope<{ id: string; deleted: boolean }>, { slug: string; id: string }>({
+      query: ({ slug, id }) => ({
+        url: `admin/tenants/${slug}/users?id=${id}`,
+        method: 'DELETE',
+      }),
+      invalidatesTags: (_result, _error, { slug }) => [{ type: 'TenantUsers', id: slug }],
+    }),
   }),
 });
 
@@ -91,4 +143,7 @@ export const {
   useCreateTenantMutation,
   useUpdateTenantMutation,
   useDeleteTenantMutation,
+  useListTenantUsersQuery,
+  useUpsertTenantUserMutation,
+  useDeleteTenantUserMutation,
 } = tenantApi;
