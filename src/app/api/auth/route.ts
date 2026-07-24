@@ -29,6 +29,7 @@ import { resolveGroupCodesForSub, resolveCapabilitiesForSub, upsertUserAccount }
 import { legacyError, jsonError } from '@/lib/api/response';
 
 export const maxDuration = 60;
+export const dynamic = 'force-dynamic';
 
 let jobQueueEnsured: Promise<boolean> | null = null;
 function ensureJobQueueOnce(): Promise<boolean> {
@@ -314,8 +315,13 @@ async function handleVerifyPin(request: Request): Promise<NextResponse> {
 
     // PIN key: USER_PIN_<sub> for individuals, ADMIN_PIN for platform admin.
     const secretKey = isPlatformAdmin ? 'ADMIN_PIN' : `USER_PIN_${sub}`;
-    let stored = await getSecretPlaintext(secretKey);
-    // Fallback: check environment variable (e.g. DEFAULT_ADMIN_PIN, DEFAULT_PIN_ama)
+    // Try DB first, fall back to env var (which works without POSTGRES_URL)
+    let stored: string | null = null;
+    try {
+      stored = await getSecretPlaintext(secretKey);
+    } catch {
+      // DB unavailable — will try env fallback below
+    }
     if (!stored) {
       const envKey = isPlatformAdmin ? 'DEFAULT_ADMIN_PIN' : `DEFAULT_PIN_${sub}`;
       stored = process.env[envKey] ?? null;
@@ -328,12 +334,21 @@ async function handleVerifyPin(request: Request): Promise<NextResponse> {
     }
 
     const roleCode = person?.roleCode ?? null;
-    const { groups, permissions } = await resolveSessionGroups({
-      sub,
-      name: person?.name ?? sub,
-      tier: 'pin',
-      roleCode,
-    });
+    // Resolve groups/permissions (best-effort — works without DB when env PIN is used)
+    let groups: string[] = [];
+    let permissions: string[] = [];
+    try {
+      const resolved = await resolveSessionGroups({
+        sub,
+        name: person?.name ?? sub,
+        tier: 'pin',
+        roleCode,
+      });
+      groups = resolved.groups;
+      permissions = resolved.permissions;
+    } catch {
+      // DB unavailable — use minimal claims; user can still sign in
+    }
     const platformAdmin = isPlatformAdmin || groups.includes('platform-admin');
     const token = await signSession({
       sub,
