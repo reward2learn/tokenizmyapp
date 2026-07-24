@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import Alert from '@mui/material/Alert';
 import Box from '@mui/material/Box';
 import Button from '@mui/material/Button';
@@ -43,6 +43,7 @@ import { getTemplate } from '@/domain/tenant/template-catalog';
 import { TenantWizard } from '@/components/ops-admin/tenant-wizard';
 import { TenantUserManager } from '@/components/ops-admin/tenant-user-manager';
 import { TenantEditor } from '@/components/ops-admin/tenant-editor';
+import { VercelConnectButton } from '@/components/ops-admin/vercel-connect-button';
 
 const STATUS_COLORS: Record<string, 'info' | 'warning' | 'success' | 'error'> = {
   draft: 'info',
@@ -134,6 +135,7 @@ export function TenantDashboard() {
                 <RefreshIcon />
               </IconButton>
             </Tooltip>
+            <VercelConnectButton />
             <TenantWizard />
           </Stack>
         </Stack>
