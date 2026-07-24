@@ -96,6 +96,17 @@ export async function POST(request: Request) {
 }
 
 async function handleGoogleConfig(): Promise<NextResponse> {
+  // TEMP: test tenant table creation with raw client
+  try {
+    const { createRawClient } = await import('@/lib/db');
+    const { ensureTenantsTable } = await import('@/domain/tenant/tenant-service');
+    const db = createRawClient() as any;
+    await ensureTenantsTable(db);
+    const result = await db.$queryRawUnsafe('SELECT COUNT(*) as cnt FROM tenants');
+    return NextResponse.json({ success: true, data: { dbTest: 'ok', tenantCount: (result as any)[0]?.cnt } });
+  } catch (err) {
+    return NextResponse.json({ success: false, error: 'Tenant test failed: ' + (err instanceof Error ? err.message : String(err)) });
+  }
   const config = await getGoogleOAuthPublicConfig();
   if (!config) {
     return jsonError('Google OAuth not configured', 503);
