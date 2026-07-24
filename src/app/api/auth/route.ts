@@ -240,7 +240,9 @@ async function resolveSessionGroups(input: {
   } catch (err) {
     // Sign-in must still succeed even if group resolution fails, but we log so
     // the failure is diagnosable instead of silently dropping accounts.
-    console.error('[auth/resolveSessionGroups]', err instanceof Error ? err.message : err);
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error('[auth/resolveSessionGroups] ' + msg.slice(0, 150));
+    if (msg.length > 150) console.error('[auth/resolveSessionGroups-cont] ' + msg.slice(150));
     return { groups: [], permissions: [] };
   }
 }
