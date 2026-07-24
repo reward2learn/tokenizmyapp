@@ -3,19 +3,21 @@
  *
  * Redirects the user to Vercel's OAuth authorization endpoint.
  * Stores PKCE challenge + state in cookies for callback validation.
+ *
+ * Based on Vercel's official OAuth example:
+ * https://vercel.com/docs/sign-in-with-vercel/getting-started#create-an-authorize-api-route
  */
 import { NextResponse } from 'next/server';
+import type { NextRequest } from 'next/server';
 import crypto from 'node:crypto';
 
 const CLIENT_ID = process.env.NEXT_PUBLIC_VERCEL_APP_CLIENT_ID;
-const REDIRECT_URI = process.env.VERCEL_OAUTH_REDIRECT_URI ||
-  `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL || 'tokenizmyapp.vercel.app'}/api/auth/vercel/callback`;
 
 function generateSecureString(length: number): string {
   return crypto.randomBytes(length).toString('hex');
 }
 
-export async function GET() {
+export async function GET(request: NextRequest) {
   if (!CLIENT_ID) {
     return NextResponse.json(
       { error: 'Vercel OAuth is not configured — missing NEXT_PUBLIC_VERCEL_APP_CLIENT_ID' },
@@ -23,19 +25,22 @@ export async function GET() {
     );
   }
 
-  // Generate PKCE values
-  const state = generateSecureString(32);
-  const nonce = generateSecureString(32);
-  const codeVerifier = generateSecureString(32);
+  // Generate PKCE values (code_verifier must be 43-128 chars)
+  const state = generateSecureString(32);    // 64 chars
+  const nonce = generateSecureString(32);     // 64 chars
+  const codeVerifier = generateSecureString(43); // 86 chars (matches Vercel's example)
   const codeChallenge = crypto
     .createHash('sha256')
     .update(codeVerifier)
     .digest('base64url');
 
+  // Use the request origin for dynamic redirect_uri (same as callback)
+  const redirectUri = `${request.nextUrl.origin}/api/auth/vercel/callback`;
+
   const response = NextResponse.redirect(
     `https://vercel.com/oauth/authorize?${new URLSearchParams({
       client_id: CLIENT_ID,
-      redirect_uri: REDIRECT_URI,
+      redirect_uri: redirectUri,
       state,
       nonce,
       code_challenge: codeChallenge,

@@ -2,32 +2,73 @@
  * GET /api/auth/vercel/callback
  *
  * Handles the OAuth callback from Vercel after user authorizes.
- * Validates state, exchanges authorization code for tokens,
+ * Validates state + nonce, exchanges authorization code for tokens,
  * and stores the tokens encrypted in the secrets table.
+ *
+ * Based on Vercel's official OAuth example:
+ * https://vercel.com/docs/sign-in-with-vercel/getting-started#create-a-callback-api-route
  */
 import { NextResponse } from 'next/server';
-import { cookies } from 'next/headers';
+import type { NextRequest } from 'next/server';
 import { setSecret } from '@/lib/secrets';
 
 const CLIENT_ID = process.env.NEXT_PUBLIC_VERCEL_APP_CLIENT_ID;
 const CLIENT_SECRET = process.env.VERCEL_APP_CLIENT_SECRET;
-const REDIRECT_URI = process.env.VERCEL_OAUTH_REDIRECT_URI ||
-  `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL || 'tokenizmyapp.vercel.app'}/api/auth/vercel/callback`;
 
-const ADMIN_URL = process.env.VERCEL_PROJECT_PRODUCTION_URL
-  ? `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}/admin`
-  : '/admin';
-
-interface TokenResponse {
+interface TokenData {
   access_token: string;
-  refresh_token?: string;
-  expires_in: number;
-  id_token?: string;
   token_type: string;
-  scope?: string;
+  id_token: string;
+  expires_in: number;
+  scope: string;
+  refresh_token: string;
 }
 
-export async function GET(request: Request) {
+function validate(value: string | null, storedValue: string | undefined): boolean {
+  if (!value || !storedValue) return false;
+  return value === storedValue;
+}
+
+function decodeNonce(idToken: string): string {
+  try {
+    const payload = idToken.split('.')[1];
+    const decodedPayload = Buffer.from(payload, 'base64').toString('utf-8');
+    const nonceMatch = decodedPayload.match(/"nonce":"([^"]+)"/);
+    return nonceMatch ? nonceMatch[1] : '';
+  } catch {
+    return '';
+  }
+}
+
+async function exchangeCodeForToken(
+  code: string,
+  codeVerifier: string | undefined,
+  requestOrigin: string,
+): Promise<TokenData> {
+  const params = new URLSearchParams({
+    grant_type: 'authorization_code',
+    client_id: CLIENT_ID as string,
+    client_secret: CLIENT_SECRET as string,
+    code,
+    code_verifier: codeVerifier || '',
+    redirect_uri: `${requestOrigin}/api/auth/vercel/callback`,
+  });
+
+  const response = await fetch('https://api.vercel.com/login/oauth/token', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: params,
+  });
+
+  if (!response.ok) {
+    const errorData = await response.json();
+    throw new Error(`Failed to exchange code for token: ${JSON.stringify(errorData)}`);
+  }
+
+  return await response.json();
+}
+
+export async function GET(request: NextRequest) {
   try {
     const url = new URL(request.url);
     const code = url.searchParams.get('code');
@@ -38,66 +79,39 @@ export async function GET(request: Request) {
     }
 
     // Validate state from cookie
-    const cookieStore = await cookies();
-    const storedState = cookieStore.get('vercel_oauth_state')?.value;
-    const storedNonce = cookieStore.get('vercel_oauth_nonce')?.value;
-    const codeVerifier = cookieStore.get('vercel_oauth_code_verifier')?.value;
+    const storedState = request.cookies.get('vercel_oauth_state')?.value;
+    const storedNonce = request.cookies.get('vercel_oauth_nonce')?.value;
+    const codeVerifier = request.cookies.get('vercel_oauth_code_verifier')?.value;
 
-    if (!state || !storedState || state !== storedState) {
+    if (!validate(state, storedState)) {
       return NextResponse.redirect(new URL('/admin?vercel=error&reason=state_mismatch', request.url));
     }
 
     if (!CLIENT_ID || !CLIENT_SECRET) {
-      return NextResponse.redirect(
-        new URL('/admin?vercel=error&reason=missing_oauth_config', request.url),
-      );
+      return NextResponse.redirect(new URL('/admin?vercel=error&reason=missing_oauth_config', request.url));
     }
 
-    // Exchange authorization code for tokens
-    const tokenResponse = await fetch('https://api.vercel.com/login/oauth/token', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: new URLSearchParams({
-        grant_type: 'authorization_code',
-        client_id: CLIENT_ID,
-        client_secret: CLIENT_SECRET,
-        code,
-        code_verifier: codeVerifier || '',
-        redirect_uri: REDIRECT_URI,
-      }),
-    });
+    // Exchange code for tokens (uses request.nextUrl.origin for dynamic redirect_uri)
+    const origin = request.nextUrl.origin;
+    const tokenData = await exchangeCodeForToken(code, codeVerifier, origin);
 
-    if (!tokenResponse.ok) {
-      const errorText = await tokenResponse.text();
-      console.error('[vercel-oauth] Token exchange failed:', tokenResponse.status, errorText);
-      // Pass the actual error reason to the UI for debugging
-      let reason = 'token_exchange_failed';
-      try {
-        const errJson = JSON.parse(errorText);
-        if (errJson.error) reason = `vercel_${errJson.error}`;
-        else if (errJson.message) reason = errJson.message.slice(0, 60);
-      } catch {}
-      console.log(`[vercel-oauth] Using redirect_uri: ${REDIRECT_URI}`);
-      return NextResponse.redirect(
-        new URL(`/admin?vercel=error&reason=${encodeURIComponent(reason)}&redirect_uri=${encodeURIComponent(REDIRECT_URI)}`, request.url),
-      );
+    // Validate nonce from id_token
+    const decodedNonce = decodeNonce(tokenData.id_token);
+    if (!validate(decodedNonce, storedNonce)) {
+      return NextResponse.redirect(new URL('/admin?vercel=error&reason=nonce_mismatch', request.url));
     }
-
-    const tokens: TokenResponse = await tokenResponse.json();
 
     // Store tokens encrypted in secrets table
     const tokenPayload = JSON.stringify({
-      accessToken: tokens.access_token,
-      refreshToken: tokens.refresh_token || null,
-      expiresAt: Date.now() + tokens.expires_in * 1000,
-      scope: tokens.scope || '',
+      accessToken: tokenData.access_token,
+      refreshToken: tokenData.refresh_token,
+      expiresAt: Date.now() + tokenData.expires_in * 1000,
+      scope: tokenData.scope || '',
     });
-
     await setSecret('VERCEL_OAUTH', tokenPayload);
 
     // Clear OAuth cookies
     const response = NextResponse.redirect(new URL('/admin?vercel=connected', request.url));
-
     response.cookies.set('vercel_oauth_state', '', { maxAge: 0, path: '/' });
     response.cookies.set('vercel_oauth_nonce', '', { maxAge: 0, path: '/' });
     response.cookies.set('vercel_oauth_code_verifier', '', { maxAge: 0, path: '/' });
@@ -105,7 +119,9 @@ export async function GET(request: Request) {
     return response;
   } catch (err) {
     console.error('[vercel-oauth] Callback error:', err);
-    const url = new URL(request.url);
-    return NextResponse.redirect(new URL('/admin?vercel=error&reason=internal', url));
+    const msg = err instanceof Error ? err.message.slice(0, 200) : 'unknown';
+    return NextResponse.redirect(
+      new URL(`/admin?vercel=error&reason=${encodeURIComponent(msg)}`, request.url),
+    );
   }
 }
