@@ -212,7 +212,7 @@ const SECURITY_GROUPS_COLUMNS_DDL = [
 ];
 
 export async function ensureSecurityTables(
-  db: DbClient | PrismaClient,
+  db: DbClient,
   knownAccounts: { sub: string; name: string; tier: string; roleCode?: string | null }[] = [],
 ): Promise<boolean> {
   if (!process.env.POSTGRES_URL) {
