@@ -144,14 +144,14 @@ export async function POST(request: Request): Promise<NextResponse> {
         template: parsed.data.template,
         primaryColor: parsed.data.primaryColor,
         secondaryColor: parsed.data.secondaryColor,
-      }).then((result) => {
+      }).then((result: { projectId: string; appUrl: string }) => {
         console.log('[tenants] Vercel project created:', result.projectId);
         // Update tenant record with Vercel project ID
         db.$executeRawUnsafe(
           `UPDATE tenants SET vercel_project_id = $1, app_url = $2, updated_at = CURRENT_TIMESTAMP WHERE slug = $3;`,
           result.projectId, result.appUrl, parsed.data.slug,
-        ).catch((e) => console.error('[tenants] Failed to save vercel_project_id:', e));
-      }).catch((deployErr) => {
+        ).catch((e: unknown) => console.error('[tenants] Failed to save vercel_project_id:', e));
+      }).catch((deployErr: unknown) => {
         console.error('[tenants] Vercel deploy failed:', deployErr instanceof Error ? deployErr.message : String(deployErr));
       });
 
