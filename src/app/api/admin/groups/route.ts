@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { createBaseClient } from '@/lib/db';
+import { createRawClient } from '@/lib/db';
 import { requireWriteAuth } from '@/lib/auth/guards';
 import { sessionIsPlatformAdmin } from '@/lib/auth/jwt';
 import { jsonError, jsonOk } from '@/lib/api/response';
@@ -28,18 +28,16 @@ export async function GET(request: Request): Promise<NextResponse> {
   if (!guard.ok) return guard.response;
   if (!sessionIsPlatformAdmin(guard.session)) return jsonError('Platform admin only', 403);
 
-  let db;
+  // Use raw Prisma client (tables created by prisma db push during build)
+  let db: any;
   try {
-    db = createBaseClient();
-    // Ensure tables exist but don't backfill — that would re-create
-    // user_account rows that an admin has deliberately deleted.
-    await ensureSecurityTables(db);
+    db = createRawClient() as any;
   } catch {
     return jsonError('Database unavailable', 503);
   }
 
   try {
-    const rows = await db.$queryRawUnsafe<{
+    const rows = await (db as any).$queryRawUnsafe({
       code: string;
       name: string;
       description: string | null;
@@ -95,16 +93,16 @@ export async function POST(request: Request): Promise<NextResponse> {
 
   const perms = normalizePermissions(permissions);
 
-  let db;
+  // Use raw Prisma client
+  let db: any;
   try {
-    db = createBaseClient();
-    await ensureSecurityTables(db);
+    db = createRawClient() as any;
   } catch {
     return jsonError('Database unavailable', 503);
   }
 
   try {
-    await db.$executeRawUnsafe(
+    await (db as any).$executeRawUnsafe(
       `INSERT INTO security_groups (code, name, description, is_system, permissions)
        VALUES ($1, $2, $3, false, $4)
        ON CONFLICT (code) DO UPDATE SET name = $2, description = $3, permissions = $4;`,
@@ -152,7 +150,7 @@ export async function PATCH(request: Request): Promise<NextResponse> {
   }
 
   try {
-    const affected = await db.$executeRawUnsafe(
+    const affected = await (db as any).$executeRawUnsafe(
       `UPDATE security_groups
        SET name = COALESCE($2, name),
            description = COALESCE($3, description),
