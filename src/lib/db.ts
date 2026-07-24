@@ -25,7 +25,7 @@ function getPostgresUrl(): string {
   return url;
 }
 
-function getBasePrisma(): PrismaClient {
+export function getBasePrisma(): PrismaClient {
   if (!globalForPrisma.__redrubyPrisma) {
     globalForPrisma.__redrubyPrisma = new PrismaClient({
       datasources: { db: { url: getPostgresUrl() } },
