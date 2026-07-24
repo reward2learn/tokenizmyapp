@@ -106,7 +106,8 @@ export async function GET(
     return jsonOk({ users });
   } catch (err) {
     console.error(`[tenant-users] GET error:`, err);
-    return jsonError('Failed to load tenant users', 500);
+    const message = err instanceof Error ? err.message : String(err);
+    return jsonError(`Failed to load tenant users: ${message}`, 500);
   }
 }
 
@@ -218,7 +219,8 @@ export async function POST(
     return jsonOk({ id: userId, created: existing.length === 0 });
   } catch (err) {
     console.error(`[tenant-users] POST error:`, err);
-    return jsonError('Failed to upsert tenant user', 500);
+    const message = err instanceof Error ? err.message : String(err);
+    return jsonError(`Failed to upsert tenant user: ${message}`, 500);
   }
 }
 

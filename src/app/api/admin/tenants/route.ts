@@ -40,6 +40,28 @@ const updateSchema = z.object({
   metadata: z.record(z.unknown()).optional(),
 });
 
+// ── Helper: snake_case DB rows → camelCase TenantEntry ──
+
+function mapTenantRow(row: Record<string, unknown>) {
+  return {
+    id: row.id as string,
+    slug: row.slug as string,
+    displayName: row.display_name as string,
+    template: row.template as string,
+    status: row.status as string,
+    vercelProjectId: row.vercel_project_id as string | null,
+    appUrl: row.app_url as string | null,
+    dbUrl: row.db_url as string | null,
+    apiKey: row.api_key as string | null,
+    primaryColor: row.primary_color as string,
+    secondaryColor: row.secondary_color as string,
+    metadata: row.metadata as Record<string, unknown>,
+    createdBy: row.created_by as string | null,
+    createdAt: row.created_at as string,
+    updatedAt: row.updated_at as string,
+  };
+}
+
 // ── GET /api/admin/tenants ───────────────────────────
 
 export async function GET(request: Request): Promise<NextResponse> {
@@ -62,7 +84,7 @@ export async function GET(request: Request): Promise<NextResponse> {
       ? await db.$queryRawUnsafe(query, status)
       : await db.$queryRawUnsafe(query);
 
-    return jsonOk({ tenants });
+    return jsonOk({ tenants: (tenants as Record<string, unknown>[]).map(mapTenantRow) });
   } catch (err) {
     console.error('[tenants] GET error:', err);
     return jsonError('Failed to list tenants', 500);
@@ -144,9 +166,10 @@ export async function POST(request: Request): Promise<NextResponse> {
         template: parsed.data.template,
         primaryColor: parsed.data.primaryColor,
         secondaryColor: parsed.data.secondaryColor,
-      }).then((result: { projectId: string; appUrl: string }) => {
-        console.log('[tenants] Vercel project created:', result.projectId);
-        // Update tenant record with Vercel project ID
+        metadata: parsed.data.metadata,
+      }).then((result: { projectId: string; appUrl: string; projectName: string; envCount: number }) => {
+        console.log('[tenants] Vercel project created:', result.projectId, 'env vars:', result.envCount);
+        // Update tenant record with Vercel project info
         db.$executeRawUnsafe(
           `UPDATE tenants SET vercel_project_id = $1, app_url = $2, updated_at = CURRENT_TIMESTAMP WHERE slug = $3;`,
           result.projectId, result.appUrl, parsed.data.slug,
@@ -161,7 +184,7 @@ export async function POST(request: Request): Promise<NextResponse> {
       // Admin can retry seeding from the tenant dashboard
     }
 
-    return jsonOk({ tenant });
+    return jsonOk({ tenant: mapTenantRow(tenant as Record<string, unknown>) });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     const stack = err instanceof Error ? (err.stack ?? '').split('\n').slice(0, 3).join(' | ') : '';

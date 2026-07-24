@@ -21,9 +21,22 @@ import EditIcon from '@mui/icons-material/Edit';
 import PeopleIcon from '@mui/icons-material/People';
 import OpenInNewIcon from '@mui/icons-material/OpenInNew';
 import RefreshIcon from '@mui/icons-material/Refresh';
+import MoreVertIcon from '@mui/icons-material/MoreVert';
+import Menu from '@mui/material/Menu';
+import MenuItem from '@mui/material/MenuItem';
+import ListItemIcon from '@mui/material/ListItemIcon';
+import ListItemText from '@mui/material/ListItemText';
+import Divider from '@mui/material/Divider';
+import Snackbar from '@mui/material/Snackbar';
+import PlayArrowIcon from '@mui/icons-material/PlayArrow';
+import BuildIcon from '@mui/icons-material/Build';
+import CloudUploadIcon from '@mui/icons-material/CloudUpload';
 import {
   useListTenantsQuery,
   useDeleteTenantMutation,
+  useSeedTenantMutation,
+  useMigrateTenantMutation,
+  useDeployTenantMutation,
   type TenantEntry,
 } from '@/store/apis/tenant-api';
 import { getTemplate } from '@/domain/tenant/template-catalog';
@@ -45,12 +58,62 @@ export function TenantDashboard() {
   const [userManager, setUserManager] = useState<{ slug: string; displayName: string } | null>(null);
   const [editor, setEditor] = useState<TenantEntry | null>(null);
 
+  // Three-dot menu state — track which row's menu is open
+  const [menuAnchor, setMenuAnchor] = useState<{ slug: string; el: HTMLElement } | null>(null);
+
+  // Seed/migrate state
+  const [seedTenant, { isLoading: isSeeding }] = useSeedTenantMutation();
+  const [migrateTenant, { isLoading: isMigrating }] = useMigrateTenantMutation();
+  const [deployToVercel, { isLoading: isDeploying }] = useDeployTenantMutation();
+  const [snackbar, setSnackbar] = useState<{ message: string; severity: 'success' | 'error' } | null>(null);
+
   const tenants = data?.data?.tenants ?? [];
 
   const handleDelete = async (slug: string) => {
     setDeleting(slug);
     await deleteTenant(slug).unwrap();
     setDeleting(null);
+  };
+
+  const handleMenuOpen = (slug: string, el: HTMLElement) => setMenuAnchor({ slug, el });
+  const handleMenuClose = () => setMenuAnchor(null);
+
+  const handleSeed = async (slug: string) => {
+    handleMenuClose();
+    try {
+      const result = await seedTenant(slug).unwrap();
+      setSnackbar({ message: `Tenant seeded: ${result.data?.pages ?? 0} pages, ${result.data?.navItems ?? 0} nav items`, severity: 'success' });
+    } catch {
+      setSnackbar({ message: 'Failed to seed tenant', severity: 'error' });
+    }
+  };
+
+  const handleMigrate = async (slug: string) => {
+    handleMenuClose();
+    try {
+      await migrateTenant(slug).unwrap();
+      setSnackbar({ message: 'Tenant migration completed', severity: 'success' });
+    } catch {
+      setSnackbar({ message: 'Failed to migrate tenant', severity: 'error' });
+    }
+  };
+
+  const handleDeploy = async (slug: string) => {
+    handleMenuClose();
+    try {
+      const result = await deployToVercel(slug).unwrap();
+      if (result.success) {
+        setSnackbar({
+          message: `Deployed to Vercel — project created, ${result.data.envCount} env vars synced`,
+          severity: 'success',
+        });
+      } else {
+        setSnackbar({ message: result.error || 'Failed to deploy', severity: 'error' });
+      }
+    } catch (err: any) {
+      const msg = err?.data?.error || err?.error || 'Failed to deploy tenant';
+      setSnackbar({ message: msg, severity: 'error' });
+    }
   };
 
   return (
@@ -168,35 +231,46 @@ export function TenantDashboard() {
                       </Typography>
                     </TableCell>
                     <TableCell align="right">
-                      <Stack direction="row" spacing={0.5} sx={{ justifyContent: 'flex-end' }}>
-                        <Tooltip title="Edit tenant">
-                          <IconButton
-                            size="small"
-                            onClick={() => setEditor(t)}
-                          >
-                            <EditIcon fontSize="small" />
-                          </IconButton>
-                        </Tooltip>
-                        <Tooltip title="Manage users">
-                          <IconButton
-                            size="small"
-                            color="primary"
-                            onClick={() => setUserManager({ slug: t.slug, displayName: t.displayName })}
-                          >
-                            <PeopleIcon fontSize="small" />
-                          </IconButton>
-                        </Tooltip>
-                        <Tooltip title="Delete tenant">
-                          <IconButton
-                            size="small"
-                            color="error"
-                            disabled={isDeleting && deleting === t.slug}
-                            onClick={() => void handleDelete(t.slug)}
-                          >
-                            <DeleteIcon fontSize="small" />
-                          </IconButton>
-                        </Tooltip>
-                      </Stack>
+                      <IconButton
+                        size="small"
+                        onClick={(e) => handleMenuOpen(t.slug, e.currentTarget)}
+                      >
+                        <MoreVertIcon fontSize="small" />
+                      </IconButton>
+                      <Menu
+                        anchorEl={menuAnchor?.slug === t.slug ? menuAnchor.el : null}
+                        open={menuAnchor?.slug === t.slug}
+                        onClose={handleMenuClose}
+                        transformOrigin={{ horizontal: 'right', vertical: 'top' }}
+                        anchorOrigin={{ horizontal: 'right', vertical: 'bottom' }}
+                      >
+                        <MenuItem onClick={() => { handleMenuClose(); setEditor(t); }}>
+                          <ListItemIcon><EditIcon fontSize="small" /></ListItemIcon>
+                          <ListItemText>Edit</ListItemText>
+                        </MenuItem>
+                        <MenuItem onClick={() => { handleMenuClose(); setUserManager({ slug: t.slug, displayName: t.displayName }); }}>
+                          <ListItemIcon><PeopleIcon fontSize="small" /></ListItemIcon>
+                          <ListItemText>Manage Users</ListItemText>
+                        </MenuItem>
+                        <Divider />
+                        <MenuItem onClick={() => void handleSeed(t.slug)} disabled={isSeeding}>
+                          <ListItemIcon><PlayArrowIcon fontSize="small" /></ListItemIcon>
+                          <ListItemText>{isSeeding ? 'Seeding…' : 'Seed'}</ListItemText>
+                        </MenuItem>
+                        <MenuItem onClick={() => void handleMigrate(t.slug)} disabled={isMigrating}>
+                          <ListItemIcon><BuildIcon fontSize="small" /></ListItemIcon>
+                          <ListItemText>{isMigrating ? 'Migrating…' : 'Migrate'}</ListItemText>
+                        </MenuItem>
+                        <MenuItem onClick={() => void handleDeploy(t.slug)} disabled={isDeploying}>
+                          <ListItemIcon><CloudUploadIcon fontSize="small" /></ListItemIcon>
+                          <ListItemText>{isDeploying ? 'Deploying…' : 'Deploy to Vercel'}</ListItemText>
+                        </MenuItem>
+                        <Divider />
+                        <MenuItem onClick={() => { handleMenuClose(); void handleDelete(t.slug); }} disabled={isDeleting && deleting === t.slug}>
+                          <ListItemIcon><DeleteIcon fontSize="small" color="error" /></ListItemIcon>
+                          <ListItemText sx={{ color: 'error.main' }}>Delete</ListItemText>
+                        </MenuItem>
+                      </Menu>
                     </TableCell>
                   </TableRow>
                 );
@@ -224,6 +298,14 @@ export function TenantDashboard() {
           tenantDisplayName={userManager.displayName}
         />
       )}
+
+      {/* Feedback Snackbar */}
+      <Snackbar
+        open={Boolean(snackbar)}
+        autoHideDuration={4000}
+        onClose={() => setSnackbar(null)}
+        message={snackbar?.message}
+      />
     </Stack>
   );
 }

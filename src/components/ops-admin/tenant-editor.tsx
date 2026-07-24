@@ -32,8 +32,9 @@ import SettingsIcon from '@mui/icons-material/Settings';
 import StorefrontIcon from '@mui/icons-material/Storefront';
 import AddIcon from '@mui/icons-material/Add';
 import DeleteIcon from '@mui/icons-material/Delete';
+import CloudUploadIcon from '@mui/icons-material/CloudUpload';
 import { listTemplates, getTemplate } from '@/domain/tenant/template-catalog';
-import { useUpdateTenantMutation } from '@/store/apis/tenant-api';
+import { useUpdateTenantMutation, useDeployTenantMutation } from '@/store/apis/tenant-api';
 
 // ── Types ─────────────────────────────────────────────────────────────────
 
@@ -172,6 +173,7 @@ export function TenantEditor({ open, onClose, tenant }: TenantEditorProps) {
   const [formData, setFormData] = useState<FormData>(() => getInitialFormState(tenant));
   const [showSensitive, setShowSensitive] = useState(false);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
+  const [deployError, setDeployError] = useState<string | null>(null);
   const [updateTenant, { isLoading, isError, error }] = useUpdateTenantMutation();
 
   const templates = listTemplates();
@@ -184,6 +186,7 @@ export function TenantEditor({ open, onClose, tenant }: TenantEditorProps) {
       setTabIndex(0);
       setShowSensitive(false);
       setSuccessMessage(null);
+      setDeployError(null);
     }
   }, [open, tenant]);
 
@@ -286,9 +289,28 @@ export function TenantEditor({ open, onClose, tenant }: TenantEditorProps) {
     });
   }, []);
 
+  // ── Deploy to Vercel ──────────────────────────
+
+  const [deployTenant, { isLoading: isDeploying }] = useDeployTenantMutation();
+
+  const handleDeploy = useCallback(async () => {
+    try {
+      const metadata = buildMetadataFromForm(formData);
+      // Save first, then deploy
+      await handleSaveInternal();
+      // Deploy will push all config env vars to Vercel
+      const result = await deployTenant(tenant.slug).unwrap();
+      if (result.success) {
+        setSuccessMessage(`Deployed to Vercel — ${result.data.envCount} env vars synced`);
+      }
+    } catch {
+      setDeployError('Failed to deploy to Vercel');
+    }
+  }, [formData, tenant.slug, deployTenant]);
+
   // ── Save ────────────────────────────────────────
 
-  const handleSave = useCallback(async () => {
+  const handleSaveInternal = useCallback(async () => {
     try {
       const metadata = buildMetadataFromForm(formData);
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -304,9 +326,6 @@ export function TenantEditor({ open, onClose, tenant }: TenantEditorProps) {
       if (formData.apiKey) {
         payload.apiKey = formData.apiKey;
       }
-      // The API route handler accepts `apiKey` as a top-level field even though
-      // the mutation type does not yet include it — cast through `any` is
-      // intentional until the API type is updated.
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       await (updateTenant as any)(payload).unwrap();
       setSuccessMessage('Tenant updated successfully.');
@@ -315,9 +334,11 @@ export function TenantEditor({ open, onClose, tenant }: TenantEditorProps) {
     }
   }, [formData, tenant.slug, updateTenant]);
 
+  const handleSave = handleSaveInternal;
+
   const handleClose = useCallback(() => {
-    if (!isLoading) onClose();
-  }, [isLoading, onClose]);
+    if (!isLoading && !isDeploying) onClose();
+  }, [isLoading, isDeploying, onClose]);
 
   // ── Error message extraction ────────────────────
 
@@ -411,57 +432,91 @@ export function TenantEditor({ open, onClose, tenant }: TenantEditorProps) {
               </Select>
             </FormControl>
 
-            <TextField
-              label="Primary Color"
-              value={formData.primaryColor}
-              onChange={(e) => setStringField('primaryColor', e.target.value)}
-              fullWidth
-              helperText="Used for buttons, links, and highlights"
-              slotProps={{
-                input: {
-                  startAdornment: (
-                    <Box
-                      sx={{
-                        width: 24,
-                        height: 24,
-                        borderRadius: 1,
-                        bgcolor: formData.primaryColor,
-                        border: '1px solid',
-                        borderColor: 'divider',
-                        mr: 1,
-                        flexShrink: 0,
-                      }}
-                    />
-                  ),
-                },
-              }}
-            />
+            <Stack direction="row" spacing={1} sx={{ alignItems: 'flex-start' }}>
+              <Box
+                component="label"
+                sx={{
+                  width: 40,
+                  height: 40,
+                  borderRadius: 1,
+                  bgcolor: formData.primaryColor,
+                  border: '2px solid',
+                  borderColor: 'divider',
+                  cursor: 'pointer',
+                  flexShrink: 0,
+                  mt: 0.5,
+                  overflow: 'hidden',
+                  position: 'relative',
+                }}
+              >
+                <input
+                  type="color"
+                  value={formData.primaryColor}
+                  onChange={(e) => setStringField('primaryColor', e.target.value)}
+                  style={{
+                    position: 'absolute',
+                    width: '100%',
+                    height: '100%',
+                    padding: 0,
+                    border: 'none',
+                    cursor: 'pointer',
+                    opacity: 0,
+                  }}
+                />
+              </Box>
+              <TextField
+                label="Primary Color"
+                value={formData.primaryColor}
+                onChange={(e) => setStringField('primaryColor', e.target.value)}
+                fullWidth
+                size="small"
+                helperText="Used for buttons, links, and highlights"
+                slotProps={{ inputLabel: { shrink: true } }}
+              />
+            </Stack>
 
-            <TextField
-              label="Secondary Color"
-              value={formData.secondaryColor}
-              onChange={(e) => setStringField('secondaryColor', e.target.value)}
-              fullWidth
-              helperText="Used for accents and secondary elements"
-              slotProps={{
-                input: {
-                  startAdornment: (
-                    <Box
-                      sx={{
-                        width: 24,
-                        height: 24,
-                        borderRadius: 1,
-                        bgcolor: formData.secondaryColor,
-                        border: '1px solid',
-                        borderColor: 'divider',
-                        mr: 1,
-                        flexShrink: 0,
-                      }}
-                    />
-                  ),
-                },
-              }}
-            />
+            <Stack direction="row" spacing={1} sx={{ alignItems: 'flex-start' }}>
+              <Box
+                component="label"
+                sx={{
+                  width: 40,
+                  height: 40,
+                  borderRadius: 1,
+                  bgcolor: formData.secondaryColor,
+                  border: '2px solid',
+                  borderColor: 'divider',
+                  cursor: 'pointer',
+                  flexShrink: 0,
+                  mt: 0.5,
+                  overflow: 'hidden',
+                  position: 'relative',
+                }}
+              >
+                <input
+                  type="color"
+                  value={formData.secondaryColor}
+                  onChange={(e) => setStringField('secondaryColor', e.target.value)}
+                  style={{
+                    position: 'absolute',
+                    width: '100%',
+                    height: '100%',
+                    padding: 0,
+                    border: 'none',
+                    cursor: 'pointer',
+                    opacity: 0,
+                  }}
+                />
+              </Box>
+              <TextField
+                label="Secondary Color"
+                value={formData.secondaryColor}
+                onChange={(e) => setStringField('secondaryColor', e.target.value)}
+                fullWidth
+                size="small"
+                helperText="Used for accents and secondary elements"
+                slotProps={{ inputLabel: { shrink: true } }}
+              />
+            </Stack>
           </Stack>
         )}
 
@@ -736,16 +791,32 @@ export function TenantEditor({ open, onClose, tenant }: TenantEditorProps) {
             {errorMessage}
           </Alert>
         ) : null}
+        {deployError ? (
+          <Alert severity="error" sx={{ mt: 2 }}>
+            {deployError}
+          </Alert>
+        ) : null}
       </DialogContent>
 
       <DialogActions sx={{ px: 3, pb: 2 }}>
-        <Button onClick={handleClose} disabled={isLoading}>
+        <Button onClick={handleClose} disabled={isLoading || isDeploying}>
           Cancel
+        </Button>
+        <Button
+          variant="outlined"
+          onClick={handleDeploy}
+          disabled={isLoading || isDeploying}
+          startIcon={
+            isDeploying ? <CircularProgress size={18} color="inherit" /> : <CloudUploadIcon />
+          }
+          sx={{ mr: 'auto' }}
+        >
+          {isDeploying ? 'Deploying...' : 'Deploy to Vercel'}
         </Button>
         <Button
           variant="contained"
           onClick={handleSave}
-          disabled={isLoading}
+          disabled={isLoading || isDeploying}
           startIcon={
             isLoading ? <CircularProgress size={18} color="inherit" /> : <SaveIcon />
           }

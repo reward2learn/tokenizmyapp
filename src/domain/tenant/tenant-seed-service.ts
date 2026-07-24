@@ -3,6 +3,10 @@
  *
  * Creates: AppPage + PageSection rows, NavigationItem rows, AppSetting row,
  * and default security groups with template-specific permissions.
+ *
+ * All INSERT statements use raw SQL with proper type casting for enum columns.
+ * The migrate function (addTenantColumnsIfMissing) is called upfront to
+ * add tenant-isolation columns that the factory DB schema doesn't include yet.
  */
 // Using raw Prisma client (any) for compatibility
 import { getTemplate, type TemplateDefinition } from '@/domain/tenant/template-catalog';
@@ -17,22 +21,68 @@ interface SeedTenantInput {
   db?: any;
 }
 
+/**
+ * Add missing tenant-isolation columns to factory tables.
+ *
+ * Uses ALTER TABLE ... ADD COLUMN IF NOT EXISTS so it is idempotent.
+ * Creates indexes on the new tenant_slug columns.
+ *
+ * Expected to run once at seed time before tenant defaults are inserted.
+ */
+export async function addTenantColumnsIfMissing(db: any): Promise<void> {
+  const statements: string[] = [
+    // app_pages — nav display metadata + tenant isolation
+    `ALTER TABLE app_pages ADD COLUMN IF NOT EXISTS nav_label TEXT;`,
+    `ALTER TABLE app_pages ADD COLUMN IF NOT EXISTS show_in_nav BOOLEAN DEFAULT true;`,
+    `ALTER TABLE app_pages ADD COLUMN IF NOT EXISTS tenant_slug TEXT;`,
+
+    // navigation_items — tenant isolation + active toggle
+    `ALTER TABLE navigation_items ADD COLUMN IF NOT EXISTS tenant_slug TEXT;`,
+    `ALTER TABLE navigation_items ADD COLUMN IF NOT EXISTS is_active BOOLEAN DEFAULT true;`,
+
+    // user_accounts — tenant isolation
+    `ALTER TABLE user_accounts ADD COLUMN IF NOT EXISTS tenant_slug TEXT;`,
+
+    // Indexes on tenant_slug columns for query performance
+    `CREATE INDEX IF NOT EXISTS idx_app_pages_tenant_slug ON app_pages(tenant_slug);`,
+    `CREATE INDEX IF NOT EXISTS idx_navigation_items_tenant_slug ON navigation_items(tenant_slug);`,
+    `CREATE INDEX IF NOT EXISTS idx_user_accounts_tenant_slug ON user_accounts(tenant_slug);`,
+  ];
+
+  for (const sql of statements) {
+    try {
+      await db.$executeRawUnsafe(sql);
+    } catch (err) {
+      // Individual column adds may fail if a table doesn't exist yet;
+      // this is non-fatal — the seed continues with the columns it has.
+      console.warn(`[tenant-seed] Migration warning (non-fatal):`, (err as Error).message);
+    }
+  }
+}
+
 export async function seedTenantDefaults(input: SeedTenantInput): Promise<{
   pages: number;
   navItems: number;
   settings: boolean;
+  errors: string[];
 }> {
   const template = getTemplate(input.template);
   const db = input.db!;
 
+  // Ensure tenant-isolation columns exist before inserting data
+  await addTenantColumnsIfMissing(db);
+
   // ── 1. Seed AppSetting (brand config) ─────────────────
   try {
     await db.$executeRawUnsafe(
-      `INSERT INTO app_settings (id, tenant_slug, tenant_display_name, tenant_template, web_search_enabled)
-       VALUES ($1, $2, $3, $4, false)
+      `INSERT INTO app_settings (id, web_search_enabled, tenant_slug, tenant_display_name, tenant_template,
+          tenant_metadata, brand_logo_text, brand_logo_url, brand_primary_color, brand_secondary_color, updated_at)
+       VALUES ($1, false, $2, $3, $4, '{}'::jsonb, '', '', $5, $6, NOW())
        ON CONFLICT (id) DO UPDATE
-         SET tenant_slug = $2, tenant_display_name = $3, tenant_template = $4;`,
+         SET tenant_slug = $2, tenant_display_name = $3, tenant_template = $4,
+             brand_primary_color = $5, brand_secondary_color = $6, updated_at = NOW();`,
       'default', input.slug, input.displayName, input.template,
+      input.primaryColor, input.secondaryColor,
     );
     console.log(`[tenant-seed] AppSetting seeded for ${input.slug}`);
   } catch (err) {
@@ -41,38 +91,56 @@ export async function seedTenantDefaults(input: SeedTenantInput): Promise<{
 
   // ── 2. Seed AppPage + PageSection ─────────────────────
   let pageCount = 0;
+  const errors: string[] = [];
+
   for (const tplPage of template.defaultPages) {
     try {
-      // Upsert page
+      // Upsert page — cast auth_tier string to the AuthTier enum type
       await db.$executeRawUnsafe(
-        `INSERT INTO app_pages (slug, title, nav_label, show_in_nav, auth_tier, tenant_slug)
-         VALUES ($1, $2, $3, $4, $5, $6)
+        `INSERT INTO app_pages (slug, title, auth_tier, sort_order, nav_label, show_in_nav, tenant_slug)
+         VALUES ($1, $2, CAST($3 AS "AuthTier"), $4, $5, true, $6)
          ON CONFLICT (slug) DO UPDATE
-           SET title = $2, nav_label = $3, show_in_nav = $4, auth_tier = $5;`,
+           SET title = $2, auth_tier = CAST($3 AS "AuthTier"), sort_order = $4,
+               nav_label = $5, show_in_nav = true, tenant_slug = $6;`,
         tplPage.slug,
         tplPage.title,
-        tplPage.navLabel ?? tplPage.title,
-        true,
         tplPage.authTier,
+        pageCount, // sort_order reflects page definition order in the template
+        tplPage.navLabel ?? null,
         input.slug,
       );
 
-      // Seed sections (block types) for this page
-      // First, remove existing sections for this page
-      await db.$executeRawUnsafe(
-        `DELETE FROM page_sections WHERE page_slug = $1;`,
+      // Look up the auto-generated id for this page (needed as FK for sections)
+      const pageRows = (await db.$queryRawUnsafe(
+        `SELECT id FROM app_pages WHERE slug = $1 LIMIT 1;`,
         tplPage.slug,
+      )) as { id: string }[];
+
+      if (pageRows.length === 0) {
+        console.warn(`[tenant-seed] Page "${tplPage.slug}" not found after insert — skipping sections`);
+        pageCount++;
+        continue;
+      }
+
+      const pageId = pageRows[0].id;
+
+      // Remove any existing sections for this page (FK cascade-safe deletion)
+      await db.$executeRawUnsafe(
+        `DELETE FROM page_sections WHERE page_id = $1;`,
+        pageId,
       );
 
-      // Insert new sections
+      // Insert sections with generated deterministic IDs
       for (let i = 0; i < tplPage.blockTypes.length; i++) {
         const blockType = tplPage.blockTypes[i];
+        const sectionId = `${tplPage.slug}:section:${i}`;
         await db.$executeRawUnsafe(
-          `INSERT INTO page_sections (page_slug, block_type, sort_order, config)
-           VALUES ($1, $2, $3, $4);`,
-          tplPage.slug,
-          blockType,
+          `INSERT INTO page_sections (id, page_id, sort_order, block_type, config)
+           VALUES ($1, $2, $3, $4, $5);`,
+          sectionId,
+          pageId,
           i,
+          blockType,
           JSON.stringify({ minTier: tplPage.authTier }),
         );
       }
@@ -80,50 +148,57 @@ export async function seedTenantDefaults(input: SeedTenantInput): Promise<{
       pageCount++;
       console.log(`[tenant-seed] Page "${tplPage.slug}" seeded with ${tplPage.blockTypes.length} sections`);
     } catch (err) {
-      console.error(`[tenant-seed] Failed to seed page ${tplPage.slug}:`, err);
+      const msg = err instanceof Error ? err.message : String(err);
+      console.error(`[tenant-seed] Failed to seed page ${tplPage.slug}:`, msg);
+      errors.push(`page ${tplPage.slug}: ${msg.slice(0, 200)}`);
     }
   }
 
   // ── 3. Seed NavigationItem ────────────────────────────
   let navCount = 0;
-  // Clear existing nav for this tenant
+
+  // Clear all existing nav items for this tenant before re-seeding.
   try {
-    await db.$executeRawUnsafe(
-      `DELETE FROM navigation_items WHERE tenant_slug = $1;`,
-      input.slug,
-    );
-  } catch {
-    // Table might not have tenant_slug column yet
+    await db.$executeRawUnsafe(`DELETE FROM navigation_items WHERE tenant_slug = $1;`, input.slug);
+  } catch (err) {
+    console.warn(`[tenant-seed] Could not clear navigation_items:`, (err as Error).message);
   }
 
   for (let i = 0; i < template.defaultNavItems.length; i++) {
     const navItem = template.defaultNavItems[i];
     try {
+      // Include tenant_slug and cast auth_tier to the AuthTier enum
       await db.$executeRawUnsafe(
-        `INSERT INTO navigation_items (title, path, icon, auth_tier, sort_order, tenant_slug, parent_id, is_active)
-         VALUES ($1, $2, $3, $4, $5, $6, NULL, true)
-         ON CONFLICT DO NOTHING;`,
+        `INSERT INTO navigation_items (title, path, icon, auth_tier, sort_order, tenant_slug)
+         VALUES ($1, $2, $3, CAST($4 AS "AuthTier"), $5, $6);`,
         navItem.title,
         navItem.path,
         navItem.icon,
         navItem.authTier,
-        i,
+        i, // sort_order reflects nav definition order in the template
         input.slug,
       );
       navCount++;
     } catch (err) {
-      console.error(`[tenant-seed] Failed to seed nav item ${navItem.title}:`, err);
+      const msg = err instanceof Error ? err.message : String(err);
+      console.error(`[tenant-seed] Failed to seed nav item ${navItem.title}:`, msg);
+      errors.push(`nav ${navItem.title}: ${msg.slice(0, 200)}`);
     }
   }
 
+  if (errors.length > 0) {
+    console.error(`[tenant-seed] Errors: ${errors.join('; ')}`);
+  }
   console.log(`[tenant-seed] Seeded ${pageCount} pages, ${navCount} nav items for ${input.slug}`);
-  return { pages: pageCount, navItems: navCount, settings: true };
+  return { pages: pageCount, navItems: navCount, settings: true, errors };
 }
 
 /**
  * Seed the default security groups from the template definition.
  * Templates currently share the same default groups; this is a hook
  * for future template-specific permission sets.
+ *
+ * Uses gen_random_uuid() for the id since the DB column has no default.
  */
 export async function seedTemplateSecurityGroups(
   db: any,
@@ -164,9 +239,10 @@ export async function seedTemplateSecurityGroups(
   let count = 0;
   for (const g of groups) {
     try {
+      // Use gen_random_uuid() for id; include updated_at to avoid NOT NULL violation
       await db.$executeRawUnsafe(
-        `INSERT INTO security_groups (code, name, description, is_system, permissions)
-         VALUES ($1, $2, $3, $4, $5)
+        `INSERT INTO security_groups (id, code, name, description, is_system, permissions, created_at)
+         VALUES (gen_random_uuid(), $1, $2, $3, $4, $5, NOW())
          ON CONFLICT (code) DO UPDATE
            SET name = $2, description = $3, is_system = $4, permissions = $5;`,
         g.code, g.name, g.description, g.isSystem, g.permissions,
@@ -182,20 +258,21 @@ export async function seedTemplateSecurityGroups(
 
 /**
  * Seed template-specific brand colors into the app_settings table.
- * This is called after app_settings row exists.
+ * This is called after the app_settings row exists.
  */
 export async function seedTemplateBranding(
   db: any,
   input: { primaryColor: string; secondaryColor: string },
 ): Promise<void> {
   try {
-    // Brand colors are stored in app_settings metadata or dedicated columns
-    // For now, store in the brand_config via the existing brand-config API
     await db.$executeRawUnsafe(
-      `INSERT INTO app_settings (id, tenant_template, web_search_enabled)
-       VALUES ('default', 'default', false)
-       ON CONFLICT (id) DO NOTHING;`,
+      `UPDATE app_settings
+       SET brand_primary_color = $1, brand_secondary_color = $2, updated_at = NOW()
+       WHERE id = 'default';`,
+      input.primaryColor,
+      input.secondaryColor,
     );
+    console.log(`[tenant-seed] Branding updated: primary=${input.primaryColor}, secondary=${input.secondaryColor}`);
   } catch (err) {
     console.error('[tenant-seed] Failed to seed branding:', err);
   }

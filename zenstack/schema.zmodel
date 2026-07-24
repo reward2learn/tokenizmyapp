@@ -90,8 +90,15 @@ model AppPage {
   title     String
   authTier  AuthTier      @default(public) @map("auth_tier")
   sortOrder Int           @default(0) @map("sort_order")
+  /// Display label for nav (falls back to title when null).
+  navLabel    String?   @map("nav_label")
+  /// When false the page is hidden from nav menus.
+  showInNav   Boolean   @default(true) @map("show_in_nav")
+  /// Tenant slug for multi-tenant isolation.
+  tenantSlug  String?   @map("tenant_slug")
   sections  PageSection[]
 
+  @@index([tenantSlug])
   @@map("app_pages")
 }
 
@@ -169,6 +176,8 @@ model UserAccount {
   name        String?       @map("name")
   tier        String        @default("google") @map("tier")
   roleCode    String?       @map("role_code")
+  /// Tenant slug for multi-tenant isolation.
+  tenantSlug  String?       @map("tenant_slug")
   isActive    Boolean       @default(true) @map("is_active")
   lastSeenAt  DateTime?     @map("last_seen_at")
   createdAt   DateTime      @default(now()) @map("created_at")
@@ -177,6 +186,7 @@ model UserAccount {
 
   @@allow('read', auth().tier == pin || auth().tier == google)
   @@allow('update', auth().tier == pin || auth().tier == google)
+  @@index([tenantSlug])
   @@map("user_accounts")
 }
 
@@ -279,6 +289,10 @@ model NavigationItem {
   icon          String            @default("")
   /// Auth tier required to see this nav item.
   authTier      AuthTier          @default(public) @map("auth_tier")
+  /// Tenant slug for multi-tenant isolation.
+  tenantSlug    String?           @map("tenant_slug")
+  /// When false the item is treated as inactive/disabled (different from isVisible).
+  isActive      Boolean           @default(true) @map("is_active")
   /// Comma-separated security group codes. Empty means no group restriction.
   requiredGroups String           @default("") @map("required_groups")
   /// When false the item is hidden from the nav but still exists in the tree.
@@ -291,6 +305,7 @@ model NavigationItem {
   @@allow('read', true)
   @@allow('create,update,delete', auth().tier == pin || auth().tier == google)
   @@index([parentId, sortOrder])
+  @@index([tenantSlug])
   @@map("navigation_items")
 }
 
@@ -565,6 +580,8 @@ model Tenant {
   appUrl          String?  @map("app_url")
   /// Neon database URL for this tenant (if separate DB)
   dbUrl           String?  @map("db_url")
+  /// License API key for programmatic access
+  apiKey          String?  @map("api_key")
   /// Brand primary color (hex)
   primaryColor    String   @default("#eb3d28") @map("primary_color")
   /// Brand secondary color (hex)

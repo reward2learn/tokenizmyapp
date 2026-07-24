@@ -10,6 +10,28 @@ import { jsonError, jsonOk } from '@/lib/api/response';
 import { ensureTenantsTable } from '@/domain/tenant/tenant-service';
 import { ensureTenantConfigColumns } from '@/domain/tenant/tenant-config-service';
 
+// ── Helper: snake_case DB rows → camelCase TenantEntry ──
+
+function mapTenantRow(row: Record<string, unknown>) {
+  return {
+    id: row.id as string,
+    slug: row.slug as string,
+    displayName: row.display_name as string,
+    template: row.template as string,
+    status: row.status as string,
+    vercelProjectId: row.vercel_project_id as string | null,
+    appUrl: row.app_url as string | null,
+    dbUrl: row.db_url as string | null,
+    apiKey: row.api_key as string | null,
+    primaryColor: row.primary_color as string,
+    secondaryColor: row.secondary_color as string,
+    metadata: row.metadata as Record<string, unknown>,
+    createdBy: row.created_by as string | null,
+    createdAt: row.created_at as string,
+    updatedAt: row.updated_at as string,
+  };
+}
+
 export const dynamic = 'force-dynamic';
 
 const updateSchema = z.object({
@@ -44,7 +66,7 @@ export async function GET(
       `SELECT * FROM tenants WHERE slug = $1 LIMIT 1;`, slug,
     ) as Record<string, unknown>[];
     if (rows.length === 0) return jsonError('Tenant not found', 404);
-    return jsonOk({ tenant: rows[0] });
+    return jsonOk({ tenant: mapTenantRow(rows[0]) });
   } catch (err) {
     console.error(`[tenants] GET /${slug} error:`, err);
     return jsonError('Failed to fetch tenant', 500);
@@ -110,7 +132,7 @@ export async function PUT(
     ) as Record<string, unknown>[];
     const tenant = updatedRows[0];
 
-    return jsonOk({ tenant });
+    return jsonOk({ tenant: mapTenantRow(tenant) });
   } catch (err) {
     console.error(`[tenants] PUT /${slug} error:`, err);
     return jsonError('Failed to update tenant', 500);

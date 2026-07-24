@@ -135,6 +135,32 @@ export const tenantApi = createApi({
       }),
       invalidatesTags: (_result, _error, { slug }) => [{ type: 'TenantUsers', id: slug }],
     }),
+
+    // ── Tenant Seed & Migrate ──────────────────────────
+
+    seedTenant: builder.mutation<ApiEnvelope<{ seeded: boolean; pages?: number; navItems?: number; groups?: number; settings?: boolean }>, string>({
+      query: (slug) => ({
+        url: `admin/tenants/${slug}/seed`,
+        method: 'POST',
+      }),
+      invalidatesTags: ['Tenants'],
+    }),
+
+    migrateTenant: builder.mutation<ApiEnvelope<{ migrated: boolean; results?: Record<string, string> }>, string>({
+      query: (slug) => ({
+        url: `admin/tenants/${slug}/migrate`,
+        method: 'POST',
+      }),
+      invalidatesTags: ['Tenants'],
+    }),
+
+    deployTenant: builder.mutation<ApiEnvelope<{ deployed: boolean; projectId: string; appUrl: string; envCount: number }>, string>({
+      query: (slug) => ({
+        url: `admin/tenants/${slug}/deploy`,
+        method: 'POST',
+      }),
+      invalidatesTags: ['Tenants'],
+    }),
   }),
 });
 
@@ -147,4 +173,7 @@ export const {
   useListTenantUsersQuery,
   useUpsertTenantUserMutation,
   useDeleteTenantUserMutation,
+  useSeedTenantMutation,
+  useMigrateTenantMutation,
+  useDeployTenantMutation,
 } = tenantApi;
