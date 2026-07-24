@@ -68,7 +68,7 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => { setTimeout(resolve, ms); });
 }
 
-async function runStatements(db: DbClient, statements: string[]): Promise<void> {
+async function runStatements(db: DbClient | PrismaClient, statements: string[]): Promise<void> {
   for (const sql of statements) {
     await db.$executeRawUnsafe(sql);
   }
@@ -212,7 +212,7 @@ const SECURITY_GROUPS_COLUMNS_DDL = [
 ];
 
 export async function ensureSecurityTables(
-  db: DbClient,
+  db: DbClient | PrismaClient,
   knownAccounts: { sub: string; name: string; tier: string; roleCode?: string | null }[] = [],
 ): Promise<boolean> {
   if (!process.env.POSTGRES_URL) {
