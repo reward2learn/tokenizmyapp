@@ -60,6 +60,21 @@ export async function addTenantColumnsIfMissing(db: any): Promise<void> {
   }
 }
 
+/**
+ * Generate a random ID string compatible with Prisma's String @id fields.
+ */
+function genRandomId(): string {
+  try {
+    if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+      return crypto.randomUUID();
+    }
+  } catch {}
+  // Fallback
+  const timestamp = Date.now().toString(36);
+  const random = Math.random().toString(36).substring(2, 10);
+  return `${timestamp}${random}`;
+}
+
 export async function seedTenantDefaults(input: SeedTenantInput): Promise<{
   pages: number;
   navItems: number;
@@ -95,13 +110,15 @@ export async function seedTenantDefaults(input: SeedTenantInput): Promise<{
 
   for (const tplPage of template.defaultPages) {
     try {
-      // Upsert page — cast auth_tier string to the AuthTier enum type
+      // Upsert page — include a generated ID for FK references
+      const pageId_ = genRandomId();
       await db.$executeRawUnsafe(
-        `INSERT INTO app_pages (slug, title, auth_tier, sort_order, nav_label, show_in_nav, tenant_slug)
-         VALUES ($1, $2, CAST($3 AS "AuthTier"), $4, $5, true, $6)
+        `INSERT INTO app_pages (id, slug, title, auth_tier, sort_order, nav_label, show_in_nav, tenant_slug)
+         VALUES ($1, $2, $3, CAST($4 AS "AuthTier"), $5, $6, true, $7)
          ON CONFLICT (slug) DO UPDATE
-           SET title = $2, auth_tier = CAST($3 AS "AuthTier"), sort_order = $4,
-               nav_label = $5, show_in_nav = true, tenant_slug = $6;`,
+           SET id = COALESCE(app_pages.id, $1), title = $3, auth_tier = CAST($4 AS "AuthTier"), sort_order = $5,
+               nav_label = $6, show_in_nav = true, tenant_slug = $7;`,
+        pageId_,
         tplPage.slug,
         tplPage.title,
         tplPage.authTier,
@@ -110,19 +127,8 @@ export async function seedTenantDefaults(input: SeedTenantInput): Promise<{
         input.slug,
       );
 
-      // Look up the auto-generated id for this page (needed as FK for sections)
-      const pageRows = (await db.$queryRawUnsafe(
-        `SELECT id FROM app_pages WHERE slug = $1 LIMIT 1;`,
-        tplPage.slug,
-      )) as { id: string }[];
-
-      if (pageRows.length === 0) {
-        console.warn(`[tenant-seed] Page "${tplPage.slug}" not found after insert — skipping sections`);
-        pageCount++;
-        continue;
-      }
-
-      const pageId = pageRows[0].id;
+      // Use pageId_ generated above directly (no round-trip needed)
+      const pageId = pageId_;
 
       // Remove any existing sections for this page (FK cascade-safe deletion)
       await db.$executeRawUnsafe(
@@ -167,10 +173,12 @@ export async function seedTenantDefaults(input: SeedTenantInput): Promise<{
   for (let i = 0; i < template.defaultNavItems.length; i++) {
     const navItem = template.defaultNavItems[i];
     try {
-      // Include tenant_slug and cast auth_tier to the AuthTier enum
+      // Include generated ID and tenant_slug; cast auth_tier to the AuthTier enum
+      const navId = genRandomId();
       await db.$executeRawUnsafe(
-        `INSERT INTO navigation_items (title, path, icon, auth_tier, sort_order, tenant_slug)
-         VALUES ($1, $2, $3, CAST($4 AS "AuthTier"), $5, $6);`,
+        `INSERT INTO navigation_items (id, title, path, icon, auth_tier, sort_order, tenant_slug)
+         VALUES ($1, $2, $3, $4, CAST($5 AS "AuthTier"), $6, $7);`,
+        navId,
         navItem.title,
         navItem.path,
         navItem.icon,
