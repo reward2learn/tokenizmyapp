@@ -68,7 +68,7 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => { setTimeout(resolve, ms); });
 }
 
-async function runStatements(db: DbClient | PrismaClient, statements: string[]): Promise<void> {
+async function runStatements(db: DbClient, statements: string[]): Promise<void> {
   for (const sql of statements) {
     await db.$executeRawUnsafe(sql);
   }
@@ -221,7 +221,7 @@ export async function ensureSecurityTables(
 
   // Use the raw (un-enhanced) client so DDL/seed/backfill never hit ZenStack
   // policy enforcement — these are internal bootstrap operations.
-  const raw = getBasePrisma();
+  const raw = getBasePrisma() as unknown as DbClient;
 
   await withRetry(async () => {
     await runStatements(raw, SECURITY_TABLES_DDL);
