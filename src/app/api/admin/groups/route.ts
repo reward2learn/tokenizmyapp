@@ -37,21 +37,14 @@ export async function GET(request: Request): Promise<NextResponse> {
   }
 
   try {
-    const rows = await (db as any).$queryRawUnsafe({
-      code: string;
-      name: string;
-      description: string | null;
-      is_system: boolean;
-      permissions: string[] | null;
-      member_count: number;
-    }[]>(`SELECT sg.code, sg.name, sg.description, sg.is_system, sg.permissions,
+    const rows = await (db as any).$queryRawUnsafe(`SELECT sg.code, sg.name, sg.description, sg.is_system, sg.permissions,
                 COUNT(ug.id)::int AS member_count
           FROM security_groups sg
           LEFT JOIN user_groups ug ON ug.group_id = sg.id
           GROUP BY sg.code, sg.name, sg.description, sg.is_system, sg.permissions
           ORDER BY sg.is_system DESC, sg.name ASC;`);
 
-    const groups: AdminGroupView[] = rows.map((r: { code: string; name: string; description: string | null; is_system: boolean; permissions: string[] | null; member_count: number; }) => ({
+    const groups: AdminGroupView[] = (rows as any[]).map((r: any) => ({
       code: r.code,
       name: r.name,
       description: r.description,
