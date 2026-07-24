@@ -34,7 +34,8 @@ export async function GET(request: Request): Promise<NextResponse> {
     // Ensure tables exist but don't backfill known accounts here — that
     // would re-create users that an admin has deliberately deleted.
     await ensureSecurityTables(db);
-  } catch {
+  } catch (err) {
+    console.error('[admin/users] GET db init error:', err instanceof Error ? err.message : String(err));
     return jsonError('Database unavailable', 503);
   }
 
@@ -173,7 +174,7 @@ export async function POST(request: Request): Promise<NextResponse> {
 
     return jsonOk({ id, updated: true });
   } catch (err) {
-    console.error('[admin/users] POST error:', err);
+    console.error('[admin/users] POST error:', err instanceof Error ? (err.message + ' ' + (err as any).stack?.slice(0, 200)) : String(err));
     return jsonError('Failed to update user', 500);
   }
 }
