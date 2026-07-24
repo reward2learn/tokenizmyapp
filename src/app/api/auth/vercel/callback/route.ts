@@ -70,8 +70,16 @@ export async function GET(request: Request) {
     if (!tokenResponse.ok) {
       const errorText = await tokenResponse.text();
       console.error('[vercel-oauth] Token exchange failed:', tokenResponse.status, errorText);
+      // Pass the actual error reason to the UI for debugging
+      let reason = 'token_exchange_failed';
+      try {
+        const errJson = JSON.parse(errorText);
+        if (errJson.error) reason = `vercel_${errJson.error}`;
+        else if (errJson.message) reason = errJson.message.slice(0, 60);
+      } catch {}
+      console.log(`[vercel-oauth] Using redirect_uri: ${REDIRECT_URI}`);
       return NextResponse.redirect(
-        new URL(`/admin?vercel=error&reason=token_exchange_failed`, request.url),
+        new URL(`/admin?vercel=error&reason=${encodeURIComponent(reason)}&redirect_uri=${encodeURIComponent(REDIRECT_URI)}`, request.url),
       );
     }
 
