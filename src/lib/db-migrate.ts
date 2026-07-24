@@ -10,7 +10,7 @@
  * without explicit approval and a verified backup.
  */
 import type { DbClient } from '@/lib/db';
-import { createBaseClient } from '@/lib/db';
+import { createBaseClient, getBasePrisma } from '@/lib/db';
 import { backfillKnownAccounts } from '@/domain/security/security-service';
 import { FUNCTIONAL_ROLES } from '@/domain/security/functional-roles';
 import { getSecretPlaintext, setSecret } from '@/lib/secrets';
