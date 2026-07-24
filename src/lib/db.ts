@@ -55,3 +55,9 @@ export function createClient(session: DbSession = { tier: 'public' }) {
 export function createBaseClient(): DbClient {
   return createClient({ tier: 'public' });
 }
+
+/** Raw Prisma client without ZenStack enhancement — for bootstrap/bootstrap ops. */
+export function createRawClient() {
+  return getBasePrisma();
+}
+

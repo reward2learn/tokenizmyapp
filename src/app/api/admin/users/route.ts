@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { createBaseClient, type DbClient } from '@/lib/db';
+import { createBaseClient, createRawClient, type DbClient } from '@/lib/db';
 import { requireWriteAuth } from '@/lib/auth/guards';
 import { sessionIsPlatformAdmin } from '@/lib/auth/jwt';
 import { jsonError, jsonOk } from '@/lib/api/response';
@@ -35,8 +35,15 @@ export async function GET(request: Request): Promise<NextResponse> {
     // would re-create users that an admin has deliberately deleted.
     await ensureSecurityTables(db);
   } catch (err) {
-    console.error('[admin/users] GET db init error:', err instanceof Error ? err.message : String(err));
-    return jsonError('Database unavailable', 503);
+    console.error('[admin/users] GET db init error (base):', err instanceof Error ? err.message : String(err));
+    // Try raw client as fallback
+    try {
+      db = createRawClient() as unknown as DbClient;
+      console.log('[admin/users] Using raw client fallback');
+    } catch (err2) {
+      console.error('[admin/users] Raw client also failed:', err2 instanceof Error ? err2.message : String(err2));
+      return jsonError('Database unavailable', 503);
+    }
   }
 
   try {
@@ -127,8 +134,15 @@ export async function POST(request: Request): Promise<NextResponse> {
   try {
     db = createBaseClient();
     await ensureSecurityTables(db);
-  } catch {
-    return jsonError('Database unavailable', 503);
+  } catch (err) {
+    console.error('[admin/users] POST db init error (base):', err instanceof Error ? err.message : String(err));
+    try {
+      db = createRawClient() as unknown as DbClient;
+      console.log('[admin/users] POST using raw client fallback');
+    } catch (err2) {
+      console.error('[admin/users] POST raw client also failed:', err2 instanceof Error ? err2.message : String(err2));
+      return jsonError('Database unavailable', 503);
+    }
   }
 
   try {
