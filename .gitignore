@@ -1,0 +1,36 @@
+# TokenizMyApp — Root Config App Gitignore
+
+# Dependencies
+node_modules/
+
+# Next.js
+.next/
+out/
+
+# Build
+dist/
+
+# Env (local only — Vercel env vars are set via CLI/dashboard)
+.env*.local
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Test
+coverage/
+test-results/
+
+# Generated
+src/generated/
+
+# Vercel
+.vercel/
+.vercel

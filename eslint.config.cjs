@@ -1,0 +1,1 @@
+../website/eslint.config.cjs

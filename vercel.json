@@ -1,0 +1,58 @@
+{
+  "version": 2,
+  "framework": "nextjs",
+  "cleanUrls": true,
+  "trailingSlash": false,
+  "env": {
+    "AWS_LAMBDA_JS_RUNTIME": "nodejs22.x",
+    "NEXT_PUBLIC_TENANT_SLUG": "tokenizmyapp",
+    "NEXT_PUBLIC_TENANT_DISPLAY_NAME": "TokenizMyApp",
+    "NEXT_PUBLIC_TENANT_DESCRIPTION": "Create and configure your business application",
+    "NEXT_PUBLIC_TENANT_APP_TITLE": "TokenizMyApp — Tenant Factory"
+  },
+  "rewrites": [
+    {
+      "source": "/api/auth/callback/google",
+      "destination": "/api/auth?action=google-callback"
+    },
+    {
+      "source": "/api/monthly-actuals",
+      "destination": "/api/financial-overview?resource=monthly-actuals"
+    },
+    {
+      "source": "/api/pos-scan",
+      "destination": "/api/pos?action=scan"
+    },
+    {
+      "source": "/api/pos-parse",
+      "destination": "/api/pos?action=parse"
+    },
+    {
+      "source": "/api/voice",
+      "destination": "/api/chat?resource=voice"
+    },
+    {
+      "source": "/api/conversations",
+      "destination": "/api/chat?resource=conversations"
+    },
+    {
+      "source": "/api/reports",
+      "destination": "/api/financial-overview?resource=reports"
+    }
+  ],
+  "headers": [
+    {
+      "source": "/(.*)",
+      "headers": [
+        {
+          "key": "X-Content-Type-Options",
+          "value": "nosniff"
+        },
+        {
+          "key": "X-Frame-Options",
+          "value": "DENY"
+        }
+      ]
+    }
+  ]
+}
