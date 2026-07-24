@@ -314,7 +314,12 @@ async function handleVerifyPin(request: Request): Promise<NextResponse> {
 
     // PIN key: USER_PIN_<sub> for individuals, ADMIN_PIN for platform admin.
     const secretKey = isPlatformAdmin ? 'ADMIN_PIN' : `USER_PIN_${sub}`;
-    const stored = await getSecretPlaintext(secretKey);
+    let stored = await getSecretPlaintext(secretKey);
+    // Fallback: check environment variable (e.g. DEFAULT_ADMIN_PIN, DEFAULT_PIN_ama)
+    if (!stored) {
+      const envKey = isPlatformAdmin ? 'DEFAULT_ADMIN_PIN' : `DEFAULT_PIN_${sub}`;
+      stored = process.env[envKey] ?? null;
+    }
     if (!stored) {
       return NextResponse.json({ ok: false, error: 'PIN not configured for this user' });
     }
