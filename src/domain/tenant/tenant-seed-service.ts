@@ -142,7 +142,7 @@ export async function seedTenantDefaults(input: SeedTenantInput): Promise<{
         const sectionId = `${tplPage.slug}:section:${i}`;
         await db.$executeRawUnsafe(
           `INSERT INTO page_sections (id, page_id, sort_order, block_type, config)
-           VALUES ($1, $2, $3, $4, $5);`,
+           VALUES ($1, $2, $3, CAST($4 AS "BlockType"), $5);`,
           sectionId,
           pageId,
           i,
@@ -164,8 +164,9 @@ export async function seedTenantDefaults(input: SeedTenantInput): Promise<{
   let navCount = 0;
 
   // Clear all existing nav items for this tenant before re-seeding.
+  // Also delete orphaned rows that have NULL tenant_slug (created before the column existed).
   try {
-    await db.$executeRawUnsafe(`DELETE FROM navigation_items WHERE tenant_slug = $1;`, input.slug);
+    await db.$executeRawUnsafe(`DELETE FROM navigation_items WHERE tenant_slug = $1 OR tenant_slug IS NULL;`, input.slug);
   } catch (err) {
     console.warn(`[tenant-seed] Could not clear navigation_items:`, (err as Error).message);
   }
@@ -174,10 +175,11 @@ export async function seedTenantDefaults(input: SeedTenantInput): Promise<{
     const navItem = template.defaultNavItems[i];
     try {
       // Include generated ID and tenant_slug; cast auth_tier to the AuthTier enum
+      // Provide explicit created_at and updated_at to satisfy NOT NULL constraints
       const navId = genRandomId();
       await db.$executeRawUnsafe(
-        `INSERT INTO navigation_items (id, title, path, icon, auth_tier, sort_order, tenant_slug)
-         VALUES ($1, $2, $3, $4, CAST($5 AS "AuthTier"), $6, $7);`,
+        `INSERT INTO navigation_items (id, title, path, icon, auth_tier, sort_order, tenant_slug, created_at, updated_at)
+         VALUES ($1, $2, $3, $4, CAST($5 AS "AuthTier"), $6, $7, NOW(), NOW());`,
         navId,
         navItem.title,
         navItem.path,
