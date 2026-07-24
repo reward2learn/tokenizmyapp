@@ -36,7 +36,7 @@ import { BrandConfigTab } from '@/components/ops-admin/brand-config-tab';
 import { NavigationManager } from '@/components/ops-admin/navigation-manager';
 import { TenantInfoTab } from '@/components/ops-admin/tenant-info-tab';
 import { TenantDashboard } from '@/components/ops-admin/tenant-dashboard';
-import { getClientTenantConfig } from '@/lib/config/tenant';
+import { getClientTenantConfig } from '@shared/lib/config/tenant';
 import {
   useListRoleConfigsQuery,
   useListAdminConversationsQuery,

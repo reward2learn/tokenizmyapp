@@ -51,7 +51,7 @@ export async function deployTenant(input: DeployTenantInput): Promise<DeployTena
       name: input.slug,
       framework: 'nextjs',
       buildCommand: 'zenstack generate --schema zenstack/schema.zmodel && npx prisma db push --schema=zenstack/prisma/schema.prisma --skip-generate --accept-data-loss && next build',
-      installCommand: 'npm install',
+      installCommand: 'bun install',
       outputDirectory: '.next',
     }),
   });

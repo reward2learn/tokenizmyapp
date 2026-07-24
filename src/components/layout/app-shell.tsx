@@ -33,10 +33,10 @@ import { getReviewPartDisplayTitle, listNavPages, resolvePage, resolveReviewPart
 import { useAppDispatch, useAppSelector } from '@/store/hooks';
 import { setDrawerOpen } from '@/store/ui-slice';
 import { useListPagesQuery } from '@/store/apis/content-api';
-import { useGetBrandConfigQuery } from '@/store/apis/brand-config-api';
+import { useGetBrandConfigQuery } from '@shared/store/apis/brand-config-api';
 import { useGetNavigationQuery } from '@/store/apis/navigation-api';
 import { NavIcon } from '@/components/shared/nav-icon';
-import { getClientTenantConfig } from '@/lib/config/tenant';
+import { getClientTenantConfig } from '@shared/lib/config/tenant';
 
 const DRAWER_WIDTH = 280;
 
@@ -75,10 +75,12 @@ export function AppShell({ children }: { children: ReactNode }) {
   const groupsParam = encodeURIComponent((groups ?? []).join(','));
   const { data: navData } = useGetNavigationQuery({ tier, groups: groupsParam });
 
-  const dbNavItems: DbNavItem[] | undefined = navData?.data?.items as DbNavItem[] | undefined;
+  // Prefer ApiEnvelope `{ success, data: { items } }`; tolerate legacy `{ items }` shape.
+  const envelopeItems = navData?.data?.items as DbNavItem[] | undefined;
+  const legacyItems = (navData as { items?: DbNavItem[] } | undefined)?.items;
+  const dbNavItems = envelopeItems ?? legacyItems;
 
-  // Use DB nav if loaded, otherwise fall back to static catalog
-  const navItems = ((dbNavItems as DbNavItem[]) ?? listNavPages(tier, groups ?? []).map((p) => ({
+  const catalogFallback = listNavPages(tier, groups ?? []).map((p) => ({
     id: `static-${p.slug}`,
     parentId: null,
     sortOrder: 0,
@@ -91,7 +93,11 @@ export function AppShell({ children }: { children: ReactNode }) {
     isDynamic: false,
     isDefault: false,
     children: [] as DbNavItem[],
-  }))) as (DbNavItem | (DbNavItem & { _isCatalog?: boolean }))[];
+  }));
+
+  // Use DB nav when the API returned an items array (including empty).
+  // Only fall back to the static catalog when the response is missing/malformed.
+  const navItems = (dbNavItems !== undefined ? dbNavItems : catalogFallback) as DbNavItem[];
 
 
 
@@ -386,27 +392,15 @@ export function AppShell({ children }: { children: ReactNode }) {
         <Divider />
         <Box sx={{ p: 2, display: 'flex', flexDirection: 'column', gap: 1.5 }}>
           {tier === 'public' ? (
-            <>
-              <Button
-                component="a"
-                href={`/api/auth?action=google&redirect=${encodeURIComponent(pathname || '/dashboard')}`}
-                variant="outlined"
-                size="small"
-                fullWidth
-              >
-                Sign in with Google
-              </Button>
-              <Button
-                component="a"
-                href={`/dashboard?show=signin`}
-                variant="outlined"
-                size="small"
-                fullWidth
-                color="primary"
-              >
-                Sign in with PIN
-              </Button>
-            </>
+            <Button
+              component="a"
+              href={`/api/auth?action=google&redirect=${encodeURIComponent(pathname || '/dashboard')}`}
+              variant="outlined"
+              size="small"
+              fullWidth
+            >
+              Sign in with Google
+            </Button>
           ) : (
             <Button
               component="a"

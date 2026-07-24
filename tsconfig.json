@@ -28,6 +28,9 @@
     "paths": {
       "@/*": [
         "./src/*"
+      ],
+      "@shared/*": [
+        "../packages/shared/src/*"
       ]
     }
   },
