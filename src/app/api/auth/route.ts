@@ -96,15 +96,6 @@ export async function POST(request: Request) {
 }
 
 async function handleGoogleConfig(): Promise<NextResponse> {
-  // TEMP: DB connection test
-  try {
-    const { PrismaClient } = await import('@/generated/prisma');
-    const raw = new PrismaClient();
-    const result = await raw.$queryRawUnsafe('SELECT 1 as ok');
-    return NextResponse.json({ success: true, data: { dbTest: 'ok', result } });
-  } catch (err) {
-    return NextResponse.json({ success: false, error: 'DB test failed: ' + (err instanceof Error ? err.message : String(err)) });
-  }
   const config = await getGoogleOAuthPublicConfig();
   if (!config) {
     return jsonError('Google OAuth not configured', 503);
