@@ -13,8 +13,6 @@ import type { NextRequest } from 'next/server';
 import { setSecret } from '@/lib/secrets';
 
 const CLIENT_ID = process.env.NEXT_PUBLIC_VERCEL_APP_CLIENT_ID;
-const CLIENT_SECRET = process.env.VERCEL_APP_CLIENT_SECRET;
-
 interface TokenData {
   access_token: string;
   token_type: string;
@@ -48,7 +46,6 @@ async function exchangeCodeForToken(
   const params = new URLSearchParams({
     grant_type: 'authorization_code',
     client_id: CLIENT_ID as string,
-    client_secret: CLIENT_SECRET as string,
     code,
     code_verifier: codeVerifier || '',
     redirect_uri: `${requestOrigin}/api/auth/vercel/callback`,
@@ -87,8 +84,8 @@ export async function GET(request: NextRequest) {
       return NextResponse.redirect(new URL('/admin?vercel=error&reason=state_mismatch', request.url));
     }
 
-    if (!CLIENT_ID || !CLIENT_SECRET) {
-      return NextResponse.redirect(new URL('/admin?vercel=error&reason=missing_oauth_config', request.url));
+    if (!CLIENT_ID) {
+      return NextResponse.redirect(new URL('/admin?vercel=error&reason=missing_client_id', request.url));
     }
 
     // Exchange code for tokens (uses request.nextUrl.origin for dynamic redirect_uri)
