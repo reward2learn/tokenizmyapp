@@ -143,7 +143,10 @@ export async function POST(request: Request): Promise<NextResponse> {
 
     return jsonOk({ tenant });
   } catch (err) {
-    console.error('[tenants] POST error:', err);
-    return jsonError('Failed to create tenant', 500);
+    const msg = err instanceof Error ? err.message : String(err);
+    const stack = err instanceof Error ? (err.stack ?? '').split('\n').slice(0, 3).join(' | ') : '';
+    console.error('[tenants] POST error:', msg);
+    if (stack) console.error('[tenants] POST stack:', stack);
+    return jsonError('Failed to create tenant: ' + msg.slice(0, 100), 500);
   }
 }
