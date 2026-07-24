@@ -34,3 +34,12 @@ src/generated/
 # Vercel
 .vercel/
 .vercel
+
+# Prisma generated (ZenStack output)
+zenstack/src/generated/
+
+# Next.js generated
+next-env.d.ts
+
+# Build info
+tsconfig.tsbuildinfo
