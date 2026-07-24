@@ -127,8 +127,20 @@ export async function seedTenantDefaults(input: SeedTenantInput): Promise<{
         input.slug,
       );
 
-      // Use pageId_ generated above directly (no round-trip needed)
-      const pageId = pageId_;
+      // Look up the actual page ID from DB to handle ON CONFLICT upserts
+      // (when a page already exists, the upsert keeps the old ID, not our generated one)
+      const pageIdRows = (await db.$queryRawUnsafe(
+        `SELECT id FROM app_pages WHERE slug = $1 LIMIT 1;`,
+        tplPage.slug,
+      )) as { id: string }[];
+
+      if (pageIdRows.length === 0) {
+        console.warn(`[tenant-seed] Page "${tplPage.slug}" not found after insert — skipping sections`);
+        pageCount++;
+        continue;
+      }
+
+      const pageId = pageIdRows[0].id;
 
       // Remove any existing sections for this page (FK cascade-safe deletion)
       await db.$executeRawUnsafe(
