@@ -31,7 +31,7 @@ export async function GET(request: Request): Promise<NextResponse> {
   // Use raw Prisma client (tables created by prisma db push during build)
   let db: DbClient;
   try {
-    db = createRawClient() as unknown as DbClient;
+    db = createRawClient() as any;
     // Quick connectivity test
     await (db as any).$queryRawUnsafe('SELECT 1 as ok');
   } catch (err) {
@@ -40,7 +40,7 @@ export async function GET(request: Request): Promise<NextResponse> {
   }
 
   try {
-    const rows = await (db as any).$queryRawUnsafe({
+    const rows = await db.$queryRawUnsafe<{
       id: string;
       sub: string;
       email: string | null;
@@ -80,7 +80,7 @@ export async function GET(request: Request): Promise<NextResponse> {
 
 async function resolveGroups(db: DbClient, userId: string): Promise<string[]> {
   try {
-    const rows = await (db as any).$queryRawUnsafe({ code: string }[]>(
+    const rows = await db.$queryRawUnsafe<{ code: string }[]>(
       `SELECT sg.code FROM security_groups sg
        JOIN user_groups ug ON ug.group_id = sg.id
        WHERE ug.user_id = $1;`,
@@ -126,7 +126,7 @@ export async function POST(request: Request): Promise<NextResponse> {
   // Use raw Prisma client (tables created by prisma db push during build)
   let db: DbClient;
   try {
-    db = createRawClient() as unknown as DbClient;
+    db = createRawClient() as any;
   } catch (err) {
     console.error('[admin/users] POST createRawClient error:', err instanceof Error ? err.message : String(err));
     return jsonError('Database unavailable', 503);
@@ -134,7 +134,7 @@ export async function POST(request: Request): Promise<NextResponse> {
 
   try {
     if (typeof isActive === 'boolean' || roleCode !== undefined || email !== undefined) {
-      await (db as any).$executeRawUnsafe(
+      await db.$executeRawUnsafe(
         `UPDATE user_accounts
          SET is_active = COALESCE($1, is_active),
              role_code = COALESCE($2, role_code),
@@ -149,9 +149,9 @@ export async function POST(request: Request): Promise<NextResponse> {
     }
 
     if (Array.isArray(groupCodes)) {
-      await (db as any).$executeRawUnsafe(`DELETE FROM user_groups WHERE user_id = $1;`, id);
+      await db.$executeRawUnsafe(`DELETE FROM user_groups WHERE user_id = $1;`, id);
       for (const code of groupCodes) {
-        await (db as any).$executeRawUnsafe(
+        await db.$executeRawUnsafe(
           `INSERT INTO user_groups (user_id, group_id)
            SELECT $1, sg.id FROM security_groups sg WHERE sg.code = $2
            ON CONFLICT (user_id, group_id) DO NOTHING;`,
@@ -163,7 +163,7 @@ export async function POST(request: Request): Promise<NextResponse> {
 
     // Set PIN for this user (stored as USER_PIN_<sub> in secrets table).
     if (pin && pin.trim().length >= 3) {
-      const user = await (db as any).$queryRawUnsafe({ sub: string }[]>(
+      const user = await db.$queryRawUnsafe<{ sub: string }[]>(
         `SELECT sub FROM user_accounts WHERE id = $1;`,
         id,
       );
@@ -198,12 +198,12 @@ export async function DELETE(request: Request): Promise<NextResponse> {
 
   try {
     // Fetch the sub before deleting so we can remove their PIN secret.
-    const user = await (db as any).$queryRawUnsafe({ sub: string }[]>(
+    const user = await db.$queryRawUnsafe<{ sub: string }[]>(
       `SELECT sub FROM user_accounts WHERE id = $1;`,
       id,
     );
     // Cascade deletes user_groups rows automatically.
-    await (db as any).$executeRawUnsafe(`DELETE FROM user_accounts WHERE id = $1;`, id);
+    await db.$executeRawUnsafe(`DELETE FROM user_accounts WHERE id = $1;`, id);
     // Also delete the PIN secret so the user cannot re-authenticate via PIN.
     if (user[0]?.sub) {
       await deleteSecret(`USER_PIN_${user[0].sub}`).catch(() => {});
