@@ -136,7 +136,7 @@ export async function PATCH(request: Request): Promise<NextResponse> {
 
   let db;
   try {
-    db = createBaseClient();
+    db = createRawClient() as any;
     // ensureSecurityTables skipped — tables from prisma db push
   } catch {
     return jsonError('Database unavailable', 503);
