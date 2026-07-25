@@ -34,9 +34,13 @@ interface NeonBranch {
 }
 
 interface NeonEndpoint {
-  host?: string;
-  pooled_connection_string?: string;
+  host: string;
+  hosts?: {
+    read_write_host: string;
+    read_write_pooled_host: string;
+  };
   connection_string?: string;
+  pooled_connection_string?: string;
 }
 
 // ── Config & helpers ───────────────────────────────────────────
