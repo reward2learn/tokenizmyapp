@@ -14,8 +14,17 @@ import { createRawClient } from '@/lib/db';
 import { requireWriteAuth } from '@/lib/auth/guards';
 import { jsonError, jsonOk } from '@/lib/api/response';
 import { ensureTenantsTable } from '@/domain/tenant/tenant-service';
+import { ensureTenantConfigColumns } from '@/domain/tenant/tenant-config-service';
 import { deployTenant } from '@/domain/tenant/vercel-deploy-service';
 import { seedTenantDefaults, seedTemplateSecurityGroups } from '@/domain/tenant/tenant-seed-service';
+import { inngest } from '@/lib/inngest';
+import { generateSchemaFromPrompt } from '@/domain/ai/schema-generator';
+import { compileToZModel } from '@/domain/ai/zmodel-compiler';
+import type { SchemaGenerationResult } from '@/domain/ai/schema-generation-schema';
+import { provisionTenantDatabase, type ProvisionedDatabase } from '@/domain/tenant/neon-provision-service';
+import { runMigrations } from '@/domain/tenant/migration-runner';
+import { generateTenantCode, injectTenantConfig, cleanupTenantCode } from '@/domain/tenant/codegen-service';
+import { deployViaCli } from '@/domain/tenant/vercel-cli-service';
 
 export const dynamic = 'force-dynamic';
 
@@ -23,6 +32,7 @@ const createSchema = z.object({
   slug: z.string().min(2).max(50).regex(/^[a-z0-9-]+$/, 'Slug must be lowercase alphanumeric with hyphens'),
   displayName: z.string().min(1).max(100),
   template: z.string().max(50).optional().default('default'),
+  prompt: z.string().max(2000).optional(),
   primaryColor: z.string().regex(/^#[0-9a-fA-F]{6}$/).optional().default('#eb3d28'),
   secondaryColor: z.string().regex(/^#[0-9a-fA-F]{6}$/).optional().default('#0af9fe'),
   metadata: z.record(z.unknown()).optional().default({}),
@@ -74,6 +84,7 @@ export async function GET(request: Request): Promise<NextResponse> {
   const db = createRawClient() as any;
   try {
     await ensureTenantsTable(db);
+    await ensureTenantConfigColumns(db);
 
     // status filter applied in raw SQL below
 
@@ -136,8 +147,97 @@ export async function POST(request: Request): Promise<NextResponse> {
     );
     const tenant = { id: tenantId, slug: parsed.data.slug, status: 'deploying' } as const;
 
-    // Seed template defaults (pages, nav, brand, groups) asynchronously
-    // Don't block the response — seeding runs in the background
+    // ── Phase 2: AI schema generation (if prompt provided) ──────────
+    // Best-effort: log errors but continue to the next step.
+    let generatedSchema: SchemaGenerationResult | null = null;
+    if (parsed.data.prompt) {
+      try {
+        console.log('[tenants] Phase 2: generating schema from prompt...');
+        generatedSchema = await generateSchemaFromPrompt(
+          parsed.data.prompt,
+          parsed.data.template,
+        );
+        console.log(
+          `[tenants] Phase 2: schema generated — ${generatedSchema.models.length} models, ` +
+          `${generatedSchema.pages.length} pages`,
+        );
+      } catch (err) {
+        console.error(
+          '[tenants] Phase 2: schema generation failed:',
+          err instanceof Error ? err.message : String(err),
+        );
+      }
+    }
+
+    // ── Phase 4: Neon database provisioning (if API key available) ──
+    // Best-effort: log errors but continue.
+    let neonResult: ProvisionedDatabase | null = null;
+    if (process.env.NEON_API_KEY) {
+      try {
+        console.log('[tenants] Phase 4: provisioning Neon database...');
+        neonResult = await provisionTenantDatabase(parsed.data.slug);
+        console.log('[tenants] Phase 4: Neon database provisioned');
+        // Persist the DB URL to the tenant record
+        await db.$executeRawUnsafe(
+          `UPDATE tenants SET db_url = $1, updated_at = CURRENT_TIMESTAMP WHERE slug = $2;`,
+          neonResult.pooledUrl,
+          parsed.data.slug,
+        );
+      } catch (err) {
+        console.error(
+          '[tenants] Phase 4: Neon provisioning failed:',
+          err instanceof Error ? err.message : String(err),
+        );
+      }
+    }
+
+    // ── Phase 6: Code generation (if schema was generated) ──────────
+    // Best-effort: log errors but continue.
+    let codegenResult: { outputDir: string; fileCount: number } | null = null;
+    if (generatedSchema) {
+      try {
+        console.log('[tenants] Phase 6: generating tenant code...');
+        codegenResult = await generateTenantCode(
+          parsed.data.slug,
+          parsed.data.template,
+          generatedSchema,
+        );
+        // Inject tenant config (colors, displayName) into the generated vercel.json
+        await injectTenantConfig(codegenResult.outputDir, {
+          slug: parsed.data.slug,
+          displayName: parsed.data.displayName,
+          templateId: parsed.data.template,
+          primaryColor: parsed.data.primaryColor,
+          secondaryColor: parsed.data.secondaryColor,
+        });
+        console.log(
+          `[tenants] Phase 6: code generated — ${codegenResult.fileCount} files in ${codegenResult.outputDir}`,
+        );
+      } catch (err) {
+        console.error(
+          '[tenants] Phase 6: code generation failed:',
+          err instanceof Error ? err.message : String(err),
+        );
+      }
+    }
+
+    // ── Phase 4: Run migrations on tenant DB (if Neon + schema ready) ──
+    // Best-effort: log errors but continue.
+    if (neonResult && generatedSchema) {
+      try {
+        console.log('[tenants] Phase 4: running migrations on tenant DB...');
+        const zmodel = compileToZModel(generatedSchema);
+        await runMigrations(neonResult.directUrl, zmodel);
+        console.log('[tenants] Phase 4: migrations completed');
+      } catch (err) {
+        console.error(
+          '[tenants] Phase 4: migration failed:',
+          err instanceof Error ? err.message : String(err),
+        );
+      }
+    }
+
+    // ── Step 6: Seed tenant defaults (existing) ─────────────────────
     const seedInput = {
       slug: parsed.data.slug,
       displayName: parsed.data.displayName,
@@ -159,7 +259,89 @@ export async function POST(request: Request): Promise<NextResponse> {
       );
       (tenant as { status: string }).status = 'live';
 
-      // Trigger Vercel project creation asynchronously (non-blocking)
+    } catch (seedErr) {
+      console.error('[tenants] Seed failed:', seedErr instanceof Error ? seedErr.message : String(seedErr));
+      // Tenant is created but seeding failed — status stays 'deploying'
+      // Admin can retry seeding from the tenant dashboard
+    }
+
+    // ── Step 7: Deploy (Phase 6 CLI if codegen succeeded, else existing API) ──
+    if (codegenResult) {
+      // Build env vars for Vercel CLI injection
+      const cliEnvVars: Record<string, string> = {
+        NEXT_PUBLIC_TENANT_SLUG: parsed.data.slug,
+        NEXT_PUBLIC_TENANT_DISPLAY_NAME: parsed.data.displayName,
+        NEXT_PUBLIC_TENANT_DESCRIPTION: `${parsed.data.displayName} — Business Operations Dashboard`,
+        NEXT_PUBLIC_TENANT_APP_TITLE: parsed.data.displayName,
+        NEXT_PUBLIC_APP_URL: `https://${parsed.data.slug}.vercel.app`,
+        NEXT_PUBLIC_TENANT_PRIMARY_COLOR: parsed.data.primaryColor,
+        NEXT_PUBLIC_TENANT_SECONDARY_COLOR: parsed.data.secondaryColor,
+        NEXT_PUBLIC_TENANT_TEMPLATE_ID: parsed.data.template,
+      };
+      if (neonResult?.pooledUrl) {
+        cliEnvVars.POSTGRES_URL = neonResult.pooledUrl;
+        cliEnvVars.POSTGRES_URL_NON_POOLING = neonResult.directUrl;
+      }
+      const SHARED_ENV_KEYS = ['ENCRYPTION_KEY', 'OPENAI_API_KEY', 'SETUP_TOKEN'];
+      for (const key of SHARED_ENV_KEYS) {
+        const val = process.env[key];
+        if (val) cliEnvVars[key] = val;
+      }
+
+      const outputDir = codegenResult.outputDir;
+
+      // Deploy via Vercel CLI (non-blocking). Falls back to API deploy on failure.
+      deployViaCli(outputDir, parsed.data.slug, cliEnvVars)
+        .then((result: { appUrl: string; projectId: string }) => {
+          console.log('[tenants] Phase 6: Vercel CLI deployed:', result.appUrl);
+          db.$executeRawUnsafe(
+            `UPDATE tenants SET vercel_project_id = $1, app_url = $2, status = 'live', updated_at = CURRENT_TIMESTAMP WHERE slug = $3;`,
+            result.projectId,
+            result.appUrl,
+            parsed.data.slug,
+          ).catch((e: unknown) =>
+            console.error('[tenants] Failed to save CLI deploy info:', e),
+          );
+          // Clean up temp directory after successful deploy
+          cleanupTenantCode(outputDir).catch(() => {});
+        })
+        .catch((cliErr: unknown) => {
+          console.error(
+            '[tenants] Phase 6: Vercel CLI deploy failed, falling back to API deploy:',
+            cliErr instanceof Error ? cliErr.message : String(cliErr),
+          );
+          // Clean up temp dir
+          cleanupTenantCode(outputDir).catch(() => {});
+          // Fallback: existing Vercel API deploy
+          deployTenant({
+            slug: parsed.data.slug,
+            displayName: parsed.data.displayName,
+            template: parsed.data.template,
+            primaryColor: parsed.data.primaryColor,
+            secondaryColor: parsed.data.secondaryColor,
+            metadata: parsed.data.metadata,
+          })
+            .then((result: { projectId: string; appUrl: string; envCount: number }) => {
+              console.log('[tenants] Fallback API deploy succeeded:', result.appUrl);
+              db.$executeRawUnsafe(
+                `UPDATE tenants SET vercel_project_id = $1, app_url = $2, updated_at = CURRENT_TIMESTAMP WHERE slug = $3;`,
+                result.projectId,
+                result.appUrl,
+                parsed.data.slug,
+              ).catch((e: unknown) =>
+                console.error('[tenants] Failed to save fallback deploy info:', e),
+              );
+            })
+            .catch((apiErr: unknown) => {
+              console.error(
+                '[tenants] Fallback API deploy also failed:',
+                apiErr instanceof Error ? apiErr.message : String(apiErr),
+              );
+            });
+        });
+
+    } else {
+      // No code generated — use existing Vercel API deploy directly
       deployTenant({
         slug: parsed.data.slug,
         displayName: parsed.data.displayName,
@@ -177,12 +359,23 @@ export async function POST(request: Request): Promise<NextResponse> {
       }).catch((deployErr: unknown) => {
         console.error('[tenants] Vercel deploy failed:', deployErr instanceof Error ? deployErr.message : String(deployErr));
       });
-
-    } catch (seedErr) {
-      console.error('[tenants] Seed failed:', seedErr instanceof Error ? seedErr.message : String(seedErr));
-      // Tenant is created but seeding failed — status stays 'deploying'
-      // Admin can retry seeding from the tenant dashboard
     }
+
+    // Trigger the Inngest durable provisioning workflow (parallel/alternative path).
+    // Non-blocking — the workflow runs Neon provisioning, schema generation,
+    // migrations, seeding, and Vercel deploy as monitored, retryable steps.
+    inngest.send({
+      name: 'tenant.created',
+      data: {
+        slug: parsed.data.slug,
+        displayName: parsed.data.displayName,
+        templateId: parsed.data.template,
+        prompt: parsed.data.prompt,
+        primaryColor: parsed.data.primaryColor,
+        secondaryColor: parsed.data.secondaryColor,
+        metadata: parsed.data.metadata,
+      },
+    }).catch((err) => console.error('[tenants] Failed to trigger workflow:', err));
 
     return jsonOk({ tenant: mapTenantRow(tenant as Record<string, unknown>) });
   } catch (err) {
