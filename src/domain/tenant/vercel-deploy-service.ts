@@ -157,6 +157,11 @@ interface DeployTenantResult {
 
 async function vercelApi(path: string, options: RequestInit = {}, includeTeamId = true): Promise<Response> {
   const token = await resolveBearerToken();
+  return vercelApiWithToken(token, path, options, includeTeamId);
+}
+
+/** Make a Vercel API call with a specific bearer token (no auto-resolution). */
+async function vercelApiWithToken(token: string, path: string, options: RequestInit = {}, includeTeamId = true): Promise<Response> {
   const url = new URL(`${VERCEL_API}${path}`);
   if (includeTeamId) url.searchParams.set('teamId', TEAM_ID);
   return fetch(url.toString(), {
@@ -318,10 +323,10 @@ export async function syncEnvVars(
     if (value) envVars[key] = value;
   }
 
-  // Fetch existing env vars once (not per-key)
+  // Fetch existing env vars once (not per-key) — try both team scopes
   let existingEnvs: Array<{ key: string; id: string }> = [];
   try {
-    const existingRes = await vercelApi(`/v10/projects/${projectId}/env?decrypt=true`);
+    const existingRes = await vercelApiTryBoth(`/v10/projects/${projectId}/env?decrypt=true`);
     if (existingRes.ok) {
       const existingData = await existingRes.json() as { envs?: Array<{ key: string; id: string }> };
       existingEnvs = existingData.envs || [];
@@ -334,40 +339,87 @@ export async function syncEnvVars(
   }
 
   let envCount = 0;
-  for (const [key, value] of Object.entries(envVars)) {
-    try {
-      const existing = existingEnvs.find((e) => e.key === key);
+  // Try writing env vars with the resolved token (OAuth first, then VERCEL_TOKEN)
+  for (const attempt of ['primary', 'fallback']) {
+    const token = attempt === 'primary' ? null : process.env.VERCEL_TOKEN;
+    if (attempt === 'fallback' && !token) break; // no fallback token available
 
-      let res: Response;
-      if (existing) {
-        res = await vercelApi(`/v10/projects/${projectId}/env/${existing.id}`, {
-          method: 'PATCH',
-          body: JSON.stringify({
-            value,
-            type: key.startsWith('NEXT_PUBLIC_') ? 'plain' : 'encrypted',
-            target: ['production', 'preview', 'development'],
-          }),
-        });
-      } else {
-        res = await vercelApi(`/v10/projects/${projectId}/env`, {
-          method: 'POST',
-          body: JSON.stringify({
-            key,
-            value,
-            type: key.startsWith('NEXT_PUBLIC_') ? 'plain' : 'encrypted',
-            target: ['production', 'preview', 'development'],
-          }),
-        });
+    envCount = 0;
+    for (const [key, value] of Object.entries(envVars)) {
+      try {
+        const existing = existingEnvs.find((e) => e.key === key);
+
+        let res: Response;
+        if (token) {
+          // Use specific token for fallback
+          if (existing) {
+            res = await vercelApiWithToken(token, `/v10/projects/${projectId}/env/${existing.id}`, {
+              method: 'PATCH',
+              body: JSON.stringify({
+                value,
+                type: key.startsWith('NEXT_PUBLIC_') ? 'plain' : 'encrypted',
+                target: ['production', 'preview', 'development'],
+              }),
+            });
+          } else {
+            res = await vercelApiWithToken(token, `/v10/projects/${projectId}/env`, {
+              method: 'POST',
+              body: JSON.stringify({
+                key,
+                value,
+                type: key.startsWith('NEXT_PUBLIC_') ? 'plain' : 'encrypted',
+                target: ['production', 'preview', 'development'],
+              }),
+            });
+          }
+        } else {
+          if (existing) {
+            res = await vercelApi(`/v10/projects/${projectId}/env/${existing.id}`, {
+              method: 'PATCH',
+              body: JSON.stringify({
+                value,
+                type: key.startsWith('NEXT_PUBLIC_') ? 'plain' : 'encrypted',
+                target: ['production', 'preview', 'development'],
+              }),
+            });
+          } else {
+            res = await vercelApi(`/v10/projects/${projectId}/env`, {
+              method: 'POST',
+              body: JSON.stringify({
+                key,
+                value,
+                type: key.startsWith('NEXT_PUBLIC_') ? 'plain' : 'encrypted',
+                target: ['production', 'preview', 'development'],
+              }),
+            });
+          }
+        }
+        if (res.ok) {
+          envCount++;
+        } else {
+          const body = await res.text();
+          if (attempt === 'primary') {
+            console.warn(`[vercel-deploy] Failed to set env ${key} (primary): ${res.status} ${body.slice(0, 150)}`);
+          }
+        }
+      } catch (err) {
+        if (attempt === 'primary') {
+          console.error(`[vercel-deploy] Failed to set env ${key} (primary):`, err);
+        }
       }
-      if (res.ok) {
-        envCount++;
-      } else {
-        const body = await res.text();
-        console.warn(`[vercel-deploy] Failed to set env ${key}: ${res.status} ${body.slice(0, 150)}`);
-      }
-    } catch (err) {
-      console.error(`[vercel-deploy] Failed to set env ${key}:`, err);
     }
+    if (envCount > 0) break; // success with current token
+    // Re-fetch existing envs before fallback attempt (primary may have partially written)
+    if (attempt === 'primary') {
+      try {
+        const refreshRes = await vercelApiTryBoth(`/v10/projects/${projectId}/env?decrypt=true`);
+        if (refreshRes.ok) {
+          const refreshData = await refreshRes.json() as { envs?: Array<{ key: string; id: string }> };
+          existingEnvs = refreshData.envs || [];
+        }
+      } catch {}
+    }
+    console.warn(`[vercel-deploy] Env sync with ${attempt} token returned 0. ${token ? '' : 'Will retry with VERCEL_TOKEN...'}`);
   }
   console.log(`[vercel-deploy] Synced ${envCount}/${Object.keys(envVars).length} env vars`);
   return envCount;
