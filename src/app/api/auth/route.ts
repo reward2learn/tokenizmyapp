@@ -227,24 +227,29 @@ async function resolveSessionGroups(input: {
   tier: string;
   roleCode?: string | null;
 }): Promise<{ groups: string[]; permissions: string[] }> {
+  const db = createBaseClient();
+  // Ensure tables exist — but don't let a failure here block account creation.
   try {
-    // Raw client: account persistence must not be blocked by ZenStack policies.
-    // Don't pass knownAccounts here — that would re-create deleted users.
-    // The current user's account is created via upsertUserAccount below.
-    const db = createBaseClient();
     await ensureSecurityTables(db);
-    await upsertUserAccount(db, input);
-    const groups = await resolveGroupCodesForSub(db, input.sub);
-    const permissions = await resolveCapabilitiesForSub(db, input.sub);
-    return { groups, permissions };
   } catch (err) {
-    // Sign-in must still succeed even if group resolution fails, but we log so
-    // the failure is diagnosable instead of silently dropping accounts.
-    const msg = err instanceof Error ? err.message : String(err);
-    console.error('[auth/resolveSessionGroups] ' + msg.slice(0, 150));
-    if (msg.length > 150) console.error('[auth/resolveSessionGroups-cont] ' + msg.slice(150));
-    return { groups: [], permissions: [] };
+    console.error('[auth/resolveSessionGroups] ensureSecurityTables failed:', err instanceof Error ? err.stack : err);
   }
+  // Always attempt to upsert the user account.
+  try {
+    await upsertUserAccount(db, input);
+  } catch (err) {
+    console.error('[auth/resolveSessionGroups] upsertUserAccount failed:', err instanceof Error ? err.stack : err);
+  }
+  // Resolve groups/permissions (best-effort).
+  let groups: string[] = [];
+  let permissions: string[] = [];
+  try {
+    groups = await resolveGroupCodesForSub(db, input.sub);
+    permissions = await resolveCapabilitiesForSub(db, input.sub);
+  } catch (err) {
+    console.error('[auth/resolveSessionGroups] group/permission resolution failed:', err instanceof Error ? err.stack : err);
+  }
+  return { groups, permissions };
 }
 
 async function handleMe(request: Request): Promise<NextResponse> {
@@ -373,16 +378,64 @@ async function handleVerifyPin(request: Request): Promise<NextResponse> {
 /**
  * Public endpoint that returns the list of persons who have a PIN configured,
  * so the sign-in dropdown only shows users who can actually authenticate.
+ * Also surfaces the most recently signed-in PIN user (from Neon last_seen_at)
+ * so the client can pre-select without localStorage.
  */
 async function handleListPinUsers(): Promise<NextResponse> {
+  // Best-effort: read last_seen_at from Neon for PIN preference.
+  let lastSeenBySub = new Map<string, Date>();
+  try {
+    if (process.env.POSTGRES_URL || process.env.DATABASE_URL) {
+      const db = createBaseClient();
+      await ensureSecurityTables(db);
+      const rows = await db.$queryRawUnsafe<{ sub: string; last_seen_at: Date | null }[]>(
+        `SELECT sub, last_seen_at FROM user_accounts WHERE last_seen_at IS NOT NULL;`,
+      );
+      for (const row of rows ?? []) {
+        if (row.last_seen_at) lastSeenBySub.set(row.sub, new Date(row.last_seen_at));
+      }
+    }
+  } catch (err) {
+    console.error('[auth/list-pin-users] last_seen lookup failed:', err instanceof Error ? err.message : err);
+  }
+
   const results = await Promise.all(
     PERSONS.map(async (p) => {
       const key = p.isPlatformAdmin ? 'ADMIN_PIN' : `USER_PIN_${p.sub}`;
       const hasPin = (await getSecretPlaintext(key)) != null;
-      return { name: p.name, sub: p.sub, hasPin };
+      return {
+        name: p.name,
+        sub: p.sub,
+        role: p.roleCode ?? p.sub,
+        pinConfigured: hasPin,
+        hasPin,
+        lastSeenAt: lastSeenBySub.get(p.sub)?.toISOString() ?? null,
+      };
     }),
   );
-  return NextResponse.json({ success: true, data: { users: results } });
+
+  // Prefer the PIN user with the most recent Neon last_seen_at.
+  let lastUsedSub: string | null = null;
+  let latest = 0;
+  for (const u of results) {
+    if (!u.lastSeenAt) continue;
+    const ts = Date.parse(u.lastSeenAt);
+    if (ts > latest) {
+      latest = ts;
+      lastUsedSub = u.sub;
+    }
+  }
+
+  return NextResponse.json({
+    success: true,
+    data: {
+      users: results,
+      lastUsedSub,
+      lastUsedName: lastUsedSub
+        ? (results.find((u) => u.sub === lastUsedSub)?.name ?? null)
+        : null,
+    },
+  });
 }
 
 async function handlePdf(request: Request, url: URL): Promise<NextResponse> {
