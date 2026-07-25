@@ -157,8 +157,9 @@ interface DeployTenantResult {
 
 async function vercelApi(path: string, options: RequestInit = {}, includeTeamId = true): Promise<Response> {
   const token = await resolveBearerToken();
-  const url = includeTeamId ? `${VERCEL_API}${path}?teamId=${TEAM_ID}` : `${VERCEL_API}${path}`;
-  return fetch(url, {
+  const url = new URL(`${VERCEL_API}${path}`);
+  if (includeTeamId) url.searchParams.set('teamId', TEAM_ID);
+  return fetch(url.toString(), {
     ...options,
     headers: {
       Authorization: `Bearer ${token}`,
@@ -261,7 +262,9 @@ export async function ensureVercelProject(input: { slug: string }): Promise<{ pr
     const token = process.env.VERCEL_TOKEN;
     if (token) {
       try {
-        const envRes = await fetch(`${VERCEL_API}/v10/projects/${input.slug}?teamId=${TEAM_ID}`, {
+        const fallbackUrl = new URL(`${VERCEL_API}/v10/projects/${input.slug}`);
+        fallbackUrl.searchParams.set('teamId', TEAM_ID);
+        const envRes = await fetch(fallbackUrl.toString(), {
           headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
         });
         if (envRes.ok) {
@@ -315,15 +318,29 @@ export async function syncEnvVars(
     if (value) envVars[key] = value;
   }
 
+  // Fetch existing env vars once (not per-key)
+  let existingEnvs: Array<{ key: string; id: string }> = [];
+  try {
+    const existingRes = await vercelApi(`/v10/projects/${projectId}/env?decrypt=true`);
+    if (existingRes.ok) {
+      const existingData = await existingRes.json() as { envs?: Array<{ key: string; id: string }> };
+      existingEnvs = existingData.envs || [];
+    } else {
+      const body = await existingRes.text();
+      console.error(`[vercel-deploy] Failed to list env vars: ${existingRes.status} ${body.slice(0, 200)}`);
+    }
+  } catch (err) {
+    console.error(`[vercel-deploy] Error listing env vars:`, err);
+  }
+
   let envCount = 0;
   for (const [key, value] of Object.entries(envVars)) {
     try {
-      const existingRes = await vercelApi(`/v10/projects/${projectId}/env?decrypt=true`);
-      const existingData = await existingRes.json() as { envs?: Array<{ key: string; id: string }> };
-      const existing = existingData.envs?.find((e) => e.key === key);
+      const existing = existingEnvs.find((e) => e.key === key);
 
+      let res: Response;
       if (existing) {
-        const updateRes = await vercelApi(`/v10/projects/${projectId}/env/${existing.id}`, {
+        res = await vercelApi(`/v10/projects/${projectId}/env/${existing.id}`, {
           method: 'PATCH',
           body: JSON.stringify({
             value,
@@ -331,9 +348,8 @@ export async function syncEnvVars(
             target: ['production', 'preview', 'development'],
           }),
         });
-        if (updateRes.ok) envCount++;
       } else {
-        const res = await vercelApi(`/v10/projects/${projectId}/env`, {
+        res = await vercelApi(`/v10/projects/${projectId}/env`, {
           method: 'POST',
           body: JSON.stringify({
             key,
@@ -342,7 +358,12 @@ export async function syncEnvVars(
             target: ['production', 'preview', 'development'],
           }),
         });
-        if (res.ok) envCount++;
+      }
+      if (res.ok) {
+        envCount++;
+      } else {
+        const body = await res.text();
+        console.warn(`[vercel-deploy] Failed to set env ${key}: ${res.status} ${body.slice(0, 150)}`);
       }
     } catch (err) {
       console.error(`[vercel-deploy] Failed to set env ${key}:`, err);
@@ -357,11 +378,15 @@ export async function deployTenant(input: DeployTenantInput): Promise<DeployTena
 
   const { projectId } = await ensureVercelProject({ slug: input.slug });
 
-  let envCount = 0;
-  try {
-    envCount = await syncEnvVars(projectId, input);
-  } catch (err) {
-    console.error(`[vercel-deploy] Env var sync failed:`, err);
+  // Sync env vars — fail closed if it doesn't work
+  const envCount = await syncEnvVars(projectId, input);
+  // Verify critical env vars were written
+  if (envCount === 0) {
+    throw new Error(`Failed to sync any environment variables to project "${input.slug}". Check Vercel API access.`);
+  }
+  const criticalKeys = ['NEXT_PUBLIC_TENANT_SLUG', 'POSTGRES_URL', 'ENCRYPTION_KEY'];
+  if (envCount < criticalKeys.length) {
+    console.warn(`[vercel-deploy] Only synced ${envCount} env vars — critical keys may be missing.`);
   }
 
   try {
