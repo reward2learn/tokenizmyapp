@@ -456,12 +456,12 @@ export function TenantWizard() {
                 </Typography>
                 <Stack spacing={0.5}>
                   {PIPELINE_STEPS.map((ps, idx) => (
-                    <Stack key={ps.key} direction="row" spacing={1} alignItems="center">
+                    <Box key={ps.key} sx={{ display: "flex", flexDirection: "row", gap: 1, alignItems: "center" }}>
                       <Typography variant="body2" color="text.secondary" sx={{ width: 20 }}>
                         {idx + 1}.
                       </Typography>
                       <Typography variant="body2">{ps.label}</Typography>
-                    </Stack>
+                    </Box>
                   ))}
                 </Stack>
               </Paper>
@@ -486,7 +486,7 @@ export function TenantWizard() {
                 </Typography>
                 <Stack spacing={1}>
                   {PIPELINE_STEPS.map((ps) => (
-                    <Stack key={ps.key} direction="row" spacing={1.5} alignItems="center">
+                    <Box key={ps.key} sx={{ display: "flex", flexDirection: "row", gap: 1.5, alignItems: "center" }}>
                       {isLoading ? (
                         <CircularProgress size={16} color="inherit" />
                       ) : isSuccess ? (
@@ -497,7 +497,7 @@ export function TenantWizard() {
                       <Typography variant="body2" color={isSuccess ? 'text.primary' : 'text.secondary'}>
                         {ps.label}
                       </Typography>
-                    </Stack>
+                    </Box>
                   ))}
                 </Stack>
                 <Typography variant="caption" color="text.secondary" sx={{ mt: 1.5, display: 'block' }}>
