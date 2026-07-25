@@ -15,7 +15,7 @@
  *   409 Conflict   → branch already exists, reuse it
  *   Never exposes the API key in error messages.
  */
-const NEON_API = 'https://api.neon.tech/v2';
+const NEON_API = 'https://console.neon.tech/api/v2';
 
 // ── Types ──────────────────────────────────────────────────────
 
@@ -292,9 +292,28 @@ async function getConnectionStrings(
     if (res.ok) {
       const data = await res.json() as { endpoints?: NeonEndpoint[] };
       const ep = data.endpoints?.[0];
-      const directUrl = ep?.connection_string ?? '';
-      const pooledUrl =
-        ep?.pooled_connection_string ?? (directUrl ? derivePooledUrl(directUrl) : '');
+      if (!ep) continue;
+
+      // Try direct connection_string first (some API versions include it)
+      let directUrl = ep.connection_string ?? '';
+      let pooledUrl = ep.pooled_connection_string ?? '';
+
+      // If connection_string not provided, construct from host + env credentials
+      if (!directUrl && ep.host) {
+        const pgUser = process.env.POSTGRES_USER || process.env.PGUSER || 'neondb_owner';
+        const pgPass = process.env.POSTGRES_PASSWORD || process.env.PGPASSWORD || '';
+        const pgDb = process.env.POSTGRES_DATABASE || process.env.PGDATABASE || 'neondb';
+        const directHost = ep.hosts?.read_write_host ?? ep.host;
+        const pooledHost = ep.hosts?.read_write_pooled_host ?? derivePooledHost(directHost);
+
+        directUrl = `postgresql://${pgUser}:${pgPass}@${directHost}/${pgDb}?sslmode=require`;
+        pooledUrl = `postgresql://${pgUser}:${pgPass}@${pooledHost}/${pgDb}?sslmode=require`;
+      }
+
+      // Fallback: derive pooled from direct
+      if (!pooledUrl && directUrl) {
+        pooledUrl = derivePooledUrl(directUrl);
+      }
 
       if (pooledUrl && directUrl) {
         return { pooledUrl, directUrl };
@@ -314,4 +333,12 @@ async function getConnectionStrings(
     `Could not retrieve connection strings for branch ${branchId} ` +
     `after ${maxAttempts} attempts. Check the Neon console for branch status.`,
   );
+}
+
+/**
+ * Derive the pooled host from a direct host by inserting '-pooler' before the region.
+ * e.g., ep-xxx.c-12.us-east-1.aws.neon.tech → ep-xxx-pooler.c-12.us-east-1.aws.neon.tech
+ */
+function derivePooledHost(directHost: string): string {
+  return directHost.replace(/\.c-/, '-pooler.c-');
 }
