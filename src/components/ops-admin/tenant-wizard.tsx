@@ -25,6 +25,7 @@ import Typography from '@mui/material/Typography';
 import AddIcon from '@mui/icons-material/Add';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import OpenInNewIcon from '@mui/icons-material/OpenInNew';
+import AutoFixHighIcon from '@mui/icons-material/AutoFixHigh';
 import {
   getTemplate,
   listTemplates,
@@ -35,12 +36,13 @@ import {
   useCreateTenantMutation,
 } from '@/store/apis/tenant-api';
 
-const STEPS = ['Business Info', 'Template', 'Branding', 'Review'];
+const STEPS = ['Business Info', 'Template', 'AI Description', 'Branding', 'Review'];
 
 interface WizardState {
   slug: string;
   displayName: string;
   template: string;
+  prompt: string;
   primaryColor: string;
   secondaryColor: string;
 }
@@ -49,9 +51,19 @@ const INITIAL_STATE: WizardState = {
   slug: '',
   displayName: '',
   template: 'default',
+  prompt: '',
   primaryColor: '#eb3d28',
   secondaryColor: '#0af9fe',
 };
+
+const PIPELINE_STEPS = [
+  { label: 'AI Schema Generation', key: 'schema' },
+  { label: 'Neon Database Branch', key: 'neon' },
+  { label: 'Database Migrations', key: 'migrations' },
+  { label: 'Seeding Defaults', key: 'seed' },
+  { label: 'Code Generation', key: 'codegen' },
+  { label: 'Vercel Deployment', key: 'deploy' },
+];
 
 export function TenantWizard() {
   const [open, setOpen] = useState(false);
@@ -103,24 +115,46 @@ export function TenantWizard() {
       template: state.template,
       primaryColor: state.primaryColor,
       secondaryColor: state.secondaryColor,
+      prompt: state.prompt.trim() || undefined,
     }).unwrap();
     if (result.success) {
-      setStep(4); // Show success
+      setStep(5); // Show success (step 5 = after 5 wizard steps)
     }
   };
 
   const templates = listTemplates();
   const selectedTemplate = getTemplate(state.template);
 
+  // Generate a smart default prompt based on template + display name
+  const generateDefaultPrompt = () => {
+    const tpl = selectedTemplate;
+    const name = state.displayName || 'my business';
+    const prompts: Record<string, string> = {
+      'financial-analytics': `I run ${name}, a financial analytics business. We track revenue, costs, EBITDA, and KPIs. We need P&L projections, business review reports, and daily Z-report entry.`,
+      'restaurant': `I run ${name}, a restaurant. We have a menu with categories (appetizers, mains, desserts, beverages). We take table reservations, track daily covers, and integrate with GoFood for delivery.`,
+      'hotel': `I run ${name}, a hotel with multiple room types. We manage bookings, track occupancy and RevPAR, have event spaces for weddings and conferences, and offer F&B services.`,
+      'ecommerce-retail': `I run ${name}, an online store. We sell products across categories, manage inventory with SKUs, process sales orders, and track customer data.`,
+      'healthcare': `I run ${name}, a healthcare facility. We manage patient records, clinical documents, insurance claims, and medical device telemetry data.`,
+      'supply-chain': `I run ${name}, a logistics company. We track shipments, manage warehouse inventory, coordinate with carriers, and generate freight manifests.`,
+      'real-estate': `I run ${name}, a real estate agency. We manage property listings, track leases, manage tenants, and handle maintenance requests.`,
+      'education': `I run ${name}, an educational institution. We manage courses, student enrollments, assignments, grades, and track student progress.`,
+      'professional-services': `I run ${name}, a professional services firm. We manage projects, track time entries, generate invoices, and track client deliverables.`,
+      'manufacturing': `I run ${name}, a manufacturing company. We manage production orders, bill of materials, quality checks, and track inventory lots.`,
+      'default': `I run ${name}. We need a business operations dashboard with financial overview, task management, and AI chat.`,
+    };
+    return prompts[tpl.id] ?? prompts['default'];
+  };
+
   return (
     <>
-      <Tooltip title="Create a new tenant application with its own branding, users, and configuration">
+      <Tooltip title="Create a new tenant application with AI-generated schema, branding, and deployment">
         <Button
           variant="contained"
           startIcon={<AddIcon />}
           onClick={handleOpen}
           sx={{ fontWeight: 600 }}
         >
+          New Tenant
         </Button>
       </Tooltip>
 
@@ -130,8 +164,9 @@ export function TenantWizard() {
         maxWidth="md"
         fullWidth
       >
-        <DialogTitle sx={{ fontWeight: 700 }}>
-          New Tenant App
+        <DialogTitle sx={{ fontWeight: 700, display: 'flex', alignItems: 'center', gap: 1 }}>
+          <AutoFixHighIcon color="primary" />
+          New Tenant App — AI-Powered Generation
         </DialogTitle>
         <DialogContent dividers>
           <Stepper activeStep={step} sx={{ mb: 4 }}>
@@ -186,12 +221,12 @@ export function TenantWizard() {
             </Stack>
           ) : null}
 
-          {/* Step 1: Template */}
+          {/* Step 1: Template Selection */}
           {step === 1 ? (
             <Stack spacing={2}>
               <Typography variant="body2" color="text.secondary">
                 Select a template that matches your business type. Each template includes
-                pre-configured pages, navigation, and default settings.
+                pre-configured pages, navigation, W3C schema alignment, and schema.org structured data.
               </Typography>
               <Grid container spacing={2}>
                 {templates.map((tpl) => {
@@ -220,6 +255,10 @@ export function TenantWizard() {
                               {tpl.description}
                             </Typography>
                             <Stack direction="row" spacing={0.5} sx={{ mt: 1.5, flexWrap: 'wrap' }} useFlexGap>
+                              <Chip label={tpl.schemaOrgType} size="small" variant="outlined" color="info" />
+                              <Chip label={tpl.xsdStandard} size="small" variant="outlined" />
+                            </Stack>
+                            <Stack direction="row" spacing={0.5} sx={{ mt: 1, flexWrap: 'wrap' }} useFlexGap>
                               {tpl.defaultPages.slice(0, 4).map((p) => (
                                 <Chip key={p.slug} label={p.title} size="small" variant="outlined" />
                               ))}
@@ -237,8 +276,57 @@ export function TenantWizard() {
             </Stack>
           ) : null}
 
-          {/* Step 2: Branding */}
+          {/* Step 2: AI Business Description (NEW) */}
           {step === 2 ? (
+            <Stack spacing={3}>
+              <Box>
+                <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
+                  Describe your business in natural language. The AI will generate a complete W3C-aligned
+                  schema (models, use cases, pages) based on your description and the selected template.
+                </Typography>
+                <Typography variant="caption" color="text.secondary">
+                  💡 The more detail you provide, the better the AI can tailor the schema to your needs.
+                </Typography>
+              </Box>
+              <TextField
+                label="Business Description (for AI Schema Generation)"
+                placeholder="e.g., I run a restaurant in Bali with 20 tables, serving Indonesian and international cuisine. We have a menu with 50+ items across 5 categories. We take reservations by phone and online. We track daily covers, food costs, and revenue. We also integrate with GoFood for delivery orders."
+                value={state.prompt}
+                onChange={(e) => setState((p) => ({ ...p, prompt: e.target.value }))}
+                fullWidth
+                multiline
+                rows={6}
+                helperText="This prompt is sent to the AI (via Vercel AI SDK) to generate your custom schema. Leave empty to use template defaults only."
+              />
+              <Box>
+                <Button
+                  size="small"
+                  variant="outlined"
+                  startIcon={<AutoFixHighIcon />}
+                  onClick={() => update({ prompt: generateDefaultPrompt() })}
+                >
+                  Generate Default Prompt
+                </Button>
+              </Box>
+              {state.prompt ? (
+                <Paper variant="outlined" sx={{ p: 2, bgcolor: 'background.default' }}>
+                  <Typography variant="caption" color="text.secondary" sx={{ mb: 1, display: 'block' }}>
+                    AI will generate:
+                  </Typography>
+                  <Stack spacing={0.5}>
+                    <Typography variant="body2">🧠 Custom ZenStack models with schema.org mappings</Typography>
+                    <Typography variant="body2">📋 Use cases with appropriate auth tiers</Typography>
+                    <Typography variant="body2">📄 Pages with template-specific blocks</Typography>
+                    <Typography variant="body2">🗄️ Neon database branch with migrations</Typography>
+                    <Typography variant="body2">🚀 Vercel deployment with generated code</Typography>
+                  </Stack>
+                </Paper>
+              ) : null}
+            </Stack>
+          ) : null}
+
+          {/* Step 3: Branding */}
+          {step === 3 ? (
             <Stack spacing={3}>
               <Typography variant="body2" color="text.secondary">
                 Customize the brand colors for your application. These are used for buttons, links, and accents.
@@ -312,11 +400,11 @@ export function TenantWizard() {
             </Stack>
           ) : null}
 
-          {/* Step 3: Review */}
-          {step === 3 ? (
+          {/* Step 4: Review */}
+          {step === 4 ? (
             <Stack spacing={2}>
               <Typography variant="body2" color="text.secondary">
-                Review your tenant configuration before creating.
+                Review your tenant configuration before creating. The AI pipeline will run automatically.
               </Typography>
               <Paper variant="outlined" sx={{ p: 2.5 }}>
                 <Stack spacing={1.5}>
@@ -331,9 +419,22 @@ export function TenantWizard() {
                   <Box>
                     <Typography variant="caption" color="text.secondary">Template</Typography>
                     <Typography variant="body1" sx={{ fontWeight: 600 }}>
-                      {selectedTemplate.label} — {selectedTemplate.defaultPages.length} pages, {selectedTemplate.defaultNavItems.length} nav items
+                      {selectedTemplate.label} — {selectedTemplate.schemaOrgType}
                     </Typography>
                   </Box>
+                  {state.prompt ? (
+                    <Box>
+                      <Typography variant="caption" color="text.secondary">AI Prompt</Typography>
+                      <Typography variant="body2" sx={{ mt: 0.5, fontStyle: 'italic', maxHeight: 80, overflow: 'auto' }}>
+                        {state.prompt}
+                      </Typography>
+                    </Box>
+                  ) : (
+                    <Box>
+                      <Typography variant="caption" color="text.secondary">AI Prompt</Typography>
+                      <Typography variant="body2" color="text.disabled">Not provided — using template defaults</Typography>
+                    </Box>
+                  )}
                   <Stack direction="row" spacing={1}>
                     <Chip
                       size="small"
@@ -348,19 +449,63 @@ export function TenantWizard() {
                   </Stack>
                 </Stack>
               </Paper>
+              {/* Pipeline preview */}
+              <Paper variant="outlined" sx={{ p: 2 }}>
+                <Typography variant="caption" color="text.secondary" sx={{ mb: 1.5, display: 'block' }}>
+                  Pipeline (runs automatically after creation):
+                </Typography>
+                <Stack spacing={0.5}>
+                  {PIPELINE_STEPS.map((ps, idx) => (
+                    <Stack key={ps.key} direction="row" spacing={1} alignItems="center">
+                      <Typography variant="body2" color="text.secondary" sx={{ width: 20 }}>
+                        {idx + 1}.
+                      </Typography>
+                      <Typography variant="body2">{ps.label}</Typography>
+                    </Stack>
+                  ))}
+                </Stack>
+              </Paper>
             </Stack>
           ) : null}
 
-          {/* Step 4: Success */}
-          {step === 4 ? (
+          {/* Step 5: Success + Pipeline Progress */}
+          {step === 5 ? (
             <Stack spacing={2} sx={{ textAlign: 'center', py: 3 }}>
               <CheckCircleIcon color="success" sx={{ fontSize: 64, mx: 'auto' }} />
               <Typography variant="h6" sx={{ fontWeight: 700 }}>
                 Tenant Created!
               </Typography>
               <Typography variant="body1" color="text.secondary">
-                <strong>{state.displayName}</strong> has been created and seeded with the <strong>{selectedTemplate.label}</strong> template.
+                <strong>{state.displayName}</strong> has been created with the <strong>{selectedTemplate.label}</strong> template.
               </Typography>
+
+              {/* Pipeline status */}
+              <Paper variant="outlined" sx={{ p: 2, textAlign: 'left' }}>
+                <Typography variant="body2" sx={{ fontWeight: 600, mb: 1.5 }}>
+                  Pipeline Status:
+                </Typography>
+                <Stack spacing={1}>
+                  {PIPELINE_STEPS.map((ps) => (
+                    <Stack key={ps.key} direction="row" spacing={1.5} alignItems="center">
+                      {isLoading ? (
+                        <CircularProgress size={16} color="inherit" />
+                      ) : isSuccess ? (
+                        <CheckCircleIcon color="success" fontSize="small" />
+                      ) : (
+                        <Box sx={{ width: 16, height: 16, borderRadius: '50%', border: '1px solid', borderColor: 'divider' }} />
+                      )}
+                      <Typography variant="body2" color={isSuccess ? 'text.primary' : 'text.secondary'}>
+                        {ps.label}
+                      </Typography>
+                    </Stack>
+                  ))}
+                </Stack>
+                <Typography variant="caption" color="text.secondary" sx={{ mt: 1.5, display: 'block' }}>
+                  💡 Some steps (Code Generation, Vercel CLI Deploy) may be skipped on Vercel serverless.
+                  The tenant is still created with Vercel API deployment as fallback.
+                </Typography>
+              </Paper>
+
               {data?.data?.tenant ? (
                 <Chip
                   label={data.data.tenant.status === 'live' ? 'Live — Ready to use' : `Status: ${data.data.tenant.status}`}
@@ -380,6 +525,14 @@ export function TenantWizard() {
                   <Typography variant="body2" color="text.secondary">
                     ✅ Brand colors: Primary {state.primaryColor}, Secondary {state.secondaryColor}
                   </Typography>
+                  <Typography variant="body2" color="text.secondary">
+                    ✅ W3C Schema: {selectedTemplate.schemaOrgType} ({selectedTemplate.xsdStandard})
+                  </Typography>
+                  {state.prompt ? (
+                    <Typography variant="body2" color="text.secondary">
+                      ✅ AI-generated schema from your business description
+                    </Typography>
+                  ) : null}
                   <Typography variant="body2" color="text.secondary">
                     ✅ Default security groups (platform-admin, ops-admin, finance, viewer)
                   </Typography>
@@ -425,7 +578,7 @@ export function TenantWizard() {
           ) : null}
         </DialogContent>
 
-        {step < 4 ? (
+        {step < 5 ? (
           <DialogActions>
             {step > 0 ? (
               <Button onClick={handleBack} disabled={isLoading}>
@@ -437,7 +590,7 @@ export function TenantWizard() {
               </Button>
             )}
             <Box sx={{ flex: 1 }} />
-            {step < 3 ? (
+            {step < 4 ? (
               <Button variant="contained" onClick={handleNext}>
                 Continue
               </Button>
@@ -447,9 +600,9 @@ export function TenantWizard() {
                 color="primary"
                 onClick={() => void handleCreate()}
                 disabled={isLoading}
-                startIcon={isLoading ? <CircularProgress size={18} color="inherit" /> : undefined}
+                startIcon={isLoading ? <CircularProgress size={18} color="inherit" /> : <AutoFixHighIcon />}
               >
-                {isLoading ? 'Creating...' : 'Create Tenant'}
+                {isLoading ? 'Generating...' : 'Create with AI'}
               </Button>
             )}
           </DialogActions>

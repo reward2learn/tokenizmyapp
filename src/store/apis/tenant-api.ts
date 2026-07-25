@@ -62,6 +62,7 @@ export const tenantApi = createApi({
       primaryColor?: string;
       secondaryColor?: string;
       metadata?: Record<string, unknown>;
+      prompt?: string;
     }>({
       query: (body) => ({
         url: 'admin/tenants',
