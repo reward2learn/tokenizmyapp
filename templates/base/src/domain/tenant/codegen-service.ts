@@ -1,5 +1,5 @@
 /**
- * Code Generation Service — Phase 6 + Phase 10A
+ * Code Generation Service — Phase 6
  *
  * Takes a W3C schema definition (from the AI schema generator) and produces
  * a complete tenant app codebase in a temp directory. The generated code is a
@@ -11,11 +11,9 @@
  *   - Block components per model (MUI CRUD list + form dialog)
  *   - API routes per model (GET / POST / PUT / DELETE via raw SQL)
  *
- * The base template is copied from tokenizmyapp/templates/base/ — a stripped
- * version of the website/ project containing only base infrastructure
- * (auth, admin, config, chat, navigation, dynamic pages, store, theme).
- * Template-specific models/blocks are added by the codegen based on the
- * AI-generated schema.
+ * The base template is copied from the website/ directory. Tenant config is
+ * injected into vercel.json's env section so the deployed app knows its slug,
+ * display name, colors, and template ID.
  */
 
 import { mkdir, rm, cp, copyFile, writeFile, readFile } from 'node:fs/promises';
@@ -31,13 +29,9 @@ import type {
 
 // ── Config ────────────────────────────────────────────────────────
 
-/**
- * Root of the base Next.js template.
- * Phase 10A: Now uses the bundled templates/base/ directory instead of
- * the website/ project (which doesn't exist on Vercel serverless).
- */
+/** Root of the base Next.js template (the website/ project). */
 const BASE_TEMPLATE_DIR =
-  process.env.TENANT_BASE_TEMPLATE_DIR ?? join(process.cwd(), 'templates', 'base');
+  process.env.TENANT_BASE_TEMPLATE_DIR ?? join(process.cwd(), '..', 'website');
 
 /** Temp directory root (OS-aware). */
 const TMP_ROOT = process.env.TMPDIR ?? '/tmp';
@@ -51,75 +45,23 @@ const COPY_FILES = [
   '.gitignore',
   'src/proxy.ts',
   'src/lib/db.ts',
-  'src/lib/db-migrate.ts',
   'src/lib/crypto.ts',
   'src/lib/secrets.ts',
   'src/lib/openai.ts',
-  'src/lib/inngest.ts',
-  'src/lib/page-catalog.ts',
-  'src/lib/block-registry.ts',
   'src/app/layout.tsx',
-  'src/app/page.tsx',
-  'src/app/not-found.tsx',
 ];
 
 /** Directories to copy recursively from the base template. */
 const COPY_DIRS = [
-  // Core lib
   'src/lib/auth',
   'src/lib/api',
-  'src/lib/chat',
   'src/lib/config',
   'src/lib/navigation',
-  'src/lib/schema',
-  'src/lib/schemas',
-  'src/lib/seo',
-  // Theme + Store + Hooks + WASM
   'src/theme',
   'src/store',
-  'src/hooks',
-  'src/wasm',
-  // Components
-  'src/components/auth',
   'src/components/layout',
-  'src/components/chat',
-  'src/components/config',
-  'src/components/dynamic',
-  'src/components/providers',
-  'src/components/shared',
-  'src/components/tasks',
-  'src/components/seo',
-  'src/components/blocks',
-  'src/components/ops-admin',
-  'src/components/ui',
-  // App pages
   'src/app/(app)',
-  'src/app/config',
-  'src/app/admin',
-  // API routes
   'src/app/api/auth',
-  'src/app/api/admin',
-  'src/app/api/chat',
-  'src/app/api/config',
-  'src/app/api/content',
-  'src/app/api/navigation',
-  'src/app/api/tasks',
-  'src/app/api/brand-config',
-  'src/app/api/default-route',
-  'src/app/api/inngest',
-  'src/app/api/vjobs',
-  // Domain services
-  'src/domain/knowledge',
-  'src/domain/security',
-  'src/domain/shared',
-  'src/domain/tenant',
-  'src/domain/workflows',
-  'src/domain/config',
-  'src/domain/content',
-  'src/domain/ai',
-  'src/domain/seed',
-  // Legal pages
-  'legal',
 ];
 
 // ── Types ─────────────────────────────────────────────────────────

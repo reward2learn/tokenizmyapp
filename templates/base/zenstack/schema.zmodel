@@ -1,0 +1,358 @@
+// Base Template — ZenStack schema (stripped)
+// Contains only base models (auth, admin, chat, content, navigation, tasks, tenants)
+// Template-specific models are added by the codegen service based on AI-generated schema.
+// Introspection-first: @@map to existing Neon tables. No greenfield renames.
+// Generate: npm run zen:generate (after P1 scaffold)
+// Policies: auth tier from JWT user context (public | pin | google)
+
+datasource db {
+  provider = "postgresql"
+  url      = env("POSTGRES_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+  output   = "../../src/generated/prisma"
+  binaryTargets = ["native", "linux-arm64-openssl-3.0.x"]
+}
+
+// ── Enums ────────────────────────────────────────────
+
+enum AuthTier {
+  public
+  pin
+  google
+}
+
+/// JWT session context passed to enhance({ user }) — not a DB table
+type Auth {
+  id   String    @id @default("session")
+  tier AuthTier
+  sub  String?
+
+  @@auth
+}
+
+enum ActionPriority {
+  P0
+  P1
+  P2
+}
+
+enum TaskStatus {
+  pending
+  in_progress
+  submitted
+  completed
+}
+
+enum BlockType {
+  hero
+  metric_grid
+
+  action_checklist
+  doc_markdown
+
+  calendar_import
+  chat_panel
+  kpi_cards
+  ops_admin_tabs
+
+}
+
+enum JobStatus {
+  PENDING
+  PROCESSING
+  COMPLETED
+  FAILED
+}
+
+// ── Content models (new tables — created via ZenStack migrate in P1) ──
+
+model AppPage {
+  id        String        @id @default(cuid())
+  slug      String        @unique
+  title     String
+  authTier  AuthTier      @default(public) @map("auth_tier")
+  sortOrder Int           @default(0) @map("sort_order")
+  sections  PageSection[]
+
+  @@map("app_pages")
+}
+
+model PageSection {
+  id        String    @id @default(cuid())
+  pageId    String    @map("page_id")
+  page      AppPage   @relation(fields: [pageId], references: [id], onDelete: Cascade)
+  sortOrder Int       @map("sort_order")
+  blockType BlockType @map("block_type")
+  config    Json      @default("{}")
+
+  @@index([pageId, sortOrder])
+  @@map("page_sections")
+}
+
+// ── Task tracking (role-based exit-viability action tracking) ──
+
+/// A role/owner of tasks — Ama, Made, Lukas, James, Graham (platform-admin managed).
+model Role {
+  id          String           @id @default(cuid())
+  /// Short code used to match task labels, e.g. "Ama", "Made", "Lukas", "James", "Graham".
+  code        String           @unique @map("code")
+  name        String
+  /// Google email used to auto-assign the signed-in user to this role.
+  email       String?          @unique @map("email")
+  isPlatformAdmin Boolean       @default(false) @map("is_platform_admin")
+  tasks       TaskAssignment[]
+  createdAt   DateTime         @default(now()) @map("created_at")
+
+  @@allow('read', true)
+  @@allow('create,update,delete', auth().tier == pin || auth().tier == google)
+  @@map("roles")
+}
+
+/// A signed-in user account (keyed by the auth provider subject / sub).
+model UserAccount {
+  id          String        @id @default(cuid())
+  sub         String        @unique @map("sub")
+  email       String?       @map("email")
+  name        String?       @map("name")
+  tier        String        @default("google") @map("tier")
+  roleCode    String?       @map("role_code")
+  isActive    Boolean       @default(true) @map("is_active")
+  lastSeenAt  DateTime?     @map("last_seen_at")
+  createdAt   DateTime      @default(now()) @map("created_at")
+  updatedAt   DateTime      @updatedAt @map("updated_at")
+  groups      UserGroup[]
+
+  @@allow('read', auth().tier == pin || auth().tier == google)
+  @@allow('update', auth().tier == pin || auth().tier == google)
+  @@map("user_accounts")
+}
+
+/// A security group used to gate API calls and routes by membership.
+model SecurityGroup {
+  id          String      @id @default(cuid())
+  code        String      @unique @map("code")
+  name        String
+  description String?     @map("description")
+  isSystem    Boolean     @default(false) @map("is_system")
+  /// Capability codes granted to members (e.g. "financials:write", "tasks:read").
+  permissions String[]    @default([]) @map("permissions")
+  createdAt   DateTime    @default(now()) @map("created_at")
+  members     UserGroup[]
+
+  @@allow('read', auth().tier == pin || auth().tier == google)
+  @@allow('create,update,delete', auth().tier == pin || auth().tier == google)
+  @@map("security_groups")
+}
+
+/// Membership linking a user account to a security group.
+model UserGroup {
+  id      String        @id @default(cuid())
+  user    UserAccount   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId  String        @map("user_id")
+  group   SecurityGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  groupId String        @map("group_id")
+  createdAt DateTime     @default(now()) @map("created_at")
+
+  @@unique([userId, groupId])
+  @@index([userId])
+  @@index([groupId])
+  @@map("user_groups")
+}
+
+/// A tracked action item derived from the MVP Business Review priority actions.
+model Task {
+  id          String           @id @default(cuid())
+  title       String
+  /// Free-text detail / acceptance note.
+  description String?          @db.Text
+  priority    ActionPriority   @default(P0)
+  status      TaskStatus       @default(pending)
+  /// ISO date (YYYY-MM-DD) by which the task should be done.
+  dueDate     DateTime?        @map("due_date")
+  sortOrder   Int              @default(0) @map("sort_order")
+  assignments TaskAssignment[]
+  createdAt   DateTime         @default(now()) @map("created_at")
+  updatedAt   DateTime         @updatedAt @map("updated_at")
+
+  @@index([status])
+  @@allow('read', true)
+  @@allow('create,update,delete', auth().tier == pin || auth().tier == google)
+  @@map("tasks")
+}
+
+/// Many-to-many link between a Task and the Roles responsible for it.
+model TaskAssignment {
+  id          String   @id @default(cuid())
+  task        Task     @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  taskId      String   @map("task_id")
+  role        Role     @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  roleId      String   @map("role_id")
+  /// When true the role's owner sees this on their personal daily checklist.
+  assigned    Boolean  @default(true)
+
+  @@unique([taskId, roleId])
+  @@index([roleId])
+  @@allow('read', true)
+  @@allow('create,update,delete', auth().tier == pin || auth().tier == google)
+  @@map("task_assignments")
+}
+
+model KnowledgeSnippet {
+  id       String @id @default(cuid())
+  key      String @unique
+  content  String @db.Text
+  category String
+
+  @@allow('read', true)
+  @@allow('create,update,delete', auth().tier == pin || auth().tier == google)
+  @@map("knowledge_snippets")
+}
+
+// ── Navigation (admin-managed, hierarchical, group-gated) ──
+
+/// A navigation item in the app drawer. Supports parent-child hierarchy,
+/// drag-and-drop reorder, group-security gating, and dynamic route linking.
+model NavigationItem {
+  id            String            @id @default(cuid())
+  /// Parent nav item for nested hierarchy (null = root-level).
+  parentId      String?           @map("parent_id")
+  parent        NavigationItem?   @relation("NavChildren", fields: [parentId], references: [id], onDelete: SetNull)
+  children      NavigationItem[]  @relation("NavChildren")
+  sortOrder     Int               @default(0) @map("sort_order")
+  title         String
+  /// Route path e.g. "/dashboard", "/admin", "/sheet-profit-loss". External URLs also supported.
+  path          String            @default("")
+  /// MUI icon name (optional).
+  icon          String            @default("")
+  /// Auth tier required to see this nav item.
+  authTier      AuthTier          @default(public) @map("auth_tier")
+  /// Comma-separated security group codes. Empty means no group restriction.
+  requiredGroups String           @default("") @map("required_groups")
+  /// When false the item is hidden from the nav but still exists in the tree.
+  isVisible     Boolean           @default(true) @map("is_visible")
+  /// When true the path is treated as a dynamic /[slug] route rather than static.
+  isDynamic     Boolean           @default(false) @map("is_dynamic")
+  createdAt     DateTime          @default(now()) @map("created_at")
+  updatedAt     DateTime          @updatedAt @map("updated_at")
+
+  @@allow('read', true)
+  @@allow('create,update,delete', auth().tier == pin || auth().tier == google)
+  @@index([parentId, sortOrder])
+  @@map("navigation_items")
+}
+
+// ── Production tables (mapped from lib/db.js + schema.sql) ──
+
+model Secret {
+  keyName        String   @id @map("key_name")
+  encryptedValue String   @map("encrypted_value")
+  iv             String
+  authTag        String   @map("auth_tag")
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  // Server-side only (store-key, verify-pin) — never exposed to browser clients
+  @@allow('all', true)
+  @@map("secrets")
+}
+
+/// Singleton app settings — chat flags, brand config, tenant identity, etc.
+model AppSetting {
+  id                  String   @id @default("default")
+  webSearchEnabled    Boolean  @default(false) @map("web_search_enabled")
+  /// Tenant subdomain slug (e.g. "redrubybali" — used for URL derivation)
+  tenantSlug          String   @default("tokenizmyapp") @map("tenant_slug")
+  /// Human-readable business name (e.g. "Red Ruby Bali")
+  tenantDisplayName   String   @default("") @map("tenant_display_name")
+  /// Template category identifier (e.g. "nightclub-bar", "restaurant", "hotel")
+  tenantTemplate      String   @default("default") @map("tenant_template")
+  /// Arbitrary JSON metadata for tenant-specific configuration
+  tenantMetadata      Json     @default("{}") @map("tenant_metadata")
+  brandLogoText       String   @default("") @map("brand_logo_text")
+  brandLogoUrl        String   @default("") @map("brand_logo_url")
+  brandPrimaryColor   String   @default("#eb3d28") @map("brand_primary_color")
+  brandSecondaryColor String   @default("#0af9fe") @map("brand_secondary_color")
+  updatedAt           DateTime @updatedAt @map("updated_at")
+
+  @@allow('all', true)
+  @@map("app_settings")
+}
+
+/// Singleton Google OAuth credentials — client_secret encrypted at rest (AES-256-GCM).
+model GoogleOAuthConfig {
+  id              String   @id @default("default")
+  clientId        String   @map("client_id")
+  projectId       String   @map("project_id")
+  authUri         String   @map("auth_uri")
+  tokenUri        String   @default("https://oauth2.googleapis.com/token") @map("token_uri")
+  encryptedSecret String   @map("encrypted_secret")
+  iv              String
+  authTag         String   @map("auth_tag")
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  // Server-side only (OAuth redirect/callback) — client_secret never returned to frontend
+  @@allow('all', true)
+  @@map("google_oauth_config")
+}
+
+model Conversation {
+  id           Int      @id @default(autoincrement())
+  userName     String   @default("Anonymous") @map("user_name")
+  ownerSub     String?  @map("owner_sub")
+  title        String   @default("Chat Conversation")
+  messages     Json     @default("[]")
+  messageCount Int      @default(0) @map("message_count")
+  archived     Boolean  @default(false) @map("archived")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  // Server-side only (/api/chat?resource=conversations) — session enforced in route handler
+  @@allow('all', true)
+  @@map("conversations")
+}
+
+/// Financial projections — preserve data_type + scenario (tri-review requirement)
+/// Legacy — schema.sql only; ensure migration creates if missing (see website-db-migration ensureLegacyTables)
+// ── Tenant registry (root config app) ──
+
+/// A registered tenant application — created via the root config app wizard.
+model Tenant {
+  id              String   @id @default(cuid())
+  /// Subdomain slug — unique identifier (e.g. "redrubybali")
+  slug            String   @unique
+  /// Human-readable business name (e.g. "Red Ruby Bali")
+  displayName     String   @map("display_name")
+  /// Template category (e.g. "nightclub-bar", "restaurant", "hotel")
+  template        String   @default("default")
+  /// Status: "draft" | "deploying" | "live" | "error"
+  status          String   @default("draft")
+  /// Vercel project ID (populated after deploy)
+  vercelProjectId String?  @map("vercel_project_id")
+  /// Custom domain (e.g. "redrubybali.vercel.app")
+  appUrl          String?  @map("app_url")
+  /// Neon database URL for this tenant (if separate DB)
+  dbUrl           String?  @map("db_url")
+  /// Brand primary color (hex)
+  primaryColor    String   @default("#eb3d28") @map("primary_color")
+  /// Brand secondary color (hex)
+  secondaryColor  String   @default("#0af9fe") @map("secondary_color")
+  /// Arbitrary JSON metadata
+  metadata        Json     @default("{}")
+  /// Who created this tenant
+  createdBy       String?  @map("created_by")
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  @@allow('read', true)
+  @@allow('create,update,delete', auth().tier == pin || auth().tier == google)
+  @@map("tenants")
+}
+
+// ── Access policies (ZenStack — enforce in P1 generate) ──
+// Financial writes: auth().tier == pin || auth().tier == google
+// Review parts: auth().tier == google
+// Public read: metrics list, legal pages
