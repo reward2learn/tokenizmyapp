@@ -287,7 +287,7 @@ export function TenantWizard() {
               {/* AI Scrape Section */}
               <Paper variant="outlined" sx={{ p: 2.5, borderColor: 'primary.main', borderWidth: 1 }}>
                 <Stack spacing={2}>
-                  <Stack direction="row" spacing={1} alignItems="center">
+                  <Stack direction="row" sx={{ gap: 1, alignItems: "center" }}>
                     <TravelExploreIcon color="primary" />
                     <Typography variant="subtitle1" sx={{ fontWeight: 700 }}>
                       AI Assist — Scrape Existing Business
@@ -324,7 +324,7 @@ export function TenantWizard() {
                   ) : null}
                   {scraped ? (
                     <Paper variant="outlined" sx={{ p: 2, bgcolor: 'background.default' }}>
-                      <Stack direction="row" spacing={2} alignItems="center">
+                      <Stack direction="row" sx={{ gap: 2, alignItems: "center" }}>
                         {scraped.logoBase64 ? (
                           <Avatar src={scraped.logoBase64} sx={{ width: 56, height: 56 }} />
                         ) : (
@@ -337,7 +337,7 @@ export function TenantWizard() {
                             ✅ {scraped.businessName || 'Business found'}
                           </Typography>
                           {scraped.brandColors.primary ? (
-                            <Stack direction="row" spacing={0.5}>
+                            <Stack direction="row" sx={{ gap: 0.5 }}>
                               <Chip label={scraped.brandColors.primary} size="small" sx={{ bgcolor: scraped.brandColors.primary, color: '#fff' }} />
                               {scraped.brandColors.secondary ? (
                                 <Chip label={scraped.brandColors.secondary} size="small" sx={{ bgcolor: scraped.brandColors.secondary, color: '#000' }} />
@@ -418,7 +418,7 @@ export function TenantWizard() {
                       >
                         <CardActionArea onClick={() => update({ template: tpl.id })}>
                           <CardContent>
-                            <Stack direction="row" sx={{ justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                            <Stack direction="row" sx={{ gap: 0 }}>
                               <Typography variant="subtitle1" sx={{ fontWeight: 700 }}>
                                 {tpl.label}
                               </Typography>
@@ -427,11 +427,11 @@ export function TenantWizard() {
                             <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
                               {tpl.description}
                             </Typography>
-                            <Stack direction="row" spacing={0.5} sx={{ mt: 1.5, flexWrap: 'wrap' }} useFlexGap>
+                            <Stack direction="row" sx={{ gap: 0.5, flexWrap: "wrap" }}>
                               <Chip label={tpl.schemaOrgType} size="small" variant="outlined" color="info" />
                               <Chip label={tpl.xsdStandard} size="small" variant="outlined" />
                             </Stack>
-                            <Stack direction="row" spacing={0.5} sx={{ mt: 1, flexWrap: 'wrap' }} useFlexGap>
+                            <Stack direction="row" sx={{ gap: 0.5, flexWrap: "wrap" }}>
                               {tpl.defaultPages.slice(0, 4).map((p) => (
                                 <Chip key={p.slug} label={p.title} size="small" variant="outlined" />
                               ))}
@@ -513,7 +513,7 @@ export function TenantWizard() {
               {/* AI-extracted logo preview */}
               {state.logoBase64 ? (
                 <Paper variant="outlined" sx={{ p: 2, borderColor: 'primary.main' }}>
-                  <Stack direction="row" spacing={2} alignItems="center">
+                  <Stack direction="row" sx={{ gap: 2, alignItems: "center" }}>
                     <Avatar src={state.logoBase64} sx={{ width: 64, height: 64 }} variant="rounded" />
                     <Stack spacing={0.5}>
                       <Typography variant="body2" sx={{ fontWeight: 600 }}>
@@ -530,13 +530,13 @@ export function TenantWizard() {
               {/* AI-suggested color palette */}
               {scraped && scraped.brandColors.allColors.length > 0 ? (
                 <Paper variant="outlined" sx={{ p: 2 }}>
-                  <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 1.5 }}>
+                  <Stack direction="row" sx={{ gap: 1, alignItems: "center" }}>
                     <PaletteIcon color="primary" fontSize="small" />
                     <Typography variant="body2" sx={{ fontWeight: 600 }}>
                       AI-Extracted Brand Colors
                     </Typography>
                   </Stack>
-                  <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap">
+                  <Stack direction="row" sx={{ gap: 1, flexWrap: "wrap" }}>
                     {scraped.brandColors.allColors.slice(0, 8).map((color) => (
                       <Tooltip key={color} title={color}>
                         <Box
@@ -619,7 +619,7 @@ export function TenantWizard() {
                 <Typography variant="caption" color="text.secondary" sx={{ mb: 1.5, display: 'block' }}>
                   Preview
                 </Typography>
-                <Stack direction="row" spacing={1.5} sx={{ alignItems: 'center' }}>
+                <Stack direction="row" sx={{ gap: 1.5 }}>
                   {state.logoBase64 ? (
                     <Avatar src={state.logoBase64} sx={{ width: 32, height: 32 }} variant="rounded" />
                   ) : null}
@@ -679,14 +679,14 @@ export function TenantWizard() {
                       <Typography variant="body2" color="text.disabled">Not provided — using template defaults</Typography>
                     </Box>
                   )}
-                  <Stack direction="row" spacing={1}>
+                  <Stack direction="row" sx={{ gap: 1 }}>
                     <Chip size="small" label={`Primary: ${state.primaryColor}`} sx={{ bgcolor: state.primaryColor, color: '#fff' }} />
                     <Chip size="small" label={`Secondary: ${state.secondaryColor}`} sx={{ bgcolor: state.secondaryColor, color: '#000' }} />
                   </Stack>
                   {scraped ? (
                     <Box>
                       <Typography variant="caption" color="text.secondary">Scraped Data</Typography>
-                      <Stack direction="row" spacing={0.5} sx={{ mt: 0.5, flexWrap: 'wrap' }} useFlexGap>
+                      <Stack direction="row" sx={{ gap: 0.5, flexWrap: "wrap" }}>
                         {scraped.emails.length > 0 ? <Chip label={`📧 ${scraped.emails.length} emails`} size="small" /> : null}
                         {scraped.phoneNumbers.length > 0 ? <Chip label={`📞 ${scraped.phoneNumbers.length} phones`} size="small" /> : null}
                         {scraped.images.length > 0 ? <Chip label={`🖼️ ${scraped.images.length} images`} size="small" /> : null}
@@ -735,7 +735,7 @@ export function TenantWizard() {
               {data?.data?.tenant ? (
                 <Chip label={data.data.tenant.status === 'live' ? 'Live — Ready to use' : `Status: ${data.data.tenant.status}`} size="small" color={data.data.tenant.status === 'live' ? 'success' : 'warning'} />
               ) : null}
-              <Stack direction="row" spacing={1} sx={{ justifyContent: 'center', mt: 2 }}>
+              <Stack direction="row" sx={{ gap: 1 }}>
                 <Button variant="outlined" onClick={() => { setStep(0); setState(INITIAL_STATE); setScraped(null); }}>Create Another</Button>
                 <Button variant="contained" onClick={handleClose}>View Tenant List</Button>
                 <Button variant="contained" color="secondary" component="a" href={`https://${state.slug}.vercel.app`} target="_blank" endIcon={<OpenInNewIcon />}>Open {state.slug}.vercel.app</Button>
