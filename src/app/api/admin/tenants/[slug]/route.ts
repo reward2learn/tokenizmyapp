@@ -158,10 +158,8 @@ export async function DELETE(
     ) as { id: string }[];
     if (existingRows.length === 0) return jsonError('Tenant not found', 404);
 
-    // Soft-delete: set status to 'error' instead of hard delete
-    await db.$executeRawUnsafe(
-      `UPDATE tenants SET status = 'error', updated_at = CURRENT_TIMESTAMP WHERE slug = $1;`, slug,
-    );
+    // Hard delete — permanently remove the tenant row
+    await db.$executeRawUnsafe(`DELETE FROM tenants WHERE slug = $1;`, slug);
 
     return jsonOk({ deleted: true });
   } catch (err) {
