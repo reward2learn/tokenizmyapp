@@ -155,9 +155,10 @@ interface DeployTenantResult {
   envCount: number;
 }
 
-async function vercelApi(path: string, options: RequestInit = {}): Promise<Response> {
+async function vercelApi(path: string, options: RequestInit = {}, includeTeamId = true): Promise<Response> {
   const token = await resolveBearerToken();
-  return fetch(`${VERCEL_API}${path}?teamId=${TEAM_ID}`, {
+  const url = includeTeamId ? `${VERCEL_API}${path}?teamId=${TEAM_ID}` : `${VERCEL_API}${path}`;
+  return fetch(url, {
     ...options,
     headers: {
       Authorization: `Bearer ${token}`,
@@ -165,6 +166,20 @@ async function vercelApi(path: string, options: RequestInit = {}): Promise<Respo
       ...options.headers,
     },
   });
+}
+
+/** Try a Vercel API call both with and without teamId. Returns the first successful response,
+ *  or the best-effort response (preferring non-404/403) if both fail. */
+async function vercelApiTryBoth(path: string, options: RequestInit = {}): Promise<Response> {
+  const withTeam = await vercelApi(path, options, true);
+  if (withTeam.ok) return withTeam;
+
+  const withoutTeam = await vercelApi(path, options, false);
+  if (withoutTeam.ok) return withoutTeam;
+
+  // Return the more useful response: prefer non-404 over 404
+  if (withTeam.status !== 404 && withTeam.status !== 403) return withTeam;
+  return withoutTeam;
 }
 
 function extractConfigEnvVars(metadata: Record<string, unknown> | undefined | null): Record<string, string> {
@@ -201,27 +216,26 @@ function extractConfigEnvVars(metadata: Record<string, unknown> | undefined | nu
 
 export async function ensureVercelProject(input: { slug: string }): Promise<{ projectId: string; created: boolean }> {
   // 1. Try to get the project directly by name (Vercel API accepts slug/name as ID)
-  const getRes = await vercelApi(`/v10/projects/${input.slug}`);
+  //    Try both with and without teamId — OAuth tokens may be scoped differently
+  const getRes = await vercelApiTryBoth(`/v10/projects/${input.slug}`);
   if (getRes.ok) {
     const project = await getRes.json() as { id: string; name: string };
     console.log(`[vercel-deploy] Project "${input.slug}" already exists: ${project.id}`);
     return { projectId: project.id, created: false };
   }
 
-  // 2. If not found, try searching (broader search)
-  if (getRes.status === 404) {
-    const searchRes = await vercelApi(`/v10/projects?search=${input.slug}`);
-    if (searchRes.ok) {
-      const data = await searchRes.json() as { projects: { id: string; name: string }[] };
-      const existing = data.projects?.find((p) => p.name === input.slug);
-      if (existing) {
-        console.log(`[vercel-deploy] Project "${input.slug}" found via search: ${existing.id}`);
-        return { projectId: existing.id, created: false };
-      }
+  // 2. If not found, try searching (broader search) — also try both scopes
+  const searchRes = await vercelApiTryBoth(`/v10/projects?search=${input.slug}`);
+  if (searchRes.ok) {
+    const data = await searchRes.json() as { projects: { id: string; name: string }[] };
+    const existing = data.projects?.find((p) => p.name === input.slug);
+    if (existing) {
+      console.log(`[vercel-deploy] Project "${input.slug}" found via search: ${existing.id}`);
+      return { projectId: existing.id, created: false };
     }
   }
 
-  // 3. Create new project
+  // 3. Create new project (POST must be with teamId since projects live under teams)
   const createRes = await vercelApi('/v10/projects', {
     method: 'POST',
     body: JSON.stringify({
@@ -233,18 +247,30 @@ export async function ensureVercelProject(input: { slug: string }): Promise<{ pr
     }),
   });
 
-  // 4. If creation fails with 409, parse the existing project ID from the error
+  // 4. If creation fails with 409, the project exists but we couldn't find it
   if (createRes.status === 409) {
-    try {
-      console.warn(`[vercel-deploy] Project "${input.slug}" exists (409). Attempting to use existing project.`);
-      // Try the direct lookup again
-      const retryRes = await vercelApi(`/v10/projects/${input.slug}`);
-      if (retryRes.ok) {
-        const project = await retryRes.json() as { id: string; name: string };
-        console.log(`[vercel-deploy] Using existing project: ${project.id}`);
-        return { projectId: project.id, created: false };
-      }
-    } catch {}
+    console.warn(`[vercel-deploy] Project "${input.slug}" exists (409). Attempting to use existing project.`);
+    // Retry the direct lookup via tryBoth
+    const retryRes = await vercelApiTryBoth(`/v10/projects/${input.slug}`);
+    if (retryRes.ok) {
+      const project = await retryRes.json() as { id: string; name: string };
+      console.log(`[vercel-deploy] Using existing project: ${project.id}`);
+      return { projectId: project.id, created: false };
+    }
+    // If still not found, try to get it with the personal token env var
+    const token = process.env.VERCEL_TOKEN;
+    if (token) {
+      try {
+        const envRes = await fetch(`${VERCEL_API}/v10/projects/${input.slug}?teamId=${TEAM_ID}`, {
+          headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        });
+        if (envRes.ok) {
+          const project = await envRes.json() as { id: string; name: string };
+          console.log(`[vercel-deploy] Found existing project via VERCEL_TOKEN: ${project.id}`);
+          return { projectId: project.id, created: false };
+        }
+      } catch {}
+    }
     throw new Error(`Project "${input.slug}" already exists on Vercel but could not be found.`);
   }
 
