@@ -5,6 +5,7 @@ import { sessionIsPlatformAdmin } from '@/lib/auth/jwt';
 import { jsonError, jsonOk } from '@/lib/api/response';
 import { resolveCapabilitiesForSub } from '@/domain/security/security-service';
 import { setSecret, deleteSecret } from '@/lib/secrets';
+import { PERSONS } from '@/domain/security/persons';
 
 export const maxDuration = 30;
 
@@ -60,7 +61,7 @@ export async function GET(request: Request): Promise<NextResponse> {
        ORDER BY created_at DESC
        LIMIT 200;`) as UserAccountRow[];
 
-    const users: AdminUserView[] = await Promise.all(
+    const dbUsers: AdminUserView[] = await Promise.all(
       rows.map(async (r) => ({
         id: r.id,
         sub: r.sub,
@@ -75,6 +76,27 @@ export async function GET(request: Request): Promise<NextResponse> {
         createdAt: r.created_at.toISOString(),
       })),
     );
+
+    // Union with PERSONS: any known person who doesn't have a user_accounts row yet
+    const existingSubs = new Set(rows.map((r) => r.sub));
+    const now = new Date().toISOString();
+    const personUsers: AdminUserView[] = PERSONS
+      .filter((p) => !existingSubs.has(p.sub))
+      .map((p) => ({
+        id: `__person__${p.sub}`,
+        sub: p.sub,
+        email: p.email ?? null,
+        name: p.name,
+        tier: 'pin',
+        roleCode: p.roleCode,
+        isActive: true,
+        groups: [],
+        permissions: [],
+        lastSeenAt: null,
+        createdAt: now,
+      }));
+
+    const users = [...dbUsers, ...personUsers];
 
     return jsonOk({ users });
   } catch (err) {
