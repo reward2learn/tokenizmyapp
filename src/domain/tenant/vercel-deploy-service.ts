@@ -200,16 +200,28 @@ function extractConfigEnvVars(metadata: Record<string, unknown> | undefined | nu
 }
 
 export async function ensureVercelProject(input: { slug: string }): Promise<{ projectId: string; created: boolean }> {
-  const checkRes = await vercelApi(`/v10/projects?search=${input.slug}`);
-  if (checkRes.ok) {
-    const data = await checkRes.json() as { projects: { id: string; name: string }[] };
-    const existing = data.projects?.find((p) => p.name === input.slug);
-    if (existing) {
-      console.log(`[vercel-deploy] Project "${input.slug}" already exists: ${existing.id}`);
-      return { projectId: existing.id, created: false };
+  // 1. Try to get the project directly by name (Vercel API accepts slug/name as ID)
+  const getRes = await vercelApi(`/v10/projects/${input.slug}`);
+  if (getRes.ok) {
+    const project = await getRes.json() as { id: string; name: string };
+    console.log(`[vercel-deploy] Project "${input.slug}" already exists: ${project.id}`);
+    return { projectId: project.id, created: false };
+  }
+
+  // 2. If not found, try searching (broader search)
+  if (getRes.status === 404) {
+    const searchRes = await vercelApi(`/v10/projects?search=${input.slug}`);
+    if (searchRes.ok) {
+      const data = await searchRes.json() as { projects: { id: string; name: string }[] };
+      const existing = data.projects?.find((p) => p.name === input.slug);
+      if (existing) {
+        console.log(`[vercel-deploy] Project "${input.slug}" found via search: ${existing.id}`);
+        return { projectId: existing.id, created: false };
+      }
     }
   }
 
+  // 3. Create new project
   const createRes = await vercelApi('/v10/projects', {
     method: 'POST',
     body: JSON.stringify({
@@ -221,6 +233,21 @@ export async function ensureVercelProject(input: { slug: string }): Promise<{ pr
     }),
   });
 
+  // 4. If creation fails with 409, parse the existing project ID from the error
+  if (createRes.status === 409) {
+    try {
+      console.warn(`[vercel-deploy] Project "${input.slug}" exists (409). Attempting to use existing project.`);
+      // Try the direct lookup again
+      const retryRes = await vercelApi(`/v10/projects/${input.slug}`);
+      if (retryRes.ok) {
+        const project = await retryRes.json() as { id: string; name: string };
+        console.log(`[vercel-deploy] Using existing project: ${project.id}`);
+        return { projectId: project.id, created: false };
+      }
+    } catch {}
+    throw new Error(`Project "${input.slug}" already exists on Vercel but could not be found.`);
+  }
+
   if (!createRes.ok) {
     const err = await createRes.text();
     throw new Error(`Failed to create Vercel project: ${createRes.status} ${err}`);
@@ -230,7 +257,6 @@ export async function ensureVercelProject(input: { slug: string }): Promise<{ pr
   console.log(`[vercel-deploy] Project created: ${project.id}`);
   return { projectId: project.id, created: true };
 }
-
 export async function syncEnvVars(
   projectId: string,
   input: DeployTenantInput,
