@@ -1,3 +1,4 @@
+import { Suspense } from 'react';
 import { AuthGate } from '@/components/auth/auth-gate';
 import { SignInErrorOverlay } from '@/components/auth/sign-in-error-overlay';
 import { SignInPanelGate } from '@/components/auth/sign-in-panel';
@@ -13,12 +14,11 @@ export default function DashboardPage() {
   }
 
   return (
-    <>
-      <AuthGate requiredTier={page.authTier} fallback={<SignInPanelGate requiredTier={page.authTier} />}>
+    <AuthGate requiredTier={page.authTier} fallback={<SignInPanelGate requiredTier={page.authTier} />}>
+      <Suspense fallback={null}>
         <DynamicPage page={page} />
-        <AiFindingsBlock />
-      </AuthGate>
-      <SignInErrorOverlay />
-    </>
+      </Suspense>
+      <AiFindingsBlock />
+    </AuthGate>
   );
 }
