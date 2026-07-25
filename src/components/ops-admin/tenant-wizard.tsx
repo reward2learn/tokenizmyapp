@@ -121,7 +121,6 @@ export function TenantWizard() {
           onClick={handleOpen}
           sx={{ fontWeight: 600 }}
         >
-          New Tenant
         </Button>
       </Tooltip>
 
@@ -132,7 +131,7 @@ export function TenantWizard() {
         fullWidth
       >
         <DialogTitle sx={{ fontWeight: 700 }}>
-          Create New Tenant Application
+          New Tenant App
         </DialogTitle>
         <DialogContent dividers>
           <Stepper activeStep={step} sx={{ mb: 4 }}>

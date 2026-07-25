@@ -96,7 +96,7 @@ export async function seedTenantDefaults(input: SeedTenantInput): Promise<{
        ON CONFLICT (id) DO UPDATE
          SET tenant_slug = $2, tenant_display_name = $3, tenant_template = $4,
              brand_primary_color = $5, brand_secondary_color = $6, updated_at = NOW();`,
-      'default', input.slug, input.displayName, input.template,
+      input.slug, input.slug, input.displayName, input.template,
       input.primaryColor, input.secondaryColor,
     );
     console.log(`[tenant-seed] AppSetting seeded for ${input.slug}`);
@@ -176,9 +176,9 @@ export async function seedTenantDefaults(input: SeedTenantInput): Promise<{
   let navCount = 0;
 
   // Clear all existing nav items for this tenant before re-seeding.
-  // Also delete orphaned rows that have NULL tenant_slug (created before the column existed).
+  // Clear existing nav items for this tenant before re-seeding.
   try {
-    await db.$executeRawUnsafe(`DELETE FROM navigation_items WHERE tenant_slug = $1 OR tenant_slug IS NULL;`, input.slug);
+    await db.$executeRawUnsafe(`DELETE FROM navigation_items WHERE tenant_slug = $1;`, input.slug);
   } catch (err) {
     console.warn(`[tenant-seed] Could not clear navigation_items:`, (err as Error).message);
   }
@@ -283,6 +283,7 @@ export async function seedTemplateSecurityGroups(
  * This is called after the app_settings row exists.
  */
 export async function seedTemplateBranding(
+  slug: string,
   db: any,
   input: { primaryColor: string; secondaryColor: string },
 ): Promise<void> {
@@ -290,9 +291,10 @@ export async function seedTemplateBranding(
     await db.$executeRawUnsafe(
       `UPDATE app_settings
        SET brand_primary_color = $1, brand_secondary_color = $2, updated_at = NOW()
-       WHERE id = 'default';`,
+       WHERE id = $3;`,
       input.primaryColor,
       input.secondaryColor,
+      slug,
     );
     console.log(`[tenant-seed] Branding updated: primary=${input.primaryColor}, secondary=${input.secondaryColor}`);
   } catch (err) {

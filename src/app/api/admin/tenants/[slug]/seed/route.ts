@@ -46,7 +46,7 @@ export async function POST(
 
     const groupsCount = await seedTemplateSecurityGroups(db, tenant.template as string);
 
-    await seedTemplateBranding(db, {
+    await seedTemplateBranding(slug, db, {
       primaryColor: (tenant.primary_color as string) || '#eb3d28',
       secondaryColor: (tenant.secondary_color as string) || '#0af9fe',
     });

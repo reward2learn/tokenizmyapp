@@ -299,8 +299,8 @@ export async function ensureSecurityTables(
   // groups and are assigned by a platform admin via the User Accounts page.
   await withRetry(async () => {
     await raw.$executeRawUnsafe(
-      `INSERT INTO user_groups (user_id, group_id)
-       SELECT ua.id, sg.id FROM user_accounts ua
+      `INSERT INTO user_groups (id, user_id, group_id)
+       SELECT gen_random_uuid()::TEXT, ua.id, sg.id FROM user_accounts ua
        CROSS JOIN security_groups sg
        WHERE sg.code IN ('ops-admin', 'finance')
          AND NOT EXISTS (

@@ -340,23 +340,31 @@ async function upsertEnvVar(
       ? (p: string, o?: RequestInit) => vercelApiWithToken(token, p, o || {}, teamId)
       : (p: string, o?: RequestInit) => vercelApi(p, o || {}, teamId);
 
-    // Try PATCH first (env var likely exists)
-    const patchRes = await fn(`/v10/projects/${projectId}/env/${key}`, { method: 'PATCH', body: requestBody });
-    if (patchRes.ok) {
-      console.log(`[vercel-deploy] Set env ${key} via PATCH (${label})`);
-      return true;
-    }
-
-    // POST to create
-    const postRes = await fn(`/v10/projects/${projectId}/env`, { method: 'POST', body: requestBody });
+    // POST with ?upsert=true — Vercel creates or updates by key name
+    const postRes = await fn(`/v10/projects/${projectId}/env?upsert=true`, { method: 'POST', body: requestBody });
     if (postRes.ok) {
-      console.log(`[vercel-deploy] Set env ${key} via POST (${label})`);
+      console.log(`[vercel-deploy] Set env ${key} via POST ?upsert=true (${label})`);
       return true;
     }
 
-    // Other statuses — log but continue trying other combos
-    const errBody = await postRes.text();
-    console.warn(`[vercel-deploy] ${label} failed for ${key}: ${postRes.status} ${errBody.slice(0, 100)}`);
+    // Fallback: fetch envs to get the ID, then PATCH by ID
+    const getRes = await fn(`/v10/projects/${projectId}/env?decrypt=true`);
+    if (getRes.ok) {
+      const data = await getRes.json() as { envs?: Array<{ key: string; id: string }> };
+      const envEntry = data.envs?.find((e: { key: string; id: string }) => e.key === key);
+      if (envEntry?.id) {
+        const patchRes = await fn(`/v10/projects/${projectId}/env/${envEntry.id}`, { method: 'PATCH', body: requestBody });
+        if (patchRes.ok) {
+          console.log(`[vercel-deploy] Set env ${key} via PATCH by ID (${label})`);
+          return true;
+        }
+      }
+    }
+
+    // Log the failure and continue trying other combos
+    const errText = postRes.status === 400 ? '' : await postRes.text().catch(() => '');
+    const errMsg = errText ? errText.slice(0, 100) : `POST returned ${postRes.status}`;
+    console.warn(`[vercel-deploy] ${label} failed for ${key}: ${errMsg}`);
   }
 
   return false;
