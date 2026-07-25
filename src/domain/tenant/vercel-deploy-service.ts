@@ -327,7 +327,7 @@ async function upsertEnvVar(
   value: string,
   existingId: string | undefined,
 ): Promise<boolean> {
-  const body = JSON.stringify({
+  const requestBody = JSON.stringify({
     key,
     value,
     type: key.startsWith('NEXT_PUBLIC_') ? 'plain' : 'encrypted',
@@ -346,7 +346,7 @@ async function upsertEnvVar(
   // If we know the existing ID, try PATCH first with each token
   if (existingId) {
     for (const { label, fn } of tokens) {
-      const res = await fn(`/v10/projects/${projectId}/env/${existingId}`, { method: 'PATCH', body });
+      const res = await fn(`/v10/projects/${projectId}/env/${existingId}`, { method: 'PATCH', body: requestBody });
       if (res.ok) return true;
       if (res.status !== 401 && res.status !== 403) break; // non-auth error — don't try other tokens
       console.warn(`[vercel-deploy] PATCH ${key} with ${label}: ${res.status} — trying next token`);
@@ -355,7 +355,7 @@ async function upsertEnvVar(
 
   // POST to create. If 409 (exists), re-fetch the ID and PATCH.
   for (const { label, fn } of tokens) {
-    const res = await fn(`/v10/projects/${projectId}/env`, { method: 'POST', body });
+    const res = await fn(`/v10/projects/${projectId}/env`, { method: 'POST', body: requestBody });
     if (res.ok) return true;
 
     if (res.status === 409) {
@@ -365,7 +365,7 @@ async function upsertEnvVar(
         const data = await listRes.json() as { envs?: Array<{ key: string; id: string }> };
         const found = data.envs?.find((e) => e.key === key);
         if (found) {
-          const patchRes = await fn(`/v10/projects/${projectId}/env/${found.id}`, { method: 'PATCH', body });
+          const patchRes = await fn(`/v10/projects/${projectId}/env/${found.id}`, { method: 'PATCH', body: requestBody });
           if (patchRes.ok) return true;
         }
       }
