@@ -23,6 +23,7 @@ interface VercelOAuthTokens {
 }
 
 const CLIENT_ID = process.env.NEXT_PUBLIC_VERCEL_APP_CLIENT_ID;
+const CLIENT_SECRET = process.env.VERCEL_APP_CLIENT_SECRET;
 /**
  * Read the stored Vercel OAuth tokens from the secrets table.
  */
@@ -51,8 +52,8 @@ async function writeTokens(tokens: VercelOAuthTokens): Promise<void> {
  * Vercel's refresh_token flow returns a new access_token + refresh_token pair.
  */
 async function refreshAccessToken(refreshToken: string): Promise<VercelOAuthTokens | null> {
-  if (!CLIENT_ID) {
-    console.warn('[vercel-deploy] Cannot refresh token: missing VERCEL_APP_CLIENT_ID');
+  if (!CLIENT_ID || !CLIENT_SECRET) {
+    console.warn('[vercel-deploy] Cannot refresh token: missing OAuth client config');
     return null;
   }
 
@@ -63,6 +64,7 @@ async function refreshAccessToken(refreshToken: string): Promise<VercelOAuthToke
       body: new URLSearchParams({
         grant_type: 'refresh_token',
         client_id: CLIENT_ID,
+        client_secret: CLIENT_SECRET,
         refresh_token: refreshToken,
       }),
     });
