@@ -16,6 +16,7 @@ import DialogTitle from '@mui/material/DialogTitle';
 import Grid from '@mui/material/Grid';
 import Paper from '@mui/material/Paper';
 import Stack from '@mui/material/Stack';
+import Tooltip from '@mui/material/Tooltip';
 import Step from '@mui/material/Step';
 import StepLabel from '@mui/material/StepLabel';
 import Stepper from '@mui/material/Stepper';
@@ -113,14 +114,16 @@ export function TenantWizard() {
 
   return (
     <>
-      <Button
-        variant="contained"
-        startIcon={<AddIcon />}
-        onClick={handleOpen}
-        sx={{ fontWeight: 600 }}
-      >
-        New Tenant
-      </Button>
+      <Tooltip title="Create a new tenant application with its own branding, users, and configuration">
+        <Button
+          variant="contained"
+          startIcon={<AddIcon />}
+          onClick={handleOpen}
+          sx={{ fontWeight: 600 }}
+        >
+          New Tenant
+        </Button>
+      </Tooltip>
 
       <Dialog
         open={open}

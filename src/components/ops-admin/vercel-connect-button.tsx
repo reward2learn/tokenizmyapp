@@ -37,7 +37,9 @@ export function VercelConnectButton() {
   if (status === 'configured') {
     return (
       <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-        <Chip label="Vercel ✓" size="small" color="success" variant="outlined" />
+        <Tooltip title="Vercel is connected and ready for auto-deploy">
+          <Chip label="Vercel ✓" size="small" color="success" variant="outlined" />
+        </Tooltip>
         {oauthUrl && (
           <Tooltip title="Reconnect to Vercel">
             <Button
