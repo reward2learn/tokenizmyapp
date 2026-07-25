@@ -11,6 +11,16 @@ import { adminApi } from '@/store/apis/admin-api';
 import { brandConfigApi } from '@shared/store/apis/brand-config-api';
 import { navigationApi } from '@/store/apis/navigation-api';
 import { tenantApi } from '@/store/apis/tenant-api';
+import { contentPageApi } from '@/store/apis/content-page-api';
+import { mediaApi } from '@/store/apis/media-api';
+import { notificationApi } from '@/store/apis/notification-api';
+import { commerceApi } from '@/store/apis/commerce-api';
+import { marketingApi } from '@/store/apis/marketing-api';
+import { userApi } from '@/store/apis/user-api';
+import { aiAgentApi } from '@/store/apis/ai-agent-api';
+import { whatsappApi } from '@/store/apis/whatsapp-api';
+import { integrationApi } from '@/store/apis/integration-api';
+import { billingApi } from '@/store/apis/billing-api';
 
 const apiMiddleware = [
   authApi.middleware,
@@ -22,6 +32,16 @@ const apiMiddleware = [
   brandConfigApi.middleware,
   navigationApi.middleware,
   tenantApi.middleware,
+  contentPageApi.middleware,
+  mediaApi.middleware,
+  notificationApi.middleware,
+  commerceApi.middleware,
+  marketingApi.middleware,
+  userApi.middleware,
+  aiAgentApi.middleware,
+  whatsappApi.middleware,
+  integrationApi.middleware,
+  billingApi.middleware,
 ] as const;
 
 export function makeStore() {
@@ -39,6 +59,16 @@ export function makeStore() {
       [brandConfigApi.reducerPath]: brandConfigApi.reducer,
       [navigationApi.reducerPath]: navigationApi.reducer,
       [tenantApi.reducerPath]: tenantApi.reducer,
+      [contentPageApi.reducerPath]: contentPageApi.reducer,
+      [mediaApi.reducerPath]: mediaApi.reducer,
+      [notificationApi.reducerPath]: notificationApi.reducer,
+      [commerceApi.reducerPath]: commerceApi.reducer,
+      [marketingApi.reducerPath]: marketingApi.reducer,
+      [userApi.reducerPath]: userApi.reducer,
+      [aiAgentApi.reducerPath]: aiAgentApi.reducer,
+      [whatsappApi.reducerPath]: whatsappApi.reducer,
+      [integrationApi.reducerPath]: integrationApi.reducer,
+      [billingApi.reducerPath]: billingApi.reducer,
     },
     middleware: (getDefaultMiddleware) =>
       getDefaultMiddleware().concat(...apiMiddleware),

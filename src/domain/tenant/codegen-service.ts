@@ -120,6 +120,35 @@ const COPY_DIRS = [
   'src/domain/seed',
   // Legal pages
   'legal',
+  // Wave 2 features
+  'src/components/commerce',
+  'src/components/marketing',
+  'src/components/media',
+  'src/components/notifications',
+  'src/domain/commerce',
+  'src/domain/marketing',
+  'src/domain/media',
+  'src/domain/notifications',
+  'src/app/api/commerce',
+  'src/app/api/marketing',
+  'src/app/api/media',
+  'src/app/api/notifications',
+  // Wave 3-5 features
+  'src/components/user',
+  'src/components/ai-agent',
+  'src/components/whatsapp',
+  'src/components/integrations',
+  'src/components/billing',
+  'src/domain/user',
+  'src/domain/ai-agent',
+  'src/domain/whatsapp',
+  'src/domain/integrations',
+  'src/domain/billing',
+  'src/app/api/user',
+  'src/app/api/ai-agent',
+  'src/app/api/whatsapp',
+  'src/app/api/integrations',
+  'src/app/api/billing',
 ];
 
 // ── Types ─────────────────────────────────────────────────────────

@@ -260,11 +260,11 @@ async function handleMe(request: Request): Promise<NextResponse> {
       data: {
         user: session
           ? {
-              id: session.sub,
+              id: guard.session.sub,
               email: session.email,
               name: session.name,
               picture: session.picture,
-              authMethod: session.tier,
+              authMethod: guard.session.tier,
             }
           : null,
         tier: session?.tier ?? 'public',

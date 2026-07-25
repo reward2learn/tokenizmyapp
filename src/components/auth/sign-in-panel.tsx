@@ -23,46 +23,57 @@ export interface SignInPanelProps {
 }
 
 /** Options derived from the live PIN-users RTK Query endpoint, falling back to PERSONS. */
-function usePinUsers(): { value: string; sub: string }[] {
+function usePinUsers(): {
+  options: { value: string; sub: string }[];
+  lastUsedName: string | null;
+  isLoading: boolean;
+} {
   const { data, isLoading } = useListPinUsersQuery();
 
   if (isLoading || !data) {
-    return PERSONS.map((p) => ({ value: p.name, sub: p.sub }));
+    return {
+      options: PERSONS.map((p) => ({ value: p.name, sub: p.sub })),
+      lastUsedName: null,
+      isLoading,
+    };
   }
 
   if (data?.success && Array.isArray(data.data?.users)) {
     const active = data.data.users
-      .filter((u) => (u as { pinConfigured?: boolean }).pinConfigured)
+      .filter((u) => (u as { pinConfigured?: boolean }).pinConfigured ?? (u as { hasPin?: boolean }).hasPin)
       .map((u) => ({ value: u.name, sub: u.sub }));
-    return active.length > 0 ? active : PERSONS.map((p) => ({ value: p.name, sub: p.sub }));
+    return {
+      options: active.length > 0 ? active : PERSONS.map((p) => ({ value: p.name, sub: p.sub })),
+      lastUsedName: data.data.lastUsedName ?? null,
+      isLoading: false,
+    };
   }
 
-  return PERSONS.map((p) => ({ value: p.name, sub: p.sub }));
+  return {
+    options: PERSONS.map((p) => ({ value: p.name, sub: p.sub })),
+    lastUsedName: null,
+    isLoading: false,
+  };
 }
 
 export function SignInPanel({ requiredTier }: SignInPanelProps) {
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const [pin, setPin] = useState('');
-  const personOptions = usePinUsers();
-    const [personName, setPersonName] = useState<string>(() => {
-    if (typeof window !== 'undefined') {
-      const saved = localStorage.getItem('lastPinUser');
-      if (saved) return saved;
-    }
-    return '';
-  });
-  // Sync selected person from localStorage when options resolve
+  const { options: personOptions, lastUsedName } = usePinUsers();
+  const [personName, setPersonName] = useState('');
+
+  // Prefer the last PIN user persisted in Neon (user_accounts.last_seen_at).
   useEffect(() => {
-    if (personOptions.length > 0) {
-      const saved = typeof window !== 'undefined' ? localStorage.getItem('lastPinUser') : null;
-      if (saved && personOptions.some((o) => o.value === saved)) {
-        setPersonName(saved);
-      } else if (!personName || !personOptions.some((o) => o.value === personName)) {
-        setPersonName(personOptions[0].value);
-      }
+    if (personOptions.length === 0) return;
+    if (lastUsedName && personOptions.some((o) => o.value === lastUsedName)) {
+      setPersonName((prev) => (prev === lastUsedName ? prev : lastUsedName));
+      return;
     }
-  }, [personOptions]);
+    setPersonName((prev) =>
+      prev && personOptions.some((o) => o.value === prev) ? prev : personOptions[0].value,
+    );
+  }, [personOptions, lastUsedName]);
 
   const [verifyPin, { isLoading, isError, error }] = useVerifyPinMutation();
   const { refetch: refetchSession } = useGetSessionQuery();
@@ -75,12 +86,9 @@ export function SignInPanel({ requiredTier }: SignInPanelProps) {
     event.preventDefault();
     if (!pin.trim()) return;
     // Send the person's name so the endpoint can resolve the sub from PERSONS.
+    // Successful verify-pin upserts user_accounts.last_seen_at in Neon.
     const result = await verifyPin({ name: personName, pin: pin.trim() });
     if ('data' in result && result.data?.ok) {
-      // Persist selected PIN user so they don't have to re-select on return.
-      try {
-        localStorage.setItem('lastPinUser', personName);
-      } catch {}
       // Cookie is set on the verify-pin response; force a session refetch so
       // AuthProvider updates Redux state and the gate reveals admin content.
       await refetchSession();

@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import Alert from '@mui/material/Alert';
 import Box from '@mui/material/Box';
 import Button from '@mui/material/Button';
@@ -17,10 +17,13 @@ import Stack from '@mui/material/Stack';
 import Table from '@mui/material/Table';
 import TableBody from '@mui/material/TableBody';
 import TableCell from '@mui/material/TableCell';
+import TableContainer from '@mui/material/TableContainer';
 import TableHead from '@mui/material/TableHead';
 import TableRow from '@mui/material/TableRow';
 import Tooltip from '@mui/material/Tooltip';
 import Typography from '@mui/material/Typography';
+import useMediaQuery from '@mui/material/useMediaQuery';
+import { useTheme } from '@mui/material/styles';
 import DeleteIcon from '@mui/icons-material/Delete';
 import EditIcon from '@mui/icons-material/Edit';
 import PeopleIcon from '@mui/icons-material/People';
@@ -57,7 +60,51 @@ const STATUS_COLORS: Record<string, 'info' | 'warning' | 'success' | 'error'> = 
   error: 'error',
 };
 
+function TenantUrlLink({ tenant }: { tenant: TenantEntry }) {
+  if (tenant.appUrl) {
+    return (
+      <Button
+        size="small"
+        variant="text"
+        href={tenant.appUrl}
+        target="_blank"
+        rel="noopener noreferrer"
+        endIcon={<OpenInNewIcon fontSize="small" />}
+        sx={{ fontSize: '0.75rem', maxWidth: '100%', justifyContent: 'flex-start' }}
+      >
+        <Box component="span" sx={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+          {tenant.appUrl.replace('https://', '')}
+        </Box>
+      </Button>
+    );
+  }
+  if (tenant.status === 'live') {
+    return (
+      <Button
+        size="small"
+        variant="text"
+        href={`https://${tenant.slug}.vercel.app`}
+        target="_blank"
+        rel="noopener noreferrer"
+        endIcon={<OpenInNewIcon fontSize="small" />}
+        sx={{ fontSize: '0.75rem', maxWidth: '100%', justifyContent: 'flex-start' }}
+      >
+        <Box component="span" sx={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+          {tenant.slug}.vercel.app
+        </Box>
+      </Button>
+    );
+  }
+  return (
+    <Typography variant="caption" color="text.disabled">
+      {tenant.slug}.vercel.app
+    </Typography>
+  );
+}
+
 export function TenantDashboard() {
+  const theme = useTheme();
+  const isMobile = useMediaQuery(theme.breakpoints.down('md'));
   const { data, isLoading, isError, refetch } = useListTenantsQuery();
   const [deleteTenant, { isLoading: isDeleting }] = useDeleteTenantMutation();
   const [deleting, setDeleting] = useState<string | null>(null);
@@ -139,9 +186,13 @@ export function TenantDashboard() {
 
   return (
     <Stack spacing={3}>
-      <Paper variant="outlined" sx={{ p: 3 }}>
-        <Stack direction="row" sx={{ mb: 2, alignItems: 'center', justifyContent: 'space-between' }}>
-          <Box>
+      <Paper variant="outlined" sx={{ p: { xs: 2, sm: 3 }, overflow: 'hidden' }}>
+        <Stack
+          direction={{ xs: 'column', sm: 'row' }}
+          spacing={1.5}
+          sx={{ mb: 2, alignItems: { xs: 'stretch', sm: 'center' }, justifyContent: 'space-between' }}
+        >
+          <Box sx={{ minWidth: 0 }}>
             <Typography variant="h6" sx={{ fontWeight: 700 }}>
               Tenant Applications
             </Typography>
@@ -149,7 +200,7 @@ export function TenantDashboard() {
               Manage registered tenant applications. Create new tenants, monitor deployment status, and configure settings.
             </Typography>
           </Box>
-          <Stack direction="row" spacing={1}>
+          <Stack direction="row" spacing={1} sx={{ alignItems: 'center', flexShrink: 0, justifyContent: { xs: 'flex-end', sm: 'unset' } }}>
             <Tooltip title="Refresh">
               <IconButton onClick={() => refetch()} size="small">
                 <RefreshIcon />
@@ -173,135 +224,192 @@ export function TenantDashboard() {
             </Typography>
             <TenantWizard />
           </Box>
-        ) : (
-          <Table size="small">
-            <TableHead>
-              <TableRow>
-                <TableCell>Tenant</TableCell>
-                <TableCell>Template</TableCell>
-                <TableCell>Status</TableCell>
-                <TableCell>License</TableCell>
-                <TableCell>URL</TableCell>
-                <TableCell>Created</TableCell>
-                <TableCell align="right">Actions</TableCell>
-              </TableRow>
-            </TableHead>
-            <TableBody>
-              {tenants.map((t) => {
-                const tpl = getTemplate(t.template);
-                return (
-                  <TableRow key={t.id}>
-                    <TableCell>
+        ) : isMobile ? (
+          <Stack spacing={1.5}>
+            {tenants.map((t) => {
+              const tpl = getTemplate(t.template);
+              return (
+                <Paper key={t.id} variant="outlined" sx={{ p: 2 }}>
+                  <Stack direction="row" sx={{ alignItems: 'flex-start', justifyContent: 'space-between', gap: 1 }}>
+                    <Box sx={{ minWidth: 0, flex: 1 }}>
                       <Typography variant="body2" sx={{ fontWeight: 600 }}>
                         {t.displayName}
                       </Typography>
-                      <Typography variant="caption" color="text.secondary">
+                      <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
                         {t.slug}
                       </Typography>
-                    </TableCell>
-                    <TableCell>
-                      <Chip label={tpl.label} size="small" variant="outlined" />
-                    </TableCell>
-                    <TableCell>
-                      <Chip
-                        label={t.status}
-                        size="small"
-                        color={STATUS_COLORS[t.status] ?? 'default'}
-                      />
-                    </TableCell>
-                    <TableCell>
-                      {t.apiKey ? (
-                        <Chip label="Licensed" size="small" color="success" variant="outlined" />
-                      ) : (
-                        <Chip label="Unlicensed" size="small" color="warning" variant="outlined" />
-                      )}
-                    </TableCell>
-                    <TableCell>
-                      {t.appUrl ? (
-                        <Button
-                          size="small"
-                          variant="text"
-                          href={t.appUrl}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          endIcon={<OpenInNewIcon fontSize="small" />}
-                          sx={{ fontSize: '0.75rem' }}
-                        >
-                          {t.appUrl.replace('https://', '')}
-                        </Button>
-                      ) : t.status === 'live' ? (
-                        <Button
-                          size="small"
-                          variant="text"
-                          href={`https://${t.slug}.vercel.app`}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          endIcon={<OpenInNewIcon fontSize="small" />}
-                          sx={{ fontSize: '0.75rem' }}
-                        >
-                          {t.slug}.vercel.app
-                        </Button>
-                      ) : (
-                        <Typography variant="caption" color="text.disabled">
-                          {t.slug}.vercel.app
+                    </Box>
+                    <IconButton
+                      size="small"
+                      onClick={(e) => handleMenuOpen(t.slug, e.currentTarget)}
+                      aria-label={`Actions for ${t.displayName}`}
+                    >
+                      <MoreVertIcon fontSize="small" />
+                    </IconButton>
+                  </Stack>
+                  <Stack direction="row" spacing={0.75} sx={{ mt: 1.5, flexWrap: 'wrap' }} useFlexGap>
+                    <Chip label={tpl.label} size="small" variant="outlined" />
+                    <Chip
+                      label={t.status}
+                      size="small"
+                      color={STATUS_COLORS[t.status] ?? 'default'}
+                    />
+                    {t.apiKey ? (
+                      <Chip label="Licensed" size="small" color="success" variant="outlined" />
+                    ) : (
+                      <Chip label="Unlicensed" size="small" color="warning" variant="outlined" />
+                    )}
+                  </Stack>
+                  <Box sx={{ mt: 1.5, minWidth: 0 }}>
+                    <TenantUrlLink tenant={t} />
+                  </Box>
+                  <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1 }}>
+                    Created {new Date(t.createdAt).toLocaleDateString()}
+                  </Typography>
+                  <Menu
+                    anchorEl={menuAnchor?.slug === t.slug ? menuAnchor.el : null}
+                    open={menuAnchor?.slug === t.slug}
+                    onClose={handleMenuClose}
+                    transformOrigin={{ horizontal: 'right', vertical: 'top' }}
+                    anchorOrigin={{ horizontal: 'right', vertical: 'bottom' }}
+                  >
+                    <MenuItem onClick={() => { handleMenuClose(); setEditor(t); }}>
+                      <ListItemIcon><EditIcon fontSize="small" /></ListItemIcon>
+                      <ListItemText>Edit</ListItemText>
+                    </MenuItem>
+                    <MenuItem onClick={() => { handleMenuClose(); setUserManager({ slug: t.slug, displayName: t.displayName }); }}>
+                      <ListItemIcon><PeopleIcon fontSize="small" /></ListItemIcon>
+                      <ListItemText>Manage Users</ListItemText>
+                    </MenuItem>
+                    <Divider />
+                    <MenuItem onClick={() => void handleSeed(t.slug)} disabled={isSeeding}>
+                      <ListItemIcon><PlayArrowIcon fontSize="small" /></ListItemIcon>
+                      <ListItemText>{isSeeding ? 'Seeding…' : 'Seed'}</ListItemText>
+                    </MenuItem>
+                    <MenuItem onClick={() => void handleMigrate(t.slug)} disabled={isMigrating}>
+                      <ListItemIcon><BuildIcon fontSize="small" /></ListItemIcon>
+                      <ListItemText>{isMigrating ? 'Migrating…' : 'Migrate'}</ListItemText>
+                    </MenuItem>
+                    <MenuItem onClick={() => void handleDeploy(t.slug)} disabled={isDeploying}>
+                      <ListItemIcon><CloudUploadIcon fontSize="small" /></ListItemIcon>
+                      <ListItemText>{isDeploying ? 'Deploying…' : 'Deploy to Vercel'}</ListItemText>
+                    </MenuItem>
+                    <Divider />
+                    <MenuItem
+                      onClick={() => { handleMenuClose(); setConfirmDelete(t.slug); }}
+                      disabled={isDeleting && deleting === t.slug}
+                    >
+                      <ListItemIcon><DeleteIcon fontSize="small" color="error" /></ListItemIcon>
+                      <ListItemText sx={{ color: 'error.main' }}>Delete</ListItemText>
+                    </MenuItem>
+                  </Menu>
+                </Paper>
+              );
+            })}
+          </Stack>
+        ) : (
+          <TableContainer sx={{ width: '100%', overflowX: 'auto' }}>
+            <Table size="small" sx={{ minWidth: 720 }}>
+              <TableHead>
+                <TableRow>
+                  <TableCell>Tenant</TableCell>
+                  <TableCell>Template</TableCell>
+                  <TableCell>Status</TableCell>
+                  <TableCell>License</TableCell>
+                  <TableCell>URL</TableCell>
+                  <TableCell>Created</TableCell>
+                  <TableCell align="right">Actions</TableCell>
+                </TableRow>
+              </TableHead>
+              <TableBody>
+                {tenants.map((t) => {
+                  const tpl = getTemplate(t.template);
+                  return (
+                    <TableRow key={t.id}>
+                      <TableCell>
+                        <Typography variant="body2" sx={{ fontWeight: 600 }}>
+                          {t.displayName}
                         </Typography>
-                      )}
-                    </TableCell>
-                    <TableCell>
-                      <Typography variant="caption" color="text.secondary">
-                        {new Date(t.createdAt).toLocaleDateString()}
-                      </Typography>
-                    </TableCell>
-                    <TableCell align="right">
-                      <IconButton
-                        size="small"
-                        onClick={(e) => handleMenuOpen(t.slug, e.currentTarget)}
-                      >
-                        <MoreVertIcon fontSize="small" />
-                      </IconButton>
-                      <Menu
-                        anchorEl={menuAnchor?.slug === t.slug ? menuAnchor.el : null}
-                        open={menuAnchor?.slug === t.slug}
-                        onClose={handleMenuClose}
-                        transformOrigin={{ horizontal: 'right', vertical: 'top' }}
-                        anchorOrigin={{ horizontal: 'right', vertical: 'bottom' }}
-                      >
-                        <MenuItem onClick={() => { handleMenuClose(); setEditor(t); }}>
-                          <ListItemIcon><EditIcon fontSize="small" /></ListItemIcon>
-                          <ListItemText>Edit</ListItemText>
-                        </MenuItem>
-                        <MenuItem onClick={() => { handleMenuClose(); setUserManager({ slug: t.slug, displayName: t.displayName }); }}>
-                          <ListItemIcon><PeopleIcon fontSize="small" /></ListItemIcon>
-                          <ListItemText>Manage Users</ListItemText>
-                        </MenuItem>
-                        <Divider />
-                        <MenuItem onClick={() => void handleSeed(t.slug)} disabled={isSeeding}>
-                          <ListItemIcon><PlayArrowIcon fontSize="small" /></ListItemIcon>
-                          <ListItemText>{isSeeding ? 'Seeding…' : 'Seed'}</ListItemText>
-                        </MenuItem>
-                        <MenuItem onClick={() => void handleMigrate(t.slug)} disabled={isMigrating}>
-                          <ListItemIcon><BuildIcon fontSize="small" /></ListItemIcon>
-                          <ListItemText>{isMigrating ? 'Migrating…' : 'Migrate'}</ListItemText>
-                        </MenuItem>
-                        <MenuItem onClick={() => void handleDeploy(t.slug)} disabled={isDeploying}>
-                          <ListItemIcon><CloudUploadIcon fontSize="small" /></ListItemIcon>
-                          <ListItemText>{isDeploying ? 'Deploying…' : 'Deploy to Vercel'}</ListItemText>
-                        </MenuItem>
-                        <Divider />
-                        <MenuItem
-                          onClick={() => { handleMenuClose(); setConfirmDelete(t.slug); }}
-                          disabled={isDeleting && deleting === t.slug}
+                        <Typography variant="caption" color="text.secondary">
+                          {t.slug}
+                        </Typography>
+                      </TableCell>
+                      <TableCell>
+                        <Chip label={tpl.label} size="small" variant="outlined" />
+                      </TableCell>
+                      <TableCell>
+                        <Chip
+                          label={t.status}
+                          size="small"
+                          color={STATUS_COLORS[t.status] ?? 'default'}
+                        />
+                      </TableCell>
+                      <TableCell>
+                        {t.apiKey ? (
+                          <Chip label="Licensed" size="small" color="success" variant="outlined" />
+                        ) : (
+                          <Chip label="Unlicensed" size="small" color="warning" variant="outlined" />
+                        )}
+                      </TableCell>
+                      <TableCell sx={{ maxWidth: 220 }}>
+                        <TenantUrlLink tenant={t} />
+                      </TableCell>
+                      <TableCell>
+                        <Typography variant="caption" color="text.secondary">
+                          {new Date(t.createdAt).toLocaleDateString()}
+                        </Typography>
+                      </TableCell>
+                      <TableCell align="right">
+                        <IconButton
+                          size="small"
+                          onClick={(e) => handleMenuOpen(t.slug, e.currentTarget)}
                         >
-                          <ListItemIcon><DeleteIcon fontSize="small" color="error" /></ListItemIcon>
-                          <ListItemText sx={{ color: 'error.main' }}>Delete</ListItemText>
-                        </MenuItem>
-                      </Menu>
-                    </TableCell>
-                  </TableRow>
-                );
-              })}
-            </TableBody>
-          </Table>
+                          <MoreVertIcon fontSize="small" />
+                        </IconButton>
+                        <Menu
+                          anchorEl={menuAnchor?.slug === t.slug ? menuAnchor.el : null}
+                          open={menuAnchor?.slug === t.slug}
+                          onClose={handleMenuClose}
+                          transformOrigin={{ horizontal: 'right', vertical: 'top' }}
+                          anchorOrigin={{ horizontal: 'right', vertical: 'bottom' }}
+                        >
+                          <MenuItem onClick={() => { handleMenuClose(); setEditor(t); }}>
+                            <ListItemIcon><EditIcon fontSize="small" /></ListItemIcon>
+                            <ListItemText>Edit</ListItemText>
+                          </MenuItem>
+                          <MenuItem onClick={() => { handleMenuClose(); setUserManager({ slug: t.slug, displayName: t.displayName }); }}>
+                            <ListItemIcon><PeopleIcon fontSize="small" /></ListItemIcon>
+                            <ListItemText>Manage Users</ListItemText>
+                          </MenuItem>
+                          <Divider />
+                          <MenuItem onClick={() => void handleSeed(t.slug)} disabled={isSeeding}>
+                            <ListItemIcon><PlayArrowIcon fontSize="small" /></ListItemIcon>
+                            <ListItemText>{isSeeding ? 'Seeding…' : 'Seed'}</ListItemText>
+                          </MenuItem>
+                          <MenuItem onClick={() => void handleMigrate(t.slug)} disabled={isMigrating}>
+                            <ListItemIcon><BuildIcon fontSize="small" /></ListItemIcon>
+                            <ListItemText>{isMigrating ? 'Migrating…' : 'Migrate'}</ListItemText>
+                          </MenuItem>
+                          <MenuItem onClick={() => void handleDeploy(t.slug)} disabled={isDeploying}>
+                            <ListItemIcon><CloudUploadIcon fontSize="small" /></ListItemIcon>
+                            <ListItemText>{isDeploying ? 'Deploying…' : 'Deploy to Vercel'}</ListItemText>
+                          </MenuItem>
+                          <Divider />
+                          <MenuItem
+                            onClick={() => { handleMenuClose(); setConfirmDelete(t.slug); }}
+                            disabled={isDeleting && deleting === t.slug}
+                          >
+                            <ListItemIcon><DeleteIcon fontSize="small" color="error" /></ListItemIcon>
+                            <ListItemText sx={{ color: 'error.main' }}>Delete</ListItemText>
+                          </MenuItem>
+                        </Menu>
+                      </TableCell>
+                    </TableRow>
+                  );
+                })}
+              </TableBody>
+            </Table>
+          </TableContainer>
         )}
       </Paper>
 

@@ -408,8 +408,6 @@ export function AppShell({ children }: { children: ReactNode }) {
               color="inherit"
               fullWidth
               onClick={() => {
-                // Clear PIN user preference so user must re-select on next sign-in.
-                try { localStorage.removeItem('lastPinUser'); } catch {}
                 window.location.href = '/api/auth?action=logout';
               }}
             >

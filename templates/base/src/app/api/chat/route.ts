@@ -347,7 +347,7 @@ async function handleChatPost(request: Request): Promise<Response> {
   const userName = session?.name || session?.email || 'Anonymous';
   const db = createClient({
     tier: session?.tier ?? 'public',
-    ...(session?.sub !== undefined ? { sub: session.sub } : {}),
+    ...(session?.sub !== undefined ? { sub: guard.session.sub } : {}),
   });
   const knowledge = new KnowledgeService(db);
 
@@ -535,7 +535,7 @@ async function handleConversations(request: Request, url: URL): Promise<NextResp
   const userName = session?.name || session?.email || 'Anonymous';
   const db = createClient({
     tier: session?.tier ?? 'public',
-    ...(session?.sub !== undefined ? { sub: session.sub } : {}),
+    ...(session?.sub !== undefined ? { sub: guard.session.sub } : {}),
   });
 
   if (request.method === 'POST') {

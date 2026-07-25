@@ -27,7 +27,11 @@ export const authApi = createApi({
       }),
       invalidatesTags: ['Session'],
     }),
-    listPinUsers: builder.query<ApiEnvelope<{ users: Array<{ sub: string; name: string; role: string; pinConfigured: boolean }> }>, void>({
+    listPinUsers: builder.query<ApiEnvelope<{
+      users: Array<{ sub: string; name: string; role: string; pinConfigured: boolean; lastSeenAt?: string | null }>;
+      lastUsedSub?: string | null;
+      lastUsedName?: string | null;
+    }>, void>({
       query: () => 'auth?action=list-pin-users',
     }),
   }),

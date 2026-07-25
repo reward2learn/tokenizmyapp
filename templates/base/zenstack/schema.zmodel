@@ -121,6 +121,10 @@ model UserAccount {
   roleCode    String?       @map("role_code")
   isActive    Boolean       @default(true) @map("is_active")
   lastSeenAt  DateTime?     @map("last_seen_at")
+  metadata    Json          @default("{}")
+  avatarUrl   String?       @map("avatar_url")
+  bio         String?       @db.Text
+  phone       String?
   createdAt   DateTime      @default(now()) @map("created_at")
   updatedAt   DateTime      @updatedAt @map("updated_at")
   groups      UserGroup[]
@@ -356,3 +360,629 @@ model Tenant {
 // Financial writes: auth().tier == pin || auth().tier == google
 // Review parts: auth().tier == google
 // Public read: metrics list, legal pages
+
+// ── Phase 10B: Content Pages (Legal CRUD) ──────────────────────
+
+model ContentPage {
+  id          String   @id @default(cuid())
+  slug        String   @unique
+  title       String
+  body        String   @db.Text
+  format      String   @default("html")
+  isPublished Boolean  @default(true) @map("is_published")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+  updatedBy   String?  @map("updated_by")
+
+  @@allow('read', true)
+  @@allow('create,update,delete', auth().tier == pin || auth().tier == google)
+  @@map("content_pages")
+}
+
+// ── Phase 10C: Media Assets (Image + Video upload) ─────────────
+
+model MediaAsset {
+  id           String   @id @default(cuid())
+  uploadedBy   String   @map("uploaded_by")
+  filename     String
+  mimeType     String   @map("mime_type")
+  size         Int
+  storage      String   @default("vercel-blob")
+  url          String
+  thumbnailUrl String?  @map("thumbnail_url")
+  altText      String?  @map("alt_text")
+  width        Int?
+  height       Int?
+  duration     Float?
+  tags         String[] @default([])
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  @@index([uploadedBy])
+  @@index([mimeType])
+  @@allow('read', true)
+  @@allow('create,update,delete', auth().tier == pin || auth().tier == google)
+  @@map("media_assets")
+}
+
+// ── Phase 10D: Notifications ───────────────────────────────────
+
+model Notification {
+  id           String   @id @default(cuid())
+  userSub      String   @map("user_sub")
+  type         String   @default("info")
+  title        String
+  body         String   @db.Text
+  linkUrl      String?  @map("link_url")
+  isRead       Boolean  @default(false) @map("is_read")
+  isDismissed  Boolean  @default(false) @map("is_dismissed")
+  metadata     Json     @default("{}")
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  @@index([userSub, isRead])
+  @@allow('read', auth().sub == userSub)
+  @@allow('update', auth().sub == userSub)
+  @@allow('create,delete', auth().tier == pin || auth().tier == google)
+  @@map("notifications")
+}
+
+// ── Phase 10G: Commerce (Products, Orders, Bookings) ───────────
+
+model Product {
+  id              String   @id @default(cuid())
+  type            String   @default("product")
+  name            String
+  slug            String   @unique
+  summary         String   @db.Text
+  description     String   @db.Text
+  price           Int
+  currency        String   @default("USD")
+  compareAtPrice  Int?     @map("compare_at_price")
+  sku             String?
+  category        String?
+  tags            String[] @default([])
+  imageUrl        String?  @map("image_url")
+  galleryUrls     String[] @default([]) @map("gallery_urls")
+  videoUrl        String?  @map("video_url")
+  stockCount      Int?     @map("stock_count")
+  isActive        Boolean  @default(true) @map("is_active")
+  sortOrder       Int      @default(0) @map("sort_order")
+  seoTitle        String?  @map("seo_title")
+  seoDescription  String?  @db.Text @map("seo_description")
+  metadata        Json     @default("{}")
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+  bookings        Booking[]
+
+  @@index([category, isActive])
+  @@index([type])
+  @@allow('read', true)
+  @@allow('create,update,delete', auth().tier == pin || auth().tier == google)
+  @@map("products")
+}
+
+model Order {
+  id               String   @id @default(cuid())
+  orderNumber      String   @unique @map("order_number")
+  customerEmail    String   @map("customer_email")
+  customerName     String   @map("customer_name")
+  customerPhone    String?  @map("customer_phone")
+  customerSub      String?  @map("customer_sub")
+  items            Json
+  subtotal         Int
+  tax              Int      @default(0)
+  shipping         Int      @default(0)
+  discount         Int      @default(0)
+  total            Int
+  currency         String   @default("USD")
+  paymentStatus    String   @default("pending") @map("payment_status")
+  paymentMethod    String?  @map("payment_method")
+  paymentTxId      String?  @map("payment_tx_id")
+  fulfillmentStatus String  @default("pending") @map("fulfillment_status")
+  shippingAddress  Json?    @map("shipping_address")
+  bookingDetails   Json?    @map("booking_details")
+  notes            String?  @db.Text
+  campaignData     Json?    @map("campaign_data")
+  createdAt        DateTime @default(now()) @map("created_at")
+  updatedAt        DateTime @updatedAt @map("updated_at")
+
+  @@index([customerEmail])
+  @@index([paymentStatus])
+  @@index([fulfillmentStatus])
+  @@allow('read', auth().sub == customerSub || auth().tier == pin || auth().tier == google)
+  @@allow('create', true)
+  @@allow('update', auth().tier == pin || auth().tier == google)
+  @@map("orders")
+}
+
+model Booking {
+  id            String   @id @default(cuid())
+  reference     String   @unique
+  customerEmail String   @map("customer_email")
+  customerName  String   @map("customer_name")
+  customerPhone String?  @map("customer_phone")
+  customerSub   String?  @map("customer_sub")
+  productId     String   @map("product_id")
+  product       Product  @relation(fields: [productId], references: [id])
+  date          DateTime
+  startTime     String   @map("start_time")
+  duration      Int      @default(60)
+  partySize     Int      @default(1) @map("party_size")
+  status        String   @default("pending")
+  notes         String?  @db.Text
+  orderId       String?  @map("order_id")
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+
+  @@index([productId, date])
+  @@index([customerEmail])
+  @@index([status])
+  @@allow('read', auth().sub == customerSub || auth().tier == pin || auth().tier == google)
+  @@allow('create', true)
+  @@allow('update', auth().tier == pin || auth().tier == google)
+  @@map("bookings")
+}
+
+// ── Phase 10H: Marketing (Blog, Subscribers, Leads, Campaigns) ─
+
+model BlogPost {
+  id             String    @id @default(cuid())
+  title          String
+  slug           String    @unique
+  body           String    @db.Text
+  excerpt        String    @db.Text
+  category       String
+  tags           String[]  @default([])
+  coverImageUrl  String?   @map("cover_image_url")
+  author         String    @default("Admin")
+  authorSub      String?   @map("author_sub")
+  status         String    @default("draft")
+  publishedAt    DateTime? @map("published_at")
+  seoTitle       String?   @map("seo_title")
+  seoDescription String?   @db.Text @map("seo_description")
+  ogImageUrl     String?   @map("og_image_url")
+  viewCount      Int       @default(0) @map("view_count")
+  readingTime    Int       @default(1) @map("reading_time")
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+
+  @@index([status, publishedAt])
+  @@index([category])
+  @@allow('read', status == "published" || auth().tier == pin || auth().tier == google)
+  @@allow('create,update,delete', auth().tier == pin || auth().tier == google)
+  @@map("blog_posts")
+}
+
+model Subscriber {
+  id           String   @id @default(cuid())
+  email        String   @unique
+  name         String?
+  source       String   @default("footer")
+  campaignData Json?    @map("campaign_data")
+  status       String   @default("active")
+  confirmToken String?  @map("confirm_token")
+  isConfirmed  Boolean  @default(false) @map("is_confirmed")
+  ipAddress    String?  @map("ip_address")
+  tags         String[] @default([])
+  unsubscribeToken String? @map("unsubscribe_token")
+  unsubscribedAt   DateTime? @map("unsubscribed_at")
+  frequency        String?   @default("weekly")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  @@index([status])
+  @@allow('create', true)
+  @@allow('read', auth().tier == pin || auth().tier == google)
+  @@allow('update,delete', auth().tier == pin || auth().tier == google)
+  @@map("subscribers")
+}
+
+model Lead {
+  id           String   @id @default(cuid())
+  type         String   @default("contact")
+  name         String
+  email        String
+  phone        String?
+  company      String?
+  message      String   @db.Text
+  sourceUrl    String?  @map("source_url")
+  campaignData Json?    @map("campaign_data")
+  status       String   @default("new")
+  assignedTo   String?  @map("assigned_to")
+  notes        String?  @db.Text
+  convertedId  String?  @map("converted_id")
+  convertedAt  DateTime? @map("converted_at")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  @@index([status])
+  @@index([type])
+  @@index([assignedTo])
+  @@allow('create', true)
+  @@allow('read', auth().tier == pin || auth().tier == google)
+  @@allow('update,delete', auth().tier == pin || auth().tier == google)
+  @@map("leads")
+}
+
+model Campaign {
+  id           String    @id @default(cuid())
+  name         String
+  source       String?
+  medium       String?
+  term         String?
+  content      String?
+  startDate    DateTime?  @map("start_date")
+  endDate      DateTime?  @map("end_date")
+  budget       Int?
+  status       String    @default("draft")
+  conversions  Int       @default(0)
+  clicks       Int       @default(0)
+  impressions  Int       @default(0)
+  metadata     Json      @default("{}")
+  // Phase 10H marketing fields
+  type         String?   @default("email")
+  audience     String?   @default("all")
+  subject      String?   @default("")
+  body         String?   @db.Text
+  scheduledAt  DateTime? @map("scheduled_at")
+  abTest       Boolean   @default(false) @map("ab_test")
+  startedAt    DateTime? @map("started_at")
+  sentAt       DateTime? @map("sent_at")
+  sentCount    Int       @default(0) @map("sent_count")
+  failedCount  Int       @default(0) @map("failed_count")
+  openedCount  Int       @default(0) @map("opened_count")
+  createdAt    DateTime  @default(now()) @map("created_at")
+  updatedAt    DateTime  @updatedAt @map("updated_at")
+
+  @@index([status])
+  @@allow('read', auth().tier == pin || auth().tier == google)
+  @@allow('create,update,delete', auth().tier == pin || auth().tier == google)
+  @@map("campaigns")
+}
+
+model AnalyticsEvent {
+  id           String   @id @default(cuid())
+  type         String
+  pageUrl      String   @map("page_url")
+  pagePath     String   @map("page_path")
+  sessionId    String   @map("session_id")
+  userSub      String?  @map("user_sub")
+  referrer     String?
+  campaignData Json?    @map("campaign_data")
+  metadata     Json     @default("{}")
+  country      String?
+  device       String?
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  @@index([type, createdAt])
+  @@index([sessionId])
+  @@index([pagePath])
+  @@allow('create', true)
+  @@allow('read', auth().tier == pin || auth().tier == google)
+  @@map("analytics_events")
+}
+
+// ── Phase 10E: User Activity + AI Tasks (Wave 3 — added early for schema sync) ──
+
+model UserActivity {
+  id          String   @id @default(cuid())
+  userSub     String   @map("user_sub")
+  action      String
+  description String   @db.Text
+  resourceId  String?  @map("resource_id")
+  metadata    Json     @default("{}")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  @@index([userSub, createdAt])
+  @@allow('read', auth().sub == userSub || auth().tier == pin || auth().tier == google)
+  @@allow('create', true)
+  @@map("user_activity")
+}
+
+model UserTask {
+  id          String    @id @default(cuid())
+  userSub     String    @map("user_sub")
+  name        String
+  instruction String    @db.Text
+  type        String    @default("one-time")
+  schedule    String?
+  trigger     String?
+  aiAction    String    @default("custom") @map("ai_action")
+  parameters  Json      @default("{}")
+  status      String    @default("active")
+  lastRunAt   DateTime? @map("last_run_at")
+  nextRunAt   DateTime? @map("next_run_at")
+  lastResult  String?   @db.Text @map("last_result")
+  priority    String    @default("medium")
+  dueDate     DateTime? @map("due_date")
+  completedAt DateTime? @map("completed_at")
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+
+  @@index([userSub, status])
+  @@index([nextRunAt])
+  @@allow('read', auth().sub == userSub)
+  @@allow('create,update,delete', auth().sub == userSub)
+  @@map("user_tasks")
+}
+
+// ── Phase 10I: AI Agent (Wave 4 — added early for schema sync) ──
+
+model AiAgentConfig {
+  id                          String   @id @default("default")
+  enabled                     Boolean  @default(true)
+  aiTier                      String   @default("pin") @map("ai_tier")
+  enabledTools                Json     @default("[]") @map("enabled_tools")
+  disabledTools               Json     @default("[]") @map("disabled_tools")
+  allowDelete                 Boolean  @default(false) @map("allow_delete")
+  allowEmailSend              Boolean  @default(false) @map("allow_email_send")
+  allowBroadcast              Boolean  @default(false) @map("allow_broadcast")
+  allowUserManagement         Boolean  @default(false) @map("allow_user_management")
+  allowWhatsAppSend           Boolean  @default(false) @map("allow_whatsapp_send")
+  allowWhatsAppGroup          Boolean  @default(false) @map("allow_whatsapp_group")
+  allowWhatsAppBroadcast      Boolean  @default(false) @map("allow_whatsapp_broadcast")
+  maxToolCallsPerConversation Int      @default(20) @map("max_tool_calls_per_conversation")
+  maxToolCallsPerHour         Int      @default(100) @map("max_tool_calls_per_hour")
+  requireConfirmation         Boolean  @default(true) @map("require_confirmation")
+  readableModels              Json     @default("[]") @map("readable_models")
+  writableModels              Json     @default("[]") @map("writable_models")
+  customPrompt                String?  @db.Text @map("custom_prompt")
+  tone                        String   @default("professional")
+  model                       String?  @map("ai_model")
+  webSearchEnabled            Boolean  @default(false) @map("web_search_enabled")
+  updatedAt                   DateTime @updatedAt @map("updated_at")
+
+  @@allow('read', auth().tier == pin || auth().tier == google)
+  @@allow('update', auth().tier == pin || auth().tier == google)
+  @@map("ai_agent_config")
+}
+
+model AiActionLog {
+  id              String    @id @default(cuid())
+  userSub         String    @map("user_sub")
+  conversationId  Int?      @map("conversation_id")
+  prompt          String    @db.Text
+  toolName        String    @map("tool_name")
+  parameters      Json
+  result          String    @default("success")
+  resultData      Json      @default("{}") @map("result_data")
+  error           String?   @db.Text
+  policyCheck     String    @default("allowed") @map("policy_check")
+  confirmedBy     String?   @map("confirmed_by")
+  confirmedAt     DateTime? @map("confirmed_at")
+  createdAt       DateTime  @default(now()) @map("created_at")
+
+  @@index([userSub, createdAt])
+  @@index([toolName])
+  @@index([result])
+  @@allow('read', auth().tier == pin || auth().tier == google)
+  @@allow('create', true)
+  @@map("ai_action_logs")
+}
+
+model AiToolPending {
+  id              String    @id @default(cuid())
+  userSub         String    @map("user_sub")
+  conversationId  Int?      @map("conversation_id")
+  toolName        String    @map("tool_name")
+  parameters      Json
+  explanation     String    @db.Text
+  status          String    @default("pending")
+  reviewedBy      String?   @map("reviewed_by")
+  reviewedAt      DateTime? @map("reviewed_at")
+  result          String?   @db.Text
+  createdAt       DateTime  @default(now()) @map("created_at")
+  expiresAt       DateTime  @default(now()) @map("expires_at")
+
+  @@index([userSub, status])
+  @@index([status, expiresAt])
+  @@allow('read', auth().sub == userSub || auth().tier == pin || auth().tier == google)
+  @@allow('update', auth().tier == pin || auth().tier == google)
+  @@map("ai_tool_pending")
+}
+
+// ── Phase 10J: WhatsApp (Wave 5 — added early for schema sync) ──
+
+model WhatsAppSession {
+  id                  String   @id @default(cuid())
+  label               String
+  phoneNumber         String   @unique @map("phone_number")
+  serverUrl           String   @map("server_url")
+  sessionId           String   @unique @map("session_id")
+  status              String   @default("qr_pending")
+  qrCode              String?  @db.Text @map("qr_code")
+  autoRespondEnabled  Boolean  @default(false) @map("auto_respond_enabled")
+  aiPrompt            String?  @db.Text @map("ai_prompt")
+  monitoredGroups     Json     @default("[]") @map("monitored_groups")
+  autoReplyInGroups   Boolean  @default(false) @map("auto_reply_in_groups")
+  webhookSecret       String   @map("webhook_secret")
+  lastMessageAt       DateTime? @map("last_message_at")
+  createdAt           DateTime @default(now()) @map("created_at")
+  updatedAt           DateTime @updatedAt @map("updated_at")
+
+  @@allow('read', auth().tier == pin || auth().tier == google)
+  @@allow('create,update,delete', auth().tier == pin || auth().tier == google)
+  @@map("whatsapp_sessions")
+}
+
+model WhatsAppMessage {
+  id            String   @id @default(cuid())
+  sessionId     String   @map("session_id")
+  direction     String
+  chatId        String   @map("chat_id")
+  chatName      String?  @map("chat_name")
+  isGroup       Boolean  @default(false) @map("is_group")
+  senderPhone   String?  @map("sender_phone")
+  senderName    String?  @map("sender_name")
+  type          String   @default("text")
+  body          String   @db.Text
+  mediaUrl      String?  @map("media_url")
+  mediaFilename String?  @map("media_filename")
+  aiHandled     Boolean  @default(false) @map("ai_handled")
+  aiResponse    String?  @db.Text @map("ai_response")
+  isRead        Boolean  @default(false) @map("is_read")
+  waMessageId   String?  @map("wa_message_id")
+  aiActionLogId String?  @map("ai_action_log_id")
+  status        String   @default("sent")
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  @@index([sessionId, chatId, createdAt])
+  @@index([direction, isRead])
+  @@allow('read', auth().tier == pin || auth().tier == google)
+  @@allow('create', true)
+  @@map("whatsapp_messages")
+}
+
+model WhatsAppContact {
+  id            String    @id @default(cuid())
+  sessionId     String    @map("session_id")
+  phoneNumber   String    @unique @map("phone_number")
+  name          String?
+  isBusiness    Boolean   @default(false) @map("is_business")
+  tags          String[]  @default([])
+  customerId    String?   @map("customer_id")
+  lastMessageAt DateTime? @map("last_message_at")
+  messageCount  Int       @default(0) @map("message_count")
+  createdAt     DateTime  @default(now()) @map("created_at")
+  updatedAt     DateTime  @updatedAt @map("updated_at")
+
+  @@index([sessionId, tags])
+  @@allow('read', auth().tier == pin || auth().tier == google)
+  @@allow('create,update,delete', auth().tier == pin || auth().tier == google)
+  @@map("whatsapp_contacts")
+}
+
+// ── Phase 10K: Integration Framework (Wave 5 — added early for schema sync) ──
+
+model Integration {
+  id              String    @id @default(cuid())
+  type            String
+  label           String
+  status          String    @default("pending")
+  authMethod      String    @default("api_key") @map("auth_method")
+  secretKey       String?   @map("secret_key")
+  oauthState      String?   @map("oauth_state")
+  config          Json      @default("{}")
+  aiToolsEnabled  Boolean   @default(true) @map("ai_tools_enabled")
+  webhookUrl      String?   @map("webhook_url")
+  webhookSecret   String?   @map("webhook_secret")
+  lastSyncAt      DateTime? @map("last_sync_at")
+  errorMessage    String?   @db.Text @map("error_message")
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
+
+  @@index([type, status])
+  @@allow('read', auth().tier == pin || auth().tier == google)
+  @@allow('create,update,delete', auth().tier == pin || auth().tier == google)
+  @@map("integrations")
+}
+
+model IntegrationSyncLog {
+  id              String   @id @default(cuid())
+  integrationId   String   @map("integration_id")
+  syncType        String   @map("sync_type")
+  status          String   @default("success")
+  recordsProcessed Int     @default(0) @map("records_processed")
+  recordsChanged  Int      @default(0) @map("records_changed")
+  error           String?  @db.Text
+  durationMs      Int      @map("duration_ms")
+  createdAt       DateTime @default(now()) @map("created_at")
+
+  @@index([integrationId, createdAt])
+  @@allow('read', auth().tier == pin || auth().tier == google)
+  @@allow('create', true)
+  @@map("integration_sync_logs")
+}
+
+// ── Phase 10L: Credits & Billing (Wave 5 — added early for schema sync) ──
+
+model CreditBalance {
+  id                     String   @id @default("default")
+  balance                Int      @default(50)
+  freeCreditsUsed        Int      @default(0) @map("free_credits_used")
+  freeCreditsLimit       Int      @default(50) @map("free_credits_limit")
+  freeCreditsResetAt     DateTime @default(now()) @map("free_credits_reset_at")
+  autoRechargeEnabled    Boolean  @default(false) @map("auto_recharge_enabled")
+  autoRechargeThreshold  Int      @default(20) @map("auto_recharge_threshold")
+  autoRechargePackId     String?  @map("auto_recharge_pack_id")
+  totalPurchased         Int      @default(0) @map("total_purchased")
+  totalUsed              Int      @default(0) @map("total_used")
+  updatedAt              DateTime @updatedAt @map("updated_at")
+
+  @@allow('read', auth().tier == pin || auth().tier == google)
+  @@allow('update', auth().tier == pin || auth().tier == google)
+  @@map("credit_balances")
+}
+
+model CreditTransaction {
+  id              String   @id @default(cuid())
+  type            String
+  amount          Int
+  balanceAfter    Int      @map("balance_after")
+  description     String
+  usageType       String?  @map("usage_type")
+  conversationId  Int?     @map("conversation_id")
+  paymentMethod   String?  @map("payment_method")
+  paymentTxId     String?  @map("payment_tx_id")
+  packId          String?  @map("pack_id")
+  userSub         String?  @map("user_sub")
+  createdAt       DateTime @default(now()) @map("created_at")
+
+  @@index([type, createdAt])
+  @@index([userSub])
+  @@allow('read', auth().tier == pin || auth().tier == google)
+  @@allow('create', true)
+  @@map("credit_transactions")
+}
+
+model CreditPack {
+  id            String   @id @default(cuid())
+  name          String
+  credits       Int
+  priceCents    Int      @map("price_cents")
+  currency      String   @default("USD")
+  isActive      Boolean  @default(true) @map("is_active")
+  sortOrder     Int      @default(0) @map("sort_order")
+  bonusCredits  Int      @default(0) @map("bonus_credits")
+  description   String?  @db.Text
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  @@allow('read', true)
+  @@allow('create,update,delete', auth().tier == pin || auth().tier == google)
+  @@map("credit_packs")
+}
+
+// ── Extended BlockType enum values (Phase 10G + 10H) ────────────
+// Note: These are added as comments since the enum is already defined above.
+// The codegen service will add these block types when generating tenant apps.
+// New block types: product_catalog, product_detail, cart_drawer, checkout_form,
+// booking_calendar, order_history, landing_hero, cta_section, newsletter_signup,
+// blog_list, blog_detail, lead_form, social_share, social_feed, analytics_dashboard,
+// video_player, image_gallery, notification_bell, user_profile, ai_task_config, content_page
+
+// ── Additional models for marketing/email tracking ──
+
+model CampaignAnalytics {
+  id              String   @id @default(cuid())
+  campaignId      String   @map("campaign_id")
+  subscriberEmail String   @map("subscriber_email")
+  sent            Boolean  @default(false)
+  opened          Boolean  @default(false)
+  clicked         Boolean  @default(false)
+  converted       Boolean  @default(false)
+  createdAt       DateTime @default(now()) @map("created_at")
+
+  @@index([campaignId])
+  @@map("campaign_analytics")
+}
+
+model EmailLog {
+  id        String   @id @default(cuid())
+  to        String
+  template  String
+  data      Json     @default("{}")
+  status    String   @default("logged")
+  messageId String?  @map("message_id")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@index([to])
+  @@map("email_logs")
+}
