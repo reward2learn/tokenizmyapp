@@ -291,41 +291,30 @@ export async function ensureVercelProject(input: { slug: string }): Promise<{ pr
   console.log(`[vercel-deploy] Project created: ${project.id}`);
   return { projectId: project.id, created: true };
 }
-/** Fetch existing env vars, trying both available tokens. */
-async function fetchExistingEnvs(projectId: string): Promise<Array<{ key: string; id: string }>> {
-  // Try with resolved token (OAuth) — with and without teamId
-  for (const includeTeam of [true, false]) {
-    try {
-      const res = await vercelApi(`/v10/projects/${projectId}/env?decrypt=true`, {}, includeTeam);
-      if (res.ok) {
-        const data = await res.json() as { envs?: Array<{ key: string; id: string }> };
-        return data.envs || [];
-      }
-    } catch {}
-  }
-  // Fallback: try with VERCEL_TOKEN env var
-  const vt = process.env.VERCEL_TOKEN;
-  if (vt) {
-    for (const includeTeam of [true, false]) {
-      try {
-        const res = await vercelApiWithToken(vt, `/v10/projects/${projectId}/env?decrypt=true`, {}, includeTeam);
-        if (res.ok) {
-          const data = await res.json() as { envs?: Array<{ key: string; id: string }> };
-          return data.envs || [];
-        }
-      } catch {}
+/** Try fetching env vars with a given token/combo, return list or null. */
+async function tryFetchEnvs(
+  token: string | null,
+  projectId: string,
+  includeTeam: boolean,
+): Promise<Array<{ key: string; id: string }> | null> {
+  try {
+    const fn = token
+      ? (p: string, o?: RequestInit) => vercelApiWithToken(token, p, o || {}, includeTeam)
+      : (p: string, o?: RequestInit) => vercelApi(p, o || {}, includeTeam);
+    const res = await fn(`/v10/projects/${projectId}/env?decrypt=true`);
+    if (res.ok) {
+      const data = await res.json() as { envs?: Array<{ key: string; id: string }> };
+      return data.envs || [];
     }
-  }
-  console.warn(`[vercel-deploy] Could not fetch existing env vars for project ${projectId} — will attempt create-only`);
-  return [];
+  } catch {}
+  return null;
 }
 
-/** Upsert a single env var: create-or-update with token fallback. */
+/** Upsert a single env var — tries all available tokens/teamId combos until one works. */
 async function upsertEnvVar(
   projectId: string,
   key: string,
   value: string,
-  existingId: string | undefined,
 ): Promise<boolean> {
   const requestBody = JSON.stringify({
     key,
@@ -336,54 +325,38 @@ async function upsertEnvVar(
 
   const vt = process.env.VERCEL_TOKEN;
 
-  // Collect tokens to try: [resolved primary, VERCEL_TOKEN fallback]
-  // resolved primary is handled via vercelApi() which returns the OAuth token
-  const tokens: Array<{ label: string; fn: (path: string, opts?: RequestInit) => Promise<Response> }> = [
-    { label: 'oauth', fn: (path, opts = {}) => vercelApi(path, opts) },
+  // Try each token x teamId combos
+  const combos: Array<{ label: string; token: string | null; teamId: boolean }> = [
+    { label: 'oauth+team', token: null, teamId: true },
+    { label: 'oauth', token: null, teamId: false },
   ];
-  if (vt) tokens.push({ label: 'vercel-token', fn: (path, opts = {}) => vercelApiWithToken(vt, path, opts) });
-
-  // If we know the existing ID, try PATCH first with each token
-  if (existingId) {
-    for (const { label, fn } of tokens) {
-      const res = await fn(`/v10/projects/${projectId}/env/${existingId}`, { method: 'PATCH', body: requestBody });
-      if (res.ok) return true;
-      if (res.status !== 401 && res.status !== 403) break; // non-auth error — don't try other tokens
-      console.warn(`[vercel-deploy] PATCH ${key} with ${label}: ${res.status} — trying next token`);
-    }
+  if (vt) {
+    combos.push({ label: 'vt+team', token: vt, teamId: true });
+    combos.push({ label: 'vt', token: vt, teamId: false });
   }
 
-  // POST to create. If 409 (exists), re-fetch the ID and PATCH.
-  for (const { label, fn } of tokens) {
-    const res = await fn(`/v10/projects/${projectId}/env`, { method: 'POST', body: requestBody });
-    if (res.ok) return true;
+  for (const { label, token, teamId } of combos) {
+    const fn = token
+      ? (p: string, o?: RequestInit) => vercelApiWithToken(token, p, o || {}, teamId)
+      : (p: string, o?: RequestInit) => vercelApi(p, o || {}, teamId);
 
-    if (res.status === 409) {
-      // Already exists — try to look up its ID and PATCH
-      const listRes = await fn(`/v10/projects/${projectId}/env?decrypt=true`);
-      if (listRes.ok) {
-        const data = await listRes.json() as { envs?: Array<{ key: string; id: string }> };
-        const found = data.envs?.find((e) => e.key === key);
-        if (found) {
-          const patchRes = await fn(`/v10/projects/${projectId}/env/${found.id}`, { method: 'PATCH', body: requestBody });
-          if (patchRes.ok) return true;
-        }
-      }
-      // If we got here, listing failed or PATCH failed — don't try other tokens for 409
-      const body = await res.text();
-      console.warn(`[vercel-deploy] Failed to upsert env ${key} (${label}): ${res.status} ${body.slice(0, 150)}`);
-      return false;
+    // Try PATCH first (env var likely exists)
+    const patchRes = await fn(`/v10/projects/${projectId}/env/${key}`, { method: 'PATCH', body: requestBody });
+    if (patchRes.ok) {
+      console.log(`[vercel-deploy] Set env ${key} via PATCH (${label})`);
+      return true;
     }
 
-    if (res.status === 401 || res.status === 403) {
-      console.warn(`[vercel-deploy] POST ${key} with ${label}: ${res.status} — trying next token`);
-      continue; // try next token
+    // POST to create
+    const postRes = await fn(`/v10/projects/${projectId}/env`, { method: 'POST', body: requestBody });
+    if (postRes.ok) {
+      console.log(`[vercel-deploy] Set env ${key} via POST (${label})`);
+      return true;
     }
 
-    // Non-auth error
-    const body = await res.text();
-    console.warn(`[vercel-deploy] Failed to set env ${key} (${label}): ${res.status} ${body.slice(0, 150)}`);
-    return false;
+    // Other statuses — log but continue trying other combos
+    const errBody = await postRes.text();
+    console.warn(`[vercel-deploy] ${label} failed for ${key}: ${postRes.status} ${errBody.slice(0, 100)}`);
   }
 
   return false;
@@ -421,19 +394,12 @@ export async function syncEnvVars(
     if (value) envVars[key] = value;
   }
 
-  // Fetch existing env vars (tries both OAuth and VERCEL_TOKEN)
-  const existingEnvs = await fetchExistingEnvs(projectId);
-  const envMap = new Map(existingEnvs.map((e) => [e.key, e.id]));
-
-  // Upsert each env var
+  // Upsert each env var — the function handles token/teamId fallback internally
   let envCount = 0;
   for (const [key, value] of Object.entries(envVars)) {
     try {
-      const ok = await upsertEnvVar(projectId, key, value, envMap.get(key));
-      if (ok) {
-        envCount++;
-        envMap.set(key, '__synced__'); // mark as known
-      }
+      const ok = await upsertEnvVar(projectId, key, value);
+      if (ok) envCount++;
     } catch (err) {
       console.error(`[vercel-deploy] Failed to set env ${key}:`, err);
     }
