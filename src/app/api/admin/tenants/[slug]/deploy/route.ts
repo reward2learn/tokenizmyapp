@@ -11,10 +11,36 @@ import { NextResponse } from 'next/server';
 import { createRawClient } from '@/lib/db';
 import { requireWriteAuth } from '@/lib/auth/guards';
 import { jsonError, jsonOk } from '@/lib/api/response';
-import { deployTenant, syncEnvVars, ensureVercelProject } from '@/domain/tenant/vercel-deploy-service';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
+
+const VERCEL_API = 'https://api.vercel.com';
+const TEAM_ID = 'team_uKNaNEyjHVW7vooXeUfNJ3LW';
+
+/**
+ * Trigger a Vercel production deployment via REST API.
+ */
+async function triggerVercelDeploy(projectId: string, projectName: string, token: string) {
+  const response = await fetch(`${VERCEL_API}/v13/deployments?teamId=${TEAM_ID}`, {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${token}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      name: projectName,
+      project: projectId,
+      target: 'production',
+    }),
+  });
+
+  const data = await response.json();
+  if (!response.ok) {
+    return { success: false, error: data.error?.message || `HTTP ${response.status}` };
+  }
+  return { success: true, deploymentId: data.id, appUrl: `https://${data.url}` };
+}
 
 export async function POST(
   request: Request,
@@ -38,32 +64,36 @@ export async function POST(
 
     const tenant = rows[0];
 
-    // Build the deploy input from tenant data
-    const deployInput = {
-      slug: tenant.slug as string,
-      displayName: tenant.display_name as string,
-      template: (tenant.template as string) || 'default',
-      primaryColor: (tenant.primary_color as string) || '#eb3d28',
-      secondaryColor: (tenant.secondary_color as string) || '#0af9fe',
-      metadata: (tenant.metadata as Record<string, unknown>) || {},
-    };
+    // Resolve Vercel token: stored metadata -> env var
+    const metadata = (tenant.metadata as Record<string, unknown>) || {};
+    const vercelToken = (metadata.vercelToken as string) || process.env.VERCEL_TOKEN || '';
+    
+    if (!vercelToken) {
+      return jsonError('Vercel token not configured. Store it in tenant metadata or set VERCEL_TOKEN env var.', 400);
+    }
 
-    // Run deployment
-    const result = await deployTenant(deployInput);
+    // Trigger Vercel deployment
+    const projectId = (tenant.vercel_project_id as string) || '';
+    if (!projectId) {
+      return jsonError(`Tenant "${slug}" has no Vercel project ID. Deploy via Vercel dashboard first.`, 400);
+    }
 
-    // Update tenant with Vercel project info
-    await db.$executeRawUnsafe(
-      `UPDATE tenants SET vercel_project_id = $1, app_url = $2, status = 'live', updated_at = CURRENT_TIMESTAMP WHERE slug = $3;`,
-      result.projectId, result.appUrl, slug,
-    );
+    const result = await triggerVercelDeploy(projectId, slug, vercelToken);
+
+    if (result.success) {
+      // Update tenant status
+      await db.$executeRawUnsafe(
+        `UPDATE tenants SET status = 'deploying', updated_at = CURRENT_TIMESTAMP WHERE slug = $1;`, slug,
+      );
+    }
 
     return jsonOk({
-      deployed: true,
-      projectId: result.projectId,
-      projectName: result.projectName,
-      appUrl: result.appUrl,
-      vercelDashboardUrl: result.vercelDashboardUrl,
-      envCount: result.envCount,
+      deployed: result.success,
+      projectId,
+      projectName: slug,
+      appUrl: `https://${slug}.vercel.app`,
+      vercelDashboardUrl: `https://vercel.com/ilishaps-projects/${slug}`,
+      vercelDeploy: result,
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
