@@ -50,7 +50,7 @@ import {
 import { getTemplate } from '@/domain/tenant/template-catalog';
 import { TenantWizard } from '@/components/ops-admin/tenant-wizard';
 import { TenantUserManager } from '@/components/ops-admin/tenant-user-manager';
-import { TenantEditor } from '@/components/ops-admin/tenant-editor';
+import { EditTenantModal } from '@/components/ops-admin/edit-tenant-modal';
 import { VercelConnectButton } from '@/components/ops-admin/vercel-connect-button';
 
 const STATUS_COLORS: Record<string, 'info' | 'warning' | 'success' | 'error'> = {
@@ -438,12 +438,14 @@ export function TenantDashboard() {
         </DialogActions>
       </Dialog>
 
-      {/* Tenant Editor Modal */}
+      {/* Edit Tenant Modal */}
       {editor && (
-        <TenantEditor
+        <EditTenantModal
           open={Boolean(editor)}
           onClose={() => { setEditor(null); refetch(); }}
           tenant={editor}
+          onRefetch={refetch}
+          onSnackbar={(msg) => setSnackbar(msg)}
         />
       )}
 
