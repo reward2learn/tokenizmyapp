@@ -151,8 +151,13 @@ async function getServiceAccountToken(): Promise<{ accessToken: string; projectI
       iat: now,
     };
 
-    const b64 = (obj: Record<string, unknown>) =>
-      Buffer.from(JSON.stringify(obj)).toString('base64url');
+    // Use base64 with manual url-safe conversion for compatibility
+    const b64 = (obj: Record<string, unknown>): string =>
+      Buffer.from(JSON.stringify(obj))
+        .toString('base64')
+        .replace(/\+/g, '-')
+        .replace(/\//g, '_')
+        .replace(/=+$/, '');
 
     const payload = `${b64(header)}.${b64(claims)}`;
 
@@ -160,7 +165,10 @@ async function getServiceAccountToken(): Promise<{ accessToken: string; projectI
     const crypto = await import('node:crypto');
     const sign = crypto.createSign('RSA-SHA256');
     sign.update(payload);
-    const signature = sign.sign(sa.private_key, 'base64url');
+    const signature = sign.sign(sa.private_key, 'base64')
+      .replace(/\+/g, '-')
+      .replace(/\//g, '_')
+      .replace(/=+$/, '');
 
     const jwt = `${payload}.${signature}`;
 
