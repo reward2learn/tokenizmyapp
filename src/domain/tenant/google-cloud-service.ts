@@ -437,13 +437,13 @@ async function createOAuthClient(
 
   if (!res.ok) {
     const errText = await res.text().catch(() => '');
-    // If 409, the client might already exist
     if (res.status === 409) {
-      console.warn('[google-cloud] OAuth client already exists (409) — attempting to read existing');
+      console.warn('[google-cloud] OAuth client already exists (409)');
       const existing = await listOAuthClients(accessToken, projectId);
       if (existing) return existing;
     }
-    throw new Error(`createOAuthClient failed: ${res.status} ${errText.slice(0, 300)}`);
+    console.warn(`[google-cloud] createOAuthClient returned ${res.status} (non-fatal): ${errText.slice(0, 300)}`);
+    throw new Error(`createOAuthClient failed: ${res.status}`);
   }
 
   const data = await res.json() as GcpOAuthClientResponse;
