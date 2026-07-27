@@ -362,7 +362,7 @@ async function enableOAuthApi(accessToken: string, projectId: string): Promise<v
   if (!res.ok && res.status !== 409) {
     // 409 = already enabled, ignore
     const errText = await res.text().catch(() => '');
-    throw new Error(`enableOAuthApi failed: ${res.status} ${errText.slice(0, 200)}`);
+    console.warn(`[google-cloud] enableOAuthApi returned ${res.status} (non-fatal): ${errText.slice(0, 200)}`);
   }
 }
 
