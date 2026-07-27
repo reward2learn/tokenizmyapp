@@ -232,8 +232,8 @@ export async function ensureSecurityTables(
   await withRetry(async () => {
     for (const g of DEFAULT_SECURITY_GROUPS) {
       await raw.$executeRawUnsafe(
-        `INSERT INTO security_groups (code, name, description, is_system, permissions)
-         VALUES ($1, $2, $3, $4, $5)
+        `INSERT INTO security_groups (id, code, name, description, is_system, permissions)
+         VALUES (gen_random_uuid()::TEXT, $1, $2, $3, $4, $5)
          ON CONFLICT (code) DO UPDATE
            SET name = $2, description = $3, is_system = $4, permissions = $5;`,
         g.code, g.name, g.description, g.isSystem, g.permissions,
