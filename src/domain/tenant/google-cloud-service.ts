@@ -145,7 +145,7 @@ async function getServiceAccountToken(): Promise<{ accessToken: string; projectI
     const now = Math.floor(Date.now() / 1000);
     const claims = {
       iss: sa.client_email,
-      scope: 'https://www.googleapis.com/auth/cloud-platform https://www.googleapis.com/auth/oauth2',
+      scope: 'https://www.googleapis.com/auth/cloud-platform',
       aud: OAUTH_TOKEN_URL,
       exp: now + 3600,
       iat: now,
