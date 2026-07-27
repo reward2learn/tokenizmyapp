@@ -201,30 +201,39 @@ async function tryStrategyServiceAccount(
 
     if (process.env.GOOGLE_CLOUD_CREATE_PROJECTS === 'true') {
       try {
+        console.log(`[google-cloud] Creating project "${projectId}"...`);
         const project = await createProject(auth.accessToken, projectId, displayName);
         tenantProjectId = project.projectId;
-        console.log(`[google-cloud] Created project: ${tenantProjectId}`);
+        console.log(`[google-cloud] Project created: ${tenantProjectId}`);
       } catch (projErr) {
-        console.warn(`[google-cloud] Project creation skipped/fallback:`, projErr instanceof Error ? projErr.message : projErr);
+        console.warn(`[google-cloud] Project creation failed:`, projErr instanceof Error ? projErr.message : String(projErr));
         tenantProjectId = parentProjectId;
       }
+    } else {
+      console.log(`[google-cloud] Skipping project creation (GOOGLE_CLOUD_CREATE_PROJECTS != 'true'), using parent: ${parentProjectId}`);
     }
 
     // 2. Enable the OAuth 2.0 API on the project
+    console.log(`[google-cloud] Enabling OAuth API on project ${tenantProjectId}...`);
     await enableOAuthApi(auth.accessToken, tenantProjectId);
+    console.log(`[google-cloud] OAuth API enabled`);
 
     // 3. Configure OAuth consent screen
+    console.log(`[google-cloud] Configuring consent screen for ${displayName}...`);
     await configureConsentScreen(auth.accessToken, tenantProjectId, {
       displayName,
       supportEmail: adminEmail,
       logoPath: config.logoPath,
     });
+    console.log(`[google-cloud] Consent screen configured`);
 
     // 4. Create OAuth 2.0 Web client
+    console.log(`[google-cloud] Creating OAuth client for ${slug}...`);
     const client = await createOAuthClient(auth.accessToken, tenantProjectId, {
       displayName: `${displayName} (${slug})`,
       redirectUris,
     });
+    console.log(`[google-cloud] OAuth client created: ${client.client_id}`);
 
     // 5. Build the client_secret JSON
     const clientSecretJson = buildClientSecretJson(client, tenantProjectId);
@@ -242,7 +251,7 @@ async function tryStrategyServiceAccount(
       strategy: 'rest-api',
     };
   } catch (err) {
-    console.warn('[google-cloud] REST API strategy failed:', err instanceof Error ? err.message : err);
+    console.error('[google-cloud] REST API strategy failed at:', err instanceof Error ? err.message : String(err));
     return null;
   }
 }
