@@ -81,6 +81,22 @@ export async function GET(
       });
     }
 
+    // Fetch error details if deployment failed
+    let errorInfo = undefined;
+    if (latest.state === 'ERROR' || latest.state === 'CANCELED') {
+      try {
+        const evRes = await fetch(
+          `${VERCEL_API}/v1/deployments/${latest.uid}/events?teamId=${TEAM_ID}&limit=5`,
+          { headers: { Authorization: `Bearer ${token}` } },
+        );
+        if (evRes.ok) {
+          const evData = await evRes.json() as Array<{ text: string; created: number }> | { events: Array<{ text: string; created: number }> };
+          const events = Array.isArray(evData) ? evData : (evData as { events: Array<{ text: string; created: number }> }).events || [];
+          errorInfo = events.slice(-5).map((e) => e.text).filter(Boolean).join(' | ');
+        }
+      } catch {}
+    }
+
     return jsonOk({
       state: latest.state,
       projectId: project.id,
@@ -89,6 +105,10 @@ export async function GET(
       createdAt: latest.createdAt,
       readyAt: latest.readyAt,
       slug,
+      errorInfo: errorInfo || undefined,
+      note: latest.state === 'ERROR'
+        ? 'Deployment build failed. Check the last build errors above. Common issues: missing workspace, wrong rootDirectory, or missing env vars.'
+        : undefined,
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
