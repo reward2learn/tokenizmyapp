@@ -492,10 +492,10 @@ export async function ensureVercelProjectWithGit(input: { slug: string }): Promi
       await vercelApi(`/v10/projects/${project.id}`, {
         method: 'PATCH',
         body: JSON.stringify({
+          rootDirectory: 'website',
           gitRepository: {
             type: GIT_REPO_TYPE,
             repo: GIT_REPO,
-            rootDirectory: 'website',
           },
         }),
       });
@@ -510,10 +510,10 @@ export async function ensureVercelProjectWithGit(input: { slug: string }): Promi
     body: JSON.stringify({
       name: input.slug,
       framework: 'nextjs',
+      rootDirectory: 'website',
       gitRepository: {
         type: GIT_REPO_TYPE,
         repo: GIT_REPO,
-        rootDirectory: 'website',
       },
       buildCommand: 'zenstack generate --schema zenstack/schema.zmodel && npx prisma db push --schema=zenstack/prisma/schema.prisma --skip-generate --accept-data-loss && next build',
       installCommand: 'bun install',
@@ -532,10 +532,10 @@ export async function ensureVercelProjectWithGit(input: { slug: string }): Promi
         await vercelApi(`/v10/projects/${existing.id}`, {
           method: 'PATCH',
           body: JSON.stringify({
+            rootDirectory: 'website',
             gitRepository: {
               type: GIT_REPO_TYPE,
               repo: GIT_REPO,
-              rootDirectory: 'website',
             },
           }),
         });
