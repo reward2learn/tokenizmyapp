@@ -46,4 +46,21 @@ export interface TenantEvents {
       step: string;
     };
   };
+  'tenant.deprovisioning.completed': {
+    data: {
+      tenantSlug: string;
+      cleanedResources: {
+        database?: boolean;
+        vercelProject?: boolean;
+        oauth?: boolean;
+      };
+      errors: string[];
+    };
+  };
 }
+
+// Import and register workflows
+import { tenantDeprovisioningWorkflow } from './inngest/tenant-deprovisioning-workflow';
+
+// Workflows are automatically registered when imported
+// No explicit registration needed as they use inngest.createFunction

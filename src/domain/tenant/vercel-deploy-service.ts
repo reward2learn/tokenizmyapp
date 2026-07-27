@@ -610,3 +610,50 @@ export async function deployTenantWithGit(input: DeployTenantInput): Promise<Dep
     envCount,
   };
 }
+
+/**
+ * Delete a Vercel project by ID.
+ * Handles cases where the project may already be deleted or inaccessible.
+ */
+export async function deleteVercelProject(projectId: string): Promise<void> {
+  try {
+    console.log(`Attempting to delete Vercel project: ${projectId}`);
+
+    // Try to get the project first to verify it exists
+    const getRes = await vercelApiTryBoth(`/v10/projects/${projectId}`);
+    
+    if (getRes.status === 404) {
+      console.log(`Vercel project ${projectId} already does not exist (404)`);
+      return;
+    }
+
+    if (!getRes.ok) {
+      // If we can't get the project but it's not 404, try to delete anyway
+      console.warn(`Could not verify Vercel project ${projectId} existence: ${getRes.status}`);
+    }
+
+    // Attempt deletion
+    const deleteRes = await vercelApi(`/v10/projects/${projectId}`, {
+      method: 'DELETE',
+    });
+
+    if (deleteRes.ok) {
+      console.log(`Successfully deleted Vercel project ${projectId}`);
+      return;
+    }
+
+    if (deleteRes.status === 404) {
+      console.log(`Vercel project ${projectId} already deleted (404)`);
+      return;
+    }
+
+    throw new Error(`Vercel API returned ${deleteRes.status}: ${await deleteRes.text()}`);
+  } catch (err) {
+    // If the project is already deleted, that's fine
+    if (err instanceof Error && err.message.includes('404')) {
+      console.log(`Vercel project ${projectId} already deleted or not found`);
+      return;
+    }
+    throw err;
+  }
+}
