@@ -189,8 +189,19 @@ async function getServiceAccountToken(): Promise<{ accessToken: string; projectI
       return null;
     }
 
-    const tokenData = await tokenRes.json() as { access_token: string; scope?: string; token_type?: string; expires_in?: number };
-    console.log(`[google-cloud] Token exchange OK: type=${tokenData.token_type}, expires_in=${tokenData.expires_in}s, scope="${tokenData.scope || '(not returned)'}"`);
+    const tokenText = await tokenRes.text();
+    let tokenData: { access_token?: string; scope?: string; token_type?: string; expires_in?: number };
+    try {
+      tokenData = JSON.parse(tokenText);
+    } catch {
+      console.error(`[google-cloud] Token response is not JSON: ${tokenText.slice(0, 300)}`);
+      return null;
+    }
+    console.log(`[google-cloud] Token response: access_token=${tokenData.access_token ? '***' + tokenData.access_token.slice(-10) : 'UNDEFINED'}, type=${tokenData.token_type}, expires_in=${tokenData.expires_in}s, scope="${tokenData.scope || '(not returned)'}"`);
+    if (!tokenData.access_token) {
+      console.error(`[google-cloud] Full token response: ${JSON.stringify(tokenData).slice(0, 500)}`);
+      return null;
+    }
 
     // Test the token by listing projects
     try {
