@@ -273,28 +273,39 @@ async function tryStrategyServiceAccount(
     console.log(`[google-cloud] Consent screen configured`);
 
     // 4. Create OAuth 2.0 Web client
-    console.log(`[google-cloud] Creating OAuth client for ${slug}...`);
-    const client = await createOAuthClient(auth.accessToken, tenantProjectId, {
-      displayName: `${displayName} (${slug})`,
-      redirectUris,
-    });
-    console.log(`[google-cloud] OAuth client created: ${client.client_id}`);
+    let client: GcpOAuthClientResponse | null = null;
+    try {
+      console.log(`[google-cloud] Creating OAuth client for ${slug}...`);
+      client = await createOAuthClient(auth.accessToken, tenantProjectId, {
+        displayName: `${displayName} (${slug})`,
+        redirectUris,
+      });
+      console.log(`[google-cloud] OAuth client created: ${client.client_id}`);
+    } catch (clientErr) {
+      console.warn(`[google-cloud] OAuth client creation failed (non-fatal):`, clientErr instanceof Error ? clientErr.message : String(clientErr));
+      console.warn(`[google-cloud] User must create OAuth client manually via GCP Console.`);
+    }
 
-    // 5. Build the client_secret JSON
-    const clientSecretJson = buildClientSecretJson(client, tenantProjectId);
+    // 5. Build the client_secret JSON (if client was created)
+    if (client) {
+      const clientSecretJson = buildClientSecretJson(client, tenantProjectId);
+      return {
+        clientId: client.client_id,
+        clientSecret: client.client_secret,
+        projectId: tenantProjectId,
+        projectName: displayName,
+        redirectUris,
+        clientEmail: adminEmail,
+        authUri: OAUTH_AUTH_URL,
+        tokenUri: OAUTH_TOKEN_URL,
+        clientSecretJson,
+        strategy: 'rest-api',
+      };
+    }
 
-    return {
-      clientId: client.client_id,
-      clientSecret: client.client_secret,
-      projectId: tenantProjectId,
-      projectName: displayName,
-      redirectUris,
-      clientEmail: adminEmail,
-      authUri: OAUTH_AUTH_URL,
-      tokenUri: OAUTH_TOKEN_URL,
-      clientSecretJson,
-      strategy: 'rest-api',
-    };
+    // Partial success: project + consent screen configured, but OAuth client needs manual creation
+    console.log(`[google-cloud] Partial success for "${slug}": project=${tenantProjectId}, consent screen configured. OAuth client needs manual creation.`);
+    return null;
   } catch (err) {
     console.error('[google-cloud] REST API strategy failed at:', err instanceof Error ? err.message : String(err));
     return null;
