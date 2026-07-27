@@ -38,8 +38,8 @@ export async function POST(
     const formatted = formatNeonConnectionStrings(neonDb, slug);
     const prettyOutput = formatNeonOutput(neonDb, slug);
 
-    // 3. Update tenant record with DB URL
-    const db = createClient();
+    // 3. Update tenant record with DB URL (using auth session to satisfy ZenStack policy)
+    const db = createClient({ tier: guard.session.tier, sub: guard.session.sub });
     await db.tenant.update({
       where: { slug },
       data: {
