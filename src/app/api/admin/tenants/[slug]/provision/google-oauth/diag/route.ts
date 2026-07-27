@@ -23,6 +23,25 @@ export async function GET(request: Request) {
     }
   }
 
+  // Also check the secrets table
+  let secretTableResult = 'not checked';
+  try {
+    const { getSecretPlaintext } = await import('@/lib/secrets');
+    const secret = await getSecretPlaintext('GOOGLE_CLOUD_SERVICE_ACCOUNT');
+    if (secret) {
+      try {
+        const parsed = JSON.parse(secret);
+        secretTableResult = `FOUND: client_email=${parsed.client_email}, key_len=${(parsed.private_key || '').length}`;
+      } catch {
+        secretTableResult = `FOUND but INVALID JSON (${secret.length} chars)`;
+      }
+    } else {
+      secretTableResult = 'not found';
+    }
+  } catch (e) {
+    secretTableResult = `check error: ${e instanceof Error ? e.message : '?'}`;
+  }
+
   return NextResponse.json({
     env: {
       GOOGLE_CLOUD_CREATE_PROJECTS: process.env.GOOGLE_CLOUD_CREATE_PROJECTS || '(not set)',
@@ -31,6 +50,7 @@ export async function GET(request: Request) {
       GOOGLE_CLIENT_ID: process.env.GOOGLE_CLIENT_ID || '(not set)',
     },
     saParseResult,
+    secretTableResult,
     vercelEnv: process.env.VERCEL_ENV || 'unknown',
   });
 }

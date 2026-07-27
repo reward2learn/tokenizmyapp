@@ -110,10 +110,12 @@ export async function provisionGoogleOAuth(
  */
 async function getServiceAccountToken(): Promise<{ accessToken: string; projectId: string } | null> {
   let saJson: string | null = null;
+  let source = 'none';
 
   // Try secrets table first
   try {
     saJson = await getSecretPlaintext('GOOGLE_CLOUD_SERVICE_ACCOUNT');
+    if (saJson) source = 'secrets_table';
   } catch {
     // Secret might not exist — fall through
   }
@@ -121,9 +123,15 @@ async function getServiceAccountToken(): Promise<{ accessToken: string; projectI
   // Try env var next
   if (!saJson) {
     saJson = process.env.GOOGLE_CLOUD_SERVICE_ACCOUNT_JSON ?? null;
+    if (saJson) source = 'env_var';
   }
 
-  if (!saJson) return null;
+  if (!saJson) {
+    console.warn('[google-cloud] No service account found in secrets table or env var');
+    return null;
+  }
+
+  console.log(`[google-cloud] Using service account from source: ${source} (${saJson.length} chars)`);
 
   try {
     const sa = JSON.parse(saJson) as {
@@ -157,6 +165,7 @@ async function getServiceAccountToken(): Promise<{ accessToken: string; projectI
     const jwt = `${payload}.${signature}`;
 
     // Exchange JWT for access token
+    console.log(`[google-cloud] Exchanging JWT for access token (key_length=${sa.private_key.length})...`);
     const tokenRes = await fetch(OAUTH_TOKEN_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
@@ -168,7 +177,7 @@ async function getServiceAccountToken(): Promise<{ accessToken: string; projectI
 
     if (!tokenRes.ok) {
       const errText = await tokenRes.text().catch(() => '');
-      console.warn(`[google-cloud] Service account token exchange failed: ${tokenRes.status} ${errText.slice(0, 200)}`);
+      console.error(`[google-cloud] Service account token exchange FAILED: ${tokenRes.status} ${errText.slice(0, 300)}`);
       return null;
     }
 
