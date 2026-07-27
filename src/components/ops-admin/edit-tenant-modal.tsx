@@ -907,6 +907,42 @@ export function EditTenantModal({ open, tenant, onClose, onRefetch, onSnackbar }
     }
   }, [tenant, buildDeployPayload, editTemplate, editPrimaryColor, editSecondaryColor, dispatch, onSnackbar, onRefetch, onClose, deployingSlug]);
 
+  // ── Deploy with Git handler ──────────────────────────────
+  const handleDeployWithGit = useCallback(async () => {
+    if (!tenant) return;
+    if (deployingSlug) return;
+
+    setDeployingSlug(tenant.slug);
+
+    try {
+      const payload = buildDeployPayload();
+      const deployRes = await fetch(`/api/admin/tenants/${tenant.slug}/deploy`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...payload, gitSource: true }),
+      });
+
+      const deployData = await deployRes.json();
+      if (!deployRes.ok || !deployData.success) {
+        throw new Error(deployData.error || 'Deploy API failed');
+      }
+
+      dispatch(setThemeColors({ primary: editPrimaryColor, secondary: editSecondaryColor }));
+      onSnackbar({
+        message: `🚀 ${tenant.displayName} Git deployment triggered from main branch. Building in background.`,
+        severity: 'success',
+      });
+      onRefetch();
+      setDeployingSlug(null);
+      setActiveStep(0);
+      onClose();
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Deploy failed';
+      onSnackbar({ message: `❌ Git deploy failed: ${msg}`, severity: 'error' });
+      setDeployingSlug(null);
+    }
+  }, [tenant, buildDeployPayload, editTemplate, editPrimaryColor, editSecondaryColor, dispatch, onSnackbar, onRefetch, onClose, deployingSlug]);
+
   // ── Close / Reset ─────────────────────────────────────────
   const handleClose = () => {
     setDeployingSlug(null);
@@ -1879,12 +1915,20 @@ export function EditTenantModal({ open, tenant, onClose, onRefetch, onSnackbar }
 
         <Box sx={{ flex: 1 }} />
         {isSummaryStep ? (
-          <Button variant="contained" color="primary" size="large" onClick={handleDeploy}
-            disabled={!!deployingSlug || saving}
-            startIcon={deployingSlug ? <CircularProgress size={20} color="inherit" /> : <RocketLaunchIcon />}
-            sx={{ fontWeight: 700, minWidth: 220 }}>
-            {deployingSlug ? 'DEPLOYING...' : 'DEPLOY TO VERCEL'}
-          </Button>
+          <Stack direction="row" spacing={1.5}>
+            <Button variant="outlined" size="small" onClick={handleDeploy}
+              disabled={!!deployingSlug || saving}
+              startIcon={deployingSlug ? <CircularProgress size={16} color="inherit" /> : <RocketLaunchIcon />}
+              sx={{ fontWeight: 600, whiteSpace: 'nowrap' }}>
+              {deployingSlug ? 'DEPLOYING...' : 'Deploy to Vercel'}
+            </Button>
+            <Button variant="contained" color="primary" size="large" onClick={handleDeployWithGit}
+              disabled={!!deployingSlug || saving}
+              startIcon={deployingSlug ? <CircularProgress size={20} color="inherit" /> : <CloudUploadIcon />}
+              sx={{ fontWeight: 700, minWidth: 220 }}>
+              {deployingSlug ? 'DEPLOYING...' : 'Vercel Deploy with Git'}
+            </Button>
+          </Stack>
         ) : (
           <Button variant="contained" onClick={handleNext} disabled={!!deployingSlug || saving} sx={{ fontWeight: 600 }}>
             Continue

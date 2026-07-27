@@ -424,7 +424,6 @@ export async function deployTenant(input: DeployTenantInput): Promise<DeployTena
 
   // Sync env vars — fail closed if it doesn't work
   const envCount = await syncEnvVars(projectId, input);
-  // Verify critical env vars were written
   if (envCount === 0) {
     throw new Error(`Failed to sync any environment variables to project "${input.slug}". Check Vercel API access.`);
   }
@@ -461,6 +460,146 @@ export async function deployTenant(input: DeployTenantInput): Promise<DeployTena
     console.log(`[vercel-deploy] Deployment triggered for ${input.slug}`);
   } catch (err) {
     console.warn(`[vercel-deploy] Deployment trigger warning:`, err);
+  }
+
+  return {
+    projectId,
+    projectName: input.slug,
+    vercelDashboardUrl: `https://vercel.com/ilishaps-projects/${input.slug}`,
+    appUrl,
+    envCount,
+  };
+}
+
+// ── Git-based deployment ─────────────────────────────────────
+
+const GIT_REPO = process.env.VERCEL_GIT_REPO || 'reward2learn/Rosalita';
+const GIT_REPO_TYPE = 'github';
+
+/**
+ * Ensure a Vercel project exists and is linked to the GitHub repo.
+ * Creates the project if not found, and links it to the Git repository
+ * with rootDirectory set to "website".
+ */
+export async function ensureVercelProjectWithGit(input: { slug: string }): Promise<{ projectId: string; created: boolean }> {
+  // 1. Try to find existing project
+  const getRes = await vercelApiTryBoth(`/v10/projects/${input.slug}`);
+  if (getRes.ok) {
+    const project = await getRes.json() as { id: string; name: string; gitRepository?: Record<string, unknown> };
+    // If project exists but isn't linked to Git, link it
+    if (!project.gitRepository) {
+      console.log(`[vercel-deploy] Linking existing project "${input.slug}" to Git repo...`);
+      await vercelApi(`/v10/projects/${project.id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({
+          gitRepository: {
+            type: GIT_REPO_TYPE,
+            repo: GIT_REPO,
+            rootDirectory: 'website',
+          },
+        }),
+      });
+      console.log(`[vercel-deploy] Project "${input.slug}" linked to ${GIT_REPO}`);
+    }
+    return { projectId: project.id, created: false };
+  }
+
+  // 2. Create new project with Git integration
+  const createRes = await vercelApi('/v10/projects', {
+    method: 'POST',
+    body: JSON.stringify({
+      name: input.slug,
+      framework: 'nextjs',
+      gitRepository: {
+        type: GIT_REPO_TYPE,
+        repo: GIT_REPO,
+        rootDirectory: 'website',
+      },
+      buildCommand: 'zenstack generate --schema zenstack/schema.zmodel && npx prisma db push --schema=zenstack/prisma/schema.prisma --skip-generate --accept-data-loss && next build',
+      installCommand: 'bun install',
+      outputDirectory: '.next',
+    }),
+  });
+
+  if (createRes.status === 409) {
+    console.warn(`[vercel-deploy] Project "${input.slug}" exists (409). Linking Git...`);
+    // Find the project ID and link Git
+    const searchRes = await vercelApiTryBoth(`/v10/projects?search=${input.slug}`);
+    if (searchRes.ok) {
+      const data = await searchRes.json() as { projects: { id: string; name: string }[] };
+      const existing = data.projects?.find((p) => p.name === input.slug);
+      if (existing) {
+        await vercelApi(`/v10/projects/${existing.id}`, {
+          method: 'PATCH',
+          body: JSON.stringify({
+            gitRepository: {
+              type: GIT_REPO_TYPE,
+              repo: GIT_REPO,
+              rootDirectory: 'website',
+            },
+          }),
+        });
+        return { projectId: existing.id, created: false };
+      }
+    }
+    throw new Error(`Project "${input.slug}" already exists but could not be found.`);
+  }
+
+  if (!createRes.ok) {
+    const err = await createRes.text();
+    throw new Error(`Failed to create Vercel project with Git: ${createRes.status} ${err}`);
+  }
+
+  const project = await createRes.json() as { id: string; name: string };
+  console.log(`[vercel-deploy] Project created with Git: ${project.id}`);
+  return { projectId: project.id, created: true };
+}
+
+/**
+ * Deploy a tenant using Git-based deployment.
+ * Creates/finds the Vercel project linked to GitHub, syncs env vars,
+ * and triggers a production deployment from the main branch.
+ */
+export async function deployTenantWithGit(input: DeployTenantInput): Promise<DeployTenantResult> {
+  const appUrl = `https://${input.slug}.vercel.app`;
+
+  // Create/find project with Git integration
+  const { projectId, created } = await ensureVercelProjectWithGit({ slug: input.slug });
+
+  // Sync env vars
+  const envCount = await syncEnvVars(projectId, input);
+  if (envCount === 0) {
+    throw new Error(`Failed to sync environment variables for "${input.slug}".`);
+  }
+
+  // Assign domain
+  try {
+    await vercelApi(`/v10/projects/${projectId}/domains`, {
+      method: 'POST',
+      body: JSON.stringify({ name: `${input.slug}.vercel.app` }),
+    });
+  } catch (err) {
+    console.warn(`[vercel-deploy] Domain assignment warning:`, err);
+  }
+
+  // Trigger Git-based deployment from main branch
+  try {
+    await vercelApi(`/v1/deployments`, {
+      method: 'POST',
+      body: JSON.stringify({
+        name: input.slug,
+        project: projectId,
+        target: 'production',
+        gitSource: {
+          type: GIT_REPO_TYPE,
+          repoId: input.slug,
+          ref: 'main',
+        },
+      }),
+    });
+    console.log(`[vercel-deploy] Git deployment triggered for ${input.slug}`);
+  } catch (err) {
+    console.warn(`[vercel-deploy] Git deployment trigger warning:`, err);
   }
 
   return {

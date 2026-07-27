@@ -14,7 +14,7 @@ import { NextResponse } from 'next/server';
 import { createRawClient } from '@/lib/db';
 import { requireWriteAuth } from '@/lib/auth/guards';
 import { jsonError, jsonOk } from '@/lib/api/response';
-import { deployTenant, ensureVercelProject } from '@/domain/tenant/vercel-deploy-service';
+import { deployTenant, deployTenantWithGit, ensureVercelProject } from '@/domain/tenant/vercel-deploy-service';
 
 const VERCEL_API = 'https://api.vercel.com';
 const TEAM_ID = process.env.VERCEL_TEAM_ID || 'team_uKNaNEyjHVW7vooXeUfNJ3LW';
@@ -106,7 +106,7 @@ export async function POST(
 
   const { slug } = await params;
 
-  let body: { template?: string; metadata?: Record<string, unknown> };
+  let body: { template?: string; metadata?: Record<string, unknown>; gitSource?: boolean };
   try { body = await request.json(); } catch {
     return jsonError('Invalid JSON body', 400);
   }
@@ -144,14 +144,25 @@ export async function POST(
     }
 
     // Step 2: Deploy — sync env vars, assign domain
-    const result = await deployTenant({
-      slug,
-      displayName: (tenant.display_name as string) || slug,
-      template: body.template || (tenant.template as string) || 'default',
-      primaryColor: (tenant.primary_color as string) || '#eb3d28',
-      secondaryColor: (tenant.secondary_color as string) || '#0af9fe',
-      metadata: body.metadata || ((tenant.metadata as Record<string, unknown>) || {}),
-    });
+    // Use Git-based deployment if requested, otherwise standard deployment
+    const useGit = body.gitSource === true;
+    const result = useGit
+      ? await deployTenantWithGit({
+          slug,
+          displayName: (tenant.display_name as string) || slug,
+          template: body.template || (tenant.template as string) || 'default',
+          primaryColor: (tenant.primary_color as string) || '#eb3d28',
+          secondaryColor: (tenant.secondary_color as string) || '#0af9fe',
+          metadata: body.metadata || ((tenant.metadata as Record<string, unknown>) || {}),
+        })
+      : await deployTenant({
+          slug,
+          displayName: (tenant.display_name as string) || slug,
+          template: body.template || (tenant.template as string) || 'default',
+          primaryColor: (tenant.primary_color as string) || '#eb3d28',
+          secondaryColor: (tenant.secondary_color as string) || '#0af9fe',
+          metadata: body.metadata || ((tenant.metadata as Record<string, unknown>) || {}),
+        });
 
     // Step 3: Update tenant status to deploying immediately
     await db.$executeRawUnsafe(
@@ -175,7 +186,11 @@ export async function POST(
       envCount: result.envCount,
       vercelDashboardUrl: result.vercelDashboardUrl,
       status: 'deploying',
-      note: 'Deployment is building in the background. Tenant status will update to live when ready.',
+      deployMode: useGit ? 'git' : 'standard',
+      gitRepo: useGit ? (process.env.VERCEL_GIT_REPO || 'reward2learn/Rosalita') : undefined,
+      note: useGit
+        ? 'Git-based deployment triggered from main branch. Tenant status will update to live when ready.'
+        : 'Deployment is building in the background. Tenant status will update to live when ready.',
     });
   } catch (err) {
     // Update status to error if deploy setup fails
