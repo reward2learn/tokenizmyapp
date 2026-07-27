@@ -124,6 +124,7 @@ const EDIT_STEPS: Array<{ label: string; icon: React.ReactNode; key: string }> =
   { label: 'Google OAuth', icon: <VerifiedUserIcon fontSize="small" />, key: 'oauth' },
   { label: 'Database', icon: <DnsIcon fontSize="small" />, key: 'database' },
   { label: 'Custom Env', icon: <CloudIcon fontSize="small" />, key: 'env' },
+  { label: 'Deploy Hooks', icon: <RocketLaunchIcon fontSize="small" />, key: 'hooks' },
   { label: 'Functional Roles', icon: <PeopleIcon fontSize="small" />, key: 'roles' },
   { label: 'Summary', icon: <RocketLaunchIcon fontSize="small" />, key: 'summary' },
 ];
@@ -301,7 +302,7 @@ export function EditTenantModal({ open, tenant, onClose, onRefetch, onSnackbar }
       setEnvPairs(envPairsFromMeta);
 
       // Restore deploy hook URL
-      setDeployHookUrl((cfg.deployHookUrl as string) || '');
+      setDeployHookUrl(((cfg.hooks as Record<string, unknown>)?.deployHookUrl as string) || '');
 
       setActiveStep(0);
       setProvisionOAuthResult(null);
@@ -688,7 +689,7 @@ export function EditTenantModal({ open, tenant, onClose, onRefetch, onSnackbar }
           provider: 'postgresql',
         },
         env: envVars,
-        deployHookUrl: deployHookUrl || undefined,
+        hooks: { deployHookUrl: deployHookUrl || undefined },
         supportEmail: googleOAuth.supportEmail,
       },
     };
@@ -731,7 +732,7 @@ export function EditTenantModal({ open, tenant, onClose, onRefetch, onSnackbar }
               directUrl: dbConfig.directUrl,
             },
             env: Object.fromEntries(envPairs.filter((p) => p.key).map((p) => [p.key, p.value])),
-            deployHookUrl: deployHookUrl || undefined,
+            hooks: { deployHookUrl: deployHookUrl || undefined },
           },
         },
       };
@@ -1581,7 +1582,65 @@ export function EditTenantModal({ open, tenant, onClose, onRefetch, onSnackbar }
     </Stack>
   );
 
-  // ── Step 8: Functional Roles ──────────────────────────────
+  // ── Step 8: Deploy Hooks ──────────────────────────────────
+  const renderStepHooks = () => (
+    <Stack spacing={3}>
+      <Stack direction="row" spacing={1.5} sx={{ alignItems: 'center' }}>
+        <RocketLaunchIcon color="primary" />
+        <Typography variant="subtitle1" sx={{ fontWeight: 600 }}>
+          Vercel Deploy Hooks
+        </Typography>
+      </Stack>
+      <Typography variant="body2" color="text.secondary">
+        Configure a Vercel Deploy Hook to trigger Git-based redeployments from the tenant dashboard.
+        Create a hook in the Vercel Dashboard under Settings → Git → Deploy Hooks, then paste the URL below.
+      </Typography>
+
+      <Paper variant="outlined" sx={{ p: 2.5, borderColor: 'primary.main' }}>
+        <Typography variant="subtitle2" sx={{ fontWeight: 600, mb: 1.5 }}>
+          Deploy Hook URL
+        </Typography>
+        <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+          Create a Deploy Hook in the Vercel Dashboard for this tenant&apos;s project and paste the URL here.
+          This allows you to trigger redeployments from the tenant dashboard without API authentication.
+        </Typography>
+        <Stack direction="row" spacing={1.5} sx={{ alignItems: 'flex-start' }}>
+          <TextField
+            label="Vercel Deploy Hook URL"
+            value={deployHookUrl}
+            onChange={(e) => setDeployHookUrl(e.target.value)}
+            fullWidth
+            size="small"
+            placeholder="https://api.vercel.com/v1/integrations/deploy/prj_xxx/hook_xxx"
+            helperText="Create in Vercel Dashboard > Settings > Git > Deploy Hooks"
+            slotProps={{ input: { sx: { fontFamily: 'monospace', fontSize: '0.8rem' } } }}
+          />
+          <Button
+            variant="outlined"
+            size="small"
+            href="https://vercel.com/ilishaps-projects"
+            target="_blank"
+            endIcon={<OpenInNewIcon />}
+            sx={{ mt: 0.5, whiteSpace: 'nowrap', flexShrink: 0 }}
+          >
+            Open Vercel Dashboard
+          </Button>
+        </Stack>
+        {deployHookUrl && (
+          <Paper variant="outlined" sx={{ p: 1.5, mt: 2, bgcolor: 'background.default' }}>
+            <Typography variant="caption" sx={{ fontWeight: 600, display: 'block', mb: 0.5 }}>
+              ✅ Deploy Hook configured
+            </Typography>
+            <Typography variant="caption" color="text.secondary" sx={{ fontFamily: 'monospace', fontSize: '0.7rem', wordBreak: 'break-all' }}>
+              {deployHookUrl}
+            </Typography>
+          </Paper>
+        )}
+      </Paper>
+    </Stack>
+  );
+
+  // ── Step 9: Functional Roles ──────────────────────────────
   const renderStepRoles = () => (
     <Stack spacing={3}>
       <Stack direction="row" spacing={2} sx={{ alignItems: 'center', justifyContent: 'space-between' }}>
@@ -1730,18 +1789,7 @@ export function EditTenantModal({ open, tenant, onClose, onRefetch, onSnackbar }
           <SummaryRow label="Primary Color" value={editPrimaryColor} color={editPrimaryColor} />
           <SummaryRow label="Secondary Color" value={editSecondaryColor} color={editSecondaryColor} />
         </Stack>
-        <Box sx={{ mt: 1.5 }}>
-          <TextField
-            label="Vercel Deploy Hook URL"
-            value={deployHookUrl}
-            onChange={(e) => setDeployHookUrl(e.target.value)}
-            fullWidth
-            size="small"
-            placeholder="https://api.vercel.com/v1/integrations/deploy/prj_xxx/hook_xxx"
-            helperText="Create in Vercel Dashboard > Settings > Git > Deploy Hooks. Used by 'Trigger Deploy Hook' in the dashboard."
-            slotProps={{ input: { sx: { fontFamily: 'monospace', fontSize: '0.75rem' } } }}
-          />
-        </Box>
+
       </Paper>
 
       {/* License */}
@@ -1843,8 +1891,9 @@ export function EditTenantModal({ open, tenant, onClose, onRefetch, onSnackbar }
       case 5: return renderStepOAuth();
       case 6: return renderStepDatabase();
       case 7: return renderStepEnv();
-      case 8: return renderStepRoles();
-      case 9: return renderStepSummary();
+      case 8: return renderStepHooks();
+      case 9: return renderStepRoles();
+      case 10: return renderStepSummary();
       default: return null;
     }
   };
@@ -1867,9 +1916,9 @@ export function EditTenantModal({ open, tenant, onClose, onRefetch, onSnackbar }
 
       {/* BODY WITH STEPPER */}
       <DialogContent dividers sx={{ p: { xs: 1.5, md: 3 }, minHeight: 400 }}>
-        <Stepper activeStep={activeStep} sx={{ mb: 4, overflowX: 'auto', flexWrap: 'wrap' }} nonLinear={false}>
-          {EDIT_STEPS.map((s) => (
-            <Step key={s.key}>
+        <Stepper activeStep={activeStep} sx={{ mb: 4, overflowX: 'auto', flexWrap: 'wrap', '& .MuiStepLabel-root': { cursor: 'pointer' } }} nonLinear>
+          {EDIT_STEPS.map((s, idx) => (
+            <Step key={s.key} onClick={() => setActiveStep(idx)}>
               <StepLabel sx={{
                 '& .MuiStepLabel-label': {
                   fontSize: { xs: '0.7rem', md: '0.8rem' },

@@ -218,7 +218,7 @@ export function TenantDashboard() {
       // Get the deploy hook URL from tenant metadata
       const tenant = tenants.find(t => t.slug === slug);
       const cfg = (tenant?.metadata as Record<string, unknown>)?.config as Record<string, unknown> || {};
-      const hookUrl = (cfg.deployHookUrl as string) || '';
+      const hookUrl = ((cfg.hooks as Record<string, unknown>)?.deployHookUrl as string) || '';
       if (!hookUrl) {
         setSnackbar({ message: '⚠️ No Deploy Hook URL configured. Set it in the tenant editor.', severity: 'error' });
         setTriggeringHook(null);
