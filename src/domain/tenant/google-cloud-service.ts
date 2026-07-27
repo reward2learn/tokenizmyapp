@@ -189,7 +189,24 @@ async function getServiceAccountToken(): Promise<{ accessToken: string; projectI
       return null;
     }
 
-    const tokenData = await tokenRes.json() as { access_token: string };
+    const tokenData = await tokenRes.json() as { access_token: string; scope?: string; token_type?: string; expires_in?: number };
+    console.log(`[google-cloud] Token exchange OK: type=${tokenData.token_type}, expires_in=${tokenData.expires_in}s, scope="${tokenData.scope || '(not returned)'}"`);
+
+    // Test the token by listing projects
+    try {
+      const testRes = await fetch('https://cloudresourcemanager.googleapis.com/v1/projects?pageSize=1', {
+        headers: { Authorization: `Bearer ${tokenData.access_token}` },
+      });
+      if (testRes.ok) {
+        console.log(`[google-cloud] Token VALID for Cloud Resource Manager API`);
+      } else {
+        const errText = await testRes.text().catch(() => '');
+        console.error(`[google-cloud] Token REJECTED by Cloud Resource Manager: ${testRes.status} ${errText.slice(0, 200)}`);
+      }
+    } catch (testErr) {
+      console.warn(`[google-cloud] Token test error: ${testErr instanceof Error ? testErr.message : String(testErr)}`);
+    }
+
     return { accessToken: tokenData.access_token, projectId: sa.project_id };
   } catch (err) {
     console.warn('[google-cloud] Service account auth failed:', err instanceof Error ? err.message : err);
