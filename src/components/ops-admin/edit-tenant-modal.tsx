@@ -301,7 +301,7 @@ export function EditTenantModal({ open, tenant, onClose, onRefetch, onSnackbar }
       setEnvPairs(envPairsFromMeta);
 
       // Restore deploy hook URL
-      setDeployHookUrl((savedGoogle.deployHookUrl as string) || (cfg.deployHookUrl as string) || '');
+      setDeployHookUrl((cfg.deployHookUrl as string) || '');
 
       setActiveStep(0);
       setProvisionOAuthResult(null);
@@ -688,6 +688,7 @@ export function EditTenantModal({ open, tenant, onClose, onRefetch, onSnackbar }
           provider: 'postgresql',
         },
         env: envVars,
+        deployHookUrl: deployHookUrl || undefined,
         supportEmail: googleOAuth.supportEmail,
       },
     };
@@ -920,6 +921,9 @@ export function EditTenantModal({ open, tenant, onClose, onRefetch, onSnackbar }
     setDeployingSlug(tenant.slug);
 
     try {
+      // Save config first so deployHookUrl and other fields persist
+      await handleSave();
+
       const payload = buildDeployPayload();
       const deployRes = await fetch(`/api/admin/tenants/${tenant.slug}/deploy`, {
         method: 'POST',
@@ -946,7 +950,7 @@ export function EditTenantModal({ open, tenant, onClose, onRefetch, onSnackbar }
       onSnackbar({ message: `❌ Git deploy failed: ${msg}`, severity: 'error' });
       setDeployingSlug(null);
     }
-  }, [tenant, buildDeployPayload, editTemplate, editPrimaryColor, editSecondaryColor, dispatch, onSnackbar, onRefetch, onClose, deployingSlug]);
+  }, [tenant, buildDeployPayload, editTemplate, editPrimaryColor, editSecondaryColor, dispatch, onSnackbar, onRefetch, onClose, deployingSlug, handleSave]);
 
   // ── Close / Reset ─────────────────────────────────────────
   const handleClose = () => {
