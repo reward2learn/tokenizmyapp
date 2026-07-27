@@ -473,7 +473,7 @@ export async function deployTenant(input: DeployTenantInput): Promise<DeployTena
 
 // ── Git-based deployment ─────────────────────────────────────
 
-const GIT_REPO = process.env.VERCEL_GIT_REPO || 'reward2learn/Rosalita';
+const GIT_REPO = process.env.VERCEL_GIT_REPO || 'reward2learn/tokenizmyapp';
 const GIT_REPO_TYPE = 'github';
 
 /**
