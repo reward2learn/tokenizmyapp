@@ -242,6 +242,7 @@ export function EditTenantModal({ open, tenant, onClose, onRefetch, onSnackbar }
   const [deployDetails, setDeployDetails] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
   const [importing, setImporting] = useState(false);
+  const [deployHookUrl, setDeployHookUrl] = useState('');
   const importFileRef = useRef<HTMLInputElement>(null);
 
   // ── Initialize from tenant on open ────────────────────────
@@ -298,6 +299,9 @@ export function EditTenantModal({ open, tenant, onClose, onRefetch, onSnackbar }
       // Restore custom env vars
       const envPairsFromMeta = Object.entries(savedEnv).map(([key, value]) => ({ key, value }));
       setEnvPairs(envPairsFromMeta);
+
+      // Restore deploy hook URL
+      setDeployHookUrl((savedGoogle.deployHookUrl as string) || (cfg.deployHookUrl as string) || '');
 
       setActiveStep(0);
       setProvisionOAuthResult(null);
@@ -726,6 +730,7 @@ export function EditTenantModal({ open, tenant, onClose, onRefetch, onSnackbar }
               directUrl: dbConfig.directUrl,
             },
             env: Object.fromEntries(envPairs.filter((p) => p.key).map((p) => [p.key, p.value])),
+            deployHookUrl: deployHookUrl || undefined,
           },
         },
       };
@@ -1721,6 +1726,18 @@ export function EditTenantModal({ open, tenant, onClose, onRefetch, onSnackbar }
           <SummaryRow label="Primary Color" value={editPrimaryColor} color={editPrimaryColor} />
           <SummaryRow label="Secondary Color" value={editSecondaryColor} color={editSecondaryColor} />
         </Stack>
+        <Box sx={{ mt: 1.5 }}>
+          <TextField
+            label="Vercel Deploy Hook URL"
+            value={deployHookUrl}
+            onChange={(e) => setDeployHookUrl(e.target.value)}
+            fullWidth
+            size="small"
+            placeholder="https://api.vercel.com/v1/integrations/deploy/prj_xxx/hook_xxx"
+            helperText="Create in Vercel Dashboard > Settings > Git > Deploy Hooks. Used by 'Trigger Deploy Hook' in the dashboard."
+            slotProps={{ input: { sx: { fontFamily: 'monospace', fontSize: '0.75rem' } } }}
+          />
+        </Box>
       </Paper>
 
       {/* License */}

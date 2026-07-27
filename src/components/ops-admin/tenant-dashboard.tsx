@@ -184,6 +184,60 @@ export function TenantDashboard() {
     }
   };
 
+  // ── Deploy Hook: Check Status ──────────────────────────────
+  const [checkingStatus, setCheckingStatus] = useState<string | null>(null);
+  const handleCheckStatus = async (slug: string) => {
+    handleMenuClose();
+    setCheckingStatus(slug);
+    try {
+      const res = await fetch(`/api/admin/tenants/${slug}/deploy/status`);
+      const data = await res.json();
+      if (data.success) {
+        const status = data.data?.state || 'unknown';
+        const url = data.data?.appUrl || `https://${slug}.vercel.app`;
+        setSnackbar({
+          message: `🔍 ${slug}: deployment status = ${status} — ${url}`,
+          severity: status === 'READY' ? 'success' : 'error',
+        });
+      } else {
+        setSnackbar({ message: data.error || 'Status check failed', severity: 'error' });
+      }
+    } catch {
+      setSnackbar({ message: 'Failed to check deployment status', severity: 'error' });
+    } finally {
+      setCheckingStatus(null);
+    }
+  };
+
+  // ── Deploy Hook: Trigger Deploy ────────────────────────────
+  const [triggeringHook, setTriggeringHook] = useState<string | null>(null);
+  const handleTriggerHook = async (slug: string) => {
+    handleMenuClose();
+    setTriggeringHook(slug);
+    try {
+      // Get the deploy hook URL from tenant metadata
+      const tenant = tenants.find(t => t.slug === slug);
+      const hookUrl = (tenant?.metadata as Record<string, unknown>)?.deployHookUrl as string;
+      if (!hookUrl) {
+        setSnackbar({ message: '⚠️ No Deploy Hook URL configured. Set it in the tenant editor.', severity: 'error' });
+        setTriggeringHook(null);
+        return;
+      }
+      const res = await fetch(hookUrl, { method: 'POST' });
+      const data = await res.json();
+      if (data.job?.state) {
+        setSnackbar({ message: `🚀 Deploy triggered via hook — job ${data.job.state}`, severity: 'success' });
+        refetch();
+      } else {
+        setSnackbar({ message: 'Hook triggered, but response unexpected', severity: 'success' });
+      }
+    } catch {
+      setSnackbar({ message: 'Failed to trigger deploy hook', severity: 'error' });
+    } finally {
+      setTriggeringHook(null);
+    }
+  };
+
   return (
     <Stack spacing={3}>
       <Paper variant="outlined" sx={{ p: { xs: 2, sm: 3 }, overflow: 'hidden' }}>
@@ -294,6 +348,14 @@ export function TenantDashboard() {
                       <ListItemIcon><CloudUploadIcon fontSize="small" /></ListItemIcon>
                       <ListItemText>{isDeploying ? 'Deploying…' : 'Deploy to Vercel'}</ListItemText>
                     </MenuItem>
+                    <MenuItem onClick={() => void handleCheckStatus(t.slug)} disabled={checkingStatus === t.slug}>
+                      <ListItemIcon><RefreshIcon fontSize="small" /></ListItemIcon>
+                      <ListItemText>{checkingStatus === t.slug ? 'Checking…' : 'Check Status'}</ListItemText>
+                    </MenuItem>
+                    <MenuItem onClick={() => void handleTriggerHook(t.slug)} disabled={triggeringHook === t.slug}>
+                      <ListItemIcon><PlayArrowIcon fontSize="small" /></ListItemIcon>
+                      <ListItemText>{triggeringHook === t.slug ? 'Triggering…' : 'Trigger Deploy Hook'}</ListItemText>
+                    </MenuItem>
                     <Divider />
                     <MenuItem
                       onClick={() => { handleMenuClose(); setConfirmDelete(t.slug); }}
@@ -393,6 +455,14 @@ export function TenantDashboard() {
                           <MenuItem onClick={() => void handleDeploy(t.slug)} disabled={isDeploying}>
                             <ListItemIcon><CloudUploadIcon fontSize="small" /></ListItemIcon>
                             <ListItemText>{isDeploying ? 'Deploying…' : 'Deploy to Vercel'}</ListItemText>
+                          </MenuItem>
+                          <MenuItem onClick={() => void handleCheckStatus(t.slug)} disabled={checkingStatus === t.slug}>
+                            <ListItemIcon><RefreshIcon fontSize="small" /></ListItemIcon>
+                            <ListItemText>{checkingStatus === t.slug ? 'Checking…' : 'Check Status'}</ListItemText>
+                          </MenuItem>
+                          <MenuItem onClick={() => void handleTriggerHook(t.slug)} disabled={triggeringHook === t.slug}>
+                            <ListItemIcon><PlayArrowIcon fontSize="small" /></ListItemIcon>
+                            <ListItemText>{triggeringHook === t.slug ? 'Triggering…' : 'Trigger Deploy Hook'}</ListItemText>
                           </MenuItem>
                           <Divider />
                           <MenuItem
