@@ -492,7 +492,7 @@ export async function ensureVercelProjectWithGit(input: { slug: string }): Promi
       await vercelApi(`/v10/projects/${project.id}`, {
         method: 'PATCH',
         body: JSON.stringify({
-          rootDirectory: 'website',
+          rootDirectory: '.',
           gitRepository: {
             type: GIT_REPO_TYPE,
             repo: GIT_REPO,
@@ -510,7 +510,7 @@ export async function ensureVercelProjectWithGit(input: { slug: string }): Promi
     body: JSON.stringify({
       name: input.slug,
       framework: 'nextjs',
-      rootDirectory: 'website',
+      rootDirectory: '.',
       gitRepository: {
         type: GIT_REPO_TYPE,
         repo: GIT_REPO,
@@ -532,7 +532,7 @@ export async function ensureVercelProjectWithGit(input: { slug: string }): Promi
         await vercelApi(`/v10/projects/${existing.id}`, {
           method: 'PATCH',
           body: JSON.stringify({
-            rootDirectory: 'website',
+            rootDirectory: '.',
             gitRepository: {
               type: GIT_REPO_TYPE,
               repo: GIT_REPO,
