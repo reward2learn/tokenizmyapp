@@ -121,6 +121,7 @@ interface DatabaseConfig {
 const EDIT_STEPS: Array<{ label: string; icon: React.ReactNode; key: string }> = [
   { label: 'Template', icon: <SettingsIcon fontSize="small" />, key: 'template' },
   { label: 'Preview', icon: <PaletteIcon fontSize="small" />, key: 'preview' },
+  { label: 'Slug', icon: <EditIcon fontSize="small" />, key: 'slug' },
   { label: 'License', icon: <KeyIcon fontSize="small" />, key: 'license' },
   { label: 'Features', icon: <AutoFixHighIcon fontSize="small" />, key: 'features' },
   { label: 'OpenAI API-Keys', icon: <KeyIcon fontSize="small" />, key: 'openai' },
@@ -259,6 +260,12 @@ export function EditTenantModal({ open, tenant, onClose, onRefetch, onSnackbar }
   const [domainResult, setDomainResult] = useState<string | null>(null);
   const [projectInfo, setProjectInfo] = useState<{ name: string; id: string; updatedAt: string } | null>(null);
   const [vercelUrl, setVercelUrl] = useState<string | null>(null);
+
+  // ── Slug rename ─────────────────────────────────────────────
+  const [newSlug, setNewSlug] = useState('');
+  const [renamingSlug, setRenamingSlug] = useState(false);
+  const [slugError, setSlugError] = useState<string | null>(null);
+  const [slugResult, setSlugResult] = useState<string | null>(null);
 
   // ── Initialize from tenant on open ────────────────────────
   useEffect(() => {
@@ -1113,7 +1120,119 @@ export function EditTenantModal({ open, tenant, onClose, onRefetch, onSnackbar }
     </Stack>
   );
 
-  // ── Step 2: License ───────────────────────────────────────
+  // ── Step 2: Slug ──────────────────────────────────────────
+  const renderStepSlug = () => {
+    const currentSlug = tenant?.slug || '';
+    const hasVercelProject = !!tenant?.vercelProjectId;
+
+    const validateSlug = (slug: string): string | null => {
+      if (!slug) return 'Slug is required';
+      if (slug.length < 2) return 'Slug must be at least 2 characters';
+      if (slug.length > 50) return 'Slug must be at most 50 characters';
+      if (!/^[a-z0-9-]+$/.test(slug)) return 'Slug must be lowercase alphanumeric with hyphens (a-z, 0-9, -)';
+      if (slug === currentSlug) return 'New slug is the same as the current slug';
+      return null;
+    };
+
+    const handleRename = async () => {
+      const validationError = validateSlug(newSlug);
+      if (validationError) { setSlugError(validationError); return; }
+
+      setRenamingSlug(true);
+      setSlugError(null);
+      setSlugResult(null);
+      try {
+        const res = await fetch(`/api/admin/tenants/${currentSlug}/rename`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ newSlug }),
+        });
+        const data = await res.json();
+        if (data.success) {
+          setSlugResult(`✅ Slug renamed to "${data.data.tenant.slug}". The page will reload to use the new slug.`);
+          // Update tenant reference for downstream steps
+          setNewSlug('');
+          // Trigger a full refetch after a short delay so the modal re-renders with new slug URL
+          setTimeout(() => {
+            if (onRefetch) onRefetch();
+            handleClose();
+          }, 1500);
+        } else {
+          setSlugError(data.error || 'Failed to rename slug');
+        }
+      } catch {
+        setSlugError('Failed to connect to rename API');
+      } finally {
+        setRenamingSlug(false);
+      }
+    };
+
+    return (
+      <Stack spacing={3}>
+        <Stack direction="row" spacing={1.5} sx={{ alignItems: 'center' }}>
+          <EditIcon color="primary" />
+          <Typography variant="subtitle1" sx={{ fontWeight: 600 }}>
+            Tenant Slug
+          </Typography>
+        </Stack>
+
+        <Paper variant="outlined" sx={{ p: 2.5, bgcolor: 'warning.dark', color: 'warning.contrastText' }}>
+          <Typography variant="subtitle2" sx={{ fontWeight: 700, mb: 1 }}>
+            ⚠️ Warning
+          </Typography>
+          <Typography variant="body2">
+            Changing the tenant slug is a destructive operation. It will:
+          </Typography>
+          <ul style={{ margin: '4px 0', paddingLeft: '1.25rem' }}>
+            <li><Typography variant="caption">Rename the Vercel project (changes the <strong>.vercel.app</strong> URL)</Typography></li>
+            <li><Typography variant="caption">Update the <strong>app_url</strong> in the database</Typography></li>
+            <li><Typography variant="caption">Set the tenant status to <strong>deploying</strong> — a redeploy is required</Typography></li>
+            {hasVercelProject && <li><Typography variant="caption">The old <strong>{currentSlug}.vercel.app</strong> URL will stop working</Typography></li>}
+          </ul>
+          <Typography variant="caption" sx={{ display: 'block', mt: 1 }}>
+            After renaming, the modal will close and you will need to re-open it from the new slug entry in the tenant list.
+          </Typography>
+        </Paper>
+
+        <Paper variant="outlined" sx={{ p: 2.5 }}>
+          <Stack spacing={2}>
+            <SummaryRow label="Current Slug" value={currentSlug} />
+            <TextField
+              label="New Slug"
+              value={newSlug}
+              onChange={(e) => { setNewSlug(e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, '')); setSlugError(null); }}
+              fullWidth
+              size="small"
+              placeholder="my-new-slug"
+              helperText="Lowercase letters, numbers, and hyphens only (2-50 chars)"
+              error={!!slugError}
+              slotProps={{ input: { sx: { fontFamily: 'monospace' } } }}
+            />
+            {slugError && <Typography variant="caption" color="error">{slugError}</Typography>}
+            {slugResult && <Typography variant="caption" color="success.main">{slugResult}</Typography>}
+            {hasVercelProject && newSlug && newSlug !== currentSlug && (
+              <Alert severity="info" sx={{ fontSize: '0.75rem' }}>
+                Preview URL after rename: <strong>https://{newSlug}.vercel.app</strong>
+              </Alert>
+            )}
+          </Stack>
+        </Paper>
+
+        <Button
+          variant="contained"
+          color="warning"
+          onClick={handleRename}
+          disabled={renamingSlug || !newSlug || newSlug === currentSlug}
+          startIcon={renamingSlug ? <CircularProgress size={18} color="inherit" /> : <EditIcon />}
+          sx={{ alignSelf: 'flex-start', fontWeight: 700 }}
+        >
+          {renamingSlug ? 'Renaming...' : 'Rename & Redeploy'}
+        </Button>
+      </Stack>
+    );
+  };
+
+  // ── Step 3: License ───────────────────────────────────────
   const renderStepLicense = () => (
     <Stack spacing={3}>
       <Typography variant="subtitle1" sx={{ fontWeight: 600 }}>
@@ -2126,6 +2245,7 @@ export function EditTenantModal({ open, tenant, onClose, onRefetch, onSnackbar }
         </Typography>
         <Stack spacing={0.5}>
           <SummaryRow label="Slug" value={tenant?.slug || ''} />
+          <SummaryRow label="App URL" value={tenant?.appUrl || 'Not deployed'} />
           <SummaryRow label="Display Name" value={displayName || tenant?.displayName || ''} />
           <SummaryRow label="Template" value={getTemplate(editTemplate).label} />
           <SummaryRow label="Status" value={tenant?.status || 'draft'} />
@@ -2228,16 +2348,17 @@ export function EditTenantModal({ open, tenant, onClose, onRefetch, onSnackbar }
     switch (index) {
       case 0: return renderStepTemplate();
       case 1: return renderStepPreview();
-      case 2: return renderStepLicense();
-      case 3: return renderStepFeatures();
-      case 4: return renderStepOpenAi();
-      case 5: return renderStepOAuth();
-      case 6: return renderStepDatabase();
-      case 7: return renderStepEnv();
-      case 8: return renderStepHooks();
-      case 9: return renderStepRoles();
-      case 10: return renderStepCustomDomain();
-      case 11: return renderStepSummary();
+      case 2: return renderStepSlug();
+      case 3: return renderStepLicense();
+      case 4: return renderStepFeatures();
+      case 5: return renderStepOpenAi();
+      case 6: return renderStepOAuth();
+      case 7: return renderStepDatabase();
+      case 8: return renderStepEnv();
+      case 9: return renderStepHooks();
+      case 10: return renderStepRoles();
+      case 11: return renderStepCustomDomain();
+      case 12: return renderStepSummary();
       default: return null;
     }
   };
