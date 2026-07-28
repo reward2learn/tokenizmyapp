@@ -1,7 +1,7 @@
-import { inngest } from './inngest';
-import { logger } from '../logger';
-import { sendTenantCleanupNotification } from '../notifications/tenant-notifications';
-import { cleanupTenant } from '../domain/tenant/tenant-cleanup-service';
+import { inngest } from '@/lib/inngest';
+import { logger } from '@/lib/logger';
+import { sendTenantCleanupNotification } from '@/lib/notifications/tenant-notifications';
+import { cleanupTenant } from '@/domain/tenant/tenant-cleanup-service';
 
 /**
  * Inngest workflow for tenant deprovisioning.
@@ -14,8 +14,11 @@ import { cleanupTenant } from '../domain/tenant/tenant-cleanup-service';
  * - Notification to administrators
  */
 export const tenantDeprovisioningWorkflow = inngest.createFunction(
-  { id: 'tenant-deprovisioning' },
-  { event: 'tenant.deprovisioning.completed' },
+  {
+    id: 'tenant-deprovisioning',
+    retries: 3,
+    triggers: [{ event: 'tenant.deprovisioning.completed' }],
+  },
   async ({ event }) => {
     const { tenantSlug, cleanedResources, errors } = event.data;
 

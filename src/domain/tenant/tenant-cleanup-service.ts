@@ -12,8 +12,8 @@
 import { getSecret, deleteSecret } from '@/lib/secrets';
 import { decrypt } from '@/lib/crypto';
 import { inngest } from '@/lib/inngest';
-import { vercelApi, vercelApiWithToken, resolveBearerToken } from './vercel-deploy-service';
-import { deleteNeonDatabase } from './neon-provision-service';
+import { deleteVercelProject } from './vercel-deploy-service';
+import { deprovisionTenantDatabase } from './neon-provision-service';
 import { deleteGoogleOAuthCredentials } from './google-cloud-service';
 import { logger } from '@/lib/logger';
 
@@ -48,9 +48,9 @@ export async function cleanupTenant(context: CleanupContext): Promise<TenantClea
     logger.info(`Starting cleanup for tenant: ${tenantSlug}`);
 
     // 1. Clean up Neon database
-    if (tenantDbUrl) {
+    if (tenantSlug) {
       try {
-        await deleteNeonDatabase(tenantDbUrl);
+        await deprovisionTenantDatabase(tenantSlug);
         result.cleanedResources.database = true;
         logger.info(`Successfully deprovisioned Neon database for ${tenantSlug}`);
       } catch (err) {
@@ -136,68 +136,4 @@ export async function cleanupTenant(context: CleanupContext): Promise<TenantClea
     logger.error(`Unexpected error during tenant cleanup for ${tenantSlug}:`, err);
     return result;
   }
-}
-
-/**
- * Delete a Vercel project by ID.
- * Handles cases where the project may already be deleted or inaccessible.
- */
-export async function deleteVercelProject(projectId: string): Promise<void> {
-  try {
-    logger.info(`Attempting to delete Vercel project: ${projectId}`);
-
-    // Try to get the project first to verify it exists
-    const getRes = await vercelApiTryBoth(`/v10/projects/${projectId}`);
-    
-    if (getRes.status === 404) {
-      logger.info(`Vercel project ${projectId} already does not exist (404)`);
-      return;
-    }
-
-    if (!getRes.ok) {
-      // If we can't get the project but it's not 404, try to delete anyway
-      logger.warn(`Could not verify Vercel project ${projectId} existence: ${getRes.status}`);
-    }
-
-    // Attempt deletion
-    const deleteRes = await vercelApi(`/v10/projects/${projectId}`, {
-      method: 'DELETE',
-    });
-
-    if (deleteRes.ok) {
-      logger.info(`Successfully deleted Vercel project ${projectId}`);
-      return;
-    }
-
-    if (deleteRes.status === 404) {
-      logger.info(`Vercel project ${projectId} already deleted (404)`);
-      return;
-    }
-
-    throw new Error(`Vercel API returned ${deleteRes.status}: ${await deleteRes.text()}`);
-  } catch (err) {
-    // If the project is already deleted, that's fine
-    if (err instanceof Error && err.message.includes('404')) {
-      logger.info(`Vercel project ${projectId} already deleted or not found`);
-      return;
-    }
-    throw err;
-  }
-}
-
-/**
- * Helper function to try Vercel API calls with and without teamId.
- * Similar to vercelApiTryBoth but exported for use in this service.
- */
-async function vercelApiTryBoth(path: string, options: RequestInit = {}): Promise<Response> {
-  const token = await resolveBearerToken();
-  const withTeam = await vercelApiWithToken(token, path, options, true);
-  if (withTeam.ok) return withTeam;
-
-  const withoutTeam = await vercelApiWithToken(token, path, options, false);
-  if (withoutTeam.ok) return withoutTeam;
-
-  // Return the more useful response: prefer non-404 over 404
-  if (withTeam.status !== 404 && withTeam.status !== 403) return withTeam;
-  return withoutTeam;
 }
