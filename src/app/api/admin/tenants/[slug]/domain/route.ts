@@ -89,8 +89,15 @@ export async function GET(
     const { tenant, projectId, error } = await fetchTenantAndProject(slug, db);
     if (error || !tenant) return error!;
 
-    // Fetch domains from Vercel (empty list if no projectId)
-    const domains = projectId ? await getVercelDomains(projectId) : [];
+    // Fetch domains from Vercel (empty list if no projectId or project deleted)
+    let domains: { name: string; verified: boolean; createdAt: string }[] = [];
+    if (projectId) {
+      try {
+        domains = await getVercelDomains(projectId);
+      } catch (err) {
+        console.warn(`[domain] Could not fetch Vercel domains for ${projectId}:`, err);
+      }
+    }
 
     // Fetch Vercel project info to show current project name and auto-generated URL
     let projectInfo: { name: string; id: string; updatedAt: string } | null = null;

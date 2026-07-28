@@ -1807,16 +1807,24 @@ export function EditTenantModal({ open, tenant, onClose, onRefetch, onSnackbar }
           setProjectInfo(data.data?.projectInfo || null);
           setVercelUrl(data.data?.autoVercelUrl || null);
 
+                    const apiWarnings = data.data?.warnings || [];
           if (!data.data?.domains?.length && !data.data?.projectInfo) {
-            setDomainResult('No domains configured on Vercel yet.');
+            if (apiWarnings.length > 0) {
+              setDomainResult('⚠️ ' + apiWarnings.join('; '));
+            } else {
+              setDomainResult('No domains configured on Vercel yet.');
+            }
           } else {
-            const verified = (data.data?.domains || []).filter((d: { verified: boolean }) => d.verified).length;
+            const verified = (data.data?.domains || []).filter((d) => d.verified).length;
             const parts: string[] = [];
             if (data.data?.domains?.length) {
               parts.push(`${data.data.domains.length} domain(s) — ${verified} verified`);
             }
             if (data.data?.projectInfo) {
               parts.push(`Project: ${data.data.projectInfo.name}`);
+            }
+            if (apiWarnings.length > 0) {
+              parts.push(`⚠️ ${apiWarnings.length} warning(s)`);
             }
             setDomainResult(parts.join(' | ') || 'Fetched domain info.');
           }

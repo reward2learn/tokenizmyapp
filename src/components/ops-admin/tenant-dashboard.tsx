@@ -243,6 +243,17 @@ export function TenantDashboard() {
         if (autoVercelUrl) {
           parts.push(`URL: ${autoVercelUrl}`);
         }
+        const warnings: string[] = data.data?.warnings || [];
+        if (warnings.length > 0) {
+          const wMsg = warnings.join('; ');
+          console.warn(`[tenant-dashboard] Domain warnings for ${slug}:`, wMsg);
+          if (parts.length > 0) {
+            parts.push(`⚠️ ${warnings.length} warning(s)`);
+          } else {
+            parts.push(wMsg);
+          }
+        }
+
         if (parts.length === 0) {
           if (projectInfo) {
             parts.push(`Project ${projectInfo.name} — no custom domains`);
@@ -254,7 +265,7 @@ export function TenantDashboard() {
         refetch();
         setSnackbar({
           message: `🌐 ${parts.join(' | ')}`,
-          severity: domains.some((d: { verified: boolean }) => d.verified) ? 'success' : 'error',
+          severity: warnings.length > 0 ? 'warning' : (domains.some((d: { verified: boolean }) => d.verified) ? 'success' : 'error'),
         });
       } else {
         setSnackbar({ message: data.error || 'Failed to fetch domains', severity: 'error' });

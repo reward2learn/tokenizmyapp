@@ -620,6 +620,13 @@ export async function deployTenantWithGit(input: DeployTenantInput): Promise<Dep
  */
 export async function getVercelDomains(projectId: string): Promise<{ name: string; verified: boolean; createdAt: string }[]> {
   const res = await vercelApiTryBoth(`/v9/projects/${projectId}/domains`);
+
+  // 404 means the project was deleted from Vercel — return empty gracefully
+  if (res.status === 404) {
+    console.warn(`[vercel-deploy] Project ${projectId} not found when fetching domains (may have been deleted)`);
+    return [];
+  }
+
   if (!res.ok) {
     const err = await res.text().catch(() => '');
     console.warn(`[vercel-deploy] Failed to fetch domains for ${projectId}: ${res.status} ${err.slice(0, 200)}`);
@@ -648,17 +655,22 @@ export interface SetCustomDomainResult {
 // ── Vercel Project Management ──────────────────────────────────
 
 /**
- * Fetch Vercel project details by project ID.
+ * Fetch Vercel project details by project ID. Returns null if project doesn't exist.
  * GET /v10/projects/{projectId}
- * Returns the project name, id, and updatedAt so callers can determine
- * the auto-generated .vercel.app URL (`https://${name}.vercel.app`).
  */
-export async function getVercelProject(projectId: string): Promise<{ name: string; id: string; updatedAt: string }> {
+export async function getVercelProject(projectId: string): Promise<{ name: string; id: string; updatedAt: string } | null> {
   const res = await vercelApiTryBoth(`/v10/projects/${projectId}`);
+
+  // 404 means the project was deleted from Vercel - return null gracefully
+  if (res.status === 404) {
+    console.warn(`[vercel-deploy] Project ${projectId} not found (may have been deleted)`);
+    return null;
+  }
+
   if (!res.ok) {
     const err = await res.text().catch(() => '');
     console.warn(`[vercel-deploy] Failed to fetch project ${projectId}: ${res.status} ${err.slice(0, 200)}`);
-    throw new Error(`Vercel API returned ${res.status} when fetching project ${projectId}`);
+    return null;
   }
   const project = await res.json() as { id: string; name: string; updatedAt?: string };
   return {
@@ -693,6 +705,9 @@ export async function renameVercelProject(projectId: string, newName: string): P
     }
     if (res.status === 409) {
       throw new Error(`Project name "${newName}" is already taken on Vercel. Choose a different name.`);
+    }
+    if (res.status === 404) {
+      throw new Error(`Project ${projectId} not found on Vercel. Deploy the tenant first to create the project.`);
     }
     throw new Error(`Failed to rename project: ${detail}`);
   }
