@@ -1,142 +1,12 @@
 /**
  * Vercel Deploy Service — creates and configures Vercel projects for new tenants.
  *
- * Token resolution order:
- *   1. VERCEL_OAUTH from secrets table (set via OAuth "Connect to Vercel" flow)
- *   2. VERCEL_TOKEN env var (legacy fallback)
- *
- * The OAuth token is auto-refreshed when expired using the stored refresh_token.
+ * Uses @vercel/sdk for all Vercel API calls. Token resolution (OAuth + env var
+ * fallback) is handled by vercel-sdk-client.ts.
  */
-import { getSecret, setSecret } from '@/lib/secrets';
-import { decrypt, encrypt } from '@/lib/crypto';
+import { getVercelClient, withTeamId, withTeamId404Null, TEAM_ID } from './vercel-sdk-client';
 
-const VERCEL_API = 'https://api.vercel.com';
-const TEAM_ID = process.env.VERCEL_TEAM_ID || 'team_uKNaNEyjHVW7vooXeUfNJ3LW';
 
-// ── Vercel OAuth token helpers ─────────────────────────────────
-
-interface VercelOAuthTokens {
-  accessToken: string;
-  refreshToken: string | null;
-  expiresAt: number;
-  scope: string;
-}
-
-const CLIENT_ID = process.env.NEXT_PUBLIC_VERCEL_APP_CLIENT_ID;
-const CLIENT_SECRET = process.env.VERCEL_APP_CLIENT_SECRET;
-/**
- * Read the stored Vercel OAuth tokens from the secrets table.
- */
-async function readStoredTokens(): Promise<VercelOAuthTokens | null> {
-  const secret = await getSecret('VERCEL_OAUTH');
-  if (!secret) return null;
-  try {
-    const decrypted = decrypt(secret.encrypted, secret.iv, secret.authTag);
-    return JSON.parse(decrypted);
-  } catch {
-    return null;
-  }
-}
-
-/**
- * Write Vercel OAuth tokens to the secrets table.
- */
-async function writeTokens(tokens: VercelOAuthTokens): Promise<void> {
-  const payload = JSON.stringify(tokens);
-  const encrypted = encrypt(payload);
-  await setSecret('VERCEL_OAUTH', payload);
-}
-
-/**
- * Refresh the OAuth access token using the refresh token.
- * Vercel's refresh_token flow returns a new access_token + refresh_token pair.
- */
-async function refreshAccessToken(refreshToken: string): Promise<VercelOAuthTokens | null> {
-  if (!CLIENT_ID || !CLIENT_SECRET) {
-    console.warn('[vercel-deploy] Cannot refresh token: missing OAuth client config');
-    return null;
-  }
-
-  try {
-    const res = await fetch('https://api.vercel.com/login/oauth/token', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: new URLSearchParams({
-        grant_type: 'refresh_token',
-        client_id: CLIENT_ID,
-        client_secret: CLIENT_SECRET,
-        refresh_token: refreshToken,
-      }),
-    });
-
-    if (!res.ok) {
-      console.error('[vercel-deploy] Token refresh failed:', res.status, await res.text());
-      return null;
-    }
-
-    const data = await res.json() as {
-      access_token: string;
-      refresh_token?: string;
-      expires_in: number;
-      scope?: string;
-    };
-
-    const tokens: VercelOAuthTokens = {
-      accessToken: data.access_token,
-      refreshToken: data.refresh_token || refreshToken, // use old refresh if not provided
-      expiresAt: Date.now() + data.expires_in * 1000,
-      scope: data.scope || '',
-    };
-
-    // Persist updated tokens
-    await writeTokens(tokens);
-    return tokens;
-  } catch (err) {
-    console.error('[vercel-deploy] Token refresh error:', err);
-    return null;
-  }
-}
-
-/**
- * Get a valid Bearer token for Vercel API calls.
- * Tries: stored OAuth token (with auto-refresh) → env var VERCEL_TOKEN.
- */
-async function resolveBearerToken(): Promise<string> {
-  // 1. Try stored OAuth tokens
-  const stored = await readStoredTokens();
-  if (stored) {
-    // Check if expired (with 5 min buffer)
-    if (Date.now() > stored.expiresAt - 300_000) {
-      // Token is expired or about to expire — try refresh
-      if (stored.refreshToken) {
-        console.log('[vercel-deploy] Access token expired, attempting refresh...');
-        const refreshed = await refreshAccessToken(stored.refreshToken);
-        if (refreshed) {
-          return refreshed.accessToken;
-        }
-        console.warn('[vercel-deploy] Token refresh failed, falling back to env var');
-      } else {
-        console.warn('[vercel-deploy] Token expired and no refresh_token available');
-      }
-    } else {
-      return stored.accessToken;
-    }
-  }
-
-  // 2. Fallback to env var legacy token
-  const envToken = process.env.VERCEL_TOKEN;
-  if (envToken) {
-    return envToken;
-  }
-
-  throw new Error(
-    'No Vercel API token available. ' +
-    'Connect your Vercel account via the admin dashboard (Connect to Vercel button), ' +
-    'or set VERCEL_TOKEN environment variable.',
-  );
-}
-
-// ── Vercel API client ────────────────────────────────────────
 
 interface DeployTenantInput {
   slug: string;
@@ -155,39 +25,9 @@ interface DeployTenantResult {
   envCount: number;
 }
 
-async function vercelApi(path: string, options: RequestInit = {}, includeTeamId = true): Promise<Response> {
-  const token = await resolveBearerToken();
-  return vercelApiWithToken(token, path, options, includeTeamId);
-}
-
 /** Make a Vercel API call with a specific bearer token (no auto-resolution). */
-async function vercelApiWithToken(token: string, path: string, options: RequestInit = {}, includeTeamId = true): Promise<Response> {
-  const url = new URL(`${VERCEL_API}${path}`);
-  if (includeTeamId) url.searchParams.set('teamId', TEAM_ID);
-  return fetch(url.toString(), {
-    ...options,
-    headers: {
-      Authorization: `Bearer ${token}`,
-      'Content-Type': 'application/json',
-      ...options.headers,
-    },
-  });
-}
-
 /** Try a Vercel API call both with and without teamId. Returns the first successful response,
  *  or the best-effort response (preferring non-404/403) if both fail. */
-async function vercelApiTryBoth(path: string, options: RequestInit = {}): Promise<Response> {
-  const withTeam = await vercelApi(path, options, true);
-  if (withTeam.ok) return withTeam;
-
-  const withoutTeam = await vercelApi(path, options, false);
-  if (withoutTeam.ok) return withoutTeam;
-
-  // Return the more useful response: prefer non-404 over 404
-  if (withTeam.status !== 404 && withTeam.status !== 403) return withTeam;
-  return withoutTeam;
-}
-
 function extractConfigEnvVars(metadata: Record<string, unknown> | undefined | null): Record<string, string> {
   const env: Record<string, string> = {};
   const config = (metadata?.config ?? {}) as Record<string, unknown>;
@@ -221,93 +61,57 @@ function extractConfigEnvVars(metadata: Record<string, unknown> | undefined | nu
 }
 
 export async function ensureVercelProject(input: { slug: string }): Promise<{ projectId: string; created: boolean }> {
-  // 1. Try to get the project directly by name (Vercel API accepts slug/name as ID)
-  //    Try both with and without teamId — OAuth tokens may be scoped differently
-  const getRes = await vercelApiTryBoth(`/v10/projects/${input.slug}`);
-  if (getRes.ok) {
-    const project = await getRes.json() as { id: string; name: string };
-    console.log(`[vercel-deploy] Project "${input.slug}" already exists: ${project.id}`);
-    return { projectId: project.id, created: false };
+  const client = await getVercelClient();
+  const slug = input.slug;
+
+  // 1. Try to find existing project
+  const existing = await withTeamId404Null((teamId) =>
+    client.projects.getProject({ idOrName: slug, teamId })
+  );
+  if (existing) {
+    console.log(`[vercel-deploy] Project "${slug}" already exists: ${existing.id}`);
+    return { projectId: existing.id, created: false };
   }
 
-  // 2. If not found, try searching (broader search) — also try both scopes
-  const searchRes = await vercelApiTryBoth(`/v10/projects?search=${input.slug}`);
-  if (searchRes.ok) {
-    const data = await searchRes.json() as { projects: { id: string; name: string }[] };
-    const existing = data.projects?.find((p) => p.name === input.slug);
-    if (existing) {
-      console.log(`[vercel-deploy] Project "${input.slug}" found via search: ${existing.id}`);
-      return { projectId: existing.id, created: false };
-    }
+  // 2. Retry getProject by name (different auth scopes may cause 404)
+  const retryLookup = await withTeamId404Null((teamId) =>
+    client.projects.getProject({ idOrName: slug, teamId })
+  );
+  if (retryLookup) {
+    console.log(`[vercel-deploy] Project "${slug}" found on retry: ${retryLookup.id}`);
+    return { projectId: retryLookup.id, created: false };
   }
 
-  // 3. Create new project (POST must be with teamId since projects live under teams)
-  const createRes = await vercelApi('/v10/projects', {
-    method: 'POST',
-    body: JSON.stringify({
-      name: input.slug,
-      framework: 'nextjs',
-      buildCommand: 'zenstack generate --schema zenstack/schema.zmodel && npx prisma db push --schema=zenstack/prisma/schema.prisma --skip-generate --accept-data-loss && next build',
-      installCommand: 'bun install',
-      outputDirectory: '.next',
-    }),
-  });
-
-  // 4. If creation fails with 409, the project exists but we couldn't find it
-  if (createRes.status === 409) {
-    console.warn(`[vercel-deploy] Project "${input.slug}" exists (409). Attempting to use existing project.`);
-    // Retry the direct lookup via tryBoth
-    const retryRes = await vercelApiTryBoth(`/v10/projects/${input.slug}`);
-    if (retryRes.ok) {
-      const project = await retryRes.json() as { id: string; name: string };
-      console.log(`[vercel-deploy] Using existing project: ${project.id}`);
-      return { projectId: project.id, created: false };
-    }
-    // If still not found, try to get it with the personal token env var
-    const token = process.env.VERCEL_TOKEN;
-    if (token) {
-      try {
-        const fallbackUrl = new URL(`${VERCEL_API}/v10/projects/${input.slug}`);
-        fallbackUrl.searchParams.set('teamId', TEAM_ID);
-        const envRes = await fetch(fallbackUrl.toString(), {
-          headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-        });
-        if (envRes.ok) {
-          const project = await envRes.json() as { id: string; name: string };
-          console.log(`[vercel-deploy] Found existing project via VERCEL_TOKEN: ${project.id}`);
-          return { projectId: project.id, created: false };
-        }
-      } catch {}
-    }
-    throw new Error(`Project "${input.slug}" already exists on Vercel but could not be found.`);
-  }
-
-  if (!createRes.ok) {
-    const err = await createRes.text();
-    throw new Error(`Failed to create Vercel project: ${createRes.status} ${err}`);
-  }
-
-  const project = await createRes.json() as { id: string; name: string };
-  console.log(`[vercel-deploy] Project created: ${project.id}`);
-  return { projectId: project.id, created: true };
-}
-/** Try fetching env vars with a given token/combo, return list or null. */
-async function tryFetchEnvs(
-  token: string | null,
-  projectId: string,
-  includeTeam: boolean,
-): Promise<Array<{ key: string; id: string }> | null> {
+  // 3. Create new project
   try {
-    const fn = token
-      ? (p: string, o?: RequestInit) => vercelApiWithToken(token, p, o || {}, includeTeam)
-      : (p: string, o?: RequestInit) => vercelApi(p, o || {}, includeTeam);
-    const res = await fn(`/v10/projects/${projectId}/env?decrypt=true`);
-    if (res.ok) {
-      const data = await res.json() as { envs?: Array<{ key: string; id: string }> };
-      return data.envs || [];
+    const created = await withTeamId((teamId) =>
+      client.projects.createProject({
+        teamId,
+        requestBody: {
+          name: slug,
+          framework: 'nextjs',
+          buildCommand: 'zenstack generate --schema zenstack/schema.zmodel && npx prisma db push --schema=zenstack/prisma/schema.prisma --skip-generate --accept-data-loss && next build',
+          installCommand: 'bun install',
+          outputDirectory: '.next',
+        },
+      })
+    );
+    console.log(`[vercel-deploy] Project created: ${created.id}`);
+    return { projectId: created.id, created: true };
+  } catch (err) {
+    // If creation fails with 409, the project exists but we couldn't find it
+    if (err instanceof Error && err.message.includes('409')) {
+      console.warn(`[vercel-deploy] Project "${slug}" exists (409). Attempting to use existing.`);
+      const retry = await withTeamId404Null((teamId) =>
+        client.projects.getProject({ idOrName: slug, teamId })
+      );
+      if (retry) {
+        return { projectId: retry.id, created: false };
+      }
+      throw new Error(`Project "${slug}" already exists on Vercel but could not be found.`);
     }
-  } catch {}
-  return null;
+    throw err;
+  }
 }
 
 /** Upsert a single env var — tries all available tokens/teamId combos until one works. */
@@ -316,55 +120,37 @@ async function upsertEnvVar(
   key: string,
   value: string,
 ): Promise<boolean> {
-  const requestBody = JSON.stringify({
+  const client = await getVercelClient();
+  const requestBody = {
     key,
     value,
-    type: key.startsWith('NEXT_PUBLIC_') ? 'plain' : 'encrypted',
-    target: ['production', 'preview', 'development'],
-  });
+    type: (key.startsWith('NEXT_PUBLIC_') ? 'plain' : 'encrypted') as 'plain' | 'encrypted',
+    target: ['production' as const, 'preview' as const, 'development' as const],
+  };
 
-  const vt = process.env.VERCEL_TOKEN;
-
-  // Try each token x teamId combos
-  const combos: Array<{ label: string; token: string | null; teamId: boolean }> = [
-    { label: 'oauth+team', token: null, teamId: true },
-    { label: 'oauth', token: null, teamId: false },
-  ];
-  if (vt) {
-    combos.push({ label: 'vt+team', token: vt, teamId: true });
-    combos.push({ label: 'vt', token: vt, teamId: false });
-  }
-
-  for (const { label, token, teamId } of combos) {
-    const fn = token
-      ? (p: string, o?: RequestInit) => vercelApiWithToken(token, p, o || {}, teamId)
-      : (p: string, o?: RequestInit) => vercelApi(p, o || {}, teamId);
-
-    // POST with ?upsert=true — Vercel creates or updates by key name
-    const postRes = await fn(`/v10/projects/${projectId}/env?upsert=true`, { method: 'POST', body: requestBody });
-    if (postRes.ok) {
-      console.log(`[vercel-deploy] Set env ${key} via POST ?upsert=true (${label})`);
+  // Try with teamId first, then without
+  for (const teamId of [TEAM_ID, undefined]) {
+    try {
+      await client.projects.createProjectEnv({
+        idOrName: projectId,
+        teamId,
+        upsert: 'true',
+        requestBody,
+      });
+      console.log(`[vercel-deploy] Set env ${key} via SDK`);
       return true;
-    }
-
-    // Fallback: fetch envs to get the ID, then PATCH by ID
-    const getRes = await fn(`/v10/projects/${projectId}/env?decrypt=true`);
-    if (getRes.ok) {
-      const data = await getRes.json() as { envs?: Array<{ key: string; id: string }> };
-      const envEntry = data.envs?.find((e: { key: string; id: string }) => e.key === key);
-      if (envEntry?.id) {
-        const patchRes = await fn(`/v10/projects/${projectId}/env/${envEntry.id}`, { method: 'PATCH', body: requestBody });
-        if (patchRes.ok) {
-          console.log(`[vercel-deploy] Set env ${key} via PATCH by ID (${label})`);
-          return true;
-        }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      if (msg.includes('403') && teamId === TEAM_ID) {
+        // Permission error with teamId, try without
+        continue;
       }
+      if (msg.includes('400') && teamId === TEAM_ID) {
+        // Bad request with teamId, try without
+        continue;
+      }
+      console.warn(`[vercel-deploy] Failed to set env ${key} (teamId=${teamId || 'none'}): ${msg}`);
     }
-
-    // Log the failure and continue trying other combos
-    const errText = postRes.status === 400 ? '' : await postRes.text().catch(() => '');
-    const errMsg = errText ? errText.slice(0, 100) : `POST returned ${postRes.status}`;
-    console.warn(`[vercel-deploy] ${label} failed for ${key}: ${errMsg}`);
   }
 
   return false;
@@ -419,10 +205,11 @@ export async function syncEnvVars(
 
 export async function deployTenant(input: DeployTenantInput): Promise<DeployTenantResult> {
   const appUrl = `https://${input.slug}.vercel.app`;
+  const client = await getVercelClient();
 
   const { projectId } = await ensureVercelProject({ slug: input.slug });
 
-  // Sync env vars — fail closed if it doesn't work
+  // Sync env vars
   const envCount = await syncEnvVars(projectId, input);
   if (envCount === 0) {
     throw new Error(`Failed to sync any environment variables to project "${input.slug}". Check Vercel API access.`);
@@ -432,34 +219,36 @@ export async function deployTenant(input: DeployTenantInput): Promise<DeployTena
     console.warn(`[vercel-deploy] Only synced ${envCount} env vars — critical keys may be missing.`);
   }
 
+  // Assign domain
   try {
-    const domainRes = await vercelApi(`/v10/projects/${projectId}/domains`, {
-      method: 'POST',
-      body: JSON.stringify({ name: `${input.slug}.vercel.app` }),
-    });
-    if (domainRes.ok) {
-      console.log(`[vercel-deploy] Domain ${input.slug}.vercel.app assigned`);
-    } else {
-      const domainErr = await domainRes.text();
-      console.warn(`[vercel-deploy] Domain assignment response: ${domainErr.slice(0, 100)}`);
-    }
+    await withTeamId((teamId) =>
+      client.projects.addProjectDomain({
+        idOrName: projectId,
+        teamId,
+        requestBody: { name: `${input.slug}.vercel.app` },
+      })
+    );
+    console.log(`[vercel-deploy] Domain ${input.slug}.vercel.app assigned`);
   } catch (err) {
-    console.warn(`[vercel-deploy] Domain assignment failed (may already exist):`, err);
+    console.warn(`[vercel-deploy] Domain assignment warning:`, err instanceof Error ? err.message : err);
   }
 
+  // Trigger deployment
   try {
-    await vercelApi(`/v1/deployments`, {
-      method: 'POST',
-      body: JSON.stringify({
-        name: input.slug,
-        projectId,
-        target: 'production',
-        gitSource: { type: 'github', repoId: process.env.VERCEL_GIT_REPO_ID || '' },
-      }),
-    });
+    await withTeamId((teamId) =>
+      client.deployments.createDeployment({
+        teamId,
+        requestBody: {
+          name: input.slug,
+          project: projectId,
+          target: 'production',
+          gitSource: { type: 'github', repoId: process.env.VERCEL_GIT_REPO_ID || '' } as any,
+        },
+      })
+    );
     console.log(`[vercel-deploy] Deployment triggered for ${input.slug}`);
   } catch (err) {
-    console.warn(`[vercel-deploy] Deployment trigger warning:`, err);
+    console.warn(`[vercel-deploy] Deployment trigger warning:`, err instanceof Error ? err.message : err);
   }
 
   return {
@@ -482,77 +271,75 @@ const GIT_REPO_TYPE = 'github';
  * with rootDirectory set to "website".
  */
 export async function ensureVercelProjectWithGit(input: { slug: string }): Promise<{ projectId: string; created: boolean }> {
+  const client = await getVercelClient();
+  const slug = input.slug;
+  const REPO = process.env.VERCEL_GIT_REPO || 'reward2learn/tokenizmyapp';
+
   // 1. Try to find existing project
-  const getRes = await vercelApiTryBoth(`/v10/projects/${input.slug}`);
-  if (getRes.ok) {
-    const project = await getRes.json() as { id: string; name: string; gitRepository?: Record<string, unknown> };
-    // If project exists but isn't linked to Git, link it
-    if (!project.gitRepository) {
-      console.log(`[vercel-deploy] Linking existing project "${input.slug}" to Git repo...`);
-      await vercelApi(`/v10/projects/${project.id}`, {
-        method: 'PATCH',
-        body: JSON.stringify({
-          rootDirectory: '.',
-          gitRepository: {
-            type: GIT_REPO_TYPE,
-            repo: GIT_REPO,
-          },
-        }),
-      });
-      console.log(`[vercel-deploy] Project "${input.slug}" linked to ${GIT_REPO}`);
+  const existing = await withTeamId404Null((teamId) =>
+    client.projects.getProject({ idOrName: slug, teamId })
+  );
+  if (existing) {
+    // Link to Git repo if not already linked
+    if (!(existing as any).gitRepository) {
+      console.log(`[vercel-deploy] Linking existing project "${slug}" to Git repo...`);
+      await withTeamId((teamId) =>
+        client.projects.updateProject({
+          idOrName: existing.id,
+          teamId,
+          requestBody: {
+            rootDirectory: '.',
+            gitRepository: { type: 'github' as const, repo: REPO },
+          } as any,
+        })
+      );
+      console.log(`[vercel-deploy] Project "${slug}" linked to ${REPO}`);
     }
-    return { projectId: project.id, created: false };
+    return { projectId: existing.id, created: false };
   }
 
   // 2. Create new project with Git integration
-  const createRes = await vercelApi('/v10/projects', {
-    method: 'POST',
-    body: JSON.stringify({
-      name: input.slug,
-      framework: 'nextjs',
-      rootDirectory: '.',
-      gitRepository: {
-        type: GIT_REPO_TYPE,
-        repo: GIT_REPO,
-      },
-      buildCommand: 'zenstack generate --schema zenstack/schema.zmodel && npx prisma db push --schema=zenstack/prisma/schema.prisma --skip-generate --accept-data-loss && next build',
-      installCommand: 'bun install',
-      outputDirectory: '.next',
-    }),
-  });
-
-  if (createRes.status === 409) {
-    console.warn(`[vercel-deploy] Project "${input.slug}" exists (409). Linking Git...`);
-    // Find the project ID and link Git
-    const searchRes = await vercelApiTryBoth(`/v10/projects?search=${input.slug}`);
-    if (searchRes.ok) {
-      const data = await searchRes.json() as { projects: { id: string; name: string }[] };
-      const existing = data.projects?.find((p) => p.name === input.slug);
-      if (existing) {
-        await vercelApi(`/v10/projects/${existing.id}`, {
-          method: 'PATCH',
-          body: JSON.stringify({
-            rootDirectory: '.',
-            gitRepository: {
-              type: GIT_REPO_TYPE,
-              repo: GIT_REPO,
-            },
-          }),
-        });
-        return { projectId: existing.id, created: false };
+  try {
+    const created = await withTeamId((teamId) =>
+      client.projects.createProject({
+        teamId,
+        requestBody: {
+          name: slug,
+          framework: 'nextjs',
+          rootDirectory: '.',
+          gitRepository: { type: 'github' as const, repo: REPO },
+          buildCommand: 'zenstack generate --schema zenstack/schema.zmodel && npx prisma db push --schema=zenstack/prisma/schema.prisma --skip-generate --accept-data-loss && next build',
+          installCommand: 'bun install',
+          outputDirectory: '.next',
+        },
+      })
+    );
+    console.log(`[vercel-deploy] Project created with Git: ${created.id}`);
+    return { projectId: created.id, created: true };
+  } catch (err) {
+    if (err instanceof Error && err.message.includes('409')) {
+      console.warn(`[vercel-deploy] Project "${slug}" exists (409). Linking Git...`);
+      // Find project and link Git - use getProject directly
+      const found = await withTeamId404Null((teamId) =>
+        client.projects.getProject({ idOrName: slug, teamId })
+      );
+      if (found) {
+        await withTeamId((teamId) =>
+          client.projects.updateProject({
+            idOrName: found.id,
+            teamId,
+            requestBody: {
+              rootDirectory: '.',
+              gitRepository: { type: 'github' as const, repo: REPO },
+            } as any,
+          })
+        );
+        return { projectId: found.id, created: false };
       }
+      throw new Error(`Project "${slug}" already exists but could not be found.`);
     }
-    throw new Error(`Project "${input.slug}" already exists but could not be found.`);
+    throw err;
   }
-
-  if (!createRes.ok) {
-    const err = await createRes.text();
-    throw new Error(`Failed to create Vercel project with Git: ${createRes.status} ${err}`);
-  }
-
-  const project = await createRes.json() as { id: string; name: string };
-  console.log(`[vercel-deploy] Project created with Git: ${project.id}`);
-  return { projectId: project.id, created: true };
 }
 
 /**
@@ -562,9 +349,9 @@ export async function ensureVercelProjectWithGit(input: { slug: string }): Promi
  */
 export async function deployTenantWithGit(input: DeployTenantInput): Promise<DeployTenantResult> {
   const appUrl = `https://${input.slug}.vercel.app`;
+  const client = await getVercelClient();
 
-  // Create/find project with Git integration
-  const { projectId, created } = await ensureVercelProjectWithGit({ slug: input.slug });
+  const { projectId } = await ensureVercelProjectWithGit({ slug: input.slug });
 
   // Sync env vars
   const envCount = await syncEnvVars(projectId, input);
@@ -574,32 +361,33 @@ export async function deployTenantWithGit(input: DeployTenantInput): Promise<Dep
 
   // Assign domain
   try {
-    await vercelApi(`/v10/projects/${projectId}/domains`, {
-      method: 'POST',
-      body: JSON.stringify({ name: `${input.slug}.vercel.app` }),
-    });
+    await withTeamId((teamId) =>
+      client.projects.addProjectDomain({
+        idOrName: projectId,
+        teamId,
+        requestBody: { name: `${input.slug}.vercel.app` },
+      })
+    );
   } catch (err) {
-    console.warn(`[vercel-deploy] Domain assignment warning:`, err);
+    console.warn(`[vercel-deploy] Domain assignment warning:`, err instanceof Error ? err.message : err);
   }
 
-  // Trigger Git-based deployment from main branch
+  // Trigger Git-based deployment
   try {
-    await vercelApi(`/v1/deployments`, {
-      method: 'POST',
-      body: JSON.stringify({
-        name: input.slug,
-        project: projectId,
-        target: 'production',
-        gitSource: {
-          type: GIT_REPO_TYPE,
-          repoId: input.slug,
-          ref: 'main',
+    await withTeamId((teamId) =>
+      client.deployments.createDeployment({
+        teamId,
+        requestBody: {
+          name: input.slug,
+          project: projectId,
+          target: 'production',
+          gitSource: { type: 'github' as const, repoId: input.slug, ref: 'main' } as any,
         },
-      }),
-    });
+      })
+    );
     console.log(`[vercel-deploy] Git deployment triggered for ${input.slug}`);
   } catch (err) {
-    console.warn(`[vercel-deploy] Git deployment trigger warning:`, err);
+    console.warn(`[vercel-deploy] Git deployment trigger warning:`, err instanceof Error ? err.message : err);
   }
 
   return {
@@ -619,33 +407,25 @@ export async function deployTenantWithGit(input: DeployTenantInput): Promise<Dep
  * a simpler shape than v10 for domain listing.
  */
 export async function getVercelDomains(projectId: string): Promise<{ name: string; verified: boolean; createdAt: string }[]> {
-  const res = await vercelApiTryBoth(`/v9/projects/${projectId}/domains`);
-
-  // 404 means the project was deleted from Vercel — return empty gracefully
-  if (res.status === 404) {
-    console.warn(`[vercel-deploy] Project ${projectId} not found when fetching domains (may have been deleted)`);
+  const client = await getVercelClient();
+  try {
+    const result = await withTeamId((teamId) =>
+      client.projects.getProjectDomains({ idOrName: projectId, teamId })
+    );
+    const domains = 'domains' in result ? result.domains : [];
+    return domains.map((d) => ({
+      name: d.name,
+      verified: d.verified,
+      createdAt: typeof d.createdAt === 'number' ? new Date(d.createdAt).toISOString() : String(d.createdAt ?? new Date().toISOString()),
+    }));
+  } catch (err) {
+    if (err instanceof Error && err.message.includes('404')) {
+      console.warn(`[vercel-deploy] Project ${projectId} not found when fetching domains (may have been deleted)`);
+      return [];
+    }
+    console.warn(`[vercel-deploy] Failed to fetch domains for ${projectId}:`, err instanceof Error ? err.message : err);
     return [];
   }
-
-  if (!res.ok) {
-    const err = await res.text().catch(() => '');
-    console.warn(`[vercel-deploy] Failed to fetch domains for ${projectId}: ${res.status} ${err.slice(0, 200)}`);
-    throw new Error(`Vercel API returned ${res.status} when fetching domains`);
-  }
-
-  const data = await res.json() as {
-    domains?: Array<{
-      name: string;
-      verified: boolean;
-      createdAt?: number | string;
-    }>;
-  };
-
-  return (data.domains ?? []).map((d) => ({
-    name: d.name,
-    verified: d.verified,
-    createdAt: d.createdAt ? String(d.createdAt) : new Date().toISOString(),
-  }));
 }
 
 export interface SetCustomDomainResult {
@@ -659,24 +439,15 @@ export interface SetCustomDomainResult {
  * GET /v10/projects/{projectId}
  */
 export async function getVercelProject(projectId: string): Promise<{ name: string; id: string; updatedAt: string } | null> {
-  const res = await vercelApiTryBoth(`/v10/projects/${projectId}`);
-
-  // 404 means the project was deleted from Vercel - return null gracefully
-  if (res.status === 404) {
-    console.warn(`[vercel-deploy] Project ${projectId} not found (may have been deleted)`);
-    return null;
-  }
-
-  if (!res.ok) {
-    const err = await res.text().catch(() => '');
-    console.warn(`[vercel-deploy] Failed to fetch project ${projectId}: ${res.status} ${err.slice(0, 200)}`);
-    return null;
-  }
-  const project = await res.json() as { id: string; name: string; updatedAt?: string };
+  const client = await getVercelClient();
+  const result = await withTeamId404Null((teamId) =>
+    client.projects.getProject({ idOrName: projectId, teamId })
+  );
+  if (!result) return null;
   return {
-    name: project.name,
-    id: project.id,
-    updatedAt: project.updatedAt || new Date().toISOString(),
+    name: result.name,
+    id: result.id,
+    updatedAt: String(result.updatedAt ?? new Date().toISOString()),
   };
 }
 
@@ -692,28 +463,31 @@ export async function getVercelProject(projectId: string): Promise<{ name: strin
  * CANNOT be added or removed via the /v9/projects/{id}/domains endpoint.
  */
 export async function renameVercelProject(projectId: string, newName: string): Promise<{ name: string; id: string }> {
-  const res = await vercelApiTryBoth(`/v10/projects/${projectId}`, {
-    method: 'PATCH',
-    body: JSON.stringify({ name: newName }),
-  });
-  if (!res.ok) {
-    const err = await res.text().catch(() => '');
-    const detail = err.slice(0, 300);
-    console.warn(`[vercel-deploy] Failed to rename project ${projectId} to "${newName}": ${res.status} ${detail}`);
-    if (res.status === 403) {
+  const client = await getVercelClient();
+  try {
+    const result = await withTeamId((teamId) =>
+      client.projects.updateProject({
+        idOrName: projectId,
+        teamId,
+        requestBody: { name: newName },
+      })
+    );
+    console.log(`[vercel-deploy] Project ${projectId} renamed to "${newName}"`);
+    return { name: result.name, id: result.id };
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.warn(`[vercel-deploy] Failed to rename project ${projectId} to "${newName}": ${msg}`);
+    if (msg.includes('403')) {
       throw new Error(`Not authorized to rename project "${projectId}". Check team permissions.`);
     }
-    if (res.status === 409) {
+    if (msg.includes('409')) {
       throw new Error(`Project name "${newName}" is already taken on Vercel. Choose a different name.`);
     }
-    if (res.status === 404) {
+    if (msg.includes('404')) {
       throw new Error(`Project ${projectId} not found on Vercel. Deploy the tenant first to create the project.`);
     }
-    throw new Error(`Failed to rename project: ${detail}`);
+    throw new Error(`Failed to rename project: ${msg}`);
   }
-  const project = await res.json() as { id: string; name: string };
-  console.log(`[vercel-deploy] Project ${projectId} renamed to "${newName}"`);
-  return { name: project.name, id: project.id };
 }
 
 /**
@@ -721,30 +495,28 @@ export async function renameVercelProject(projectId: string, newName: string): P
  * POST /v9/projects/{projectId}/domains
  */
 export async function setCustomDomain(projectId: string, domain: string): Promise<SetCustomDomainResult> {
-  const res = await vercelApiTryBoth(`/v9/projects/${projectId}/domains`, {
-    method: 'POST',
-    body: JSON.stringify({ name: domain }),
-  });
-
-  if (!res.ok) {
-    const err = await res.text().catch(() => '');
-    const detail = err.slice(0, 300);
-    console.warn(`[vercel-deploy] Failed to set domain ${domain} for ${projectId}: ${res.status} ${detail}`);
-
-    // Handle common Vercel errors with helpful messages
-    if (res.status === 409) {
+  const client = await getVercelClient();
+  try {
+    const result = await withTeamId((teamId) =>
+      client.projects.addProjectDomain({
+        idOrName: projectId,
+        teamId,
+        requestBody: { name: domain },
+      })
+    );
+    console.log(`[vercel-deploy] Domain ${domain} added to ${projectId}, verified: ${result.verified}`);
+    return { verified: result.verified };
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.warn(`[vercel-deploy] Failed to set domain ${domain} for ${projectId}: ${msg}`);
+    if (msg.includes('409')) {
       throw new Error(`Domain "${domain}" is already associated with another Vercel project.`);
     }
-    if (res.status === 403) {
+    if (msg.includes('403')) {
       throw new Error(`Not authorized to add domains to project ${projectId}. Check team permissions.`);
     }
-    throw new Error(`Failed to add domain "${domain}": ${detail}`);
+    throw new Error(`Failed to add domain "${domain}": ${msg}`);
   }
-
-  const data = await res.json() as { verified: boolean };
-
-  console.log(`[vercel-deploy] Domain ${domain} added to ${projectId}, verified: ${data.verified}`);
-  return { verified: data.verified };
 }
 
 /**
@@ -752,42 +524,20 @@ export async function setCustomDomain(projectId: string, domain: string): Promis
  * Handles cases where the project may already be deleted or inaccessible.
  */
 export async function deleteVercelProject(projectId: string): Promise<void> {
+  const client = await getVercelClient();
   try {
-    console.log(`Attempting to delete Vercel project: ${projectId}`);
-
-    // Try to get the project first to verify it exists
-    const getRes = await vercelApiTryBoth(`/v10/projects/${projectId}`);
-    
-    if (getRes.status === 404) {
-      console.log(`Vercel project ${projectId} already does not exist (404)`);
-      return;
-    }
-
-    if (!getRes.ok) {
-      // If we can't get the project but it's not 404, try to delete anyway
-      console.warn(`Could not verify Vercel project ${projectId} existence: ${getRes.status}`);
-    }
-
-    // Attempt deletion
-    const deleteRes = await vercelApi(`/v10/projects/${projectId}`, {
-      method: 'DELETE',
-    });
-
-    if (deleteRes.ok) {
-      console.log(`Successfully deleted Vercel project ${projectId}`);
-      return;
-    }
-
-    if (deleteRes.status === 404) {
-      console.log(`Vercel project ${projectId} already deleted (404)`);
-      return;
-    }
-
-    throw new Error(`Vercel API returned ${deleteRes.status}: ${await deleteRes.text()}`);
+    await withTeamId((teamId) =>
+      client.projects.deleteProject({ idOrName: projectId, teamId })
+    );
+    console.log(`[vercel-deploy] Successfully deleted Vercel project ${projectId}`);
   } catch (err) {
-    // If the project is already deleted, that's fine
-    if (err instanceof Error && err.message.includes('404')) {
-      console.log(`Vercel project ${projectId} already deleted or not found`);
+    const msg = err instanceof Error ? err.message : String(err);
+    if (msg.includes('404')) {
+      console.log(`[vercel-deploy] Vercel project ${projectId} already deleted or not found`);
+      return;
+    }
+    if (msg.includes('403')) {
+      console.log(`[vercel-deploy] Not authorized to delete ${projectId}, may have been removed from scope`);
       return;
     }
     throw err;
