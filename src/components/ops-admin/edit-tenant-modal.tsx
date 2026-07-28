@@ -1815,7 +1815,7 @@ export function EditTenantModal({ open, tenant, onClose, onRefetch, onSnackbar }
               setDomainResult('No domains configured on Vercel yet.');
             }
           } else {
-            const verified = (data.data?.domains || []).filter((d) => d.verified).length;
+            const verified = (data.data?.domains || []).filter((d: { verified: boolean }) => d.verified).length;
             const parts: string[] = [];
             if (data.data?.domains?.length) {
               parts.push(`${data.data.domains.length} domain(s) — ${verified} verified`);

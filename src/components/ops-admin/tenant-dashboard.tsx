@@ -265,7 +265,7 @@ export function TenantDashboard() {
         refetch();
         setSnackbar({
           message: `🌐 ${parts.join(' | ')}`,
-          severity: warnings.length > 0 ? 'warning' : (domains.some((d: { verified: boolean }) => d.verified) ? 'success' : 'error'),
+          severity: 'error', // warnings displayed in message
         });
       } else {
         setSnackbar({ message: data.error || 'Failed to fetch domains', severity: 'error' });
