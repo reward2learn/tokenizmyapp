@@ -645,6 +645,62 @@ export interface SetCustomDomainResult {
   verified: boolean;
 }
 
+// ── Vercel Project Management ──────────────────────────────────
+
+/**
+ * Fetch Vercel project details by project ID.
+ * GET /v10/projects/{projectId}
+ * Returns the project name, id, and updatedAt so callers can determine
+ * the auto-generated .vercel.app URL (`https://${name}.vercel.app`).
+ */
+export async function getVercelProject(projectId: string): Promise<{ name: string; id: string; updatedAt: string }> {
+  const res = await vercelApiTryBoth(`/v10/projects/${projectId}`);
+  if (!res.ok) {
+    const err = await res.text().catch(() => '');
+    console.warn(`[vercel-deploy] Failed to fetch project ${projectId}: ${res.status} ${err.slice(0, 200)}`);
+    throw new Error(`Vercel API returned ${res.status} when fetching project ${projectId}`);
+  }
+  const project = await res.json() as { id: string; name: string; updatedAt?: string };
+  return {
+    name: project.name,
+    id: project.id,
+    updatedAt: project.updatedAt || new Date().toISOString(),
+  };
+}
+
+/**
+ * Rename a Vercel project by ID.
+ * PATCH /v10/projects/{projectId} with body { name: newName }
+ *
+ * Renaming a Vercel project changes its auto-generated .vercel.app subdomain.
+ * For example, renaming project "my-new" to "my-new-flax" means
+ * the app is then reachable at https://my-new-flax.vercel.app.
+ *
+ * This is the only way to change the .vercel.app URL — these subdomains
+ * CANNOT be added or removed via the /v9/projects/{id}/domains endpoint.
+ */
+export async function renameVercelProject(projectId: string, newName: string): Promise<{ name: string; id: string }> {
+  const res = await vercelApiTryBoth(`/v10/projects/${projectId}`, {
+    method: 'PATCH',
+    body: JSON.stringify({ name: newName }),
+  });
+  if (!res.ok) {
+    const err = await res.text().catch(() => '');
+    const detail = err.slice(0, 300);
+    console.warn(`[vercel-deploy] Failed to rename project ${projectId} to "${newName}": ${res.status} ${detail}`);
+    if (res.status === 403) {
+      throw new Error(`Not authorized to rename project "${projectId}". Check team permissions.`);
+    }
+    if (res.status === 409) {
+      throw new Error(`Project name "${newName}" is already taken on Vercel. Choose a different name.`);
+    }
+    throw new Error(`Failed to rename project: ${detail}`);
+  }
+  const project = await res.json() as { id: string; name: string };
+  console.log(`[vercel-deploy] Project ${projectId} renamed to "${newName}"`);
+  return { name: project.name, id: project.id };
+}
+
 /**
  * Add a custom domain to a Vercel project.
  * POST /v9/projects/{projectId}/domains

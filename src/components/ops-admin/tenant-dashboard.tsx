@@ -66,52 +66,47 @@ const STATUS_COLORS: Record<string, 'info' | 'warning' | 'success' | 'error'> = 
 function TenantUrlLink({ tenant }: { tenant: TenantEntry }) {
   const defaultUrl = `https://${tenant.slug}.vercel.app`;
   const isCustomDomain = tenant.appUrl != null && tenant.appUrl !== defaultUrl;
+  const effectiveUrl = tenant.appUrl || defaultUrl;
 
-  if (tenant.appUrl) {
-    return (
-      <Stack direction="row" spacing={0.5} sx={{ alignItems: 'center', minWidth: 0 }}>
-        <Button
-          size="small"
-          variant="text"
-          href={tenant.appUrl}
-          target="_blank"
-          rel="noopener noreferrer"
-          endIcon={<OpenInNewIcon fontSize="small" />}
-          sx={{ fontSize: '0.75rem', maxWidth: 220, justifyContent: 'flex-start' }}
-        >
-          <Box component="span" sx={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-            {tenant.appUrl.replace('https://', '')}
-          </Box>
-        </Button>
-        {isCustomDomain && (
-          <Tooltip title="Custom domain configured">
-            <VerifiedIcon sx={{ fontSize: '0.85rem', color: 'success.main' }} />
-          </Tooltip>
-        )}
-      </Stack>
-    );
-  }
-  if (tenant.status === 'live') {
-    return (
+  return (
+    <Stack direction="row" spacing={0.5} sx={{ alignItems: 'center', minWidth: 0 }}>
       <Button
         size="small"
         variant="text"
-        href={defaultUrl}
+        href={effectiveUrl}
         target="_blank"
         rel="noopener noreferrer"
         endIcon={<OpenInNewIcon fontSize="small" />}
         sx={{ fontSize: '0.75rem', maxWidth: 220, justifyContent: 'flex-start' }}
       >
         <Box component="span" sx={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-          {tenant.slug}.vercel.app
+          {effectiveUrl.replace('https://', '')}
         </Box>
       </Button>
-    );
-  }
-  return (
-    <Typography variant="caption" color="text.disabled">
-      {tenant.slug}.vercel.app
-    </Typography>
+      {isCustomDomain && (
+        <Tooltip title={`Custom domain configured (Vercel URL: ${defaultUrl})`}>
+          <VerifiedIcon sx={{ fontSize: '0.85rem', color: 'success.main' }} />
+        </Tooltip>
+      )}
+      <Tooltip title={isCustomDomain ? `Auto-generated Vercel URL: ${defaultUrl}` : 'Auto-generated Vercel URL'}>
+        <Box
+          component="span"
+          sx={{
+            fontSize: '0.6rem',
+            px: 0.5,
+            py: 0.15,
+            borderRadius: 0.5,
+            bgcolor: 'action.selected',
+            color: 'text.disabled',
+            fontFamily: 'monospace',
+            whiteSpace: 'nowrap',
+            lineHeight: 1.2,
+          }}
+        >
+          Vercel
+        </Box>
+      </Tooltip>
+    </Stack>
   );
 }
 
@@ -234,17 +229,33 @@ export function TenantDashboard() {
       const data = await res.json();
       if (data.success) {
         const domains = data.data?.domains || [];
-        if (domains.length === 0) {
-          setSnackbar({ message: '🌐 No domains configured on Vercel', severity: 'error' });
-        } else {
+        const projectInfo = data.data?.projectInfo;
+        const autoVercelUrl = data.data?.autoVercelUrl;
+
+        const parts: string[] = [];
+        if (domains.length > 0) {
           const verified = domains.filter((d: { verified: boolean }) => d.verified).length;
-          const total = domains.length;
-          refetch();
-          setSnackbar({
-            message: `🌐 ${total} domain(s) on Vercel — ${verified} verified`,
-            severity: verified > 0 ? 'success' : 'error',
-          });
+          parts.push(`${domains.length} domain(s) — ${verified} verified`);
         }
+        if (projectInfo) {
+          parts.push(`Project: ${projectInfo.name}`);
+        }
+        if (autoVercelUrl) {
+          parts.push(`URL: ${autoVercelUrl}`);
+        }
+        if (parts.length === 0) {
+          if (projectInfo) {
+            parts.push(`Project ${projectInfo.name} — no custom domains`);
+          } else {
+            parts.push('No domains configured on Vercel');
+          }
+        }
+
+        refetch();
+        setSnackbar({
+          message: `🌐 ${parts.join(' | ')}`,
+          severity: domains.some((d: { verified: boolean }) => d.verified) ? 'success' : 'error',
+        });
       } else {
         setSnackbar({ message: data.error || 'Failed to fetch domains', severity: 'error' });
       }

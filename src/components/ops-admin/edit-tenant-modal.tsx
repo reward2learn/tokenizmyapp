@@ -257,6 +257,8 @@ export function EditTenantModal({ open, tenant, onClose, onRefetch, onSnackbar }
   const [domainError, setDomainError] = useState<string | null>(null);
   const [domainList, setDomainList] = useState<Array<{ name: string; verified: boolean; createdAt: string }>>([]);
   const [domainResult, setDomainResult] = useState<string | null>(null);
+  const [projectInfo, setProjectInfo] = useState<{ name: string; id: string; updatedAt: string } | null>(null);
+  const [vercelUrl, setVercelUrl] = useState<string | null>(null);
 
   // ── Initialize from tenant on open ────────────────────────
   useEffect(() => {
@@ -1782,6 +1784,12 @@ export function EditTenantModal({ open, tenant, onClose, onRefetch, onSnackbar }
 
   // ── Step 10: Custom Domain ──────────────────────────────
   const renderStepCustomDomain = () => {
+    const isVercelDomain = customDomain.trim().endsWith('.vercel.app');
+    const hasProjectInfo = projectInfo !== null;
+    const deployHint = !tenant?.vercelProjectId
+      ? 'No Vercel project deployed yet. Deploy the tenant first.'
+      : null;
+
     const fetchDomains = async () => {
       if (!tenant?.vercelProjectId) {
         setDomainError('No Vercel project deployed yet. Deploy the tenant first.');
@@ -1789,16 +1797,28 @@ export function EditTenantModal({ open, tenant, onClose, onRefetch, onSnackbar }
       }
       setDomainLoading(true);
       setDomainError(null);
+      setProjectInfo(null);
+      setVercelUrl(null);
       try {
         const res = await fetch(`/api/admin/tenants/${tenant.slug}/domain`);
         const data = await res.json();
         if (data.success) {
           setDomainList(data.data?.domains || []);
-          if (!data.data?.domains?.length) {
+          setProjectInfo(data.data?.projectInfo || null);
+          setVercelUrl(data.data?.autoVercelUrl || null);
+
+          if (!data.data?.domains?.length && !data.data?.projectInfo) {
             setDomainResult('No domains configured on Vercel yet.');
           } else {
-            const verified = data.data.domains.filter((d: { verified: boolean }) => d.verified).length;
-            setDomainResult(`${data.data.domains.length} domain(s) — ${verified} verified`);
+            const verified = (data.data?.domains || []).filter((d: { verified: boolean }) => d.verified).length;
+            const parts: string[] = [];
+            if (data.data?.domains?.length) {
+              parts.push(`${data.data.domains.length} domain(s) — ${verified} verified`);
+            }
+            if (data.data?.projectInfo) {
+              parts.push(`Project: ${data.data.projectInfo.name}`);
+            }
+            setDomainResult(parts.join(' | ') || 'Fetched domain info.');
           }
         } else {
           setDomainError(data.error || 'Failed to fetch domains');
@@ -1828,7 +1848,18 @@ export function EditTenantModal({ open, tenant, onClose, onRefetch, onSnackbar }
         const data = await res.json();
         if (data.success) {
           setDomainList(data.data?.domains || []);
-          setDomainResult(`Domain "${customDomain.trim()}" added — ${data.data?.verified ? '✅ verified' : '⚠️ pending verification'}`);
+          setProjectInfo(data.data?.projectInfo || null);
+          setVercelUrl(data.data?.autoVercelUrl || null);
+
+          if (data.data?.renamed) {
+            setDomainResult(
+              `✅ Project renamed to "${data.data.projectName}". Auto-generated URL: ${data.data.autoVercelUrl || 'https://' + customDomain.trim().replace(/\.vercel\.app$/i, '') + '.vercel.app'}`,
+            );
+          } else {
+            setDomainResult(
+              `Domain "${customDomain.trim()}" added — ${data.data?.verified ? '✅ verified' : '⚠️ pending verification'}`,
+            );
+          }
           setCustomDomain('');
         } else {
           setDomainError(data.error || 'Failed to set domain');
@@ -1845,29 +1876,74 @@ export function EditTenantModal({ open, tenant, onClose, onRefetch, onSnackbar }
         <Stack direction="row" spacing={1.5} sx={{ alignItems: 'center' }}>
           <LanguageIcon color="primary" />
           <Typography variant="subtitle1" sx={{ fontWeight: 600 }}>
-            Custom Domain Configuration
+            Domain Configuration
           </Typography>
+          <Chip
+            label={`Template: ${selectedTemplate.label}`}
+            size="small"
+            variant="outlined"
+            color="default"
+            icon={<PaletteIcon fontSize="small" />}
+          />
         </Stack>
 
         <Typography variant="body2" color="text.secondary">
-          Configure a custom domain for the tenant application. Add your domain in Vercel
-          and configure DNS settings with your domain provider.
+          Configure the tenant&apos;s domain. For <strong>custom domains</strong> (e.g. app.example.com),
+          add the domain and configure DNS. For <strong>.vercel.app subdomains</strong>, rename the
+          Vercel project to change the auto-generated URL.
         </Typography>
+
+        {/* Vercel Project Info — current project name and auto-generated URL */}
+        <Paper variant="outlined" sx={{ p: 2.5, borderColor: 'info.main', bgcolor: 'action.hover' }}>
+          <Stack direction="row" spacing={1.5} sx={{ alignItems: 'center', mb: 1.5 }}>
+            <RocketLaunchIcon color="info" fontSize="small" />
+            <Typography variant="subtitle2" sx={{ fontWeight: 600 }}>
+              Vercel Project
+            </Typography>
+          </Stack>
+
+          {!tenant?.vercelProjectId ? (
+            <Typography variant="body2" color="text.warning">
+              ⚠️ No Vercel project deployed yet. Go to the Summary step and deploy the tenant first.
+            </Typography>
+          ) : hasProjectInfo ? (
+            <Stack spacing={1}>
+              <SummaryRow label="Project Name" value={projectInfo!.name} />
+              <SummaryRow label="Auto-generated URL" value={vercelUrl || `https://${projectInfo!.name}.vercel.app`} />
+              <SummaryRow label="Project ID" value={projectInfo!.id} />
+            </Stack>
+          ) : (
+            <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
+              <Typography variant="body2" color="text.secondary">
+                Project deployed — click <strong>Fetch Current Domain</strong> to load project info.
+              </Typography>
+              <Button
+                size="small"
+                variant="text"
+                onClick={() => void fetchDomains()}
+                disabled={domainLoading}
+                startIcon={domainLoading ? <CircularProgress size={14} color="inherit" /> : <RefreshIcon fontSize="small" />}
+              >
+                {domainLoading ? 'Loading...' : 'Fetch'}
+              </Button>
+            </Stack>
+          )}
+        </Paper>
 
         {/* Current Domains List */}
         <Paper variant="outlined" sx={{ p: 2.5 }}>
           <Stack direction="row" spacing={1.5} sx={{ alignItems: 'center', justifyContent: 'space-between', mb: 2 }}>
             <Typography variant="subtitle2" sx={{ fontWeight: 600 }}>
-              Current Vercel Domains
+              Current Domains on Vercel
             </Typography>
             <Button
               size="small"
               variant="outlined"
               onClick={() => void fetchDomains()}
-              disabled={domainLoading || domainSetting}
+              disabled={domainLoading || domainSetting || !tenant?.vercelProjectId}
               startIcon={domainLoading ? <CircularProgress size={16} color="inherit" /> : <RefreshIcon />}
             >
-              {domainLoading ? 'Loading...' : 'Refresh'}
+              {domainLoading ? 'Loading...' : 'Fetch Current Domain'}
             </Button>
           </Stack>
 
@@ -1899,7 +1975,11 @@ export function EditTenantModal({ open, tenant, onClose, onRefetch, onSnackbar }
             </Stack>
           ) : (
             <Typography variant="body2" color="text.secondary" sx={{ fontStyle: 'italic' }}>
-              No domains configured. Add a domain below to get started.
+              {tenant?.vercelProjectId
+                ? `${vercelUrl || `https://${tenant.slug}.vercel.app`} (auto-generated)`.length > 0
+                  ? `Only the auto-generated .vercel.app URL is active. Add a custom domain below or rename the project to change it.`
+                  : 'No domains configured yet.'
+                : 'Deploy the tenant to see domain info.'}
             </Typography>
           )}
 
@@ -1916,63 +1996,91 @@ export function EditTenantModal({ open, tenant, onClose, onRefetch, onSnackbar }
           )}
         </Paper>
 
-        {/* Add Custom Domain */}
-        <Paper variant="outlined" sx={{ p: 2.5, borderColor: 'primary.main' }}>
-          <Typography variant="subtitle2" sx={{ fontWeight: 600, mb: 1.5 }}>
-            Add Custom Domain
-          </Typography>
+        {/* Add / Rename Domain */}
+        <Paper variant="outlined" sx={{ p: 2.5, borderColor: isVercelDomain ? 'warning.main' : 'primary.main' }}>
+          <Stack direction="row" spacing={1} sx={{ alignItems: 'center', mb: 1.5 }}>
+            {isVercelDomain ? (
+              <RocketLaunchIcon color="warning" fontSize="small" />
+            ) : (
+              <LanguageIcon color="primary" fontSize="small" />
+            )}
+            <Typography variant="subtitle2" sx={{ fontWeight: 600 }}>
+              {isVercelDomain ? 'Rename Vercel Project' : 'Add Custom Domain'}
+            </Typography>
+          </Stack>
+
+          {isVercelDomain && (
+            <Alert severity="info" sx={{ mb: 2 }}>
+              <AlertTitle>Changing a .vercel.app URL</AlertTitle>
+              <Typography variant="body2">
+                Domains ending in <strong>.vercel.app</strong> are auto-generated from the
+                Vercel project name. To change it, the entire project is renamed.
+                This will affect the auto-generated URL: <code>{customDomain.trim()}</code>
+              </Typography>
+            </Alert>
+          )}
+
           <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5} sx={{ alignItems: { sm: 'flex-start' } }}>
             <TextField
-              label="Custom Domain"
+              label={isVercelDomain ? 'New .vercel.app Domain' : 'Custom Domain'}
               value={customDomain}
               onChange={(e) => setCustomDomain(e.target.value)}
-              placeholder="app.yourdomain.com"
+              placeholder={isVercelDomain ? 'my-project.vercel.app' : 'app.yourdomain.com'}
               size="small"
               fullWidth
               disabled={domainSetting}
               slotProps={{
                 input: { sx: { fontFamily: 'monospace', fontSize: '0.85rem' } },
               }}
-              helperText="Enter the fully qualified domain name (e.g. app.example.com)"
+              helperText={
+                isVercelDomain
+                  ? 'Enter the desired full .vercel.app URL (e.g. my-brand.vercel.app)'
+                  : 'Enter the fully qualified domain name (e.g. app.example.com)'
+              }
               onKeyDown={(e) => {
                 if (e.key === 'Enter') { e.preventDefault(); void handleSetDomain(); }
               }}
             />
             <Button
               variant="contained"
+              color={isVercelDomain ? 'warning' : 'primary'}
               size="small"
               onClick={() => void handleSetDomain()}
               disabled={domainSetting || !customDomain.trim() || !tenant?.vercelProjectId}
-              startIcon={domainSetting ? <CircularProgress size={16} color="inherit" /> : <VerifiedIcon />}
-              sx={{ minWidth: 120, mt: { xs: 0, sm: 0.5 }, flexShrink: 0 }}
+              startIcon={domainSetting ? <CircularProgress size={16} color="inherit" /> : isVercelDomain ? <RocketLaunchIcon /> : <VerifiedIcon />}
+              sx={{ minWidth: 140, mt: { xs: 0, sm: 0.5 }, flexShrink: 0 }}
             >
-              {domainSetting ? 'Adding...' : 'Add Domain'}
+              {domainSetting
+                ? (isVercelDomain ? 'Renaming...' : 'Adding...')
+                : (isVercelDomain ? 'Rename Project' : 'Add Domain')}
             </Button>
           </Stack>
         </Paper>
 
-        {/* DNS Configuration Instructions */}
-        <Paper variant="outlined" sx={{ p: 2.5, bgcolor: 'grey.50' }}>
-          <Typography variant="subtitle2" sx={{ fontWeight: 600, mb: 1 }}>
-            DNS Configuration Instructions
-          </Typography>
-          <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
-            To point your domain to the Vercel-hosted application, add the following DNS records
-            with your domain provider (e.g. Namecheap, Cloudflare, GoDaddy):
-          </Typography>
-          <Stack spacing={1} sx={{ pl: 2 }}>
-            <Typography variant="caption" sx={{ fontFamily: 'monospace', display: 'block' }}>
-              <strong>CNAME</strong> @ &rarr; <strong>cname.vercel-dns.com</strong>
+        {/* DNS Configuration Instructions (only for custom domains) */}
+        {!isVercelDomain && (
+          <Paper variant="outlined" sx={{ p: 2.5, bgcolor: 'grey.50' }}>
+            <Typography variant="subtitle2" sx={{ fontWeight: 600, mb: 1 }}>
+              DNS Configuration Instructions
             </Typography>
-            <Typography variant="caption" sx={{ fontFamily: 'monospace', display: 'block' }}>
-              <strong>CNAME</strong> www &rarr; <strong>cname.vercel-dns.com</strong>
+            <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
+              To point your domain to the Vercel-hosted application, add the following DNS records
+              with your domain provider (e.g. Namecheap, Cloudflare, GoDaddy):
             </Typography>
-          </Stack>
-          <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1.5 }}>
-            DNS changes may take up to 48 hours to propagate. After adding the domain in Vercel,
-            it will show as "Pending" until DNS is configured correctly.
-          </Typography>
-        </Paper>
+            <Stack spacing={1} sx={{ pl: 2 }}>
+              <Typography variant="caption" sx={{ fontFamily: 'monospace', display: 'block' }}>
+                <strong>CNAME</strong> @ &rarr; <strong>cname.vercel-dns.com</strong>
+              </Typography>
+              <Typography variant="caption" sx={{ fontFamily: 'monospace', display: 'block' }}>
+                <strong>CNAME</strong> www &rarr; <strong>cname.vercel-dns.com</strong>
+              </Typography>
+            </Stack>
+            <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1.5 }}>
+              DNS changes may take up to 48 hours to propagate. After adding the domain in Vercel,
+              it will show as &quot;Pending&quot; until DNS is configured correctly.
+            </Typography>
+          </Paper>
+        )}
 
         {/* Vercel Dashboard Link */}
         <Button

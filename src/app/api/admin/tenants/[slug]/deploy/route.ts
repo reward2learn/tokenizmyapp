@@ -135,13 +135,13 @@ export async function POST(
     // Step 1: Ensure Vercel project exists (creates if not found)
     const { projectId, created } = await ensureVercelProject({ slug });
 
-    // Update tenant record with project ID if it was just created
-    if (created) {
-      await db.$executeRawUnsafe(
-        `UPDATE tenants SET vercel_project_id = $1, updated_at = CURRENT_TIMESTAMP WHERE slug = $2;`,
-        projectId, slug,
-      );
-    }
+    // Always ensure vercel_project_id is set on the tenant record,
+    // even if the project already existed (the tenant may have been
+    // created without a vercel_project_id in a previous run).
+    await db.$executeRawUnsafe(
+      `UPDATE tenants SET vercel_project_id = $1, updated_at = CURRENT_TIMESTAMP WHERE slug = $2;`,
+      projectId, slug,
+    );
 
     // Step 2: Deploy — sync env vars, assign domain
     // Use Git-based deployment if requested, otherwise standard deployment
