@@ -146,6 +146,7 @@ export async function POST(
     // Step 2: Deploy — sync env vars, assign domain
     // Use Git-based deployment if requested, otherwise standard deployment
     const useGit = body.gitSource === true;
+    const vercelProjectId = (tenant.vercel_project_id as string) || undefined;
     const result = useGit
       ? await deployTenantWithGit({
           slug,
@@ -154,6 +155,7 @@ export async function POST(
           primaryColor: (tenant.primary_color as string) || '#eb3d28',
           secondaryColor: (tenant.secondary_color as string) || '#0af9fe',
           metadata: body.metadata || ((tenant.metadata as Record<string, unknown>) || {}),
+          projectId: vercelProjectId,
         })
       : await deployTenant({
           slug,
@@ -162,6 +164,7 @@ export async function POST(
           primaryColor: (tenant.primary_color as string) || '#eb3d28',
           secondaryColor: (tenant.secondary_color as string) || '#0af9fe',
           metadata: body.metadata || ((tenant.metadata as Record<string, unknown>) || {}),
+          projectId: vercelProjectId,
         });
 
     // Step 3: Update tenant status to deploying immediately

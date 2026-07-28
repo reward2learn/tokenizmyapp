@@ -15,6 +15,8 @@ interface DeployTenantInput {
   primaryColor: string;
   secondaryColor: string;
   metadata?: Record<string, unknown>;
+  /** Optional project ID from tenant record — used as fallback lookup key. */
+  projectId?: string;
 }
 
 interface DeployTenantResult {
@@ -60,11 +62,22 @@ function extractConfigEnvVars(metadata: Record<string, unknown> | undefined | nu
   return env;
 }
 
-export async function ensureVercelProject(input: { slug: string }): Promise<{ projectId: string; created: boolean }> {
+export async function ensureVercelProject(input: { slug: string; projectId?: string }): Promise<{ projectId: string; created: boolean }> {
   const client = await getVercelClient();
   const slug = input.slug;
 
-  // 1. Try to find existing project
+  // 0. If we have a stored project ID from a previous deployment, try it first.
+  if (input.projectId) {
+    const byId = await withTeamId404Null((teamId) =>
+      client.projects.getProject({ idOrName: input.projectId!, teamId })
+    );
+    if (byId) {
+      console.log(`[vercel-deploy] Found project "${slug}" by stored projectId: ${byId.id}`);
+      return { projectId: byId.id, created: false };
+    }
+  }
+
+  // 1. Try to find existing project by name
   const existing = await withTeamId404Null((teamId) =>
     client.projects.getProject({ idOrName: slug, teamId })
   );
@@ -73,16 +86,7 @@ export async function ensureVercelProject(input: { slug: string }): Promise<{ pr
     return { projectId: existing.id, created: false };
   }
 
-  // 2. Retry getProject by name (different auth scopes may cause 404)
-  const retryLookup = await withTeamId404Null((teamId) =>
-    client.projects.getProject({ idOrName: slug, teamId })
-  );
-  if (retryLookup) {
-    console.log(`[vercel-deploy] Project "${slug}" found on retry: ${retryLookup.id}`);
-    return { projectId: retryLookup.id, created: false };
-  }
-
-  // 3. Create new project
+  // 2. Create new project
   try {
     const created = await withTeamId((teamId) =>
       client.projects.createProject({
@@ -101,14 +105,28 @@ export async function ensureVercelProject(input: { slug: string }): Promise<{ pr
   } catch (err) {
     // If creation fails with 409, the project exists but we couldn't find it
     if (err instanceof Error && err.message.includes('409')) {
-      console.warn(`[vercel-deploy] Project "${slug}" exists (409). Attempting to use existing.`);
+      console.warn(`[vercel-deploy] Project "${slug}" exists (409). Retrying lookup...`);
+      // 3a. Retry by stored projectId (if available)
+      if (input.projectId) {
+        const byId = await withTeamId404Null((teamId) =>
+          client.projects.getProject({ idOrName: input.projectId!, teamId })
+        );
+        if (byId) {
+          console.log(`[vercel-deploy] Found project "${slug}" by projectId after 409: ${byId.id}`);
+          return { projectId: byId.id, created: false };
+        }
+      }
+      // 3b. Retry by name
       const retry = await withTeamId404Null((teamId) =>
         client.projects.getProject({ idOrName: slug, teamId })
       );
       if (retry) {
         return { projectId: retry.id, created: false };
       }
-      throw new Error(`Project "${slug}" already exists on Vercel but could not be found.`);
+      throw new Error(
+        `Project "${slug}" already exists on Vercel (409) but could not be found by ` +
+        `name or projectId. Check Vercel dashboard for the project.`
+      );
     }
     throw err;
   }
@@ -207,7 +225,7 @@ export async function deployTenant(input: DeployTenantInput): Promise<DeployTena
   const appUrl = `https://${input.slug}.vercel.app`;
   const client = await getVercelClient();
 
-  const { projectId } = await ensureVercelProject({ slug: input.slug });
+  const { projectId } = await ensureVercelProject({ slug: input.slug, projectId: input.projectId });
 
   // Sync env vars
   const envCount = await syncEnvVars(projectId, input);
@@ -270,12 +288,25 @@ const GIT_REPO_TYPE = 'github';
  * Creates the project if not found, and links it to the Git repository
  * with rootDirectory set to "website".
  */
-export async function ensureVercelProjectWithGit(input: { slug: string }): Promise<{ projectId: string; created: boolean }> {
+export async function ensureVercelProjectWithGit(input: { slug: string; projectId?: string }): Promise<{ projectId: string; created: boolean }> {
   const client = await getVercelClient();
   const slug = input.slug;
   const REPO = process.env.VERCEL_GIT_REPO || 'reward2learn/tokenizmyapp';
 
-  // 1. Try to find existing project
+  // 0. If we have a stored project ID from a previous deployment, try it first.
+  //    This is more reliable than look-up-by-name because the API token may have
+  //    different scope than the token that originally created the project.
+  if (input.projectId) {
+    const byId = await withTeamId404Null((teamId) =>
+      client.projects.getProject({ idOrName: input.projectId!, teamId })
+    );
+    if (byId) {
+      console.log(`[vercel-deploy] Found project "${slug}" by stored projectId: ${byId.id}`);
+      return { projectId: byId.id, created: false };
+    }
+  }
+
+  // 1. Try to find existing project by name
   const existing = await withTeamId404Null((teamId) =>
     client.projects.getProject({ idOrName: slug, teamId })
   );
@@ -318,25 +349,28 @@ export async function ensureVercelProjectWithGit(input: { slug: string }): Promi
     return { projectId: created.id, created: true };
   } catch (err) {
     if (err instanceof Error && err.message.includes('409')) {
-      console.warn(`[vercel-deploy] Project "${slug}" exists (409). Linking Git...`);
-      // Find project and link Git - use getProject directly
+      console.warn(`[vercel-deploy] Project "${slug}" exists (409). Retrying lookup...`);
+      // 3a. Retry by stored projectId (if available)
+      if (input.projectId) {
+        const byId = await withTeamId404Null((teamId) =>
+          client.projects.getProject({ idOrName: input.projectId!, teamId })
+        );
+        if (byId) {
+          console.log(`[vercel-deploy] Found project "${slug}" by projectId after 409: ${byId.id}`);
+          return { projectId: byId.id, created: false };
+        }
+      }
+      // 3b. Retry by name
       const found = await withTeamId404Null((teamId) =>
         client.projects.getProject({ idOrName: slug, teamId })
       );
       if (found) {
-        await withTeamId((teamId) =>
-          client.projects.updateProject({
-            idOrName: found.id,
-            teamId,
-            requestBody: {
-              rootDirectory: '.',
-              gitRepository: { type: 'github' as const, repo: REPO },
-            } as any,
-          })
-        );
         return { projectId: found.id, created: false };
       }
-      throw new Error(`Project "${slug}" already exists but could not be found.`);
+      throw new Error(
+        `Project "${slug}" already exists on Vercel (409) but could not be found by ` +
+        `name or projectId. Check Vercel dashboard for the project.`
+      );
     }
     throw err;
   }
@@ -351,7 +385,7 @@ export async function deployTenantWithGit(input: DeployTenantInput): Promise<Dep
   const appUrl = `https://${input.slug}.vercel.app`;
   const client = await getVercelClient();
 
-  const { projectId } = await ensureVercelProjectWithGit({ slug: input.slug });
+  const { projectId } = await ensureVercelProjectWithGit({ slug: input.slug, projectId: input.projectId });
 
   // Sync env vars
   const envCount = await syncEnvVars(projectId, input);
