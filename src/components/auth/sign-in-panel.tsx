@@ -132,11 +132,11 @@ export function SignInPanel({ requiredTier }: SignInPanelProps) {
           color="inherit"
           fullWidth
           sx={{
-            bgcolor: '#fff',
-            color: '#1a1a22',
+            bgcolor: 'background.paper',
+            color: 'text.primary',
             fontWeight: 600,
             mb: showPin ? 2 : 0,
-            '&:hover': { bgcolor: '#f0f0f0' },
+            '&:hover': { bgcolor: 'action.hover' },
           }}
         >
           Sign in with Google

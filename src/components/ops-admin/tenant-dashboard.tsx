@@ -312,7 +312,7 @@ export function TenantDashboard() {
       <Paper variant="outlined" sx={{ p: { xs: 2, sm: 3 }, overflow: 'hidden' }}>
         <Stack
           direction={{ xs: 'column', sm: 'row' }}
-          spacing={1.5}
+          spacing={{ xs: 1, md: 1.5 }}
           sx={{ mb: 2, alignItems: { xs: 'stretch', sm: 'center' }, justifyContent: 'space-between' }}
         >
           <Box sx={{ minWidth: 0 }}>
@@ -564,6 +564,7 @@ export function TenantDashboard() {
       <Dialog
         open={Boolean(confirmDelete)}
         onClose={() => setConfirmDelete(null)}
+        fullWidth
       >
         <DialogTitle>Delete Tenant?</DialogTitle>
         <DialogContent>

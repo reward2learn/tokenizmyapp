@@ -453,6 +453,7 @@ export function NavigationManager() {
           cursor: 'grab',
           ml: item.depth * 3,
           '&:hover': { bgcolor: 'action.hover' },
+          '&:active': { bgcolor: 'action.selected' },
         }}
       >
         <Checkbox
@@ -460,7 +461,7 @@ export function NavigationManager() {
           checked={selectedIds.has(item.id)}
           onChange={() => toggleSelect(item.id)}
           onClick={(e) => e.stopPropagation()}
-          sx={{ p: 0.25 }}
+          sx={{ p: 0.5 }}
         />
         <DragIndicatorIcon fontSize="small" color="disabled" sx={{ cursor: 'grab', flexShrink: 0 }} />
         <Box sx={{ flexShrink: 0, color: 'text.secondary', display: 'flex', alignItems: 'center' }}>
@@ -483,7 +484,7 @@ export function NavigationManager() {
           </Typography>
         </Box>
         {item.isDefault ? (
-          <Chip label="Default" size="small" color="primary" variant="filled" sx={{ height: 20, fontSize: '0.65rem' }} />
+          <Chip label="Default" size="small" color="primary" variant="filled" sx={{ height: 20, fontSize: { xs: '0.7rem', md: '0.75rem' } }} />
         ) : item.path && !item.path.startsWith('http') ? (
           <Chip
             label="Set Default"
@@ -491,12 +492,12 @@ export function NavigationManager() {
             variant="outlined"
             clickable
             onClick={() => handleSetDefault(item)}
-            sx={{ height: 20, fontSize: '0.65rem', cursor: 'pointer' }}
+            sx={{ height: 20, fontSize: { xs: '0.7rem', md: '0.75rem' }, cursor: 'pointer' }}
           />
         ) : null}
-        <Chip label={item.authTier} size="small" variant="outlined" sx={{ height: 20, fontSize: '0.65rem' }} />
+        <Chip label={item.authTier} size="small" variant="outlined" sx={{ height: 20, fontSize: { xs: '0.7rem', md: '0.75rem' } }} />
         {item.requiredGroups ? (
-          <Chip label={item.requiredGroups} size="small" color="info" variant="outlined" sx={{ height: 20, fontSize: '0.65rem' }} />
+          <Chip label={item.requiredGroups} size="small" color="info" variant="outlined" sx={{ height: 20, fontSize: { xs: '0.7rem', md: '0.75rem' } }} />
         ) : null}
         <IconButton size="small" onClick={() => openEdit(item)}><EditIcon fontSize="small" /></IconButton>
         <IconButton size="small" color="error" onClick={() => handleDelete(item.id)}><DeleteIcon fontSize="small" /></IconButton>

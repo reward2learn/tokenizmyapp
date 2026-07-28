@@ -153,13 +153,13 @@ const DEPLOY_STEPS = [
 function SummaryRow({ label, value, color }: { label: string; value: string; color?: string }) {
   return (
     <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
-      <Typography variant="caption" sx={{ fontWeight: 700, minWidth: 140, fontSize: '0.7rem', color: 'text.secondary' }}>
+      <Typography variant="caption" sx={{ fontWeight: 700, minWidth: 140, fontSize: { xs: '0.65rem', sm: '0.7rem' }, color: 'text.secondary' }}>
         {label}
       </Typography>
       {color && (
         <Box sx={{ width: 14, height: 14, borderRadius: '50%', bgcolor: color, border: '1px solid', borderColor: 'divider', flexShrink: 0 }} />
       )}
-      <Typography variant="caption" sx={{ fontSize: '0.7rem', wordBreak: 'break-all', color: value.startsWith('✅') ? 'success.main' : value.startsWith('⚠️') ? 'warning.main' : 'text.primary' }}>
+      <Typography variant="caption" sx={{ fontSize: { xs: '0.65rem', sm: '0.7rem' }, wordBreak: 'break-all', color: value.startsWith('✅') ? 'success.main' : value.startsWith('⚠️') ? 'warning.main' : 'text.primary' }}>
         {value}
       </Typography>
     </Stack>
@@ -1047,7 +1047,7 @@ export function EditTenantModal({ open, tenant, onClose, onRefetch, onSnackbar }
         Preview how the tenant application will look with the selected template and brand colors.
       </Typography>
 
-      <Paper variant="outlined" sx={{ p: 3, bgcolor: 'background.default' }}>
+      <Paper variant="outlined" sx={{ p: { xs: 2, md: 3 }, bgcolor: 'background.default' }}>
         <Stack direction="row" sx={{ alignItems: 'center', justifyContent: 'space-between', mb: 2 }}>
           <Typography variant="subtitle2" sx={{ fontWeight: 600 }}>
             {selectedTemplate.label} — {displayName || tenant.displayName}
@@ -1194,7 +1194,7 @@ export function EditTenantModal({ open, tenant, onClose, onRefetch, onSnackbar }
           </Typography>
         </Paper>
 
-        <Paper variant="outlined" sx={{ p: 2.5 }}>
+        <Paper variant="outlined" sx={{ p: { xs: 2, md: 2.5 } }}>
           <Stack spacing={2}>
             <SummaryRow label="Current Slug" value={currentSlug} />
             <TextField
@@ -1411,7 +1411,7 @@ export function EditTenantModal({ open, tenant, onClose, onRefetch, onSnackbar }
             onChange={(e) => handleOAuthChange('projectId', e.target.value)}
             size="small"
             placeholder="my-project-mynew"
-            sx={{ minWidth: 280, flex: 1 }}
+            sx={{ minWidth: { xs: '100%', sm: 280 }, flex: 1 }}
             helperText="Paste the Project ID from GCP Console after creating the project."
             slotProps={{ input: { sx: { fontFamily: 'monospace', fontSize: '0.85rem' } } }}
           />
@@ -1831,7 +1831,7 @@ export function EditTenantModal({ open, tenant, onClose, onRefetch, onSnackbar }
                       <TextField size="small" type="password" placeholder="Enter PIN (3+ chars)"
                         value={settingPinValue[role.code] || ''}
                         onChange={(e) => setSettingPinValue((prev) => ({ ...prev, [role.code]: e.target.value }))}
-                        sx={{ width: 160 }} autoFocus
+                        sx={{ width: { xs: '100%', sm: 160 } }} autoFocus
                         onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); const v = settingPinValue[role.code] || ''; if (v.length >= 3) void handleSetRolePin(role.code, v); } }} />
                       <IconButton size="small" color="primary"
                         onClick={() => { const v = settingPinValue[role.code] || ''; if (v.length >= 3) void handleSetRolePin(role.code, v); }}
@@ -2364,7 +2364,7 @@ export function EditTenantModal({ open, tenant, onClose, onRefetch, onSnackbar }
   };
 
   return (
-    <Dialog open={open} onClose={handleClose} maxWidth="lg" fullWidth aria-labelledby="edit-tenant-modal-title">
+    <Dialog open={open} onClose={handleClose} maxWidth="lg" fullWidth fullScreen={isMobile} aria-labelledby="edit-tenant-modal-title">
       {/* HEADER */}
       <DialogTitle id="edit-tenant-modal-title" sx={{ p: 0 }}>
         <Stack direction="row" sx={{ alignItems: 'center', justifyContent: 'space-between', px: 3, pt: 2, pb: 1 }}>
@@ -2460,7 +2460,7 @@ export function EditTenantModal({ open, tenant, onClose, onRefetch, onSnackbar }
             <Button variant="contained" color="primary" size="large" onClick={handleDeployWithGit}
               disabled={!!deployingSlug || saving}
               startIcon={deployingSlug ? <CircularProgress size={20} color="inherit" /> : <CloudUploadIcon />}
-              sx={{ fontWeight: 700, minWidth: 220 }}>
+              sx={{ fontWeight: 700, minWidth: { xs: '100%', sm: 220 } }}>
               {deployingSlug ? 'DEPLOYING...' : 'Vercel Deploy with Git'}
             </Button>
           </Stack>

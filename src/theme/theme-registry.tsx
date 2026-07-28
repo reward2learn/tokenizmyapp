@@ -66,7 +66,7 @@ function buildTheme(brand: BrandColors) {
         styleOverrides: {
           root: {
             backgroundColor: 'rgba(15,15,20,0.85)',
-            backdropFilter: 'blur(0px)',
+            backdropFilter: 'blur(8px)',
             borderBottom: '1px solid rgba(255,255,255,0.06)',
           },
         },
@@ -76,6 +76,46 @@ function buildTheme(brand: BrandColors) {
           paper: {
             backgroundColor: '#1a1a22',
             borderLeft: '1px solid rgba(255,255,255,0.08)',
+          },
+        },
+      },
+      // ── Mobile touch target overrides ─────────────────────────
+      // Ensure all small variants meet minimum 48×48px tap target.
+      MuiIconButton: {
+        styleOverrides: {
+          sizeSmall: {
+            width: 48,
+            height: 48,
+          },
+        },
+      },
+      MuiButton: {
+        styleOverrides: {
+          sizeSmall: {
+            minHeight: 48,
+          },
+        },
+      },
+      MuiCheckbox: {
+        styleOverrides: {
+          sizeSmall: {
+            width: 48,
+            height: 48,
+          },
+        },
+      },
+      MuiSwitch: {
+        styleOverrides: {
+          root: {
+            width: 48,
+            height: 48,
+          },
+        },
+      },
+      MuiFormControlLabel: {
+        styleOverrides: {
+          root: {
+            minHeight: 48,
           },
         },
       },

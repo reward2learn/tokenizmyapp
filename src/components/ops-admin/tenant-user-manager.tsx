@@ -233,7 +233,7 @@ export function TenantUserManager({ open, onClose, tenantSlug, tenantDisplayName
                 </Button>
               </Stack>
 
-              <Table size="small">
+              <Box sx={{ overflowX: 'auto' }}><Table size="small">
                 <TableHead>
                   <TableRow>
                     <TableCell>Person / Sub</TableCell>
@@ -290,7 +290,7 @@ export function TenantUserManager({ open, onClose, tenantSlug, tenantDisplayName
                                 variant="contained"
                                 disabled={isDeleting}
                                 onClick={() => void handleDelete(user.id)}
-                                sx={{ minWidth: 72, fontSize: '0.7rem' }}
+                                sx={{ minWidth: 80 }}
                               >
                                 {isDeleting ? '...' : 'Confirm'}
                               </Button>
@@ -298,7 +298,7 @@ export function TenantUserManager({ open, onClose, tenantSlug, tenantDisplayName
                                 size="small"
                                 onClick={() => setDeleteConfirm(null)}
                                 disabled={isDeleting}
-                                sx={{ minWidth: 52, fontSize: '0.7rem' }}
+                                sx={{ minWidth: 80 }}
                               >
                                 No
                               </Button>
@@ -338,7 +338,7 @@ export function TenantUserManager({ open, onClose, tenantSlug, tenantDisplayName
                     );
                   })}
                 </TableBody>
-              </Table>
+              </Table></Box>
             </>
           )
         ) : (
