@@ -132,8 +132,24 @@ export async function POST(
       return jsonError('Vercel token not configured. Set VERCEL_TOKEN env var.', 400);
     }
 
+    // Resolve Vercel project ID: stored tenant record > deploy hook URL (body or stored) > undefined
+    const storedProjectId = (tenant.vercel_project_id as string) || undefined;
+
+    // Try to extract project ID from deploy hook URL — check request body first, then stored metadata
+    const bodyMetadata = (body.metadata as Record<string, unknown>) || {};
+    const bodyHooks = (bodyMetadata.hooks as Record<string, unknown>) || {};
+    const bodyHookUrl = (bodyHooks.deployHookUrl as string) || '';
+    const storedHooks = (metadata.hooks as Record<string, unknown>) || {};
+    const storedHookUrl = (storedHooks.deployHookUrl as string) || '';
+    const deployHookUrl = bodyHookUrl || storedHookUrl;
+    // Extract project ID from deploy hook URL: https://api.vercel.com/v1/integrations/deploy/{projectId}/{hookId}
+    const hookProjectId = deployHookUrl
+      ? (deployHookUrl.match(/\/deploy\/(prj_[^/]+)/)?.[1] ?? undefined)
+      : undefined;
+    const resolvedProjectId = storedProjectId || hookProjectId || undefined;
+
     // Step 1: Ensure Vercel project exists (creates if not found)
-    const { projectId, created } = await ensureVercelProject({ slug });
+    const { projectId, created } = await ensureVercelProject({ slug, projectId: resolvedProjectId });
 
     // Always ensure vercel_project_id is set on the tenant record,
     // even if the project already existed (the tenant may have been
@@ -146,7 +162,7 @@ export async function POST(
     // Step 2: Deploy — sync env vars, assign domain
     // Use Git-based deployment if requested, otherwise standard deployment
     const useGit = body.gitSource === true;
-    const vercelProjectId = (tenant.vercel_project_id as string) || undefined;
+    const vercelProjectId = storedProjectId || projectId;
     const result = useGit
       ? await deployTenantWithGit({
           slug,

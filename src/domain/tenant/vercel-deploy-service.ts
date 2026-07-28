@@ -125,7 +125,10 @@ export async function ensureVercelProject(input: { slug: string; projectId?: str
       }
       throw new Error(
         `Project "${slug}" already exists on Vercel (409) but could not be found by ` +
-        `name or projectId. Check Vercel dashboard for the project.`
+        `name or projectId. This usually happens when the project was created under ` +
+        `a different Vercel account or team. Fix: Pass the correct projectId (found in ` +
+        `the Vercel Deploy Hook URL) to ensureVercelProject, or set vercel_project_id ` +
+        `on the tenant record. Check Vercel dashboard for the project.`
       );
     }
     throw err;
@@ -369,7 +372,10 @@ export async function ensureVercelProjectWithGit(input: { slug: string; projectI
       }
       throw new Error(
         `Project "${slug}" already exists on Vercel (409) but could not be found by ` +
-        `name or projectId. Check Vercel dashboard for the project.`
+        `name or projectId. This usually happens when the project was created under ` +
+        `a different Vercel account or team. Fix: Pass the correct projectId (found in ` +
+        `the Vercel Deploy Hook URL) to ensureVercelProjectWithGit, or set vercel_project_id ` +
+        `on the tenant record. Check Vercel dashboard for the project.`
       );
     }
     throw err;
