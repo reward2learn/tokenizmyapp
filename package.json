@@ -11,7 +11,8 @@
     "lint": "eslint src --max-warnings 0",
     "test": "vitest run",
     "enforce:redux": "node scripts/enforce-redux.mjs",
-    "seed": "bun run scripts/seed-from-sources.ts"
+    "seed": "bun run scripts/seed-from-sources.ts",
+    "test-webhook": "bun run scripts/test-webhook.ts"
   },
   "dependencies": {
     "@ai-sdk/openai": "^4.0.20",

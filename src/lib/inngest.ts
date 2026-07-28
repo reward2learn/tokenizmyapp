@@ -59,13 +59,6 @@ export interface TenantEvents {
   };
 }
 
-// Import and register workflows
-import { tenantDeprovisioningWorkflow } from './inngest/tenant-deprovisioning-workflow';
-import { vercelWebhookHandlers } from './inngest/vercel-webhook-handlers';
-
-// Re-export for route.ts and other consumers
-export { tenantDeprovisioningWorkflow };
-
 // Vercel webhook events (dispatched from /api/webhooks/vercel)
 export interface VercelEvents {
   'vercel.project.removed': {
@@ -136,9 +129,6 @@ export interface VercelEvents {
 // Combined events interface
 export type InngestEvents = TenantEvents & VercelEvents;
 
-// Import handlers (they auto-register via inngest.createFunction)
-vercelWebhookHandlers; // side-effect import ensures registration
-
-// Workflows are automatically registered when imported.
-// Explicit array is used in src/app/api/inngest/route.ts for serve()
-export { vercelWebhookHandlers };
+// Note: Handlers and workflows are imported directly in route.ts to avoid
+// circular dependencies with files that import { inngest } from '@/lib/inngest'.
+// The createFunction calls in those modules ensure auto-registration with Inngest.

@@ -1,7 +1,6 @@
 import { inngest } from '@/lib/inngest';
 import { logger } from '@/lib/logger';
 import { sendTenantCleanupNotification } from '@/lib/notifications/tenant-notifications';
-import { cleanupTenant } from '@/domain/tenant/tenant-cleanup-service';
 
 /**
  * Inngest workflow for tenant deprovisioning.

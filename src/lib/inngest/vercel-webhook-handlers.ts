@@ -12,7 +12,7 @@
  * Uses step.run for idempotency and dynamic imports where appropriate.
  */
 
-import { inngest } from '../inngest';
+import { inngest } from '@/lib/inngest';
 
 // Vercel event handlers
 export const vercelProjectRemovedHandler = inngest.createFunction(
