@@ -72,7 +72,7 @@ export async function POST(request, { params }) {
         body = await request.json();
     }
     catch {
-        return jsonError('Invalid JSON body', 400);
+        body = {};
     }
     const db = createRawClient();
     try {

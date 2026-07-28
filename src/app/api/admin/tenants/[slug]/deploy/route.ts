@@ -108,7 +108,7 @@ export async function POST(
 
   let body: { template?: string; metadata?: Record<string, unknown>; gitSource?: boolean };
   try { body = await request.json(); } catch {
-    return jsonError('Invalid JSON body', 400);
+    body = {};
   }
 
   const db = createRawClient() as any;
