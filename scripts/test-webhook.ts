@@ -40,7 +40,7 @@
 import crypto from 'node:crypto';
 import { parseArgs } from 'node:util';
 
-type EventType = 'deployment.succeeded' | 'project.removed' | 'deployment.error';
+type EventType = 'deployment.succeeded' | 'project.removed' | 'deployment.error' | 'tenant.template.amended' | 'reseller.onboarded' | 'test.webhook' | 'commission.paid';
 
 interface VercelWebhookPayload {
   id: string;
@@ -151,6 +151,80 @@ const SAMPLE_PAYLOADS: Record<EventType, VercelWebhookPayload> = {
         id: 'prj_1234567890abcdef',
         name: 'redrubybali',
       },
+    },
+  },
+  // New comprehensive test cases for webhook-system.md and reseller-onboarding
+  'tenant.template.amended': {
+    id: 'evt_reseller_001',
+    type: 'tenant.template.amended',
+    createdAt: Date.now(),
+    payload: {
+      slug: 'prestix-partner-01',
+      previousTemplate: 'restaurant',
+      newTemplate: 'reseller-onboarding',
+      delta: {
+        addedPages: ['resellers', 'commissions', 'onboarding'],
+        addedNav: ['Partners', 'Commissions'],
+        colorChange: true,
+        blockTypesAdded: ['partner_metrics', 'commission_split'],
+        newSchemaOrg: ['Reseller', 'OfferCatalog'],
+      },
+      amendmentReason: 'partner-onboarding-upgrade',
+      metadata: {
+        ptixWallet: '0x742d35Cc6634C0532925a3b844Bc454e4438f44e',
+        commissionRate: '0.15',
+      },
+    },
+  },
+  'reseller.onboarded': {
+    id: 'evt_reseller_002',
+    type: 'reseller.onboarded',
+    createdAt: Date.now(),
+    payload: {
+      resellerSlug: 'bali-promoter-vip',
+      partnerId: 'partner_789',
+      businessName: 'Bali Beach Promotions',
+      template: 'reseller-onboarding',
+      schemaOrg: {
+        '@type': 'Reseller',
+        name: 'Bali Beach Promotions',
+        url: 'https://bali-promoter-vip.vercel.app',
+      },
+      commissionConfig: {
+        rate: 0.25,
+        ptixAutoExchange: true,
+        venueSplit: '60/40',
+      },
+      webhookTest: true,
+    },
+  },
+  'test.webhook': {
+    id: 'evt_test_003',
+    type: 'test.webhook',
+    createdAt: Date.now(),
+    payload: {
+      message: 'This is a test event from the updated test-webhook script',
+      timestamp: Date.now(),
+      templateSelectorTest: true,
+      deltaExample: {
+        addedPages: ['onboarding'],
+        schemaOrgType: 'Organization',
+      },
+      note: 'Used by TemplateSelector component live preview and reseller flow testing',
+    },
+  },
+  'commission.paid': {
+    id: 'evt_commission_004',
+    type: 'commission.paid',
+    createdAt: Date.now(),
+    payload: {
+      resellerId: 'partner_789',
+      amount: 24500000, // IDR in full integers per project standards
+      currency: 'IDR',
+      ptixConverted: 12450,
+      status: 'success',
+      transactionId: 'tx_0xabcdef123456',
+      period: '2026-Q3',
     },
   },
 };
@@ -296,28 +370,41 @@ function parseCliArgs(): TestConfig {
 Usage: bun run scripts/test-webhook.ts [options]
 
 Options:
-  -e, --event <type>     Event type (deployment.succeeded, project.removed, deployment.error). Default: deployment.succeeded
-  -u, --url <url>        Webhook URL. Default: http://localhost:3000/api/webhooks/vercel or env VERCEL_WEBHOOK_URL
+  -e, --event <type>     Event type. Now supports comprehensive webhook + reseller scenarios.
+                         (deployment.succeeded, tenant.template.amended, reseller.onboarded,
+                          test.webhook, commission.paid, etc). Default: deployment.succeeded
+  -u, --url <url>        Webhook URL. Default: http://localhost:3000/api/admin/webhooks (for admin tests)
+                         or http://localhost:3000/api/webhooks/vercel
   -s, --secret <secret>  Webhook secret. Default: env VERCEL_WEBHOOK_SECRET
   -k, --skip-sig         Skip signature calculation (useful in local dev)
-  -d, --dry-run          Compute signature but do not send request
+  -d, --dry-run          Compute signature/payload but do not send request
   -h, --help             Show this help
 
 Examples:
-  bun run scripts/test-webhook.ts
-  bun run scripts/test-webhook.ts --event=project.removed
-  VERCEL_WEBHOOK_SECRET=super-secret bun run scripts/test-webhook.ts --event=deployment.error --url=https://your-deployed-app.vercel.app/api/webhooks/vercel
+  bun run scripts/test-webhook.ts --event=test.webhook
+  bun run scripts/test-webhook.ts --event=tenant.template.amended
+  bun run scripts/test-webhook.ts --event=reseller.onboarded
+  VERCEL_WEBHOOK_SECRET=dev-secret bun run scripts/test-webhook.ts --event=commission.paid
+  # For admin webhook system testing (see docs/webhook-system.md)
     `);
     process.exit(0);
   }
 
   const eventType = (args.values.event as EventType) || 'deployment.succeeded';
-  if (!['deployment.succeeded', 'project.removed', 'deployment.error'].includes(eventType)) {
-    error(`Unsupported event type: ${eventType}. Supported: deployment.succeeded, project.removed, deployment.error`);
+  const supportedEvents = [
+    'deployment.succeeded', 'project.removed', 'deployment.error',
+    'tenant.template.amended', 'reseller.onboarded', 'test.webhook', 'commission.paid'
+  ];
+  if (!supportedEvents.includes(eventType)) {
+    error(`Unsupported event type: ${eventType}. Supported: ${supportedEvents.join(', ')}`);
     process.exit(1);
   }
 
-  const defaultUrl = process.env.VERCEL_WEBHOOK_URL || 'http://localhost:3000/api/webhooks/vercel';
+  const isAdminEvent = ['tenant.template.amended', 'reseller.onboarded', 'test.webhook', 'commission.paid'].includes(eventType);
+  const defaultUrl = process.env.WEBHOOK_URL || 
+    (isAdminEvent 
+      ? 'http://localhost:3000/api/admin/webhooks' 
+      : process.env.VERCEL_WEBHOOK_URL || 'http://localhost:3000/api/webhooks/vercel');
   const url = (args.values.url as string) || defaultUrl;
 
   const secret = (args.values.secret as string) || process.env.VERCEL_WEBHOOK_SECRET || null;
@@ -341,8 +428,9 @@ Examples:
  * Main entry point
  */
 async function main() {
-  info('🚀 Vercel Webhook Test Script Starting');
-  console.log(`${COLORS.bright}TokenizMyApp /api/webhooks/vercel Tester${COLORS.reset}\n`);
+  info('🚀 Comprehensive Webhook + Reseller Onboarding Test Script Starting');
+  console.log(`${COLORS.bright}RedRuby-FPA / Prestix Webhook System Tester (with Reseller Onboarding Scenarios)${COLORS.reset}\n`);
+  console.log('See docs/webhook-system.md and docs/reseller-onboarding-template.md for details.\n');
 
   const config = parseCliArgs();
   const payload = { ...SAMPLE_PAYLOADS[config.eventType] };
@@ -359,7 +447,12 @@ async function main() {
   success(`Testing event: ${config.eventType}`);
   await sendWebhook(config, payload);
 
-  console.log(`\n${COLORS.magenta}Script completed. Use this to validate signature, routing, cleanup, and Inngest flows.${COLORS.reset}`);
+  console.log(`\n${COLORS.magenta}Script completed. New test cases added for:
+• tenant.template.amended (delta-driven template changes)
+• reseller.onboarded (full reseller onboarding flow with PTIX/commission payload)
+• test.webhook (used by TemplateSelector component)
+• commission.paid (IDR integer compliance)
+See docs/webhook-system.md for troubleshooting and comprehensive scenarios.${COLORS.reset}`);
 }
 
 main().catch((err) => {

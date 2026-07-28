@@ -39,12 +39,15 @@ import Snackbar from '@mui/material/Snackbar';
 import PlayArrowIcon from '@mui/icons-material/PlayArrow';
 import BuildIcon from '@mui/icons-material/Build';
 import CloudUploadIcon from '@mui/icons-material/CloudUpload';
+import LanguageIcon from '@mui/icons-material/Language';
+import VerifiedIcon from '@mui/icons-material/Verified';
 import {
   useListTenantsQuery,
   useDeleteTenantMutation,
   useSeedTenantMutation,
   useMigrateTenantMutation,
   useDeployTenantMutation,
+  useGetTenantDomainsQuery,
   type TenantEntry,
 } from '@/store/apis/tenant-api';
 import { getTemplate } from '@/domain/tenant/template-catalog';
@@ -61,21 +64,31 @@ const STATUS_COLORS: Record<string, 'info' | 'warning' | 'success' | 'error'> = 
 };
 
 function TenantUrlLink({ tenant }: { tenant: TenantEntry }) {
+  const defaultUrl = `https://${tenant.slug}.vercel.app`;
+  const isCustomDomain = tenant.appUrl != null && tenant.appUrl !== defaultUrl;
+
   if (tenant.appUrl) {
     return (
-      <Button
-        size="small"
-        variant="text"
-        href={tenant.appUrl}
-        target="_blank"
-        rel="noopener noreferrer"
-        endIcon={<OpenInNewIcon fontSize="small" />}
-        sx={{ fontSize: '0.75rem', maxWidth: '100%', justifyContent: 'flex-start' }}
-      >
-        <Box component="span" sx={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-          {tenant.appUrl.replace('https://', '')}
-        </Box>
-      </Button>
+      <Stack direction="row" spacing={0.5} sx={{ alignItems: 'center', minWidth: 0 }}>
+        <Button
+          size="small"
+          variant="text"
+          href={tenant.appUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+          endIcon={<OpenInNewIcon fontSize="small" />}
+          sx={{ fontSize: '0.75rem', maxWidth: 220, justifyContent: 'flex-start' }}
+        >
+          <Box component="span" sx={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            {tenant.appUrl.replace('https://', '')}
+          </Box>
+        </Button>
+        {isCustomDomain && (
+          <Tooltip title="Custom domain configured">
+            <VerifiedIcon sx={{ fontSize: '0.85rem', color: 'success.main' }} />
+          </Tooltip>
+        )}
+      </Stack>
     );
   }
   if (tenant.status === 'live') {
@@ -83,11 +96,11 @@ function TenantUrlLink({ tenant }: { tenant: TenantEntry }) {
       <Button
         size="small"
         variant="text"
-        href={`https://${tenant.slug}.vercel.app`}
+        href={defaultUrl}
         target="_blank"
         rel="noopener noreferrer"
         endIcon={<OpenInNewIcon fontSize="small" />}
-        sx={{ fontSize: '0.75rem', maxWidth: '100%', justifyContent: 'flex-start' }}
+        sx={{ fontSize: '0.75rem', maxWidth: 220, justifyContent: 'flex-start' }}
       >
         <Box component="span" sx={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
           {tenant.slug}.vercel.app
@@ -119,6 +132,9 @@ export function TenantDashboard() {
   const [migrateTenant, { isLoading: isMigrating }] = useMigrateTenantMutation();
   const [deployToVercel, { isLoading: isDeploying }] = useDeployTenantMutation();
   const [snackbar, setSnackbar] = useState<{ message: string; severity: 'success' | 'error' } | null>(null);
+
+  // Domain refresh state
+  const [refreshingDomains, setRefreshingDomains] = useState<string | null>(null);
 
   // Delete confirmation dialog state
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
@@ -206,6 +222,36 @@ export function TenantDashboard() {
       setSnackbar({ message: 'Failed to check deployment status', severity: 'error' });
     } finally {
       setCheckingStatus(null);
+    }
+  };
+
+  // ── Custom Domain: Refresh Domains ─────────────────────────
+  const handleRefreshDomains = async (slug: string) => {
+    handleMenuClose();
+    setRefreshingDomains(slug);
+    try {
+      const res = await fetch(`/api/admin/tenants/${slug}/domain`);
+      const data = await res.json();
+      if (data.success) {
+        const domains = data.data?.domains || [];
+        if (domains.length === 0) {
+          setSnackbar({ message: '🌐 No domains configured on Vercel', severity: 'error' });
+        } else {
+          const verified = domains.filter((d: { verified: boolean }) => d.verified).length;
+          const total = domains.length;
+          refetch();
+          setSnackbar({
+            message: `🌐 ${total} domain(s) on Vercel — ${verified} verified`,
+            severity: verified > 0 ? 'success' : 'error',
+          });
+        }
+      } else {
+        setSnackbar({ message: data.error || 'Failed to fetch domains', severity: 'error' });
+      }
+    } catch {
+      setSnackbar({ message: 'Failed to refresh domains', severity: 'error' });
+    } finally {
+      setRefreshingDomains(null);
     }
   };
 
@@ -357,6 +403,10 @@ export function TenantDashboard() {
                       <ListItemIcon><PlayArrowIcon fontSize="small" /></ListItemIcon>
                       <ListItemText>{triggeringHook === t.slug ? 'Triggering…' : 'Trigger Deploy Hook'}</ListItemText>
                     </MenuItem>
+                    <MenuItem onClick={() => void handleRefreshDomains(t.slug)} disabled={refreshingDomains === t.slug}>
+                      <ListItemIcon><LanguageIcon fontSize="small" /></ListItemIcon>
+                      <ListItemText>{refreshingDomains === t.slug ? 'Refreshing…' : 'Refresh Domains'}</ListItemText>
+                    </MenuItem>
                     <Divider />
                     <MenuItem
                       onClick={() => { handleMenuClose(); setConfirmDelete(t.slug); }}
@@ -464,6 +514,10 @@ export function TenantDashboard() {
                           <MenuItem onClick={() => void handleTriggerHook(t.slug)} disabled={triggeringHook === t.slug}>
                             <ListItemIcon><PlayArrowIcon fontSize="small" /></ListItemIcon>
                             <ListItemText>{triggeringHook === t.slug ? 'Triggering…' : 'Trigger Deploy Hook'}</ListItemText>
+                          </MenuItem>
+                          <MenuItem onClick={() => void handleRefreshDomains(t.slug)} disabled={refreshingDomains === t.slug}>
+                            <ListItemIcon><LanguageIcon fontSize="small" /></ListItemIcon>
+                            <ListItemText>{refreshingDomains === t.slug ? 'Refreshing…' : 'Refresh Domains'}</ListItemText>
                           </MenuItem>
                           <Divider />
                           <MenuItem

@@ -16,10 +16,14 @@
  *   const result = await handleVercelWebhook(rawBody, request.headers);
  *
  * Setup:
- * 1. Set VERCEL_WEBHOOK_SECRET in env (generate strong secret)
- * 2. Register webhook in Vercel dashboard (team or project level) pointing to
- *    https://tokenizmyapp.vercel.app/api/webhooks/vercel with the secret
- * 3. After schema update + zenstack generate, WebhookConfig/Event models are available
+ * 1. Run: bun run register-webhooks --token=<your-vercel-token> --secret=<strong-secret>
+ *    (or use --list to inspect existing). See tokenizmyapp/scripts/register-vercel-webhooks.ts
+ * 2. Set the returned VERCEL_WEBHOOK_SECRET in your tokenizmyapp env vars
+ * 3. Redeploy tokenizmyapp. The webhook will now deliver events to /api/webhooks/vercel
+ * 4. After schema update + zenstack generate, WebhookConfig/Event models are available
+ * 
+ * The script registers all events handled by this service (project.removed, deployment.*,
+ * project.domain.*, deployment.cleanup).
  */
 
 import crypto from 'node:crypto';

@@ -611,6 +611,71 @@ export async function deployTenantWithGit(input: DeployTenantInput): Promise<Dep
   };
 }
 
+// ── Vercel Domain Management ──────────────────────────────────
+
+/**
+ * Fetch all domains for a Vercel project.
+ * Uses /v9/projects/{projectId}/domains — the v9 endpoint returns
+ * a simpler shape than v10 for domain listing.
+ */
+export async function getVercelDomains(projectId: string): Promise<{ name: string; verified: boolean; createdAt: string }[]> {
+  const res = await vercelApiTryBoth(`/v9/projects/${projectId}/domains`);
+  if (!res.ok) {
+    const err = await res.text().catch(() => '');
+    console.warn(`[vercel-deploy] Failed to fetch domains for ${projectId}: ${res.status} ${err.slice(0, 200)}`);
+    throw new Error(`Vercel API returned ${res.status} when fetching domains`);
+  }
+
+  const data = await res.json() as {
+    domains?: Array<{
+      name: string;
+      verified: boolean;
+      createdAt?: number | string;
+    }>;
+  };
+
+  return (data.domains ?? []).map((d) => ({
+    name: d.name,
+    verified: d.verified,
+    createdAt: d.createdAt ? String(d.createdAt) : new Date().toISOString(),
+  }));
+}
+
+export interface SetCustomDomainResult {
+  verified: boolean;
+}
+
+/**
+ * Add a custom domain to a Vercel project.
+ * POST /v9/projects/{projectId}/domains
+ */
+export async function setCustomDomain(projectId: string, domain: string): Promise<SetCustomDomainResult> {
+  const res = await vercelApiTryBoth(`/v9/projects/${projectId}/domains`, {
+    method: 'POST',
+    body: JSON.stringify({ name: domain }),
+  });
+
+  if (!res.ok) {
+    const err = await res.text().catch(() => '');
+    const detail = err.slice(0, 300);
+    console.warn(`[vercel-deploy] Failed to set domain ${domain} for ${projectId}: ${res.status} ${detail}`);
+
+    // Handle common Vercel errors with helpful messages
+    if (res.status === 409) {
+      throw new Error(`Domain "${domain}" is already associated with another Vercel project.`);
+    }
+    if (res.status === 403) {
+      throw new Error(`Not authorized to add domains to project ${projectId}. Check team permissions.`);
+    }
+    throw new Error(`Failed to add domain "${domain}": ${detail}`);
+  }
+
+  const data = await res.json() as { verified: boolean };
+
+  console.log(`[vercel-deploy] Domain ${domain} added to ${projectId}, verified: ${data.verified}`);
+  return { verified: data.verified };
+}
+
 /**
  * Delete a Vercel project by ID.
  * Handles cases where the project may already be deleted or inaccessible.

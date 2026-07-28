@@ -162,6 +162,31 @@ export const tenantApi = createApi({
       }),
       invalidatesTags: ['Tenants'],
     }),
+
+    // ── Custom Domain ─────────────────────────────────
+
+    getTenantDomains: builder.query<
+      ApiEnvelope<{ domains: { name: string; verified: boolean; createdAt: string }[]; projectId: string | null; appUrl: string | null }>,
+      string
+    >({
+      query: (slug) => `admin/tenants/${slug}/domain`,
+      providesTags: (_result, _error, slug) => [{ type: 'Tenants', id: `domain-${slug}` }],
+    }),
+
+    setTenantDomain: builder.mutation<
+      ApiEnvelope<{ domain: string; verified: boolean; projectId: string; domains: { name: string; verified: boolean; createdAt: string }[]; appUrl: string | null }>,
+      { slug: string; domain: string; updateAppUrl?: boolean }
+    >({
+      query: ({ slug, ...body }) => ({
+        url: `admin/tenants/${slug}/domain`,
+        method: 'POST',
+        body,
+      }),
+      invalidatesTags: (_result, _error, { slug }) => [
+        { type: 'Tenants', id: slug },
+        { type: 'Tenants', id: `domain-${slug}` },
+      ],
+    }),
   }),
 });
 
@@ -177,4 +202,6 @@ export const {
   useSeedTenantMutation,
   useMigrateTenantMutation,
   useDeployTenantMutation,
+  useGetTenantDomainsQuery,
+  useSetTenantDomainMutation,
 } = tenantApi;

@@ -46,21 +46,24 @@ import Tooltip from '@mui/material/Tooltip';
 import Typography from '@mui/material/Typography';
 import AddIcon from '@mui/icons-material/Add';
 import AutoFixHighIcon from '@mui/icons-material/AutoFixHigh';
-import CloudUploadIcon from '@mui/icons-material/CloudUpload';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import CloseIcon from '@mui/icons-material/Close';
 import CloudIcon from '@mui/icons-material/Cloud';
+import CloudUploadIcon from '@mui/icons-material/CloudUpload';
 import DeleteIcon from '@mui/icons-material/Delete';
 import DnsIcon from '@mui/icons-material/Dns';
 import EditIcon from '@mui/icons-material/Edit';
 import KeyIcon from '@mui/icons-material/Key';
+import LanguageIcon from '@mui/icons-material/Language';
 import LockIcon from '@mui/icons-material/Lock';
 import OpenInNewIcon from '@mui/icons-material/OpenInNew';
 import PaletteIcon from '@mui/icons-material/Palette';
 import PeopleIcon from '@mui/icons-material/People';
+import RefreshIcon from '@mui/icons-material/Refresh';
 import RocketLaunchIcon from '@mui/icons-material/RocketLaunch';
 import SaveIcon from '@mui/icons-material/Save';
 import SettingsIcon from '@mui/icons-material/Settings';
+import VerifiedIcon from '@mui/icons-material/Verified';
 import VerifiedUserIcon from '@mui/icons-material/VerifiedUser';
 import Visibility from '@mui/icons-material/Visibility';
 import VisibilityOff from '@mui/icons-material/VisibilityOff';
@@ -126,6 +129,7 @@ const EDIT_STEPS: Array<{ label: string; icon: React.ReactNode; key: string }> =
   { label: 'Custom Env', icon: <CloudIcon fontSize="small" />, key: 'env' },
   { label: 'Deploy Hooks', icon: <RocketLaunchIcon fontSize="small" />, key: 'hooks' },
   { label: 'Functional Roles', icon: <PeopleIcon fontSize="small" />, key: 'roles' },
+  { label: 'Custom Domain', icon: <LanguageIcon fontSize="small" />, key: 'domain' },
   { label: 'Summary', icon: <RocketLaunchIcon fontSize="small" />, key: 'summary' },
 ];
 
@@ -246,6 +250,14 @@ export function EditTenantModal({ open, tenant, onClose, onRefetch, onSnackbar }
   const [deployHookUrl, setDeployHookUrl] = useState('');
   const importFileRef = useRef<HTMLInputElement>(null);
 
+  // ── Custom Domain ───────────────────────────────────────────
+  const [customDomain, setCustomDomain] = useState('');
+  const [domainLoading, setDomainLoading] = useState(false);
+  const [domainSetting, setDomainSetting] = useState(false);
+  const [domainError, setDomainError] = useState<string | null>(null);
+  const [domainList, setDomainList] = useState<Array<{ name: string; verified: boolean; createdAt: string }>>([]);
+  const [domainResult, setDomainResult] = useState<string | null>(null);
+
   // ── Initialize from tenant on open ────────────────────────
   useEffect(() => {
     if (tenant) {
@@ -303,6 +315,12 @@ export function EditTenantModal({ open, tenant, onClose, onRefetch, onSnackbar }
 
       // Restore deploy hook URL
       setDeployHookUrl(((cfg.hooks as Record<string, unknown>)?.deployHookUrl as string) || '');
+
+      // Initialize custom domain state
+      setCustomDomain('');
+      setDomainError(null);
+      setDomainResult(null);
+      setDomainList([]);
 
       setActiveStep(0);
       setProvisionOAuthResult(null);
@@ -1762,7 +1780,216 @@ export function EditTenantModal({ open, tenant, onClose, onRefetch, onSnackbar }
     </Stack>
   );
 
-  // ── Step 9: Summary ──────────────────────────────────────
+  // ── Step 10: Custom Domain ──────────────────────────────
+  const renderStepCustomDomain = () => {
+    const fetchDomains = async () => {
+      if (!tenant?.vercelProjectId) {
+        setDomainError('No Vercel project deployed yet. Deploy the tenant first.');
+        return;
+      }
+      setDomainLoading(true);
+      setDomainError(null);
+      try {
+        const res = await fetch(`/api/admin/tenants/${tenant.slug}/domain`);
+        const data = await res.json();
+        if (data.success) {
+          setDomainList(data.data?.domains || []);
+          if (!data.data?.domains?.length) {
+            setDomainResult('No domains configured on Vercel yet.');
+          } else {
+            const verified = data.data.domains.filter((d: { verified: boolean }) => d.verified).length;
+            setDomainResult(`${data.data.domains.length} domain(s) — ${verified} verified`);
+          }
+        } else {
+          setDomainError(data.error || 'Failed to fetch domains');
+        }
+      } catch {
+        setDomainError('Failed to connect to domain API');
+      } finally {
+        setDomainLoading(false);
+      }
+    };
+
+    const handleSetDomain = async () => {
+      if (!customDomain.trim()) return;
+      if (!tenant?.vercelProjectId) {
+        setDomainError('No Vercel project deployed yet. Deploy the tenant first.');
+        return;
+      }
+      setDomainSetting(true);
+      setDomainError(null);
+      setDomainResult(null);
+      try {
+        const res = await fetch(`/api/admin/tenants/${tenant.slug}/domain`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ domain: customDomain.trim(), updateAppUrl: true }),
+        });
+        const data = await res.json();
+        if (data.success) {
+          setDomainList(data.data?.domains || []);
+          setDomainResult(`Domain "${customDomain.trim()}" added — ${data.data?.verified ? '✅ verified' : '⚠️ pending verification'}`);
+          setCustomDomain('');
+        } else {
+          setDomainError(data.error || 'Failed to set domain');
+        }
+      } catch {
+        setDomainError('Failed to set domain');
+      } finally {
+        setDomainSetting(false);
+      }
+    };
+
+    return (
+      <Stack spacing={3}>
+        <Stack direction="row" spacing={1.5} sx={{ alignItems: 'center' }}>
+          <LanguageIcon color="primary" />
+          <Typography variant="subtitle1" sx={{ fontWeight: 600 }}>
+            Custom Domain Configuration
+          </Typography>
+        </Stack>
+
+        <Typography variant="body2" color="text.secondary">
+          Configure a custom domain for the tenant application. Add your domain in Vercel
+          and configure DNS settings with your domain provider.
+        </Typography>
+
+        {/* Current Domains List */}
+        <Paper variant="outlined" sx={{ p: 2.5 }}>
+          <Stack direction="row" spacing={1.5} sx={{ alignItems: 'center', justifyContent: 'space-between', mb: 2 }}>
+            <Typography variant="subtitle2" sx={{ fontWeight: 600 }}>
+              Current Vercel Domains
+            </Typography>
+            <Button
+              size="small"
+              variant="outlined"
+              onClick={() => void fetchDomains()}
+              disabled={domainLoading || domainSetting}
+              startIcon={domainLoading ? <CircularProgress size={16} color="inherit" /> : <RefreshIcon />}
+            >
+              {domainLoading ? 'Loading...' : 'Refresh'}
+            </Button>
+          </Stack>
+
+          {domainLoading && !domainList.length ? (
+            <Box sx={{ display: 'flex', justifyContent: 'center', py: 3 }}>
+              <CircularProgress size={24} />
+            </Box>
+          ) : domainList.length > 0 ? (
+            <Stack spacing={1}>
+              {domainList.map((d) => (
+                <Stack
+                  key={d.name}
+                  direction="row"
+                  spacing={1.5}
+                  sx={{ alignItems: 'center', p: 1, bgcolor: 'background.default', borderRadius: 1 }}
+                >
+                  <LanguageIcon fontSize="small" color={d.verified ? 'success' : 'warning'} />
+                  <Typography variant="body2" sx={{ fontFamily: 'monospace', flex: 1, fontSize: '0.8rem' }}>
+                    {d.name}
+                  </Typography>
+                  <Chip
+                    label={d.verified ? 'Verified' : 'Pending'}
+                    size="small"
+                    color={d.verified ? 'success' : 'warning'}
+                    variant="outlined"
+                  />
+                </Stack>
+              ))}
+            </Stack>
+          ) : (
+            <Typography variant="body2" color="text.secondary" sx={{ fontStyle: 'italic' }}>
+              No domains configured. Add a domain below to get started.
+            </Typography>
+          )}
+
+          {domainResult && (
+            <Alert severity={domainResult.includes('⚠️') ? 'warning' : 'success'} sx={{ mt: 1.5 }}>
+              {domainResult}
+            </Alert>
+          )}
+
+          {domainError && (
+            <Alert severity="error" sx={{ mt: 1.5 }} onClose={() => setDomainError(null)}>
+              {domainError}
+            </Alert>
+          )}
+        </Paper>
+
+        {/* Add Custom Domain */}
+        <Paper variant="outlined" sx={{ p: 2.5, borderColor: 'primary.main' }}>
+          <Typography variant="subtitle2" sx={{ fontWeight: 600, mb: 1.5 }}>
+            Add Custom Domain
+          </Typography>
+          <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5} sx={{ alignItems: { sm: 'flex-start' } }}>
+            <TextField
+              label="Custom Domain"
+              value={customDomain}
+              onChange={(e) => setCustomDomain(e.target.value)}
+              placeholder="app.yourdomain.com"
+              size="small"
+              fullWidth
+              disabled={domainSetting}
+              slotProps={{
+                input: { sx: { fontFamily: 'monospace', fontSize: '0.85rem' } },
+              }}
+              helperText="Enter the fully qualified domain name (e.g. app.example.com)"
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') { e.preventDefault(); void handleSetDomain(); }
+              }}
+            />
+            <Button
+              variant="contained"
+              size="small"
+              onClick={() => void handleSetDomain()}
+              disabled={domainSetting || !customDomain.trim() || !tenant?.vercelProjectId}
+              startIcon={domainSetting ? <CircularProgress size={16} color="inherit" /> : <VerifiedIcon />}
+              sx={{ minWidth: 120, mt: { xs: 0, sm: 0.5 }, flexShrink: 0 }}
+            >
+              {domainSetting ? 'Adding...' : 'Add Domain'}
+            </Button>
+          </Stack>
+        </Paper>
+
+        {/* DNS Configuration Instructions */}
+        <Paper variant="outlined" sx={{ p: 2.5, bgcolor: 'grey.50' }}>
+          <Typography variant="subtitle2" sx={{ fontWeight: 600, mb: 1 }}>
+            DNS Configuration Instructions
+          </Typography>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
+            To point your domain to the Vercel-hosted application, add the following DNS records
+            with your domain provider (e.g. Namecheap, Cloudflare, GoDaddy):
+          </Typography>
+          <Stack spacing={1} sx={{ pl: 2 }}>
+            <Typography variant="caption" sx={{ fontFamily: 'monospace', display: 'block' }}>
+              <strong>CNAME</strong> @ &rarr; <strong>cname.vercel-dns.com</strong>
+            </Typography>
+            <Typography variant="caption" sx={{ fontFamily: 'monospace', display: 'block' }}>
+              <strong>CNAME</strong> www &rarr; <strong>cname.vercel-dns.com</strong>
+            </Typography>
+          </Stack>
+          <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1.5 }}>
+            DNS changes may take up to 48 hours to propagate. After adding the domain in Vercel,
+            it will show as "Pending" until DNS is configured correctly.
+          </Typography>
+        </Paper>
+
+        {/* Vercel Dashboard Link */}
+        <Button
+          variant="outlined"
+          size="small"
+          href={tenant?.vercelProjectId ? `https://vercel.com/ilishaps-projects/${tenant.slug}/settings/domains` : 'https://vercel.com/ilishaps-projects'}
+          target="_blank"
+          endIcon={<OpenInNewIcon />}
+          sx={{ alignSelf: 'flex-start' }}
+        >
+          Open Vercel Domains Settings
+        </Button>
+      </Stack>
+    );
+  };
+
+  // ── Step 10: Summary ──────────────────────────────────────
   const renderStepSummary = () => (
     <Stack spacing={3}>
       <Stack direction="row" spacing={1.5} sx={{ alignItems: 'center' }}>
@@ -1893,7 +2120,8 @@ export function EditTenantModal({ open, tenant, onClose, onRefetch, onSnackbar }
       case 7: return renderStepEnv();
       case 8: return renderStepHooks();
       case 9: return renderStepRoles();
-      case 10: return renderStepSummary();
+      case 10: return renderStepCustomDomain();
+      case 11: return renderStepSummary();
       default: return null;
     }
   };
