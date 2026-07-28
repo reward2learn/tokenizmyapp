@@ -593,9 +593,59 @@ model Tenant {
   createdAt       DateTime @default(now()) @map("created_at")
   updatedAt       DateTime @updatedAt @map("updated_at")
 
+  // Webhook integration (one-to-many)
+  webhookConfigs  WebhookConfig[]
+
   @@allow('read', true)
   @@allow('create,update,delete', auth().tier == pin || auth().tier == google)
   @@map("tenants")
+}
+
+// ── Webhook system for Vercel integration (root config app) ──
+
+enum WebhookProvider {
+  vercel
+  stripe
+}
+
+model WebhookConfig {
+  id            String          @id @default(cuid())
+  tenantId      String?         @map("tenant_id")
+  tenant        Tenant?         @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+  provider      WebhookProvider @default(vercel)
+  /// The public endpoint URL registered with Vercel
+  endpointUrl   String          @map("endpoint_url")
+  /// HMAC secret used for x-vercel-signature verification
+  signingSecret String?         @map("signing_secret")
+  description   String?
+  isActive      Boolean         @default(true) @map("is_active")
+  lastTriggered DateTime?       @map("last_triggered")
+  createdAt     DateTime        @default(now()) @map("created_at")
+  updatedAt     DateTime        @updatedAt @map("updated_at")
+
+  events        WebhookEvent[]
+
+  @@allow('all', auth().tier == pin || auth().tier == google)
+  @@map("webhook_configs")
+}
+
+model WebhookEvent {
+  id            String   @id @default(cuid())
+  configId      String   @map("config_id")
+  config        WebhookConfig @relation(fields: [configId], references: [id], onDelete: Cascade)
+  eventType     String   @map("event_type")
+  payload       Json
+  status        String   @default("received") /// received | processed | failed | ignored
+  errorMessage  String?  @map("error_message")
+  durationMs    Int?     @map("duration_ms")
+  createdAt     DateTime @default(now()) @map("created_at")
+  processedAt   DateTime? @map("processed_at")
+
+  @@index([configId, eventType])
+  @@index([status, createdAt])
+  @@allow('read', true)
+  @@allow('create,update', auth().tier == pin || auth().tier == google)
+  @@map("webhook_events")
 }
 
 // ── Access policies (ZenStack — enforce in P1 generate) ──

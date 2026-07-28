@@ -61,6 +61,84 @@ export interface TenantEvents {
 
 // Import and register workflows
 import { tenantDeprovisioningWorkflow } from './inngest/tenant-deprovisioning-workflow';
+import { vercelWebhookHandlers } from './inngest/vercel-webhook-handlers';
 
-// Workflows are automatically registered when imported
-// No explicit registration needed as they use inngest.createFunction
+// Re-export for route.ts and other consumers
+export { tenantDeprovisioningWorkflow };
+
+// Vercel webhook events (dispatched from /api/webhooks/vercel)
+export interface VercelEvents {
+  'vercel.project.removed': {
+    data: {
+      tenantSlug: string;
+      projectId: string;
+      cleanupResult?: any;
+      source?: string;
+    };
+  };
+  'vercel.deployment.succeeded': {
+    data: {
+      tenantSlug?: string;
+      projectId: string;
+      deployment?: any;
+      source?: string;
+    };
+  };
+  'vercel.deployment.error': {
+    data: {
+      tenantSlug?: string;
+      projectId?: string;
+      error?: any;
+      source?: string;
+    };
+  };
+  'vercel.domain.verified': {
+    data: {
+      tenantSlug?: string;
+      projectId?: string;
+      payload: any;
+      source?: string;
+    };
+  };
+  'vercel.domain.unverified': {
+    data: {
+      tenantSlug?: string;
+      projectId?: string;
+      payload: any;
+      source?: string;
+    };
+  };
+  'vercel.webhook.unhandled': {
+    data: {
+      type: string;
+      payload: any;
+      tenantSlug?: string;
+    };
+  };
+  'vercel.webhook.error': {
+    data: {
+      type: string;
+      tenantSlug?: string;
+      projectId?: string;
+      error: string;
+    };
+  };
+  'tenant.status.updated': {
+    data: {
+      slug: string;
+      status: string;
+      source: string;
+      projectId?: string;
+    };
+  };
+}
+
+// Combined events interface
+export type InngestEvents = TenantEvents & VercelEvents;
+
+// Import handlers (they auto-register via inngest.createFunction)
+vercelWebhookHandlers; // side-effect import ensures registration
+
+// Workflows are automatically registered when imported.
+// Explicit array is used in src/app/api/inngest/route.ts for serve()
+export { vercelWebhookHandlers };

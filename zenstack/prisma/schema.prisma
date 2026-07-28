@@ -71,6 +71,11 @@ enum JobStatus {
   FAILED
 }
 
+enum WebhookProvider {
+  vercel
+  stripe
+}
+
 model AppPage {
   id         String        @id() @default(cuid())
   slug       String        @unique()
@@ -508,33 +513,71 @@ model MonthlyTarget {
 
 /// A registered tenant application — created via the root config app wizard.
 model Tenant {
-  id              String   @id() @default(cuid())
+  id              String          @id() @default(cuid())
   /// Subdomain slug — unique identifier (e.g. "redrubybali")
-  slug            String   @unique()
+  slug            String          @unique()
   /// Human-readable business name (e.g. "Red Ruby Bali")
-  displayName     String   @map("display_name")
+  displayName     String          @map("display_name")
   /// Template category (e.g. "nightclub-bar", "restaurant", "hotel")
-  template        String   @default("default")
+  template        String          @default("default")
   /// Status: "draft" | "deploying" | "live" | "error"
-  status          String   @default("draft")
+  status          String          @default("draft")
   /// Vercel project ID (populated after deploy)
-  vercelProjectId String?  @map("vercel_project_id")
+  vercelProjectId String?         @map("vercel_project_id")
   /// Custom domain (e.g. "redrubybali.vercel.app")
-  appUrl          String?  @map("app_url")
+  appUrl          String?         @map("app_url")
   /// Neon database URL for this tenant (if separate DB)
-  dbUrl           String?  @map("db_url")
+  dbUrl           String?         @map("db_url")
   /// License API key for programmatic access
-  apiKey          String?  @map("api_key")
+  apiKey          String?         @map("api_key")
   /// Brand primary color (hex)
-  primaryColor    String   @default("#eb3d28") @map("primary_color")
+  primaryColor    String          @default("#eb3d28") @map("primary_color")
   /// Brand secondary color (hex)
-  secondaryColor  String   @default("#0af9fe") @map("secondary_color")
+  secondaryColor  String          @default("#0af9fe") @map("secondary_color")
   /// Arbitrary JSON metadata
-  metadata        Json     @default("{}")
+  metadata        Json            @default("{}")
   /// Who created this tenant
-  createdBy       String?  @map("created_by")
-  createdAt       DateTime @default(now()) @map("created_at")
-  updatedAt       DateTime @updatedAt() @map("updated_at")
+  createdBy       String?         @map("created_by")
+  createdAt       DateTime        @default(now()) @map("created_at")
+  updatedAt       DateTime        @updatedAt() @map("updated_at")
+  webhookConfigs  WebhookConfig[]
 
   @@map("tenants")
+}
+
+model WebhookConfig {
+  id            String          @id() @default(cuid())
+  tenantId      String?         @map("tenant_id")
+  tenant        Tenant?         @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+  provider      WebhookProvider @default(vercel)
+  /// The public endpoint URL registered with Vercel
+  endpointUrl   String          @map("endpoint_url")
+  /// HMAC secret used for x-vercel-signature verification
+  signingSecret String?         @map("signing_secret")
+  description   String?
+  isActive      Boolean         @default(true) @map("is_active")
+  lastTriggered DateTime?       @map("last_triggered")
+  createdAt     DateTime        @default(now()) @map("created_at")
+  updatedAt     DateTime        @updatedAt() @map("updated_at")
+  events        WebhookEvent[]
+
+  @@map("webhook_configs")
+}
+
+model WebhookEvent {
+  id           String        @id() @default(cuid())
+  configId     String        @map("config_id")
+  config       WebhookConfig @relation(fields: [configId], references: [id], onDelete: Cascade)
+  eventType    String        @map("event_type")
+  payload      Json
+  status       String        @default("received")
+  /// received | processed | failed | ignored
+  errorMessage String?       @map("error_message")
+  durationMs   Int?          @map("duration_ms")
+  createdAt    DateTime      @default(now()) @map("created_at")
+  processedAt  DateTime?     @map("processed_at")
+
+  @@index([configId, eventType])
+  @@index([status, createdAt])
+  @@map("webhook_events")
 }
