@@ -2067,7 +2067,7 @@ export function EditTenantModal({ open, tenant, onClose, onRefetch, onSnackbar }
 
         {/* DNS Configuration Instructions (only for custom domains) */}
         {!isVercelDomain && (
-          <Paper variant="outlined" sx={{ p: 2.5, bgcolor: 'grey.50' }}>
+          <Paper variant="outlined" sx={{ p: 2.5, bgcolor: 'background.default' }}>
             <Typography variant="subtitle2" sx={{ fontWeight: 600, mb: 1 }}>
               DNS Configuration Instructions
             </Typography>
