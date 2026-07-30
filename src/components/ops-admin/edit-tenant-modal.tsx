@@ -2672,7 +2672,7 @@ export function EditTenantModal({ open, tenant, onClose, onRefetch, onSnackbar }
               desc: 'Test Neon database connection',
               action: async function() {
                 if (!tenant) return 'No tenant selected';
-                const res = await fetch('/api/admin/tenants/' + tenant.slug + '/provision/neon/test');
+                const res = await fetch('/api/admin/tenants/' + tenant.slug + '/provision/neon/test', { method: 'POST' });
                 const data = await res.json();
                 return data.success ? 'Neon connection OK' : 'Neon test failed: ' + (data.error || 'unknown');
               },
