@@ -411,7 +411,7 @@ export function TenantDashboard() {
                     </MenuItem>
                     <MenuItem onClick={() => void handleMigrate(t.slug)} disabled={isMigrating}>
                       <ListItemIcon><BuildIcon fontSize="small" /></ListItemIcon>
-                      <ListItemText>{isMigrating ? 'Migrating…' : 'Migrate'}</ListItemText>
+                      <ListItemText>{isMigrating ? 'Syncing…' : 'Sync DB Schema'}</ListItemText>
                     </MenuItem>
                     {(() => {
                       const cfg = (t.metadata as Record<string, unknown>)?.config as Record<string, unknown> || {};
@@ -529,7 +529,7 @@ export function TenantDashboard() {
                           </MenuItem>
                           <MenuItem onClick={() => void handleMigrate(t.slug)} disabled={isMigrating}>
                             <ListItemIcon><BuildIcon fontSize="small" /></ListItemIcon>
-                            <ListItemText>{isMigrating ? 'Migrating…' : 'Migrate'}</ListItemText>
+                            <ListItemText>{isMigrating ? 'Syncing…' : 'Sync DB Schema'}</ListItemText>
                           </MenuItem>
                           {(() => {
                             const cfg = (t.metadata as Record<string, unknown>)?.config as Record<string, unknown> || {};
