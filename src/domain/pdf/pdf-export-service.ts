@@ -4,7 +4,6 @@ import { existsSync } from 'node:fs';
 import { Buffer } from 'node:buffer';
 import type { DbClient } from '@/lib/db';
 import type { JobStatus } from '@/generated/prisma';
-import { COOKIE_NAME } from '@/lib/auth/jwt';
 
 export const PDF_FILENAME = 'RedRuby-Business-Review-June-2026.pdf';
 
@@ -63,77 +62,11 @@ export async function generateDashboardPdf(
 
   try {
     const page = await browser.newPage();
-
-    // Collect JS errors and console output for diagnostics
-    const jsErrors: string[] = [];
-    const consoleLogs: string[] = [];
-    page.on('pageerror', (err: unknown) => jsErrors.push(err instanceof Error ? err.message : String(err)));
-    page.on('console', (msg) => {
-      if (msg.type() === 'error') consoleLogs.push(msg.text());
-    });
-
-    // Phase 1: Navigate to establish domain context, then set cookie
-    await page.goto(targetUrl, { waitUntil: 'domcontentloaded', timeout: 45_000 });
-
-    // Extract the JWT from the cookie header and set it in the browser's cookie jar
-    let jwtValue = '';
     if (cookieHeader) {
-      const parsed = Object.fromEntries(
-        cookieHeader.split(';').map((p) => {
-          const [k, ...v] = p.trim().split('=');
-          return [k, v.join('=')];
-        }).filter(([k]) => k),
-      );
-      jwtValue = parsed[COOKIE_NAME] ?? '';
-      if (jwtValue) {
-        await page.setCookie({
-          name: COOKIE_NAME,
-          value: jwtValue,
-          url: targetUrl,
-          path: '/',
-          httpOnly: true,
-          secure: true,
-          sameSite: 'Lax',
-        });
-      }
+      await page.setExtraHTTPHeaders({ cookie: cookieHeader });
     }
-
-    // Phase 2: Reload so the page renders with auth
-    await page.reload({ waitUntil: 'networkidle0', timeout: 45_000 });
-
-    // Wait for the page content (DynamicPage wrapper with #pdfCapture)
-    try {
-      await page.waitForSelector('#pdfCapture', { timeout: 15_000 });
-    } catch {
-      // Diagnosis: check what the page actually rendered
-      const pageState = await page.evaluate(() => ({
-        readyState: document.readyState,
-        title: document.title,
-        scripts: document.querySelectorAll('script[src]').length,
-        bodyLen: document.body?.innerHTML?.length ?? 0,
-        signInVisible: document.querySelector('[data-testid="sign-in-panel"]') !== null,
-        spinnerVisible: document.querySelector('[role="progressbar"]') !== null,
-        bodyHtml: document.body?.innerHTML?.slice(0, 500) ?? '',
-      }));
-      const hasJsError = jsErrors.length > 0;
-      const diag = {
-        targetUrl,
-        hasJwt: !!jwtValue,
-        jsErrors,
-        consoleErrors: consoleLogs.slice(0, 5),
-        pageState,
-      };
-      console.error('[pdf] Diagnostic:', JSON.stringify(diag));
-
-      if (pageState.signInVisible) {
-        throw new Error('Session cookie not accepted — page shows sign-in panel');
-      }
-      if (pageState.spinnerVisible) {
-        await page.waitForSelector('#pdfCapture', { timeout: 20_000 });
-      } else {
-        throw new Error(`PDF capture failed. JS errors: ${jsErrors.join('; ') || 'none'}. Body length: ${pageState.bodyLen}. HTML: ${pageState.bodyHtml.slice(0, 200)}`);
-      }
-    }
+    await page.goto(targetUrl, { waitUntil: 'networkidle0', timeout: 45_000 });
+    await page.waitForSelector('#pdfCapture', { timeout: 15_000 });
     await page.evaluate('document.fonts && document.fonts.ready');
 
     return await page.pdf({

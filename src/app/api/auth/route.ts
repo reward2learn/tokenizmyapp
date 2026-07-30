@@ -466,19 +466,7 @@ async function handlePdf(request: Request, url: URL): Promise<NextResponse> {
   if (!guard.ok) return guard.response;
 
   try {
-    // Puppeteer runs inside the same serverless function and navigates to the
-    // app to capture PDF content. Use VERCEL_URL (internal deployment URL) so
-    // the browser navigates to a URL reachable from within the Vercel network.
-    // The public *.vercel.app URL can return DEPLOYMENT_NOT_FOUND when accessed
-    // from inside the serverless function due to Vercel internal routing.
-    const internalUrl = process.env.VERCEL_URL
-      ? `https://${process.env.VERCEL_URL}`
-      : getOrigin(request);
-    // Also derive a human-friendly status check URL from the request origin
-    const reqHost = request.headers.get('x-forwarded-host') ?? request.headers.get('host') ?? '';
-    const reqProto = request.headers.get('x-forwarded-proto') === 'https' ? 'https' : 'http';
-    const origin = internalUrl;
-    const statusOrigin = `${reqProto}://${reqHost.split(',')[0].trim()}`;
+    const origin = getOrigin(request);
     const sessionCookie = request.headers.get('cookie') ?? '';
     const pagePath = url.searchParams.get('page') || '/';
 
@@ -501,7 +489,7 @@ async function handlePdf(request: Request, url: URL): Promise<NextResponse> {
         data: {
           message: 'PDF generation job submitted successfully.',
           jobId,
-          statusCheckUrl: `${statusOrigin}/api/vjobs/status/${jobId}`,
+          statusCheckUrl: `${origin}/api/vjobs/status/${jobId}`,
         },
       },
       { status: 202, headers: { 'Retry-After': '60' } },
