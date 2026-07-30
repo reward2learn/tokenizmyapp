@@ -1294,7 +1294,7 @@ export function EditTenantModal({ open, tenant, onClose, onRefetch, onSnackbar }
                 const file = e.target.files?.[0];
                 if (!file) return;
                 if (file.size > 65536) {
-                  onSnackbar?.('Favicon must be under 64KB');
+                  onSnackbar?.({ message: 'Favicon must be under 64KB', severity: 'error' });
                   return;
                 }
                 try {
@@ -1306,7 +1306,7 @@ export function EditTenantModal({ open, tenant, onClose, onRefetch, onSnackbar }
                   };
                   reader.readAsDataURL(file);
                 } catch {
-                  onSnackbar?.('Failed to read file');
+                  onSnackbar?.({ message: 'Failed to read file', severity: 'error' });
                 }
               }}
             />
