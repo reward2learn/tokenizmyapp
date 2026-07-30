@@ -67,6 +67,7 @@ import VerifiedIcon from '@mui/icons-material/Verified';
 import VerifiedUserIcon from '@mui/icons-material/VerifiedUser';
 import Visibility from '@mui/icons-material/Visibility';
 import VisibilityOff from '@mui/icons-material/VisibilityOff';
+import PlayArrowIcon from '@mui/icons-material/PlayArrow';
 import WarningIcon from '@mui/icons-material/Warning';
 import ErrorIcon from '@mui/icons-material/Error';
 
@@ -2374,111 +2375,163 @@ export function EditTenantModal({ open, tenant, onClose, onRefetch, onSnackbar }
     const hooks = (cfg?.hooks ?? {}) as Record<string, unknown>;
     const authConfig = (cfg?.auth ?? {}) as Record<string, unknown>;
 
-    type CheckItem = { label: string; status: 'pass' | 'fail' | 'warn'; detail: string };
-    const checks: CheckItem[] = [];
+    type CheckItem = { label: string; status: 'pass' | 'fail' | 'warn'; detail: string; fixStep?: number; fixLabel?: string };
+    const [checks, setChecks] = useState<(CheckItem & { _key: string })[]>([]);
+    const [running, setRunning] = useState(false);
+    const [runId, setRunId] = useState(0);
 
-    // Google OAuth
-    if (googleAuth.clientId && googleAuth.clientSecret) {
-      checks.push({ label: 'Google OAuth Client ID', status: 'pass', detail: (googleAuth.clientId as string).slice(0, 30) + '...' });
-    } else {
-      checks.push({ label: 'Google OAuth Client ID', status: 'fail', detail: 'Missing - Google sign-in will not work' });
-    }
-    if (googleAuth.projectId) {
-      checks.push({ label: 'Google OAuth Project ID', status: 'pass', detail: googleAuth.projectId as string });
-    } else {
-      checks.push({ label: 'Google OAuth Project ID', status: 'warn', detail: 'Not set - using shared project' });
-    }
+    const runFlightCheck = useCallback(async () => {
+      setRunning(true);
+      const id = Date.now();
+      setRunId(id);
+      const results: (CheckItem & { _key: string })[] = [];
 
-    // Redirect URIs
-    const redirectUris = (googleAuth.redirectUris as string[]) || [];
-    const hasCallbackUri = redirectUris.some((u: string) => u.includes('/api/auth/callback/google'));
-    if (hasCallbackUri) {
-      checks.push({ label: 'Redirect URI (callback/google)', status: 'pass', detail: 'Configured in Google Cloud Console' });
-    } else {
-      checks.push({ label: 'Redirect URI (callback/google)', status: 'fail', detail: 'Missing - add /api/auth/callback/google to OAuth client' });
-    }
+      const addResult = (label: string, status: 'pass' | 'fail' | 'warn', detail: string, fixStep?: number, fixLabel?: string) => {
+        results.push({ label, status, detail, _key: label.replace(/\s+/g, '-').toLowerCase(), fixStep, fixLabel });
+      };
 
-    // License
-    if (license.licenseKey) {
-      checks.push({ label: 'License Key', status: 'pass', detail: (license.licenseKey as string).slice(0, 25) + '...' });
-    } else {
-      checks.push({ label: 'License Key', status: 'fail', detail: 'Missing - tenant may not be fully functional' });
-    }
-    if (license.tier) {
-      checks.push({ label: 'License Tier', status: 'pass', detail: (license.tier as string).toUpperCase() });
-    } else {
-      checks.push({ label: 'License Tier', status: 'warn', detail: 'Not set' });
-    }
-    if (license.validUntil) {
-      const valid = new Date(license.validUntil as string) > new Date();
-      checks.push({ label: 'License Expiry', status: valid ? 'pass' : 'fail', detail: valid ? 'Valid until ' + (license.validUntil as string) : 'EXPIRED: ' + (license.validUntil as string) });
-    }
+      // Google OAuth
+      if (googleAuth.clientId && googleAuth.clientSecret) {
+        addResult('Google OAuth Client ID', 'pass', 'Configured: ' + (googleAuth.clientId as string).slice(0, 25) + '...', 6, 'Edit OAuth');
+      } else {
+        addResult('Google OAuth Client ID', 'fail', 'Missing - Google sign-in will not work', 6, 'Go to OAuth step');
+      }
+      addResult('Google OAuth Project ID', googleAuth.projectId ? 'pass' : 'warn', (googleAuth.projectId as string) || 'Not set', 6, 'Edit OAuth');
 
-    // API Key
-    const apiKey = (cfg?.apiKey as string) || '';
-    checks.push({ label: 'API Key', status: apiKey ? 'pass' : 'fail', detail: apiKey ? 'Configured' : 'Missing - set a setup/api key' });
+      // Redirect URIs
+      const redirectUris = (googleAuth.redirectUris as string[]) || [];
+      const hasCallbackUri = redirectUris.some((u: string) => u.includes('/api/auth/callback/google'));
+      if (hasCallbackUri) {
+        addResult('Redirect URI (callback/google)', 'pass', 'Configured in Google Cloud Console');
+      } else {
+        addResult('Redirect URI (callback/google)', 'fail', 'Missing - add /api/auth/callback/google to OAuth client', 6, 'Go to OAuth step');
+      }
 
-    // Database
-    const dbUrl = database.databaseUrl as string || '';
-    checks.push({ label: 'Database URL', status: dbUrl ? 'pass' : 'fail', detail: dbUrl ? dbUrl.slice(0, 40) + '...' : 'Missing - database connection required' });
+      // License
+      if (license.licenseKey) {
+        addResult('License Key', 'pass', (license.licenseKey as string).slice(0, 25) + '...');
+      } else {
+        addResult('License Key', 'fail', 'Missing - tenant may not be fully functional', 3, 'Go to License step');
+      }
+      if (license.tier) {
+        addResult('License Tier', 'pass', (license.tier as string).toUpperCase());
+      } else {
+        addResult('License Tier', 'warn', 'Not set', 3, 'Go to License step');
+      }
+      if (license.validUntil) {
+        const valid = new Date(license.validUntil as string) > new Date();
+        addResult('License Expiry', valid ? 'pass' : 'fail', valid ? 'Valid until ' + (license.validUntil as string) : 'EXPIRED: ' + (license.validUntil as string), 3, 'Go to License step');
+      }
 
-    // Deploy Hook
-    const hookUrl = hooks.deployHookUrl as string || '';
-    const hookValid = hookUrl.includes('/deploy/prj_');
-    if (hookUrl && hookValid) {
-      checks.push({ label: 'Deploy Hook URL', status: 'pass', detail: 'Valid format' });
-    } else if (hookUrl) {
-      checks.push({ label: 'Deploy Hook URL', status: 'warn', detail: 'URL format may be incorrect' });
-    } else {
-      checks.push({ label: 'Deploy Hook URL', status: 'warn', detail: 'Not set - use Deploy with Git instead' });
-    }
+      // API Key
+      const apiKey = (cfg?.apiKey as string) || '';
+      addResult('API Key', apiKey ? 'pass' : 'fail', apiKey ? 'Configured' : 'Missing - set a setup/api key', 3, 'Go to License step');
 
-    // Vercel Project ID
-    const vpId = tenant.vercelProjectId || (cfg?.vercelProjectId as string) || '';
-    checks.push({ label: 'Vercel Project ID', status: vpId ? 'pass' : 'fail', detail: vpId || 'Missing - required for deployment tracking' });
+      // Database
+      const dbUrl = database.databaseUrl as string || '';
+      addResult('Database URL', dbUrl ? 'pass' : 'fail', dbUrl ? dbUrl.slice(0, 40) + '...' : 'Missing', 7, 'Go to Database step');
 
-    // Admin email
-    const adminEmail = authConfig.adminEmail as string || (cfg?.adminEmail as string) || '';
-    checks.push({ label: 'Admin Email', status: adminEmail ? 'pass' : 'fail', detail: adminEmail || 'Not set - platform-admin sign-in may fail' });
+      // Deploy Hook
+      const hookUrl = hooks.deployHookUrl as string || '';
+      const hookValid = hookUrl.includes('/deploy/prj_');
+      if (hookUrl && hookValid) {
+        addResult('Deploy Hook URL', 'pass', 'Valid format');
+      } else if (hookUrl) {
+        addResult('Deploy Hook URL', 'warn', 'URL format may be incorrect', 9, 'Go to Deploy Hooks step');
+      } else {
+        addResult('Deploy Hook URL', 'warn', 'Not set - use Deploy with Git instead', 9, 'Go to Deploy Hooks step');
+      }
 
-    // PIN sign-in
-    const pinEnabled = authConfig.pinSignInEnabled !== false;
-    checks.push({ label: 'PIN Sign-in', status: 'pass', detail: pinEnabled ? 'Enabled' : 'Disabled (Google-only)' });
+      // Vercel Project ID
+      const vpId = tenant.vercelProjectId || (cfg?.vercelProjectId as string) || '';
+      addResult('Vercel Project ID', vpId ? 'pass' : 'fail', vpId || 'Missing', 9, 'Go to Deploy Hooks step');
 
-    // OpenAI API Key
-    const openaiKey = cfg?.openaiApiKey as string || '';
-    checks.push({ label: 'OpenAI API Key', status: openaiKey ? 'pass' : 'warn', detail: openaiKey ? 'Configured' : 'Not set - AI features limited' });
+      // Admin email
+      const adminEmail = authConfig.adminEmail as string || (cfg?.adminEmail as string) || '';
+      addResult('Admin Email', adminEmail ? 'pass' : 'fail', adminEmail || 'Not set', 12, 'Go to Admin & Auth step');
 
-    // Deployment status
-    const tenantStatus = tenant.status || 'unknown';
-    checks.push({ label: 'Tenant Status', status: tenantStatus === 'live' ? 'pass' : tenantStatus === 'error' ? 'fail' : 'warn', detail: tenantStatus });
+      // PIN sign-in
+      const pinEnabled = authConfig.pinSignInEnabled !== false;
+      addResult('PIN Sign-in', 'pass', pinEnabled ? 'Enabled' : 'Disabled (Google-only)', 12, 'Go to Admin & Auth step');
+
+      // OpenAI API Key
+      const openaiKey = cfg?.openaiApiKey as string || '';
+      addResult('OpenAI API Key', openaiKey ? 'pass' : 'warn', openaiKey ? 'Configured' : 'Not set - AI features limited', 5, 'Go to OpenAI step');
+
+      // Deployment status - live check via API
+      try {
+        const statusRes = await fetch('/api/admin/tenants/' + tenant.slug + '/deploy/status');
+        const statusData = await statusRes.json();
+        if (statusData.success) {
+          const deployState = statusData.data?.state || 'unknown';
+          addResult('Deployment Status', deployState === 'READY' ? 'pass' : deployState === 'ERROR' ? 'fail' : 'warn', 'State: ' + deployState);
+        } else {
+          addResult('Deployment Status', 'warn', 'Could not check: ' + (statusData.error || 'unknown'));
+        }
+      } catch {
+        addResult('Deployment Status', 'warn', 'API call failed');
+      }
+
+      if (id === runId) {
+        setChecks(results);
+        setRunning(false);
+      }
+    }, [tenant, cfg, license, googleAuth, database, hooks, authConfig, runId]);
 
     const passCount = checks.filter(function(c) { return c.status === 'pass'; }).length;
     const failCount = checks.filter(function(c) { return c.status === 'fail'; }).length;
     const warnCount = checks.filter(function(c) { return c.status === 'warn'; }).length;
-    const overallStatus = failCount > 0 ? 'fail' : warnCount > 0 ? 'warn' : 'pass';
+    const hasResults = checks.length > 0;
+    const overallStatus = !hasResults ? 'idle' : failCount > 0 ? 'fail' : warnCount > 0 ? 'warn' : 'pass';
 
     return (
       <Stack spacing={3}>
-        <Stack direction="row" spacing={1.5} sx={{ alignItems: 'center' }}>
-          <VerifiedIcon color={overallStatus === 'pass' ? 'success' : overallStatus === 'warn' ? 'warning' : 'error'} />
-          <Typography variant="subtitle1" sx={{ fontWeight: 600 }}>
-            Flight Check
-          </Typography>
-          <Chip
-            label={overallStatus === 'pass' ? passCount + '/' + checks.length + ' PASS' : passCount + ' pass, ' + warnCount + ' warn, ' + failCount + ' fail'}
+        <Stack direction="row" spacing={1.5} sx={{ alignItems: 'center', justifyContent: 'space-between' }}>
+          <Stack direction="row" spacing={1.5} sx={{ alignItems: 'center' }}>
+            <VerifiedIcon color={overallStatus === 'pass' ? 'success' : overallStatus === 'fail' ? 'error' : 'warning'} />
+            <Typography variant="subtitle1" sx={{ fontWeight: 600 }}>
+              Flight Check
+            </Typography>
+            {hasResults ? (
+              <Chip
+                label={overallStatus === 'pass' ? passCount + '/' + checks.length + ' PASS' : passCount + ' pass, ' + warnCount + ' warn, ' + failCount + ' fail'}
+                size="small"
+                color={overallStatus === 'pass' ? 'success' : overallStatus === 'fail' ? 'error' : 'warning'}
+              />
+            ) : null}
+          </Stack>
+          <Button
+            variant="contained"
             size="small"
-            color={overallStatus === 'pass' ? 'success' : overallStatus === 'warn' ? 'warning' : 'error'}
-          />
+            onClick={runFlightCheck}
+            disabled={running}
+            startIcon={running ? <CircularProgress size={16} color="inherit" /> : <PlayArrowIcon />}
+          >
+            {running ? 'Running...' : 'Run Flight Check'}
+          </Button>
         </Stack>
 
         <Typography variant="body2" color="text.secondary">
-          Validates all tenant configuration items. Fix any <strong>fail</strong> items before deploying.
+          {hasResults
+            ? 'Results from last check. Click <strong>Run Flight Check</strong> to re-evaluate all items.'
+            : 'Click <strong>Run Flight Check</strong> to validate all tenant configuration items. Failed items include a <strong>Fix</strong> button to jump to the relevant step.'}
         </Typography>
 
-        {checks.map(function(check, idx) {
+        {!hasResults && !running ? (
+          <Paper variant="outlined" sx={{ p: 4, textAlign: 'center', bgcolor: 'background.default' }}>
+            <Typography variant="body2" color="text.secondary">
+              No checks run yet. Click "Run Flight Check" to start.
+            </Typography>
+          </Paper>
+        ) : running && !hasResults ? (
+          <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}>
+            <CircularProgress />
+          </Box>
+        ) : null}
+
+        {checks.map(function(check) {
           return (
-            <Paper key={idx} variant="outlined" sx={{
+            <Paper key={check._key} variant="outlined" sx={{
               p: 1.5,
               borderColor: check.status === 'pass' ? 'success.main' : check.status === 'warn' ? 'warning.main' : 'error.main',
               bgcolor: 'background.default',
@@ -2493,20 +2546,34 @@ export function EditTenantModal({ open, tenant, onClose, onRefetch, onSnackbar }
                   <Typography variant="body2" sx={{ fontWeight: 600 }}>{check.label}</Typography>
                   <Typography variant="caption" color="text.secondary">{check.detail}</Typography>
                 </Box>
+                {(check.status === 'fail' || check.status === 'warn') && check.fixStep !== undefined ? (
+                  <Button
+                    size="small"
+                    variant="outlined"
+                    color="warning"
+                    onClick={function() { setActiveStep(check.fixStep!); }}
+                    sx={{ flexShrink: 0, ml: 1 }}
+                  >
+                    {check.fixLabel || 'Fix'}
+                  </Button>
+                ) : null}
               </Stack>
             </Paper>
           );
         })}
 
-        <Alert severity={overallStatus === 'pass' ? 'success' : overallStatus === 'warn' ? 'warning' : 'error'}>
-          <AlertTitle>{overallStatus === 'pass' ? 'All checks passed' : overallStatus === 'warn' ? 'Warnings found' : 'Failures found'}</AlertTitle>
-          {overallStatus === 'pass' ? 'Tenant configuration looks good. Proceed to deploy.' :
-           failCount + ' item(s) must be fixed before deployment is reliable. ' + warnCount + ' item(s) should be reviewed.'}
-        </Alert>
+        {hasResults ? (
+          <Alert severity={overallStatus === 'pass' ? 'success' : overallStatus === 'fail' ? 'error' : 'warning'}>
+            <AlertTitle>{overallStatus === 'pass' ? 'All checks passed' : overallStatus === 'fail' ? 'Failures found' : 'Warnings found'}</AlertTitle>
+            {overallStatus === 'pass' ? 'Tenant configuration looks good. Proceed to deploy.' :
+             failCount + ' item(s) must be fixed. ' + warnCount + ' item(s) should be reviewed. Use the Fix buttons to navigate to the relevant step.'}
+          </Alert>
+        ) : null}
       </Stack>
     );
   };
 
+  // ── Step 14: Summary ──────────────────────────────────────
   // ── Step 14: Summary ──────────────────────────────────────
   const renderStepSummary = () => (
     <Stack spacing={3}>
