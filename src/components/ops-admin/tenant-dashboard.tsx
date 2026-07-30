@@ -413,10 +413,16 @@ export function TenantDashboard() {
                       <ListItemIcon><BuildIcon fontSize="small" /></ListItemIcon>
                       <ListItemText>{isMigrating ? 'Migrating…' : 'Migrate'}</ListItemText>
                     </MenuItem>
-                    <MenuItem onClick={() => void handleDeploy(t.slug)} disabled={isDeploying}>
-                      <ListItemIcon><CloudUploadIcon fontSize="small" /></ListItemIcon>
-                      <ListItemText>{isDeploying ? 'Deploying…' : 'Deploy to Vercel'}</ListItemText>
-                    </MenuItem>
+                    {(() => {
+                      const cfg = (t.metadata as Record<string, unknown>)?.config as Record<string, unknown> || {};
+                      const hookUrl = ((cfg.hooks as Record<string, unknown>)?.deployHookUrl as string) || '';
+                      return !hookUrl ? (
+                        <MenuItem onClick={() => void handleDeploy(t.slug)} disabled={isDeploying}>
+                          <ListItemIcon><CloudUploadIcon fontSize="small" /></ListItemIcon>
+                          <ListItemText>{isDeploying ? 'Deploying…' : 'Deploy to Vercel'}</ListItemText>
+                        </MenuItem>
+                      ) : null;
+                    })()}
                     <MenuItem onClick={() => void handleCheckStatus(t.slug)} disabled={checkingStatus === t.slug}>
                       <ListItemIcon><RefreshIcon fontSize="small" /></ListItemIcon>
                       <ListItemText>{checkingStatus === t.slug ? 'Checking…' : 'Check Status'}</ListItemText>
@@ -525,10 +531,16 @@ export function TenantDashboard() {
                             <ListItemIcon><BuildIcon fontSize="small" /></ListItemIcon>
                             <ListItemText>{isMigrating ? 'Migrating…' : 'Migrate'}</ListItemText>
                           </MenuItem>
-                          <MenuItem onClick={() => void handleDeploy(t.slug)} disabled={isDeploying}>
-                            <ListItemIcon><CloudUploadIcon fontSize="small" /></ListItemIcon>
-                            <ListItemText>{isDeploying ? 'Deploying…' : 'Deploy to Vercel'}</ListItemText>
-                          </MenuItem>
+                          {(() => {
+                            const cfg = (t.metadata as Record<string, unknown>)?.config as Record<string, unknown> || {};
+                            const hookUrl = ((cfg.hooks as Record<string, unknown>)?.deployHookUrl as string) || '';
+                            return !hookUrl ? (
+                              <MenuItem onClick={() => void handleDeploy(t.slug)} disabled={isDeploying}>
+                                <ListItemIcon><CloudUploadIcon fontSize="small" /></ListItemIcon>
+                                <ListItemText>{isDeploying ? 'Deploying…' : 'Deploy to Vercel'}</ListItemText>
+                              </MenuItem>
+                            ) : null;
+                          })()}
                           <MenuItem onClick={() => void handleCheckStatus(t.slug)} disabled={checkingStatus === t.slug}>
                             <ListItemIcon><RefreshIcon fontSize="small" /></ListItemIcon>
                             <ListItemText>{checkingStatus === t.slug ? 'Checking…' : 'Check Status'}</ListItemText>
