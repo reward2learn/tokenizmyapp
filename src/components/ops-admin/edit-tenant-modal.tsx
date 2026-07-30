@@ -184,6 +184,9 @@ export function EditTenantModal({ open, tenant, onClose, onRefetch, onSnackbar }
   const [editTemplate, setEditTemplate] = useState('financial-analytics');
   const [editPrimaryColor, setEditPrimaryColor] = useState('#eb3d28');
   const [editSecondaryColor, setEditSecondaryColor] = useState('#0af9fe');
+  const [editFaviconData, setEditFaviconData] = useState<string | null>(null);
+  const [editFaviconMimeType, setEditFaviconMimeType] = useState<string>('image/x-icon');
+  const [uploadingFavicon, setUploadingFavicon] = useState(false);
   const [displayName, setDisplayName] = useState('');
 
   // ── License & API Key ──────────────────────────────────────
