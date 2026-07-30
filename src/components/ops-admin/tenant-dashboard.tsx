@@ -255,12 +255,13 @@ export function TenantDashboard() {
       const licenseTier = (license.tier as string) || 'none';
       const licenseFeatures = Array.isArray(license.features) ? license.features : [];
 
-      // Persist updated status and appUrl to the backend
+      // Persist updated status, appUrl, and apiKey to the backend
       try {
         await updateTenant({
           slug,
           status: mappedStatus,
           appUrl: appUrl || undefined,
+          apiKey: apiKey || null,
         }).unwrap();
       } catch (updateErr) {
         console.warn(`[refresh-status] Failed to update tenant ${slug}:`, updateErr);

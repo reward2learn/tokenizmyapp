@@ -82,6 +82,7 @@ export const tenantApi = createApi({
       appUrl?: string | null;
       vercelProjectId?: string | null;
       dbUrl?: string | null;
+      apiKey?: string | null;
       metadata?: Record<string, unknown>;
     }>({
       query: ({ slug, ...body }) => ({
