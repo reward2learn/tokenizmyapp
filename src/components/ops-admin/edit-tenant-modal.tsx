@@ -249,6 +249,7 @@ export function EditTenantModal({ open, tenant, onClose, onRefetch, onSnackbar }
   const [saving, setSaving] = useState(false);
   const [importing, setImporting] = useState(false);
   const [deployHookUrl, setDeployHookUrl] = useState('');
+  const [vercelProjectId, setVercelProjectId] = useState('');
   const importFileRef = useRef<HTMLInputElement>(null);
 
   // ── Custom Domain ───────────────────────────────────────────
@@ -324,6 +325,9 @@ export function EditTenantModal({ open, tenant, onClose, onRefetch, onSnackbar }
 
       // Restore deploy hook URL
       setDeployHookUrl(((cfg.hooks as Record<string, unknown>)?.deployHookUrl as string) || '');
+
+      // Restore vercel project ID
+      setVercelProjectId(tenant.vercelProjectId || '');
 
       // Initialize custom domain state
       setCustomDomain('');
@@ -717,6 +721,7 @@ export function EditTenantModal({ open, tenant, onClose, onRefetch, onSnackbar }
         },
         env: envVars,
         hooks: { deployHookUrl: deployHookUrl || undefined },
+        vercelProjectId: vercelProjectId || undefined,
         supportEmail: googleOAuth.supportEmail,
       },
     };
@@ -733,6 +738,7 @@ export function EditTenantModal({ open, tenant, onClose, onRefetch, onSnackbar }
         template: editTemplate,
         primaryColor: editPrimaryColor,
         secondaryColor: editSecondaryColor,
+        vercelProjectId: vercelProjectId || undefined,
         metadata: {
           config: {
             license: {
@@ -760,6 +766,7 @@ export function EditTenantModal({ open, tenant, onClose, onRefetch, onSnackbar }
             },
             env: Object.fromEntries(envPairs.filter((p) => p.key).map((p) => [p.key, p.value])),
             hooks: { deployHookUrl: deployHookUrl || undefined },
+            vercelProjectId: vercelProjectId || undefined,
           },
         },
       };
@@ -1772,6 +1779,35 @@ export function EditTenantModal({ open, tenant, onClose, onRefetch, onSnackbar }
             </Typography>
             <Typography variant="caption" color="text.secondary" sx={{ fontFamily: 'monospace', fontSize: '0.7rem', wordBreak: 'break-all' }}>
               {deployHookUrl}
+            </Typography>
+          </Paper>
+        )}
+      </Paper>
+      <Paper variant="outlined" sx={{ p: 2.5, borderColor: 'primary.main', mt: 2 }}>
+        <Typography variant="subtitle2" sx={{ fontWeight: 600, mb: 1.5 }}>
+          Vercel Project ID
+        </Typography>
+        <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+          The Vercel project ID for this tenant. This is used to find the existing Vercel project
+          during deployment. Find it in the Vercel Dashboard under your project settings.
+        </Typography>
+        <TextField
+          label="Vercel Project ID"
+          value={vercelProjectId}
+          onChange={(e) => setVercelProjectId(e.target.value)}
+          fullWidth
+          size="small"
+          placeholder="prj_xxxxxxxxxxxxxxx"
+          helperText="Found in Vercel Dashboard > Project > Settings > General > Project ID"
+          slotProps={{ input: { sx: { fontFamily: 'monospace', fontSize: '0.8rem' } } }}
+        />
+        {vercelProjectId && (
+          <Paper variant="outlined" sx={{ p: 1.5, mt: 2, bgcolor: 'background.default' }}>
+            <Typography variant="caption" sx={{ fontWeight: 600, display: 'block', mb: 0.5 }}>
+              ✅ Vercel Project ID configured
+            </Typography>
+            <Typography variant="caption" color="text.secondary" sx={{ fontFamily: 'monospace', fontSize: '0.7rem', wordBreak: 'break-all' }}>
+              {vercelProjectId}
             </Typography>
           </Paper>
         )}

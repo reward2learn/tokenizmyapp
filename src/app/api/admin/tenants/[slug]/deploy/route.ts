@@ -106,7 +106,7 @@ export async function POST(
 
   const { slug } = await params;
 
-  let body: { template?: string; metadata?: Record<string, unknown>; gitSource?: boolean };
+  let body: { template?: string; metadata?: Record<string, unknown>; gitSource?: boolean; vercelProjectId?: string };
   try { body = await request.json(); } catch {
     body = {};
   }
@@ -132,10 +132,13 @@ export async function POST(
       return jsonError('Vercel token not configured. Set VERCEL_TOKEN env var.', 400);
     }
 
-    // Resolve Vercel project ID: stored tenant record > deploy hook URL (body or stored) > undefined
+    // Resolve Vercel project ID: body vercelProjectId > stored on tenant > deploy hook URL
     const storedProjectId = (tenant.vercel_project_id as string) || undefined;
 
-    // Try to extract project ID from deploy hook URL — check request body first, then stored metadata
+    // Priority 1: vercelProjectId from request body (user set it in the wizard)
+    const bodyProjectId = (body.vercelProjectId as string) || undefined;
+
+    // Priority 2: Try to extract project ID from deploy hook URL — check request body first, then stored metadata
     const bodyMetadata = (body.metadata as Record<string, unknown>) || {};
     const bodyHooks = (bodyMetadata.hooks as Record<string, unknown>) || {};
     const bodyHookUrl = (bodyHooks.deployHookUrl as string) || '';
@@ -146,7 +149,9 @@ export async function POST(
     const hookProjectId = deployHookUrl
       ? (deployHookUrl.match(/\/deploy\/(prj_[^/]+)/)?.[1] ?? undefined)
       : undefined;
-    const resolvedProjectId = storedProjectId || hookProjectId || undefined;
+
+    // Resolution order: body vercelProjectId > stored on tenant > extracted from deploy hook URL
+    const resolvedProjectId = bodyProjectId || storedProjectId || hookProjectId || undefined;
 
     // Step 1: Ensure Vercel project exists (creates if not found)
     const { projectId, created } = await ensureVercelProject({ slug, projectId: resolvedProjectId });
