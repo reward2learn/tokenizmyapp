@@ -6,6 +6,7 @@ const PUBLIC_SLUGS = new Set(['dashboard', 'terms-of-service', 'privacy-policy']
 
 const CSP = [
   "default-src 'self'",
+  "frame-src 'self' https://vercel.live",
   "script-src 'self' 'unsafe-eval' 'unsafe-inline' https://vercel.live",
   "style-src 'self' 'unsafe-inline'",
   "img-src 'self' data: https:",
