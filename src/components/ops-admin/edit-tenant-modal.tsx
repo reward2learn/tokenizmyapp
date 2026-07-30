@@ -76,7 +76,7 @@ import { DEFAULT_PLATFORM_ADMIN_EMAIL } from '@/domain/security/persons';
 import { TemplateSelector } from '@/components/ops-admin/tenant-wizard';
 import { useAppDispatch } from '@/store/hooks';
 import { setThemeColors } from '@/store/ui-slice';
-import type { TenantEntry } from '@/store/apis/tenant-api';
+import { useUpdateTenantMutation, type TenantEntry } from '@/store/apis/tenant-api';
 
 // ── Types ──────────────────────────────────────────────────────
 
@@ -247,6 +247,8 @@ export function EditTenantModal({ open, tenant, onClose, onRefetch, onSnackbar }
   const [roleDeleteConfirm, setRoleDeleteConfirm] = useState<string | null>(null);
   const [roleSaving, setRoleSaving] = useState(false);
 
+  const [updateTenant] = useUpdateTenantMutation();
+
   // ── Deploy state ───────────────────────────────────────────
   const [deployingSlug, setDeployingSlug] = useState<string | null>(null);
   const [deployProgress, setDeployProgress] = useState(0);
@@ -258,7 +260,8 @@ export function EditTenantModal({ open, tenant, onClose, onRefetch, onSnackbar }
   const [vercelProjectId, setVercelProjectId] = useState('');
 
   // ── Flight Check state ────────────────────────────────────
-  type CheckItem = { label: string; status: 'pass' | 'fail' | 'warn'; detail: string; fixStep?: number; fixLabel?: string; _key: string };
+  type CheckItem = { label: string; status: 'pass' | 'fail' | 'warn'; detail: string; _key: string; fixAction?: () => Promise<void>; fixLabel?: string };
+  const [fixingKey, setFixingKey] = useState<string | null>(null);
   const [flightChecks, setFlightChecks] = useState<CheckItem[]>([]);
   const [flightRunning, setFlightRunning] = useState(false);
   const [flightRunId, setFlightRunId] = useState(0);
@@ -830,10 +833,11 @@ export function EditTenantModal({ open, tenant, onClose, onRefetch, onSnackbar }
     setFlightRunId(id);
     const results: CheckItem[] = [];
 
-    const addResult = (label: string, status: 'pass' | 'fail' | 'warn', detail: string, fixStep?: number, fixLabel?: string) => {
-      results.push({ label, status, detail, _key: label.replace(/\s+/g, '-').toLowerCase(), fixStep, fixLabel });
+    const addResult = (label: string, status: 'pass' | 'fail' | 'warn', detail: string, fixAction?: () => Promise<void>, fixLabel?: string) => {
+      results.push({ label, status, detail, _key: label.replace(/\s+/g, '-').toLowerCase(), fixAction, fixLabel });
     };
 
+    const slug = tenant.slug;
     const cfg = ((tenant.metadata as Record<string, unknown>)?.config ?? {}) as Record<string, unknown>;
     const license = (cfg?.license ?? {}) as Record<string, unknown>;
     const googleAuthLocal = (cfg?.googleAuth ?? {}) as Record<string, unknown>;
@@ -841,59 +845,84 @@ export function EditTenantModal({ open, tenant, onClose, onRefetch, onSnackbar }
     const hooks = (cfg?.hooks ?? {}) as Record<string, unknown>;
     const authConfig = (cfg?.auth ?? {}) as Record<string, unknown>;
 
+    // Build fix actions that auto-correct missing values
+    const fixVercelProjectId = async () => {
+      const hookUrl = String((hooks.deployHookUrl as string) || '');
+      const match = hookUrl.match(/\/deploy\/(prj_[^/]+)\//);
+      if (match) {
+        await updateTenant({ slug, vercelProjectId: match[1] }).unwrap();
+        onSnackbar({ message: 'Vercel Project ID set from deploy hook URL', severity: 'success' });
+      } else {
+        onSnackbar({ message: 'No deploy hook URL to extract project ID from', severity: 'error' });
+      }
+    };
+    const fixAdminEmail = async () => {
+      await updateTenant({ slug, metadata: { config: { ...cfg, adminEmail: DEFAULT_PLATFORM_ADMIN_EMAIL, auth: { ...(cfg.auth as Record<string,unknown> || {}), adminEmail: DEFAULT_PLATFORM_ADMIN_EMAIL } } } }).unwrap();
+      onSnackbar({ message: 'Admin email set to ' + DEFAULT_PLATFORM_ADMIN_EMAIL, severity: 'success' });
+    };
+    const fixPinSignIn = async () => {
+      await updateTenant({ slug, metadata: { config: { ...cfg, auth: { ...(cfg.auth as Record<string,unknown> || {}), pinSignInEnabled: true } } } }).unwrap();
+      onSnackbar({ message: 'PIN sign-in enabled', severity: 'success' });
+    };
+    const fixLicenseKey = async () => {
+      const newKey = 'rrb-' + slug + '-' + Math.random().toString(36).slice(2, 10);
+      const newApiKey = 'st_' + Array.from('abcdefghijklmnopqrstuvwxyz0123456789', function() { return 'abcdefghijklmnopqrstuvwxyz0123456789'[Math.floor(Math.random() * 36)]; }).slice(0, 24).join('');
+      await updateTenant({ slug, apiKey: newApiKey, metadata: { config: { ...cfg, apiKey: newApiKey, license: { ...(cfg.license as Record<string,unknown> || {}), key: newKey } } } }).unwrap();
+      onSnackbar({ message: 'License key and API key generated', severity: 'success' });
+    };
+
     // Google OAuth
     if (googleAuthLocal.clientId && googleAuthLocal.clientSecret) {
-      addResult('Google OAuth Client ID', 'pass', 'Configured: ' + String(googleAuthLocal.clientId).slice(0, 25) + '...', 6, 'Edit OAuth');
+      addResult('Google OAuth Client ID', 'pass', 'Configured: ' + String(googleAuthLocal.clientId).slice(0, 25) + '...');
     } else {
-      addResult('Google OAuth Client ID', 'fail', 'Missing - Google sign-in will not work', 6, 'Go to OAuth step');
+      addResult('Google OAuth Client ID', 'fail', 'Missing - configure in Google Cloud Console and add GOOGLE_CLIENT_ID env var');
     }
-    addResult('Google OAuth Project ID', googleAuthLocal.projectId ? 'pass' : 'warn', String(googleAuthLocal.projectId || 'Not set'), 6, 'Edit OAuth');
+    addResult('Google OAuth Project ID', googleAuthLocal.projectId ? 'pass' : 'warn', String(googleAuthLocal.projectId || 'Not set'));
 
     const redirectUris = (googleAuthLocal.redirectUris as string[]) || [];
     const hasCallbackUri = redirectUris.some(function(u) { return u.indexOf('/api/auth/callback/google') !== -1; });
     addResult('Redirect URI (callback/google)', hasCallbackUri ? 'pass' : 'fail',
-      hasCallbackUri ? 'Configured in Google Cloud Console' : 'Missing - add /api/auth/callback/google to OAuth client',
-      hasCallbackUri ? undefined : 6, hasCallbackUri ? undefined : 'Go to OAuth step');
+      hasCallbackUri ? 'Configured in Google Cloud Console' : 'Missing - add /api/auth/callback/google to OAuth client in Google Cloud Console');
 
     // License
     addResult('License Key', license.licenseKey ? 'pass' : 'fail',
-      String(license.licenseKey || 'Missing').slice(0, 25) + (license.licenseKey ? '...' : ''), 3, 'Go to License step');
-    addResult('License Tier', license.tier ? 'pass' : 'warn', String(license.tier || 'Not set').toUpperCase(), 3, 'Go to License step');
+      String(license.licenseKey || 'Missing').slice(0, 25) + (license.licenseKey ? '...' : ''),
+      license.licenseKey ? undefined : fixLicenseKey, 'Auto-generate');
+    addResult('License Tier', license.tier ? 'pass' : 'warn', String(license.tier || 'Not set').toUpperCase());
     if (license.validUntil) {
       const valid = new Date(String(license.validUntil)) > new Date();
-      addResult('License Expiry', valid ? 'pass' : 'fail', valid ? 'Valid until ' + String(license.validUntil) : 'EXPIRED: ' + String(license.validUntil), 3, 'Go to License step');
+      addResult('License Expiry', valid ? 'pass' : 'fail', valid ? 'Valid until ' + String(license.validUntil) : 'EXPIRED: ' + String(license.validUntil));
     }
 
     // API Key
     const apiKey = (cfg?.apiKey as string) || '';
-    addResult('API Key', apiKey ? 'pass' : 'fail', apiKey ? 'Configured' : 'Missing', 3, 'Go to License step');
+    addResult('API Key', apiKey ? 'pass' : 'fail', apiKey ? 'Configured' : 'Missing', apiKey ? undefined : fixLicenseKey, 'Auto-generate');
 
     // Database
     const dbUrl = String((database.databaseUrl as string) || '');
-    addResult('Database URL', dbUrl ? 'pass' : 'fail', dbUrl ? dbUrl.slice(0, 40) + '...' : 'Missing', 7, 'Go to Database step');
+    addResult('Database URL', dbUrl ? 'pass' : 'fail', dbUrl ? dbUrl.slice(0, 40) + '...' : 'Missing - provision a Neon database');
 
     // Deploy Hook
     const hookUrl = String((hooks.deployHookUrl as string) || '');
     addResult('Deploy Hook URL',
       hookUrl && hookUrl.indexOf('/deploy/prj_') !== -1 ? 'pass' : hookUrl ? 'warn' : 'warn',
-      !hookUrl ? 'Not set' : hookUrl.indexOf('/deploy/prj_') !== -1 ? 'Valid format' : 'Format may be incorrect',
-      9, 'Go to Deploy Hooks step');
+      !hookUrl ? 'Not set - create in Vercel Dashboard > Settings > Git' : hookUrl.indexOf('/deploy/prj_') !== -1 ? 'Valid format' : 'Format may be incorrect');
 
     // Vercel Project ID
     const vpId = tenant.vercelProjectId || (cfg?.vercelProjectId as string) || '';
-    addResult('Vercel Project ID', vpId ? 'pass' : 'fail', vpId || 'Missing', 9, 'Go to Deploy Hooks step');
+    addResult('Vercel Project ID', vpId ? 'pass' : 'fail', vpId || 'Missing', vpId ? undefined : fixVercelProjectId, 'Extract from hook URL');
 
     // Admin email
     const adminEmail = (authConfig.adminEmail as string) || (cfg?.adminEmail as string) || '';
-    addResult('Admin Email', adminEmail ? 'pass' : 'fail', adminEmail || 'Not set', 12, 'Go to Admin & Auth step');
+    addResult('Admin Email', adminEmail ? 'pass' : 'fail', adminEmail || 'Not set', adminEmail ? undefined : fixAdminEmail, 'Set to default');
 
     // PIN sign-in
     const pinEnabled = authConfig.pinSignInEnabled !== false;
-    addResult('PIN Sign-in', 'pass', pinEnabled ? 'Enabled' : 'Disabled (Google-only)', 12, 'Go to Admin & Auth step');
+    addResult('PIN Sign-in', 'pass', pinEnabled ? 'Enabled' : 'Disabled (Google-only)', pinEnabled ? undefined : fixPinSignIn, 'Enable');
 
     // OpenAI API Key
     const openaiKey = (cfg?.openaiApiKey as string) || '';
-    addResult('OpenAI API Key', openaiKey ? 'pass' : 'warn', openaiKey ? 'Configured' : 'Not set', 5, 'Go to OpenAI step');
+    addResult('OpenAI API Key', openaiKey ? 'pass' : 'warn', openaiKey ? 'Configured' : 'Not set - add OPENAI_API_KEY env var');
 
     // Deployment status - live check via API
     try {
@@ -2537,15 +2566,28 @@ export function EditTenantModal({ open, tenant, onClose, onRefetch, onSnackbar }
                   <Typography variant="body2" sx={{ fontWeight: 600 }}>{check.label}</Typography>
                   <Typography variant="caption" color="text.secondary">{check.detail}</Typography>
                 </Box>
-                {(check.status === 'fail' || check.status === 'warn') && check.fixStep !== undefined ? (
+                {(check.status === 'fail' || check.status === 'warn') && check.fixAction ? (
                   <Button
                     size="small"
                     variant="outlined"
                     color="warning"
-                    onClick={function() { setActiveStep(check.fixStep!); }}
+                    disabled={fixingKey === check._key}
+                    startIcon={fixingKey === check._key ? <CircularProgress size={14} color="inherit" /> : null}
+                    onClick={async function() {
+                      setFixingKey(check._key);
+                      try {
+                        await check.fixAction!();
+                        // Re-run flight check to refresh results
+                        runFlightCheck();
+                      } catch (e) {
+                        onSnackbar({ message: 'Fix failed: ' + (e instanceof Error ? e.message : String(e)), severity: 'error' });
+                      } finally {
+                        setFixingKey(null);
+                      }
+                    }}
                     sx={{ flexShrink: 0, ml: 1 }}
                   >
-                    {check.fixLabel || 'Fix'}
+                    {fixingKey === check._key ? 'Fixing...' : (check.fixLabel || 'Auto-fix')}
                   </Button>
                 ) : null}
               </Stack>
