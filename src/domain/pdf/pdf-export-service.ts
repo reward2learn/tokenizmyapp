@@ -63,9 +63,11 @@ export async function generateDashboardPdf(
 
   try {
     const page = await browser.newPage();
-    // Set the session cookie in the browser's cookie jar (not via extra headers,
-    // because setExtraHTTPHeaders may not propagate to fetch()/XHR calls).
-    // Extract just the session cookie from the full cookie header.
+    // Two-phase navigation: load the page first to establish the domain context,
+    // then set the session cookie in the browser's cookie jar, then reload so
+    // the page renders with authenticated session. This avoids cookie rejection
+    // when the page is on about:blank (different origin than the target domain).
+    await page.goto(targetUrl, { waitUntil: 'domcontentloaded', timeout: 45_000 });
     if (cookieHeader) {
       const parsed = Object.fromEntries(
         cookieHeader.split(';').map((p) => {
@@ -75,7 +77,6 @@ export async function generateDashboardPdf(
       );
       const sessionValue = parsed[COOKIE_NAME];
       if (sessionValue) {
-        const url = new URL(targetUrl);
         await page.setCookie({
           name: COOKIE_NAME,
           value: sessionValue,
@@ -86,26 +87,30 @@ export async function generateDashboardPdf(
         });
       }
     }
-    await page.goto(targetUrl, { waitUntil: 'networkidle0', timeout: 45_000 });
+    // Reload with the cookie now in the browser's cookie jar
+    await page.reload({ waitUntil: 'networkidle0', timeout: 45_000 });
     // Wait for the dashboard content to render (the DynamicPage wrapper).
     // Fall back to waiting for any MUI element if #pdfCapture isn't present.
     try {
       await page.waitForSelector('#pdfCapture', { timeout: 15_000 });
     } catch {
-      // #pdfCapture not found — check if auth is blocking by looking for sign-in elements
-      const signInVisible = await page.evaluate(() =>
-        document.querySelector('[data-testid="sign-in-panel"]') !== null
-      );
-      if (signInVisible) {
-        // Cookie didn't authenticate — user sees sign-in panel instead of dashboard
-        // Take a screenshot for debugging and throw a clear error
+      // Check if auth is blocking by looking for any sign-in or loading elements
+      const pageState = await page.evaluate(() => ({
+        signInVisible: document.querySelector('[data-testid="sign-in-panel"]') !== null,
+        spinnerVisible: document.querySelector('[role="progressbar"]') !== null,
+        bodyHtml: document.body?.innerHTML?.slice(0, 500) ?? '',
+      }));
+      if (pageState.signInVisible) {
         throw new Error('Session cookie not accepted — page shows sign-in panel instead of dashboard content');
       }
-      // Maybe still loading (spinner visible). Wait extra time for React rendering.
-      await new Promise<void>((resolve) => {
-        globalThis.setTimeout(resolve, 10_000);
-      });
-      await page.waitForSelector('#pdfCapture', { timeout: 15_000 });
+      if (pageState.spinnerVisible) {
+        // Page still loading. Wait extra time then retry.
+        await page.waitForSelector('#pdfCapture', { timeout: 20_000 });
+      } else {
+        // Unexpected state — capture HTML for debugging
+        console.error('[pdf] Unexpected page state:', JSON.stringify(pageState));
+        throw new Error(`#pdfCapture not found. Page shows: ${pageState.bodyHtml.slice(0, 200)}`);
+      }
     }
     await page.evaluate('document.fonts && document.fonts.ready');
 
