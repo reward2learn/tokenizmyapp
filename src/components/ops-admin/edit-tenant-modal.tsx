@@ -885,9 +885,9 @@ export function EditTenantModal({ open, tenant, onClose, onRefetch, onSnackbar }
       hasCallbackUri ? 'Configured in Google Cloud Console' : 'Missing - add /api/auth/callback/google to OAuth client in Google Cloud Console');
 
     // License
-    addResult('License Key', license.licenseKey ? 'pass' : 'fail',
-      String(license.licenseKey || 'Missing').slice(0, 25) + (license.licenseKey ? '...' : ''),
-      license.licenseKey ? undefined : fixLicenseKey, 'Auto-generate');
+    addResult('License Key', license.key ? 'pass' : 'fail',
+      String(license.key || 'Missing').slice(0, 25) + (license.key ? '...' : ''),
+      license.key ? undefined : fixLicenseKey, 'Auto-generate');
     addResult('License Tier', license.tier ? 'pass' : 'warn', String(license.tier || 'Not set').toUpperCase());
     if (license.validUntil) {
       const valid = new Date(String(license.validUntil)) > new Date();
