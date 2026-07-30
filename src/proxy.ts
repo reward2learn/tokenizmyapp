@@ -9,7 +9,7 @@ const CSP = [
   "script-src 'self' 'unsafe-eval' 'unsafe-inline'",
   "style-src 'self' 'unsafe-inline'",
   "img-src 'self' data: https:",
-  "connect-src 'self' https://accounts.google.com https://oauth2.googleapis.com https://api.openai.com",
+  "connect-src 'self' https://accounts.google.com https://oauth2.googleapis.com https://api.openai.com https://api.vercel.com",
   "font-src 'self' https://fonts.gstatic.com",
   "frame-ancestors 'none'",
   "form-action 'self'",
