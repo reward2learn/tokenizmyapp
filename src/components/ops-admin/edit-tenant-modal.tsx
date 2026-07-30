@@ -2400,7 +2400,7 @@ export function EditTenantModal({ open, tenant, onClose, onRefetch, onSnackbar }
   };
 
   return (
-    <Dialog open={open} onClose={handleClose} maxWidth="lg" fullWidth fullScreen={isMobile} aria-labelledby="edit-tenant-modal-title">
+    <Dialog open={open} onClose={handleClose} maxWidth={false} fullWidth fullScreen={isMobile} aria-labelledby="edit-tenant-modal-title">
       {/* HEADER */}
       <DialogTitle id="edit-tenant-modal-title" sx={{ p: 0 }}>
         <Stack direction="row" sx={{ alignItems: 'center', justifyContent: 'space-between', px: 3, pt: 2, pb: 1 }}>
