@@ -176,6 +176,31 @@ export const tenantApi = createApi({
       providesTags: (_result, _error, slug) => [{ type: 'Tenants', id: `domain-${slug}` }],
     }),
 
+    // ── Favicon (base64) ─────────────────────────────
+
+    uploadTenantFavicon: builder.mutation<ApiEnvelope<{ message: string }>, { slug: string; data: string; mimeType: string }>({
+      query: ({ slug, ...body }) => ({
+        url: `admin/tenants/${slug}/favicon`,
+        method: 'POST',
+        body,
+      }),
+      invalidatesTags: (_result, _error, { slug }) => [
+        { type: 'Tenants', id: slug },
+        { type: 'Tenants' },
+      ],
+    }),
+
+    removeTenantFavicon: builder.mutation<ApiEnvelope<{ message: string }>, string>({
+      query: (slug) => ({
+        url: `admin/tenants/${slug}/favicon`,
+        method: 'DELETE',
+      }),
+      invalidatesTags: (_result, _error, slug) => [
+        { type: 'Tenants', id: slug },
+        { type: 'Tenants' },
+      ],
+    }),
+
     setTenantDomain: builder.mutation<
       ApiEnvelope<{ domain: string; verified: boolean; projectId: string; domains: { name: string; verified: boolean; createdAt: string }[]; appUrl: string | null }>,
       { slug: string; domain: string; updateAppUrl?: boolean }
@@ -207,4 +232,6 @@ export const {
   useDeployTenantMutation,
   useGetTenantDomainsQuery,
   useSetTenantDomainMutation,
+  useUploadTenantFaviconMutation,
+  useRemoveTenantFaviconMutation,
 } = tenantApi;

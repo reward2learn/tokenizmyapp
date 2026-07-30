@@ -25,6 +25,11 @@ const CLIENT_SCAN_RULES = [
   { name: 'x-admin-key header', pattern: /x-admin-key/i, severity: 'error' },
 ];
 
+// -- useEffect + useState anti-pattern detection --
+// Detects useEffect bodies that call setState() to initialize from props/RTK Query data.
+// These should read directly from the RTK Query cache instead.
+const EFFECT_STATE_PATTERN = /useEffect\s*\([\s\S]{0,500}set[A-Z][\s\S]{0,500}(?:tenant|data|result)/;
+
 let violations = [];
 
 function walk(dir) {
