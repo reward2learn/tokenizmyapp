@@ -204,6 +204,12 @@ export async function syncEnvVars(
     }
   }
 
+  // Dedicated platform-admin email for tenant Google sign-in mapping.
+  envVars.PLATFORM_ADMIN_EMAIL =
+    (input.metadata?.adminEmail as string) ||
+    process.env.PLATFORM_ADMIN_EMAIL ||
+    'reward2learn@gmail.com';
+
   const configVars = extractConfigEnvVars(input.metadata);
   for (const [key, value] of Object.entries(configVars)) {
     if (value) envVars[key] = value;

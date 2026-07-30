@@ -2,7 +2,9 @@
  * Tenant Registry Service — DB table lifecycle & migration.
  * Uses the same idempotent pattern as app-settings-service.
  */
-// Using any for DB client type
+import { PrismaClient } from '@/generated/prisma';
+import { DEFAULT_PLATFORM_ADMIN_EMAIL, PERSONS } from '@/domain/security/persons';
+import { FUNCTIONAL_ROLES } from '@/domain/security/functional-roles';
 
 const TENANTS_DDL = `
 CREATE TABLE IF NOT EXISTS tenants (
@@ -44,5 +46,94 @@ export async function ensureTenantsTable(db: any): Promise<void> {
     } catch {
       // Column may already exist — ignore
     }
+  }
+}
+
+/**
+ * Seed default platform-admin identity into a tenant Neon database.
+ * Ensures reward2learn@gmail.com is the dedicated admin email so Google
+ * sign-in maps to platformAdmin on the tenant app.
+ */
+export async function seedTenantAdminDefaults(
+  tenantDbUrl: string | undefined,
+  slug: string,
+  adminEmail: string = DEFAULT_PLATFORM_ADMIN_EMAIL,
+): Promise<{ success: boolean; adminEmail?: string; error?: string }> {
+  if (!tenantDbUrl) {
+    return { success: false, error: 'no-database-url' };
+  }
+
+  const tenantPrisma = new PrismaClient({
+    datasources: { db: { url: tenantDbUrl } },
+  });
+
+  try {
+    await tenantPrisma.$executeRawUnsafe(`
+      CREATE TABLE IF NOT EXISTS roles (
+        id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::TEXT,
+        code TEXT NOT NULL UNIQUE,
+        name TEXT NOT NULL,
+        email TEXT UNIQUE,
+        is_platform_admin BOOLEAN NOT NULL DEFAULT false,
+        created_at TIMESTAMP WITHOUT TIME ZONE DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
+
+    for (const fr of FUNCTIONAL_ROLES) {
+      const personEmail =
+        PERSONS.find((p) => p.roleCode === fr.code && p.email)?.email ??
+        (fr.isPlatformAdmin ? adminEmail : null);
+      await tenantPrisma.$executeRawUnsafe(
+        `INSERT INTO roles (id, code, name, email, is_platform_admin)
+         VALUES (gen_random_uuid()::TEXT, $1, $2, $3, $4)
+         ON CONFLICT (code) DO UPDATE
+           SET name = $2,
+               email = COALESCE($3, roles.email),
+               is_platform_admin = $4;`,
+        fr.code,
+        fr.name,
+        personEmail,
+        fr.isPlatformAdmin ?? false,
+      );
+    }
+
+    // Force platform-admin + Admin dedicated email even if role already existed without one.
+    await tenantPrisma.$executeRawUnsafe(
+      `UPDATE roles SET email = $1, is_platform_admin = true
+       WHERE code IN ('platform-admin', 'Admin', 'admin')
+         AND (email IS NULL OR email = '');`,
+      adminEmail,
+    );
+
+    await tenantPrisma.$executeRawUnsafe(`
+      CREATE TABLE IF NOT EXISTS app_config (
+        id TEXT PRIMARY KEY DEFAULT 'main',
+        data JSONB NOT NULL DEFAULT '{}',
+        updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
+
+    await tenantPrisma.$executeRawUnsafe(
+      `INSERT INTO app_config (id, data)
+       VALUES ('main', $1::jsonb)
+       ON CONFLICT (id) DO UPDATE SET
+         data = COALESCE(app_config.data, '{}'::jsonb) || EXCLUDED.data,
+         updated_at = CURRENT_TIMESTAMP;`,
+      JSON.stringify({
+        adminEmail,
+        googleAuth: { dedicatedAdminEmail: adminEmail },
+        lastAdminSeededAt: new Date().toISOString(),
+        tenantSlug: slug,
+      }),
+    );
+
+    await tenantPrisma.$disconnect();
+    console.log(`[seedTenantAdminDefaults] Seeded adminEmail=${adminEmail} for tenant ${slug}`);
+    return { success: true, adminEmail };
+  } catch (error: unknown) {
+    await tenantPrisma.$disconnect().catch(() => undefined);
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    console.error(`[seedTenantAdminDefaults] Failed for ${slug}:`, errorMessage);
+    return { success: false, error: errorMessage };
   }
 }

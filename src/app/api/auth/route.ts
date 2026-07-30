@@ -185,22 +185,44 @@ async function handleGoogleCallback(request: Request, url: URL): Promise<NextRes
     };
 
     const matchedRole = resolveRoleForEmail(user.email);
+    // DB fallback: roles.email seeded for platform-admin (reward2learn@gmail.com).
+    let dbPlatformAdmin = false;
+    let dbRoleCode = matchedRole?.code;
+    if (user.email) {
+      try {
+        const db = createBaseClient();
+        const rows = await db.$queryRawUnsafe(
+          `SELECT code, is_platform_admin FROM roles
+           WHERE lower(email) = lower($1)
+           LIMIT 1;`,
+          user.email,
+        ) as Array<{ code: string; is_platform_admin: boolean }>;
+        if (rows[0]) {
+          dbRoleCode = dbRoleCode || rows[0].code;
+          dbPlatformAdmin = Boolean(rows[0].is_platform_admin);
+        }
+      } catch (roleLookupErr) {
+        console.warn('[auth/google-callback] roles email lookup failed:', roleLookupErr);
+      }
+    }
     const { groups, permissions } = await resolveSessionGroups({
       sub: user.id,
       email: user.email,
       name: user.name,
       tier: 'google',
-      roleCode: matchedRole?.code,
+      roleCode: dbRoleCode,
     });
     const platformAdmin =
-      (matchedRole?.isPlatformAdmin ?? false) || groups.includes('platform-admin');
+      (matchedRole?.isPlatformAdmin ?? false) ||
+      dbPlatformAdmin ||
+      groups.includes('platform-admin');
     const token = await signSession({
       sub: user.id,
       tier: 'google',
       email: user.email,
       name: user.name,
       picture: user.picture,
-      roleCode: matchedRole?.code,
+      roleCode: dbRoleCode,
       platformAdmin,
       groups,
       permissions,

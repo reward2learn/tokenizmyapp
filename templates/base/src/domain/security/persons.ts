@@ -16,6 +16,9 @@ export interface Person {
   email?: string;
 }
 
+/** Default dedicated platform-admin Google email seeded into every tenant. */
+export const DEFAULT_PLATFORM_ADMIN_EMAIL = 'reward2learn@gmail.com';
+
 export const PERSONS: Person[] = [
   {
     sub: 'admin',
@@ -23,7 +26,7 @@ export const PERSONS: Person[] = [
     roleCode: 'platform-admin',
     roleName: 'Platform Admin',
     isPlatformAdmin: true,
-    email: 'reward2learn@gmail.com',
+    email: DEFAULT_PLATFORM_ADMIN_EMAIL,
   },
   {
     sub: 'ama',

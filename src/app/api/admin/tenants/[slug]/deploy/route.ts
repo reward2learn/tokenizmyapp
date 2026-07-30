@@ -15,6 +15,8 @@ import { createRawClient } from '@/lib/db';
 import { requireWriteAuth } from '@/lib/auth/guards';
 import { jsonError, jsonOk } from '@/lib/api/response';
 import { deployTenant, deployTenantWithGit, ensureVercelProject } from '@/domain/tenant/vercel-deploy-service';
+import { seedTenantAdminDefaults } from '@/domain/tenant/tenant-service';
+import { DEFAULT_PLATFORM_ADMIN_EMAIL } from '@/domain/security/persons';
 
 const VERCEL_API = 'https://api.vercel.com';
 const TEAM_ID = process.env.VERCEL_TEAM_ID || 'team_uKNaNEyjHVW7vooXeUfNJ3LW';
@@ -188,6 +190,18 @@ export async function POST(
           projectId: vercelProjectId,
         });
 
+    // Step 2b: Seed dedicated platform-admin email into tenant Neon DB
+    const tenantDbUrl =
+      (tenant.db_url as string | undefined) ||
+      ((metadata.config as Record<string, unknown> | undefined)?.database as { databaseUrl?: string } | undefined)?.databaseUrl;
+    const adminSeed = await seedTenantAdminDefaults(
+      tenantDbUrl,
+      slug,
+      (metadata.adminEmail as string) ||
+        (guard.session.email as string) ||
+        DEFAULT_PLATFORM_ADMIN_EMAIL,
+    );
+
     // Step 3: Update tenant status to deploying immediately
     await db.$executeRawUnsafe(
       `UPDATE tenants SET status = 'deploying', app_url = $1, updated_at = CURRENT_TIMESTAMP WHERE slug = $2;`,
@@ -212,6 +226,7 @@ export async function POST(
       status: 'deploying',
       deployMode: useGit ? 'git' : 'standard',
       gitRepo: useGit ? (process.env.VERCEL_GIT_REPO || 'reward2learn/Rosalita') : undefined,
+      adminSeed,
       note: useGit
         ? 'Git-based deployment triggered from main branch. Tenant status will update to live when ready.'
         : 'Deployment is building in the background. Tenant status will update to live when ready.',

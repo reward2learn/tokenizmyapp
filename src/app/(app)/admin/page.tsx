@@ -51,13 +51,13 @@ import {
 import type { AdminUserView } from '@/app/api/admin/users/route';
 import type { AdminGroupView } from '@/app/api/admin/groups/route';
 import { FUNCTIONAL_ROLES } from '@/domain/security/functional-roles';
-import { PERSONS } from '@/domain/security/persons';
+import { PERSONS, DEFAULT_PLATFORM_ADMIN_EMAIL } from '@/domain/security/persons';
 import { CAPABILITY_AREAS, capability } from '@/domain/security/capabilities';
 
 /** Roles that persist regardless of seeded data state. */
 const PERSISTENT_ROLES: { code: string; name: string; isPlatformAdmin: boolean; email: string | null }[] = [
-  { code: 'platform-admin', name: 'Platform Admin', isPlatformAdmin: true, email: null },
-  { code: 'admin', name: 'Admin', isPlatformAdmin: true, email: null },
+  { code: 'platform-admin', name: 'Platform Admin', isPlatformAdmin: true, email: DEFAULT_PLATFORM_ADMIN_EMAIL },
+  { code: 'admin', name: 'Admin', isPlatformAdmin: true, email: DEFAULT_PLATFORM_ADMIN_EMAIL },
 ];
 
 function RoleManager() {

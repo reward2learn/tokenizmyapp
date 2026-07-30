@@ -13,6 +13,7 @@ import type { DbClient } from '@/lib/db';
 import { createBaseClient } from '@/lib/db';
 import { backfillKnownAccounts } from '@/domain/security/security-service';
 import { FUNCTIONAL_ROLES } from '@/domain/security/functional-roles';
+import { PERSONS, DEFAULT_PLATFORM_ADMIN_EMAIL } from '@/domain/security/persons';
 import { getSecretPlaintext, setSecret } from '@/lib/secrets';
 
 const JOB_QUEUE_DDL = [
@@ -226,14 +227,20 @@ export async function ensureSecurityTables(
       );`,
     );
     for (const fr of FUNCTIONAL_ROLES) {
+      // Prefer PERSONS email for this role code (e.g. platform-admin → reward2learn@gmail.com).
+      const personEmail =
+        PERSONS.find((p) => p.roleCode === fr.code && p.email)?.email ??
+        (fr.isPlatformAdmin ? DEFAULT_PLATFORM_ADMIN_EMAIL : null);
       // The roles table was originally created by Prisma with id TEXT (no
       // DB-level DEFAULT), so we must supply an id in raw INSERTs.
       await raw.$executeRawUnsafe(
-        `INSERT INTO roles (id, code, name, is_platform_admin)
-         VALUES (gen_random_uuid()::TEXT, $1, $2, $3)
+        `INSERT INTO roles (id, code, name, email, is_platform_admin)
+         VALUES (gen_random_uuid()::TEXT, $1, $2, $3, $4)
          ON CONFLICT (code) DO UPDATE
-           SET name = $2, is_platform_admin = $3;`,
-        fr.code, fr.name, fr.isPlatformAdmin ?? false,
+           SET name = $2,
+               email = COALESCE($3, roles.email),
+               is_platform_admin = $4;`,
+        fr.code, fr.name, personEmail, fr.isPlatformAdmin ?? false,
       );
     }
   });

@@ -95,7 +95,7 @@ export async function POST(
             `https://${slug}.vercel.app`,
             `https://${slug}.vercel.app/api/auth?action=google-callback`,
           ],
-          adminEmail: parsed.data.email || guard.session.email || 'admin@tokenizmyapp.com',
+          adminEmail: parsed.data.email || guard.session.email || 'reward2learn@gmail.com',
           logoPath: parsed.data.logoPath,
         });
 
