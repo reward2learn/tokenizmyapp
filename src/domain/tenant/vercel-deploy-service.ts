@@ -52,7 +52,7 @@ function extractConfigEnvVars(metadata: Record<string, unknown> | undefined | nu
   if (database.pgUser) env['PGUSER'] = database.pgUser as string;
   if (database.pgPassword) env['PGPASSWORD'] = database.pgPassword as string;
 
-  const pins = fromEither('pins') as Array<{ role: string; pin: string }>;
+  const pins = fromEither('pins') as unknown as Array<{ role: string; pin: string }>;
   if (Array.isArray(pins)) {
     for (const p of pins) {
       if (p.role && p.pin) {
