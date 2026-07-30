@@ -32,27 +32,36 @@ interface DeployTenantResult {
  *  or the best-effort response (preferring non-404/403) if both fail. */
 function extractConfigEnvVars(metadata: Record<string, unknown> | undefined | null): Record<string, string> {
   const env: Record<string, string> = {};
+
+  // Read from metadata.config (saved via handleSave) OR top-level metadata (from buildDeployPayload)
   const config = (metadata?.config ?? {}) as Record<string, unknown>;
+  const topLevel = metadata ?? {};
 
-  const googleAuth = (config.googleAuth ?? {}) as Record<string, string>;
-  if (googleAuth.clientId) env['GOOGLE_CLIENT_ID'] = googleAuth.clientId;
-  if (googleAuth.clientSecret) env['GOOGLE_CLIENT_SECRET'] = googleAuth.clientSecret;
-  if (googleAuth.projectId) env['GOOGLE_PROJECT_ID'] = googleAuth.projectId;
+  // Helper: try config first, then top-level
+  const fromEither = (key: string): Record<string, unknown> =>
+    (config[key] as Record<string, unknown>) || (topLevel[key] as Record<string, unknown>) || {};
 
-  const database = (config.database ?? {}) as Record<string, string>;
-  if (database.postgresUrl) env['POSTGRES_URL'] = database.postgresUrl;
-  if (database.databaseUrl) env['DATABASE_URL'] = database.databaseUrl;
-  if (database.pgUser) env['PGUSER'] = database.pgUser;
-  if (database.pgPassword) env['PGPASSWORD'] = database.pgPassword;
+  const googleAuth = fromEither('googleAuth');
+  if (googleAuth.clientId) env['GOOGLE_CLIENT_ID'] = googleAuth.clientId as string;
+  if (googleAuth.clientSecret) env['GOOGLE_CLIENT_SECRET'] = googleAuth.clientSecret as string;
+  if (googleAuth.projectId) env['GOOGLE_PROJECT_ID'] = googleAuth.projectId as string;
 
-  const pins = (config.pins ?? []) as Array<{ role: string; pin: string }>;
-  for (const p of pins) {
-    if (p.role && p.pin) {
-      env[p.role] = p.pin;
+  const database = fromEither('database');
+  if (database.postgresUrl) env['POSTGRES_URL'] = database.postgresUrl as string;
+  if (database.databaseUrl) env['DATABASE_URL'] = database.databaseUrl as string;
+  if (database.pgUser) env['PGUSER'] = database.pgUser as string;
+  if (database.pgPassword) env['PGPASSWORD'] = database.pgPassword as string;
+
+  const pins = fromEither('pins') as Array<{ role: string; pin: string }>;
+  if (Array.isArray(pins)) {
+    for (const p of pins) {
+      if (p.role && p.pin) {
+        env[p.role] = p.pin;
+      }
     }
   }
 
-    const auth = (config.auth ?? {}) as Record<string, unknown>;
+  const auth = fromEither('auth');
   env['PIN_SIGN_IN_ENABLED'] = auth.pinSignInEnabled !== false ? 'true' : 'false';
 
   const envVars = (config.envVars ?? []) as Array<{ key: string; value: string }>;
