@@ -838,7 +838,25 @@ export function EditTenantModal({ open, tenant, onClose, onRefetch, onSnackbar }
     };
 
     const slug = tenant.slug;
-    const cfg = ((tenant.metadata as Record<string, unknown>)?.config ?? {}) as Record<string, unknown>;
+
+    // Fetch fresh tenant data to pick up any recent fixes
+    let freshConfig: Record<string, unknown> = ((tenant.metadata as Record<string, unknown>)?.config ?? {}) as Record<string, unknown>;
+    let freshStatus = tenant.status;
+    let freshVercelProjectId = tenant.vercelProjectId;
+    try {
+      const freshRes = await fetch('/api/admin/tenants/' + slug);
+      if (freshRes.ok) {
+        const freshData = await freshRes.json();
+        if (freshData.success && freshData.data?.tenant) {
+          const t = freshData.data.tenant;
+          freshConfig = ((t.metadata as Record<string, unknown>)?.config ?? {}) as Record<string, unknown>;
+          freshStatus = t.status;
+          freshVercelProjectId = t.vercelProjectId;
+        }
+      }
+    } catch { /* use stale data */ }
+
+    const cfg = freshConfig;
     const license = (cfg?.license ?? {}) as Record<string, unknown>;
     const googleAuthLocal = (cfg?.googleAuth ?? {}) as Record<string, unknown>;
     const database = (cfg?.database ?? {}) as Record<string, unknown>;
@@ -910,7 +928,7 @@ export function EditTenantModal({ open, tenant, onClose, onRefetch, onSnackbar }
 
     // Vercel Project ID
     const vpId = tenant.vercelProjectId || (cfg?.vercelProjectId as string) || '';
-    addResult('Vercel Project ID', vpId ? 'pass' : 'fail', vpId || 'Missing', vpId ? undefined : fixVercelProjectId, 'Extract from hook URL');
+    addResult('Vercel Project ID', (freshVercelProjectId || vpId) ? 'pass' : 'fail', (freshVercelProjectId || vpId) || 'Missing', (freshVercelProjectId || vpId) ? undefined : fixVercelProjectId, 'Extract from hook URL');
 
     // Admin email
     const adminEmail = (authConfig.adminEmail as string) || (cfg?.adminEmail as string) || '';
