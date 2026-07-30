@@ -220,6 +220,43 @@ export function TenantDashboard() {
     }
   };
 
+  // ── Refresh Status (deployment + license) ─────────────────
+  const [refreshingStatus, setRefreshingStatus] = useState<string | null>(null);
+  const handleRefreshStatus = async (slug: string, metadata: Record<string, unknown>) => {
+    handleMenuClose();
+    setRefreshingStatus(slug);
+    try {
+      const config = (metadata?.config ?? {}) as Record<string, unknown>;
+      const license = (config?.license ?? {}) as Record<string, unknown>;
+      const apiKey = (config?.apiKey as string) || '';
+
+      // Check deployment status
+      const statusRes = await fetch(`/api/admin/tenants/${slug}/deploy/status`);
+      const statusData = await statusRes.json();
+      let deployStatus = 'unknown';
+      let appUrl = `https://${slug}.vercel.app`;
+      if (statusData.success) {
+        deployStatus = statusData.data?.state || 'unknown';
+        appUrl = statusData.data?.appUrl || appUrl;
+      }
+
+      // Evaluate license
+      const hasLicense = !!license.licenseKey;
+      const hasApiKey = !!apiKey;
+      const licenseTier = (license.tier as string) || 'none';
+      const licenseFeatures = Array.isArray(license.features) ? license.features : [];
+
+      setSnackbar({
+        message: `🔍 ${slug}: status=${deployStatus}, license=${licenseTier.toUpperCase()}${hasApiKey ? ' ✅' : ' ⚠️ no key'}, features=${licenseFeatures.length}`,
+        severity: deployStatus === 'READY' ? 'success' : 'error',
+      });
+    } catch {
+      setSnackbar({ message: `Failed to refresh status for ${slug}`, severity: 'error' });
+    } finally {
+      setRefreshingStatus(null);
+    }
+  };
+
   // ── Custom Domain: Refresh Domains ─────────────────────────
   const handleRefreshDomains = async (slug: string) => {
     handleMenuClose();
@@ -427,6 +464,10 @@ export function TenantDashboard() {
                       <ListItemIcon><RefreshIcon fontSize="small" /></ListItemIcon>
                       <ListItemText>{checkingStatus === t.slug ? 'Checking…' : 'Check Status'}</ListItemText>
                     </MenuItem>
+                    <MenuItem onClick={() => void handleRefreshStatus(t.slug, t.metadata || {})} disabled={refreshingStatus === t.slug}>
+                      <ListItemIcon><VerifiedIcon fontSize="small" /></ListItemIcon>
+                      <ListItemText>{refreshingStatus === t.slug ? 'Refreshing…' : 'Refresh Status'}</ListItemText>
+                    </MenuItem>
                     <MenuItem onClick={() => void handleTriggerHook(t.slug)} disabled={triggeringHook === t.slug}>
                       <ListItemIcon><PlayArrowIcon fontSize="small" /></ListItemIcon>
                       <ListItemText>{triggeringHook === t.slug ? 'Triggering…' : 'Trigger Deploy Hook'}</ListItemText>
@@ -544,6 +585,10 @@ export function TenantDashboard() {
                           <MenuItem onClick={() => void handleCheckStatus(t.slug)} disabled={checkingStatus === t.slug}>
                             <ListItemIcon><RefreshIcon fontSize="small" /></ListItemIcon>
                             <ListItemText>{checkingStatus === t.slug ? 'Checking…' : 'Check Status'}</ListItemText>
+                          </MenuItem>
+                          <MenuItem onClick={() => void handleRefreshStatus(t.slug, t.metadata || {})} disabled={refreshingStatus === t.slug}>
+                            <ListItemIcon><VerifiedIcon fontSize="small" /></ListItemIcon>
+                            <ListItemText>{refreshingStatus === t.slug ? 'Refreshing…' : 'Refresh Status'}</ListItemText>
                           </MenuItem>
                           <MenuItem onClick={() => void handleTriggerHook(t.slug)} disabled={triggeringHook === t.slug}>
                             <ListItemIcon><PlayArrowIcon fontSize="small" /></ListItemIcon>
