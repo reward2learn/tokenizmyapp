@@ -2487,18 +2487,21 @@ export function EditTenantModal({ open, tenant, onClose, onRefetch, onSnackbar }
         <Box sx={{ flex: 1 }} />
         {isSummaryStep ? (
           <Stack direction="row" spacing={1.5}>
-            <Button variant="outlined" size="small" onClick={handleDeploy}
-              disabled={!!deployingSlug || saving}
-              startIcon={deployingSlug ? <CircularProgress size={16} color="inherit" /> : <RocketLaunchIcon />}
-              sx={{ fontWeight: 600, whiteSpace: 'nowrap' }}>
-              {deployingSlug ? 'DEPLOYING...' : 'Deploy to Vercel'}
-            </Button>
-            <Button variant="contained" color="primary" size="large" onClick={handleDeployWithGit}
-              disabled={!!deployingSlug || saving}
-              startIcon={deployingSlug ? <CircularProgress size={20} color="inherit" /> : <CloudUploadIcon />}
-              sx={{ fontWeight: 700, minWidth: { xs: '100%', sm: 220 } }}>
-              {deployingSlug ? 'DEPLOYING...' : 'Vercel Deploy with Git'}
-            </Button>
+            {deployHookUrl ? (
+              <Button variant="contained" color="primary" size="large" onClick={handleDeployWithGit}
+                disabled={!!deployingSlug || saving}
+                startIcon={deployingSlug ? <CircularProgress size={20} color="inherit" /> : <CloudUploadIcon />}
+                sx={{ fontWeight: 700, minWidth: { xs: '100%', sm: 220 } }}>
+                {deployingSlug ? 'DEPLOYING...' : 'Run Deploy Hook'}
+              </Button>
+            ) : (
+              <Button variant="outlined" size="small" onClick={handleDeploy}
+                disabled={!!deployingSlug || saving}
+                startIcon={deployingSlug ? <CircularProgress size={16} color="inherit" /> : <RocketLaunchIcon />}
+                sx={{ fontWeight: 600, whiteSpace: 'nowrap' }}>
+                {deployingSlug ? 'DEPLOYING...' : 'Deploy to Vercel'}
+              </Button>
+            )}
           </Stack>
         ) : (
           <Button variant="contained" onClick={handleNext} disabled={!!deployingSlug || saving} sx={{ fontWeight: 600 }}>
