@@ -2416,8 +2416,16 @@ export function EditTenantModal({ open, tenant, onClose, onRefetch, onSnackbar }
       </DialogTitle>
 
       {/* BODY WITH STEPPER */}
-      <DialogContent dividers sx={{ p: { xs: 1.5, md: 3 }, minHeight: 400 }}>
-        <Stepper activeStep={activeStep} sx={{ mb: 4, overflowX: 'auto', flexWrap: 'wrap', '& .MuiStepLabel-root': { cursor: 'pointer' } }} nonLinear>
+      <DialogContent dividers sx={{ p: { xs: 0, md: 0 }, minHeight: 400 }}>
+        <Stepper activeStep={activeStep} sx={{ zIndex: 1000,
+          backgroundColor: 'background.default', 
+          padding: '19px 0px',
+          position: 'sticky',
+          top: 0,
+          mb: 4, 
+          overflowX: 'auto', 
+          flexWrap: 'wrap', '& .MuiStepLabel-root': { cursor: 'pointer' } 
+          }} nonLinear>
           {EDIT_STEPS.map((s, idx) => (
             <Step key={s.key} onClick={() => setActiveStep(idx)}>
               <StepLabel sx={{
@@ -2432,7 +2440,7 @@ export function EditTenantModal({ open, tenant, onClose, onRefetch, onSnackbar }
           ))}
         </Stepper>
 
-        <Box sx={{ mt: 2 }}>{stepContent(activeStep)}</Box>
+        <Box sx={{ mt: 2, padding: '24px' }}>{stepContent(activeStep)}</Box>
 
         {/* Deploy progress */}
         {deployingSlug && (
@@ -2440,7 +2448,7 @@ export function EditTenantModal({ open, tenant, onClose, onRefetch, onSnackbar }
             <Typography variant="h6" sx={{ mb: 2, display: 'flex', alignItems: 'center', gap: 1 }}>
               <RocketLaunchIcon color="primary" /> Deploy Progress
             </Typography>
-            <Stepper activeStep={deployProgress} orientation="vertical" sx={{ mb: 3 }}>
+            <Stepper activeStep={deployProgress} orientation="vertical" sx={{ mb: 3  }}>
               {DEPLOY_STEPS.map((step) => {
                 const status = deployStepStatuses[step.key] || 'pending';
                 const isActive = status === 'inprogress';
@@ -2472,7 +2480,12 @@ export function EditTenantModal({ open, tenant, onClose, onRefetch, onSnackbar }
       </DialogContent>
 
       {/* FOOTER */}
-      <DialogActions sx={{ px: 3, py: 2.5, gap: 2 }}>
+      <DialogActions sx={{ px: 3, py: 2.5, gap: 2, position: 'sticky',
+        bottom: 0,
+        left: 0,
+        right: 0,
+        zIndex: 1,
+        backgroundColor: 'background.default' }}>
         {activeStep > 0 ? (
           <Button onClick={handleBack} disabled={!!deployingSlug || saving}>Back</Button>
         ) : (

@@ -60,7 +60,7 @@ export async function GET(request, { params }) {
             state: latest.state,
             projectId: project.id,
             deploymentId: latest.uid,
-            appUrl: latest.url ? `https://${latest.url}` : `https://${slug}.vercel.app`,
+            appUrl: `https://${slug}.vercel.app`,
             createdAt: latest.createdAt,
             readyAt: latest.readyAt,
             slug,
