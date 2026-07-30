@@ -172,6 +172,63 @@ function SummaryRow({ label, value, color }: { label: string; value: string; col
   );
 }
 
+// ── Initialization helpers for useState lazy initializers ──
+// These derive the initial form state from the tenant RTK Query cache.
+// No useEffect needed — the component remounts on tenant change (key={slug}).
+
+function initLicense(tenant: TenantEntry | null): LicenseConfig {
+  if (!tenant) return { licenseKey: '', licenseTier: 'premium', validUntil: '2028-12-31', features: DEFAULT_FEATURES, setupToken: '', adminPin: '', openaiApiKey: '' };
+  const cfg = (tenant.metadata?.config ?? {}) as Record<string, unknown>;
+  const savedLicense = (cfg.license ?? {}) as Record<string, unknown>;
+  return {
+    licenseKey: (savedLicense.key as string) || '',
+    licenseTier: (savedLicense.tier as string) || 'premium',
+    validUntil: (savedLicense.validUntil as string) || '2028-12-31',
+    features: (savedLicense.features as string[]) || DEFAULT_FEATURES,
+    setupToken: (cfg.apiKey as string) || '',
+    adminPin: '',
+    openaiApiKey: (cfg.openaiApiKey as string) || '',
+  };
+}
+
+function initGoogleOAuth(tenant: TenantEntry | null): GoogleOAuthConfig {
+  if (!tenant) return { clientId: '', clientSecret: '', projectId: '', authUri: 'https://accounts.google.com/o/oauth2/auth', tokenUri: 'https://oauth2.googleapis.com/token', redirectUris: [], supportEmail: '', gcpAccountEmail: 'reward2learn@gmail.com' };
+  const cfg = (tenant.metadata?.config ?? {}) as Record<string, unknown>;
+  const savedGoogle = (cfg.googleAuth ?? {}) as Record<string, unknown>;
+  const redirectUris = (savedGoogle.redirectUris as string[])?.length
+    ? (savedGoogle.redirectUris as string[])
+    : [`https://${tenant.slug}.vercel.app`, `https://${tenant.slug}.vercel.app/api/auth?action=google-callback`];
+  return {
+    clientId: (savedGoogle.clientId as string) || '',
+    clientSecret: (savedGoogle.clientSecret as string) || '',
+    projectId: (savedGoogle.projectId as string) || '',
+    authUri: (savedGoogle.authUri as string) || 'https://accounts.google.com/o/oauth2/auth',
+    tokenUri: 'https://oauth2.googleapis.com/token',
+    redirectUris,
+    supportEmail: (savedGoogle.supportEmail as string) || '',
+    gcpAccountEmail: (savedGoogle.gcpAccountEmail as string) || 'reward2learn@gmail.com',
+  };
+}
+
+function initDbConfig(tenant: TenantEntry | null): DatabaseConfig {
+  if (!tenant) return { dbUrl: '', pooledUrl: '', directUrl: '' };
+  const cfg = (tenant.metadata?.config ?? {}) as Record<string, unknown>;
+  const savedDb = (cfg.database ?? {}) as Record<string, unknown>;
+  const dbUrl = (savedDb.pooledUrl as string) || (savedDb.databaseUrl as string) || tenant.dbUrl || '';
+  return {
+    dbUrl,
+    pooledUrl: dbUrl,
+    directUrl: (savedDb.directUrl as string) || '',
+  };
+}
+
+function initEnvPairs(tenant: TenantEntry | null): { key: string; value: string }[] {
+  if (!tenant) return [];
+  const cfg = (tenant.metadata?.config ?? {}) as Record<string, unknown>;
+  const savedEnv = (cfg.env ?? {}) as Record<string, string>;
+  return Object.entries(savedEnv).map(([key, value]) => ({ key, value }));
+}
+
 export function EditTenantModal({ open, tenant, onClose, onRefetch, onSnackbar }: EditTenantModalProps) {
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down('md'));
@@ -181,33 +238,16 @@ export function EditTenantModal({ open, tenant, onClose, onRefetch, onSnackbar }
   const [activeStep, setActiveStep] = useState(0);
 
   // ── Template / Colors ──────────────────────────────────────
-  const [editTemplate, setEditTemplate] = useState('financial-analytics');
-  const [editPrimaryColor, setEditPrimaryColor] = useState('#eb3d28');
-  const [editSecondaryColor, setEditSecondaryColor] = useState('#0af9fe');
-  const [displayName, setDisplayName] = useState('');
+  const [editTemplate, setEditTemplate] = useState(() => tenant?.template || 'financial-analytics');
+  const [editPrimaryColor, setEditPrimaryColor] = useState(() => tenant?.primaryColor || getTemplate(tenant?.template || 'financial-analytics').defaultColors.primary);
+  const [editSecondaryColor, setEditSecondaryColor] = useState(() => tenant?.secondaryColor || getTemplate(tenant?.template || 'financial-analytics').defaultColors.secondary);
+  const [displayName, setDisplayName] = useState(() => tenant?.displayName || '');
 
   // ── License & API Key ──────────────────────────────────────
-  const [license, setLicense] = useState<LicenseConfig>({
-    licenseKey: '',
-    licenseTier: 'premium',
-    validUntil: '2028-12-31',
-    features: DEFAULT_FEATURES,
-    setupToken: '',
-    adminPin: '',
-    openaiApiKey: '',
-  });
+  const [license, setLicense] = useState<LicenseConfig>(() => initLicense(tenant));
 
   // ── Google OAuth ───────────────────────────────────────────
-  const [googleOAuth, setGoogleOAuth] = useState<GoogleOAuthConfig>({
-    clientId: '',
-    clientSecret: '',
-    projectId: '',
-    authUri: 'https://accounts.google.com/o/oauth2/auth',
-    tokenUri: 'https://oauth2.googleapis.com/token',
-    redirectUris: [],
-    supportEmail: '',
-    gcpAccountEmail: 'reward2learn@gmail.com',
-  });
+  const [googleOAuth, setGoogleOAuth] = useState<GoogleOAuthConfig>(() => initGoogleOAuth(tenant));
   const [showSecret, setShowSecret] = useState(false);
   const [newRedirectUri, setNewRedirectUri] = useState('');
   const [provisioningOAuth, setProvisioningOAuth] = useState(false);
@@ -215,11 +255,7 @@ export function EditTenantModal({ open, tenant, onClose, onRefetch, onSnackbar }
   const [provisionOAuthError, setProvisionOAuthError] = useState<string | null>(null);
 
   // ── Database ───────────────────────────────────────────────
-  const [dbConfig, setDbConfig] = useState<DatabaseConfig>({
-    dbUrl: '',
-    pooledUrl: '',
-    directUrl: '',
-  });
+  const [dbConfig, setDbConfig] = useState<DatabaseConfig>(() => initDbConfig(tenant));
   const [provisioningDb, setProvisioningDb] = useState(false);
   const [provisionDbResult, setProvisionDbResult] = useState<Record<string, unknown> | null>(null);
   const [provisionDbError, setProvisionDbError] = useState<string | null>(null);
@@ -227,7 +263,7 @@ export function EditTenantModal({ open, tenant, onClose, onRefetch, onSnackbar }
   const [connectionTestResult, setConnectionTestResult] = useState<string | null>(null);
 
   // ── Custom Env ─────────────────────────────────────────────
-  const [envPairs, setEnvPairs] = useState<EnvPair[]>([]);
+  const [envPairs, setEnvPairs] = useState<EnvPair[]>(() => initEnvPairs(tenant));
   const [newEnvKey, setNewEnvKey] = useState('');
   const [newEnvValue, setNewEnvValue] = useState('');
 
@@ -258,8 +294,8 @@ export function EditTenantModal({ open, tenant, onClose, onRefetch, onSnackbar }
   const [deployDetails, setDeployDetails] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
   const [importing, setImporting] = useState(false);
-  const [deployHookUrl, setDeployHookUrl] = useState('');
-  const [vercelProjectId, setVercelProjectId] = useState('');
+  const [deployHookUrl, setDeployHookUrl] = useState(() => { const c = (tenant?.metadata?.config ?? {}) as Record<string, unknown>; return ((c.hooks as Record<string, unknown>)?.deployHookUrl as string) || ''; });
+  const [vercelProjectId, setVercelProjectId] = useState(() => tenant?.vercelProjectId || '');
 
   // ── Flight Check state ────────────────────────────────────
   type CheckItem = { label: string; status: 'pass' | 'fail' | 'warn'; detail: string; _key: string; fixAction?: () => Promise<void>; fixLabel?: string };
@@ -282,8 +318,8 @@ export function EditTenantModal({ open, tenant, onClose, onRefetch, onSnackbar }
   const [flightRunId, setFlightRunId] = useState(0);
 
   // ── Admin & Auth ─────────────────────────────────────────
-  const [adminEmail, setAdminEmail] = useState(DEFAULT_PLATFORM_ADMIN_EMAIL);
-  const [pinSignInEnabled, setPinSignInEnabled] = useState(true);
+  const [adminEmail, setAdminEmail] = useState(() => { const c = (tenant?.metadata?.config ?? {}) as Record<string, unknown>; const a = (c.auth ?? {}) as Record<string, unknown>; return (a.adminEmail as string) || DEFAULT_PLATFORM_ADMIN_EMAIL; });
+  const [pinSignInEnabled, setPinSignInEnabled] = useState(() => { const c = (tenant?.metadata?.config ?? {}) as Record<string, unknown>; const a = (c.auth ?? {}) as Record<string, unknown>; return a.pinSignInEnabled !== false; });
 
   const importFileRef = useRef<HTMLInputElement>(null);
 
@@ -304,84 +340,7 @@ export function EditTenantModal({ open, tenant, onClose, onRefetch, onSnackbar }
   const [slugResult, setSlugResult] = useState<string | null>(null);
 
   // ── Initialize from tenant on open ────────────────────────
-  useEffect(() => {
-    if (tenant) {
-      const tpl = getTemplate(tenant.template || 'financial-analytics');
-      setEditTemplate(tenant.template || 'financial-analytics');
-      setEditPrimaryColor(tenant.primaryColor || tpl.defaultColors.primary);
-      setEditSecondaryColor(tenant.secondaryColor || tpl.defaultColors.secondary);
-      setDisplayName(tenant.displayName || '');
 
-      // Restore saved config from metadata
-      const cfg = (tenant.metadata?.config ?? {}) as Record<string, unknown>;
-      const savedLicense = (cfg.license ?? {}) as Record<string, unknown>;
-      const savedGoogle = (cfg.googleAuth ?? {}) as Record<string, unknown>;
-      const savedDb = (cfg.database ?? {}) as Record<string, unknown>;
-      const savedEnv = (cfg.env ?? {}) as Record<string, string>;
-
-      // Restore license fields
-      setLicense((prev) => ({
-        ...prev,
-        licenseKey: (savedLicense.key as string) || prev.licenseKey,
-        licenseTier: (savedLicense.tier as string) || prev.licenseTier,
-        validUntil: (savedLicense.validUntil as string) || prev.validUntil,
-        features: (savedLicense.features as string[]) || prev.features,
-        setupToken: (cfg.apiKey as string) || prev.setupToken,
-        openaiApiKey: (cfg.openaiApiKey as string) || prev.openaiApiKey,
-      }));
-
-      // Restore DB config (metadata.database overrides tenant.dbUrl)
-      setDbConfig({
-        dbUrl: (savedDb.pooledUrl as string) || (savedDb.databaseUrl as string) || tenant.dbUrl || '',
-        pooledUrl: (savedDb.pooledUrl as string) || (savedDb.databaseUrl as string) || tenant.dbUrl || '',
-        directUrl: (savedDb.directUrl as string) || '',
-      });
-
-      // Restore Google OAuth
-      setGoogleOAuth((g) => ({
-        ...g,
-        clientId: (savedGoogle.clientId as string) || g.clientId,
-        clientSecret: (savedGoogle.clientSecret as string) || g.clientSecret,
-        projectId: (savedGoogle.projectId as string) || g.projectId,
-        authUri: (savedGoogle.authUri as string) || g.authUri,
-        redirectUris: ((savedGoogle.redirectUris as string[])?.length
-          ? (savedGoogle.redirectUris as string[])
-          : [
-              `https://${tenant.slug}.vercel.app`,
-              `https://${tenant.slug}.vercel.app/api/auth?action=google-callback`,
-            ]),
-        supportEmail: (savedGoogle.supportEmail as string) || g.supportEmail,
-        gcpAccountEmail: (savedGoogle.gcpAccountEmail as string) || g.gcpAccountEmail,
-      }));
-
-      // Restore custom env vars
-      const envPairsFromMeta = Object.entries(savedEnv).map(([key, value]) => ({ key, value }));
-      setEnvPairs(envPairsFromMeta);
-
-      // Restore deploy hook URL
-      setDeployHookUrl(((cfg.hooks as Record<string, unknown>)?.deployHookUrl as string) || '');
-
-      // Restore vercel project ID
-      setVercelProjectId(tenant.vercelProjectId || '');
-
-      // Restore Admin & Auth config
-      const authConfig = (cfg.auth ?? {}) as Record<string, unknown>;
-      setAdminEmail((authConfig.adminEmail as string) || DEFAULT_PLATFORM_ADMIN_EMAIL);
-      setPinSignInEnabled(authConfig.pinSignInEnabled !== false);
-
-      // Initialize custom domain state
-      setCustomDomain('');
-      setDomainError(null);
-      setDomainResult(null);
-      setDomainList([]);
-
-      setActiveStep(0);
-      setProvisionOAuthResult(null);
-      setProvisionOAuthError(null);
-      setProvisionDbResult(null);
-      setProvisionDbError(null);
-    }
-  }, [tenant]);
 
   // ── Fetch roles when modal opens ───────────────────────────
   const fetchRoles = useCallback(async () => {

@@ -670,6 +670,7 @@ export function TenantDashboard() {
       {/* Edit Tenant Modal */}
       {editor && (
         <EditTenantModal
+          key={editor?.slug}
           open={Boolean(editor)}
           onClose={() => { setEditor(null); refetch(); }}
           tenant={editor}

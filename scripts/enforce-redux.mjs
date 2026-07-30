@@ -94,8 +94,8 @@ if (!existsSync(STORE_INDEX)) {
       violations.push(`store/index.ts: missing ${api} registration`);
     }
   }
-  if (!storeText.includes('base-query') && !existsSync(join(ROOT, 'store/base-query.ts'))) {
-    violations.push('store: missing base-query.ts');
+  if (!existsSync(join(ROOT, '../shared/src/store/base-query.ts'))) {
+    violations.push('shared/src/store/base-query.ts: missing (required by all API slices)');
   }
 }
 
