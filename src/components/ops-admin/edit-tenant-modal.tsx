@@ -67,6 +67,8 @@ import VerifiedIcon from '@mui/icons-material/Verified';
 import VerifiedUserIcon from '@mui/icons-material/VerifiedUser';
 import Visibility from '@mui/icons-material/Visibility';
 import VisibilityOff from '@mui/icons-material/VisibilityOff';
+import WarningIcon from '@mui/icons-material/Warning';
+import ErrorIcon from '@mui/icons-material/Error';
 
 import { getTemplate } from '@/domain/tenant/template-catalog';
 import { DEFAULT_PLATFORM_ADMIN_EMAIL } from '@/domain/security/persons';
@@ -133,6 +135,7 @@ const EDIT_STEPS: Array<{ label: string; icon: React.ReactNode; key: string }> =
   { label: 'Functional Roles', icon: <PeopleIcon fontSize="small" />, key: 'roles' },
   { label: 'Custom Domain', icon: <LanguageIcon fontSize="small" />, key: 'domain' },
   { label: 'Admin & Auth', icon: <VerifiedUserIcon fontSize="small" />, key: 'auth' },
+  { label: 'Flight Check', icon: <VerifiedIcon fontSize="small" />, key: 'flightcheck' },
   { label: 'Summary', icon: <RocketLaunchIcon fontSize="small" />, key: 'summary' },
 ];
 
@@ -2360,7 +2363,151 @@ export function EditTenantModal({ open, tenant, onClose, onRefetch, onSnackbar }
     </Stack>
   );
 
-  // ── Step 13: Summary ──────────────────────────────────────
+
+  // ── Step 13: Flight Check ─────────────────────────────
+  const renderStepFlightCheck = () => {
+    if (!tenant) return null;
+    const cfg = ((tenant.metadata as Record<string, unknown>)?.config ?? {}) as Record<string, unknown>;
+    const license = (cfg?.license ?? {}) as Record<string, unknown>;
+    const googleAuth = (cfg?.googleAuth ?? {}) as Record<string, unknown>;
+    const database = (cfg?.database ?? {}) as Record<string, unknown>;
+    const hooks = (cfg?.hooks ?? {}) as Record<string, unknown>;
+    const authConfig = (cfg?.auth ?? {}) as Record<string, unknown>;
+
+    type CheckItem = { label: string; status: 'pass' | 'fail' | 'warn'; detail: string };
+    const checks: CheckItem[] = [];
+
+    // Google OAuth
+    if (googleAuth.clientId && googleAuth.clientSecret) {
+      checks.push({ label: 'Google OAuth Client ID', status: 'pass', detail: (googleAuth.clientId as string).slice(0, 30) + '...' });
+    } else {
+      checks.push({ label: 'Google OAuth Client ID', status: 'fail', detail: 'Missing - Google sign-in will not work' });
+    }
+    if (googleAuth.projectId) {
+      checks.push({ label: 'Google OAuth Project ID', status: 'pass', detail: googleAuth.projectId as string });
+    } else {
+      checks.push({ label: 'Google OAuth Project ID', status: 'warn', detail: 'Not set - using shared project' });
+    }
+
+    // Redirect URIs
+    const redirectUris = (googleAuth.redirectUris as string[]) || [];
+    const hasCallbackUri = redirectUris.some((u: string) => u.includes('/api/auth/callback/google'));
+    if (hasCallbackUri) {
+      checks.push({ label: 'Redirect URI (callback/google)', status: 'pass', detail: 'Configured in Google Cloud Console' });
+    } else {
+      checks.push({ label: 'Redirect URI (callback/google)', status: 'fail', detail: 'Missing - add /api/auth/callback/google to OAuth client' });
+    }
+
+    // License
+    if (license.licenseKey) {
+      checks.push({ label: 'License Key', status: 'pass', detail: (license.licenseKey as string).slice(0, 25) + '...' });
+    } else {
+      checks.push({ label: 'License Key', status: 'fail', detail: 'Missing - tenant may not be fully functional' });
+    }
+    if (license.tier) {
+      checks.push({ label: 'License Tier', status: 'pass', detail: (license.tier as string).toUpperCase() });
+    } else {
+      checks.push({ label: 'License Tier', status: 'warn', detail: 'Not set' });
+    }
+    if (license.validUntil) {
+      const valid = new Date(license.validUntil as string) > new Date();
+      checks.push({ label: 'License Expiry', status: valid ? 'pass' : 'fail', detail: valid ? 'Valid until ' + (license.validUntil as string) : 'EXPIRED: ' + (license.validUntil as string) });
+    }
+
+    // API Key
+    const apiKey = (cfg?.apiKey as string) || '';
+    checks.push({ label: 'API Key', status: apiKey ? 'pass' : 'fail', detail: apiKey ? 'Configured' : 'Missing - set a setup/api key' });
+
+    // Database
+    const dbUrl = database.databaseUrl as string || '';
+    checks.push({ label: 'Database URL', status: dbUrl ? 'pass' : 'fail', detail: dbUrl ? dbUrl.slice(0, 40) + '...' : 'Missing - database connection required' });
+
+    // Deploy Hook
+    const hookUrl = hooks.deployHookUrl as string || '';
+    const hookValid = hookUrl.includes('/deploy/prj_');
+    if (hookUrl && hookValid) {
+      checks.push({ label: 'Deploy Hook URL', status: 'pass', detail: 'Valid format' });
+    } else if (hookUrl) {
+      checks.push({ label: 'Deploy Hook URL', status: 'warn', detail: 'URL format may be incorrect' });
+    } else {
+      checks.push({ label: 'Deploy Hook URL', status: 'warn', detail: 'Not set - use Deploy with Git instead' });
+    }
+
+    // Vercel Project ID
+    const vpId = tenant.vercelProjectId || (cfg?.vercelProjectId as string) || '';
+    checks.push({ label: 'Vercel Project ID', status: vpId ? 'pass' : 'fail', detail: vpId || 'Missing - required for deployment tracking' });
+
+    // Admin email
+    const adminEmail = authConfig.adminEmail as string || (cfg?.adminEmail as string) || '';
+    checks.push({ label: 'Admin Email', status: adminEmail ? 'pass' : 'fail', detail: adminEmail || 'Not set - platform-admin sign-in may fail' });
+
+    // PIN sign-in
+    const pinEnabled = authConfig.pinSignInEnabled !== false;
+    checks.push({ label: 'PIN Sign-in', status: 'pass', detail: pinEnabled ? 'Enabled' : 'Disabled (Google-only)' });
+
+    // OpenAI API Key
+    const openaiKey = cfg?.openaiApiKey as string || '';
+    checks.push({ label: 'OpenAI API Key', status: openaiKey ? 'pass' : 'warn', detail: openaiKey ? 'Configured' : 'Not set - AI features limited' });
+
+    // Deployment status
+    const tenantStatus = tenant.status || 'unknown';
+    checks.push({ label: 'Tenant Status', status: tenantStatus === 'live' ? 'pass' : tenantStatus === 'error' ? 'fail' : 'warn', detail: tenantStatus });
+
+    const passCount = checks.filter(function(c) { return c.status === 'pass'; }).length;
+    const failCount = checks.filter(function(c) { return c.status === 'fail'; }).length;
+    const warnCount = checks.filter(function(c) { return c.status === 'warn'; }).length;
+    const overallStatus = failCount > 0 ? 'fail' : warnCount > 0 ? 'warn' : 'pass';
+
+    return (
+      <Stack spacing={3}>
+        <Stack direction="row" spacing={1.5} sx={{ alignItems: 'center' }}>
+          <VerifiedIcon color={overallStatus === 'pass' ? 'success' : overallStatus === 'warn' ? 'warning' : 'error'} />
+          <Typography variant="subtitle1" sx={{ fontWeight: 600 }}>
+            Flight Check
+          </Typography>
+          <Chip
+            label={overallStatus === 'pass' ? passCount + '/' + checks.length + ' PASS' : passCount + ' pass, ' + warnCount + ' warn, ' + failCount + ' fail'}
+            size="small"
+            color={overallStatus === 'pass' ? 'success' : overallStatus === 'warn' ? 'warning' : 'error'}
+          />
+        </Stack>
+
+        <Typography variant="body2" color="text.secondary">
+          Validates all tenant configuration items. Fix any <strong>fail</strong> items before deploying.
+        </Typography>
+
+        {checks.map(function(check, idx) {
+          return (
+            <Paper key={idx} variant="outlined" sx={{
+              p: 1.5,
+              borderColor: check.status === 'pass' ? 'success.main' : check.status === 'warn' ? 'warning.main' : 'error.main',
+              bgcolor: 'background.default',
+            }}>
+              <Stack direction="row" spacing={1.5} sx={{ alignItems: 'flex-start' }}>
+                <Box sx={{ mt: 0.3, flexShrink: 0 }}>
+                  {check.status === 'pass' ? <CheckCircleIcon color="success" fontSize="small" /> :
+                   check.status === 'warn' ? <WarningIcon color="warning" fontSize="small" /> :
+                   <ErrorIcon color="error" fontSize="small" />}
+                </Box>
+                <Box sx={{ flex: 1, minWidth: 0 }}>
+                  <Typography variant="body2" sx={{ fontWeight: 600 }}>{check.label}</Typography>
+                  <Typography variant="caption" color="text.secondary">{check.detail}</Typography>
+                </Box>
+              </Stack>
+            </Paper>
+          );
+        })}
+
+        <Alert severity={overallStatus === 'pass' ? 'success' : overallStatus === 'warn' ? 'warning' : 'error'}>
+          <AlertTitle>{overallStatus === 'pass' ? 'All checks passed' : overallStatus === 'warn' ? 'Warnings found' : 'Failures found'}</AlertTitle>
+          {overallStatus === 'pass' ? 'Tenant configuration looks good. Proceed to deploy.' :
+           failCount + ' item(s) must be fixed before deployment is reliable. ' + warnCount + ' item(s) should be reviewed.'}
+        </Alert>
+      </Stack>
+    );
+  };
+
+  // ── Step 14: Summary ──────────────────────────────────────
   const renderStepSummary = () => (
     <Stack spacing={3}>
       <Stack direction="row" spacing={1.5} sx={{ alignItems: 'center' }}>
@@ -2506,7 +2653,8 @@ export function EditTenantModal({ open, tenant, onClose, onRefetch, onSnackbar }
       case 10: return renderStepRoles();
       case 11: return renderStepCustomDomain();
       case 12: return renderStepAuth();
-      case 13: return renderStepSummary();
+      case 13: return renderStepFlightCheck();
+      case 14: return renderStepSummary();
       default: return null;
     }
   };
