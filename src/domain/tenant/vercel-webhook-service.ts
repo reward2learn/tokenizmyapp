@@ -76,12 +76,18 @@ function verifySignature(rawBody: string, signature: string | null, secret: stri
   try {
     const hmac = crypto.createHmac('sha256', secret);
     hmac.update(rawBody);
-    const computedSignature = hmac.digest('hex');
+    const computedHex = hmac.digest('hex');
+
+    // Both must be valid hex strings for buffer comparison
+    if (computedHex.length !== signature.length) {
+      console.warn('[vercel-webhook] Signature length mismatch: computed=' + computedHex.length + ' received=' + signature.length);
+      return false;
+    }
 
     // Use timingSafeEqual to prevent timing attacks
     return crypto.timingSafeEqual(
-      Buffer.from(computedSignature),
-      Buffer.from(signature)
+      Buffer.from(computedHex, 'hex'),
+      Buffer.from(signature, 'hex')
     );
   } catch (err) {
     console.error('[vercel-webhook] Signature verification error:', err);
