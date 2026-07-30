@@ -451,7 +451,18 @@ async function createOAuthClient(
     if (res.status === 409) {
       console.warn('[google-cloud] OAuth client already exists (409)');
       const existing = await listOAuthClients(accessToken, projectId);
-      if (existing) return existing;
+      if (existing) {
+        // Client exists but may have old redirect URIs — update them
+        try {
+          console.log('[google-cloud] Updating existing OAuth client redirect URIs...');
+          const updated = await updateOAuthClientRedirectUris(accessToken, projectId, existing.client_id, config.redirectUris);
+          console.log('[google-cloud] OAuth client redirect URIs updated:', updated.redirect_uris);
+          return updated;
+        } catch (updateErr) {
+          console.warn('[google-cloud] Failed to update existing OAuth client, returning as-is:', updateErr instanceof Error ? updateErr.message : String(updateErr));
+          return existing;
+        }
+      }
     }
     console.warn(`[google-cloud] createOAuthClient returned ${res.status} (non-fatal): ${errText.slice(0, 300)}`);
     throw new Error(`createOAuthClient failed: ${res.status}`);
@@ -478,6 +489,41 @@ async function listOAuthClients(
 
   const data = await res.json() as { clients?: GcpOAuthClientResponse[] };
   return data.clients?.find((c) => c.redirect_uris?.length) ?? null;
+}
+
+/**
+ * Update the redirect URIs on an existing OAuth 2.0 client.
+ * Uses PATCH /v2/oauth-clients/{clientId} to add/modify redirect URIs.
+ */
+export async function updateOAuthClientRedirectUris(
+  accessToken: string,
+  projectId: string,
+  clientId: string,
+  redirectUris: string[],
+): Promise<GcpOAuthClientResponse> {
+  const url = `https://oauth2.googleapis.com/v2/oauth-clients/${encodeURIComponent(clientId)}?projectId=${encodeURIComponent(projectId)}`;
+  
+  const res = await fetch(url, {
+    method: 'PATCH',
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      redirectUris,
+      javascriptOrigins: redirectUris.map((u) => {
+        try { const p = new URL(u); return `${p.protocol}//${p.host}`; }
+        catch { return u; }
+      }).filter((v, i, a) => a.indexOf(v) === i),
+    }),
+  });
+
+  if (!res.ok) {
+    const errText = await res.text().catch(() => '');
+    throw new Error(`Failed to update OAuth client: ${res.status} ${errText.slice(0, 300)}`);
+  }
+
+  return res.json() as Promise<GcpOAuthClientResponse>;
 }
 
 /**
