@@ -981,23 +981,40 @@ export function EditTenantModal({ open, tenant, onClose, onRefetch, onSnackbar }
       // Save config first so deployHookUrl and other fields persist
       await handleSave();
 
-      const payload = buildDeployPayload();
-      const deployRes = await fetch(`/api/admin/tenants/${tenant.slug}/deploy`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...payload, gitSource: true }),
-      });
+      if (deployHookUrl) {
+        // Use the deploy hook URL directly — it has its own auth baked in
+        const hookRes = await fetch(deployHookUrl, { method: 'POST' });
+        const hookData = await hookRes.json() as { job?: { id?: string; state?: string } };
+        if (!hookData?.job?.id) {
+          throw new Error(hookData && typeof hookData === 'object' && 'error' in hookData
+            ? String((hookData as Record<string, unknown>).error)
+            : 'Deploy hook did not return a job ID');
+        }
+        onSnackbar({
+          message: `🚀 ${tenant.displayName} deploy hook triggered (job: ${hookData.job.id}). Building in background.`,
+          severity: 'success',
+        });
+      } else {
+        // Fallback: call the deploy API route (requires valid VERCEL_TOKEN env var)
+        const payload = buildDeployPayload();
+        const deployRes = await fetch(`/api/admin/tenants/${tenant.slug}/deploy`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ ...payload, gitSource: true }),
+        });
 
-      const deployData = await deployRes.json();
-      if (!deployRes.ok || !deployData.success) {
-        throw new Error(deployData.error || 'Deploy API failed');
+        const deployData = await deployRes.json();
+        if (!deployRes.ok || !deployData.success) {
+          throw new Error(deployData.error || 'Deploy API failed');
+        }
+
+        onSnackbar({
+          message: `🚀 ${tenant.displayName} Git deployment triggered from main branch. Building in background.`,
+          severity: 'success',
+        });
       }
 
       dispatch(setThemeColors({ primary: editPrimaryColor, secondary: editSecondaryColor }));
-      onSnackbar({
-        message: `🚀 ${tenant.displayName} Git deployment triggered from main branch. Building in background.`,
-        severity: 'success',
-      });
       onRefetch();
       setDeployingSlug(null);
       setActiveStep(0);
@@ -1007,7 +1024,7 @@ export function EditTenantModal({ open, tenant, onClose, onRefetch, onSnackbar }
       onSnackbar({ message: `❌ Git deploy failed: ${msg}`, severity: 'error' });
       setDeployingSlug(null);
     }
-  }, [tenant, buildDeployPayload, editTemplate, editPrimaryColor, editSecondaryColor, dispatch, onSnackbar, onRefetch, onClose, deployingSlug, handleSave]);
+  }, [tenant, buildDeployPayload, deployHookUrl, editTemplate, editPrimaryColor, editSecondaryColor, dispatch, onSnackbar, onRefetch, onClose, deployingSlug, handleSave]);
 
   // ── Close / Reset ─────────────────────────────────────────
   const handleClose = () => {
