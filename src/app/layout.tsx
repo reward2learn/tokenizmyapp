@@ -11,6 +11,9 @@ const tenant = getTenantConfig();
 export const metadata: Metadata = {
   title: tenant.appTitle,
   description: tenant.description,
+  icons: {
+    icon: '/api/favicon',
+  },
 };
 
 export default function RootLayout({ children }: { children: ReactNode }) {

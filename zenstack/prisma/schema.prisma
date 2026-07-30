@@ -534,6 +534,10 @@ model Tenant {
   primaryColor    String          @default("#eb3d28") @map("primary_color")
   /// Brand secondary color (hex)
   secondaryColor  String          @default("#0af9fe") @map("secondary_color")
+  /// Base64-encoded favicon data (served via /api/favicon)
+  faviconData     String?         @map("favicon_data")
+  /// Favicon MIME type (e.g. "image/x-icon", "image/png")
+  faviconMimeType String?         @default("image/x-icon") @map("favicon_mime_type")
   /// Arbitrary JSON metadata
   metadata        Json            @default("{}")
   /// Who created this tenant

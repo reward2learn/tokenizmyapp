@@ -21,6 +21,8 @@ function mapTenantRow(row) {
         apiKey: row.api_key,
         primaryColor: row.primary_color,
         secondaryColor: row.secondary_color,
+        faviconData: row.favicon_data || null,
+        faviconMimeType: row.favicon_mime_type || null,
         metadata: row.metadata,
         createdBy: row.created_by,
         createdAt: row.created_at,

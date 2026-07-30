@@ -14,6 +14,8 @@ export interface TenantEntry {
   apiKey: string | null;
   primaryColor: string;
   secondaryColor: string;
+  faviconData: string | null;
+  faviconMimeType: string | null;
   metadata: Record<string, unknown>;
   createdBy: string | null;
   createdAt: string;

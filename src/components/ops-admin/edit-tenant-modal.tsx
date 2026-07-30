@@ -308,6 +308,8 @@ export function EditTenantModal({ open, tenant, onClose, onRefetch, onSnackbar }
       setEditTemplate(tenant.template || 'financial-analytics');
       setEditPrimaryColor(tenant.primaryColor || tpl.defaultColors.primary);
       setEditSecondaryColor(tenant.secondaryColor || tpl.defaultColors.secondary);
+      setEditFaviconData(tenant.faviconData || null);
+      setEditFaviconMimeType(tenant.faviconMimeType || 'image/x-icon');
       setDisplayName(tenant.displayName || '');
 
       // Restore saved config from metadata
@@ -1296,6 +1298,94 @@ export function EditTenantModal({ open, tenant, onClose, onRefetch, onSnackbar }
             <Box sx={{ width: 56, height: 56, borderRadius: 2, bgcolor: editSecondaryColor, border: '3px solid', borderColor: 'background.paper', boxShadow: 2 }} />
             <Typography variant="caption" sx={{ fontFamily: 'monospace', fontSize: '0.7rem' }}>{editSecondaryColor}</Typography>
           </Stack>
+        </Stack>
+
+        {/* Favicon upload */}
+        <Typography variant="caption" sx={{ fontWeight: 600, color: 'text.secondary', display: 'block', mb: 1 }}>
+          FAVICON
+        </Typography>
+        <Stack direction="row" spacing={2} sx={{ alignItems: 'center', mb: 3 }}>
+          <Box
+            component="img"
+            src={editFaviconData ? `data:${editFaviconMimeType};base64,${editFaviconData}` : '/favicon.ico'}
+            alt="Favicon preview"
+            sx={{
+              width: 32, height: 32,
+              border: '1px solid', borderColor: 'divider',
+              borderRadius: 0.5,
+              objectFit: 'contain',
+              bgcolor: 'black',
+            }}
+            onError={(e: React.SyntheticEvent<HTMLImageElement>) => {
+              (e.target as HTMLImageElement).style.display = 'none';
+            }}
+          />
+          <Button
+            variant="outlined"
+            size="small"
+            component="label"
+            disabled={uploadingFavicon}
+          >
+            {uploadingFavicon ? 'Uploading...' : editFaviconData ? 'Replace' : 'Upload .ico'}
+            <input
+              type="file"
+              hidden
+              accept=".ico,.png"
+              onChange={async (e) => {
+                const file = e.target.files?.[0];
+                if (!file) return;
+                // Validate file size (max 64KB)
+                if (file.size > 65536) {
+                  setUploadingFavicon(false);
+                  (window as unknown as Record<string, (_msg: string) => void>).snackbar?.('Favicon must be under 64KB');
+                  return;
+                }
+                setUploadingFavicon(true);
+                try {
+                  const reader = new FileReader();
+                  reader.onload = async () => {
+                    const base64 = (reader.result as string).split(',')[1];
+                    const mimeType = file.type || (file.name.endsWith('.ico') ? 'image/x-icon' : 'image/png');
+                    
+                    const res = await fetch('/api/admin/tenants/' + tenant?.slug + '/favicon', {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({ data: base64, mimeType }),
+                    });
+                    const data = await res.json();
+                    if (data.success) {
+                      setEditFaviconData(base64);
+                      setEditFaviconMimeType(mimeType);
+                    } else {
+                      (window as unknown as Record<string, (_msg: string) => void>).snackbar?.(data.error || 'Upload failed');
+                    }
+                  };
+                  reader.readAsDataURL(file);
+                } catch {
+                  (window as unknown as Record<string, (_msg: string) => void>).snackbar?.('Failed to read file');
+                } finally {
+                  setUploadingFavicon(false);
+                }
+              }}
+            />
+          </Button>
+          {editFaviconData ? (
+            <Button
+              size="small"
+              color="error"
+              variant="text"
+              onClick={async () => {
+                try {
+                  await fetch('/api/admin/tenants/' + tenant?.slug + '/favicon', { method: 'DELETE' });
+                  setEditFaviconData(null);
+                } catch {
+                  (window as unknown as Record<string, (_msg: string) => void>).snackbar?.('Failed to remove favicon');
+                }
+              }}
+            >
+              Remove
+            </Button>
+          ) : null}
         </Stack>
 
         {/* Pages */}
