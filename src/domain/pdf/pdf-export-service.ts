@@ -63,11 +63,20 @@ export async function generateDashboardPdf(
 
   try {
     const page = await browser.newPage();
-    // Two-phase navigation: load the page first to establish the domain context,
-    // then set the session cookie in the browser's cookie jar, then reload so
-    // the page renders with authenticated session. This avoids cookie rejection
-    // when the page is on about:blank (different origin than the target domain).
+
+    // Collect JS errors and console output for diagnostics
+    const jsErrors: string[] = [];
+    const consoleLogs: string[] = [];
+    page.on('pageerror', (err) => jsErrors.push(err.message));
+    page.on('console', (msg) => {
+      if (msg.type() === 'error') consoleLogs.push(msg.text());
+    });
+
+    // Phase 1: Navigate to establish domain context, then set cookie
     await page.goto(targetUrl, { waitUntil: 'domcontentloaded', timeout: 45_000 });
+
+    // Extract the JWT from the cookie header and set it in the browser's cookie jar
+    let jwtValue = '';
     if (cookieHeader) {
       const parsed = Object.fromEntries(
         cookieHeader.split(';').map((p) => {
@@ -75,11 +84,11 @@ export async function generateDashboardPdf(
           return [k, v.join('=')];
         }).filter(([k]) => k),
       );
-      const sessionValue = parsed[COOKIE_NAME];
-      if (sessionValue) {
+      jwtValue = parsed[COOKIE_NAME] ?? '';
+      if (jwtValue) {
         await page.setCookie({
           name: COOKIE_NAME,
-          value: sessionValue,
+          value: jwtValue,
           url: targetUrl,
           httpOnly: true,
           secure: true,
@@ -87,29 +96,41 @@ export async function generateDashboardPdf(
         });
       }
     }
-    // Reload with the cookie now in the browser's cookie jar
+
+    // Phase 2: Reload so the page renders with auth
     await page.reload({ waitUntil: 'networkidle0', timeout: 45_000 });
-    // Wait for the dashboard content to render (the DynamicPage wrapper).
-    // Fall back to waiting for any MUI element if #pdfCapture isn't present.
+
+    // Wait for the page content (DynamicPage wrapper with #pdfCapture)
     try {
       await page.waitForSelector('#pdfCapture', { timeout: 15_000 });
     } catch {
-      // Check if auth is blocking by looking for any sign-in or loading elements
+      // Diagnosis: check what the page actually rendered
       const pageState = await page.evaluate(() => ({
+        readyState: document.readyState,
+        title: document.title,
+        scripts: document.querySelectorAll('script[src]').length,
+        bodyLen: document.body?.innerHTML?.length ?? 0,
         signInVisible: document.querySelector('[data-testid="sign-in-panel"]') !== null,
         spinnerVisible: document.querySelector('[role="progressbar"]') !== null,
         bodyHtml: document.body?.innerHTML?.slice(0, 500) ?? '',
       }));
+      const hasJsError = jsErrors.length > 0;
+      const diag = {
+        targetUrl,
+        hasJwt: !!jwtValue,
+        jsErrors,
+        consoleErrors: consoleLogs.slice(0, 5),
+        pageState,
+      };
+      console.error('[pdf] Diagnostic:', JSON.stringify(diag));
+
       if (pageState.signInVisible) {
-        throw new Error('Session cookie not accepted — page shows sign-in panel instead of dashboard content');
+        throw new Error('Session cookie not accepted — page shows sign-in panel');
       }
       if (pageState.spinnerVisible) {
-        // Page still loading. Wait extra time then retry.
         await page.waitForSelector('#pdfCapture', { timeout: 20_000 });
       } else {
-        // Unexpected state — capture HTML for debugging
-        console.error('[pdf] Unexpected page state:', JSON.stringify(pageState));
-        throw new Error(`#pdfCapture not found. Page shows: ${pageState.bodyHtml.slice(0, 200)}`);
+        throw new Error(`PDF capture failed. JS errors: ${jsErrors.join('; ') || 'none'}. Body length: ${pageState.bodyLen}. HTML: ${pageState.bodyHtml.slice(0, 200)}`);
       }
     }
     await page.evaluate('document.fonts && document.fonts.ready');
