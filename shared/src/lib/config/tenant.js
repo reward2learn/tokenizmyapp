@@ -74,22 +74,15 @@ export function isTenantDomain(hostname) {
 /**
  * Client-safe hook to get tenant config from env vars.
  * For dynamic overrides from DB, use the brand-config API instead.
+ *
+ * NEXT_PUBLIC_* env vars are replaced at build time, so they are
+ * available on both server and client. Do NOT use typeof window
+ * guards here — 'use client' components run SSR on the server,
+ * and the typeof window check produces different values between
+ * the server render and client hydration, causing React #418.
  */
 export function getClientTenantConfig() {
-    // On client side, NEXT_PUBLIC_* vars are available
-    const slug = (typeof window !== 'undefined'
-        ? process.env.NEXT_PUBLIC_TENANT_SLUG
-        : undefined)?.trim() || DEFAULT_TENANT.slug;
-    const displayName = (typeof window !== 'undefined'
-        ? process.env.NEXT_PUBLIC_TENANT_DISPLAY_NAME
-        : undefined)?.trim() || DEFAULT_TENANT.displayName;
-    const description = (typeof window !== 'undefined'
-        ? process.env.NEXT_PUBLIC_TENANT_DESCRIPTION
-        : undefined)?.trim() || `${displayName} ${DEFAULT_TENANT.description}`;
-    const appTitle = (typeof window !== 'undefined'
-        ? process.env.NEXT_PUBLIC_TENANT_APP_TITLE
-        : undefined)?.trim() || displayName;
-    return { slug, displayName, description, appTitle };
+    return getTenantConfig();
 }
 /**
  * Build a greeter string for AI prompts, chat, etc.
