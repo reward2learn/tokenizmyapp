@@ -6,10 +6,10 @@ const PUBLIC_SLUGS = new Set(['dashboard', 'terms-of-service', 'privacy-policy']
 
 const CSP = [
   "default-src 'self'",
-  "script-src 'self' 'unsafe-eval' 'unsafe-inline'",
+  "script-src 'self' 'unsafe-eval' 'unsafe-inline' https://vercel.live",
   "style-src 'self' 'unsafe-inline'",
   "img-src 'self' data: https:",
-  "connect-src 'self' https://accounts.google.com https://oauth2.googleapis.com https://api.openai.com https://api.vercel.com",
+  "connect-src 'self' https://accounts.google.com https://oauth2.googleapis.com https://api.openai.com https://api.vercel.com https://vercel.live",
   "font-src 'self' https://fonts.gstatic.com",
   "frame-ancestors 'none'",
   "form-action 'self'",
