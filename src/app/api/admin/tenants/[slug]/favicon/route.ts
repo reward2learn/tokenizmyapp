@@ -44,9 +44,15 @@ export async function POST(
 
   try {
     const prisma = new PrismaClient({ datasources: { db: { url } } });
-    await prisma.tenant.update({
+    await prisma.tenant.upsert({
       where: { slug },
-      data: {
+      update: {
+        faviconData: body.data,
+        faviconMimeType: mimeType,
+      },
+      create: {
+        slug,
+        displayName: slug,
         faviconData: body.data,
         faviconMimeType: mimeType,
       },
@@ -73,7 +79,7 @@ export async function DELETE(
 
   try {
     const prisma = new PrismaClient({ datasources: { db: { url } } });
-    await prisma.tenant.update({
+    await prisma.tenant.updateMany({
       where: { slug },
       data: {
         faviconData: null,
