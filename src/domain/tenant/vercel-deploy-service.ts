@@ -52,6 +52,9 @@ function extractConfigEnvVars(metadata: Record<string, unknown> | undefined | nu
     }
   }
 
+    const auth = (config.auth ?? {}) as Record<string, unknown>;
+  env['PIN_SIGN_IN_ENABLED'] = auth.pinSignInEnabled !== false ? 'true' : 'false';
+
   const envVars = (config.envVars ?? []) as Array<{ key: string; value: string }>;
   for (const ev of envVars) {
     if (ev.key) {

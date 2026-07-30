@@ -69,6 +69,7 @@ import Visibility from '@mui/icons-material/Visibility';
 import VisibilityOff from '@mui/icons-material/VisibilityOff';
 
 import { getTemplate } from '@/domain/tenant/template-catalog';
+import { DEFAULT_PLATFORM_ADMIN_EMAIL } from '@/domain/security/persons';
 import { TemplateSelector } from '@/components/ops-admin/tenant-wizard';
 import { useAppDispatch } from '@/store/hooks';
 import { setThemeColors } from '@/store/ui-slice';
@@ -131,6 +132,7 @@ const EDIT_STEPS: Array<{ label: string; icon: React.ReactNode; key: string }> =
   { label: 'Deploy Hooks', icon: <RocketLaunchIcon fontSize="small" />, key: 'hooks' },
   { label: 'Functional Roles', icon: <PeopleIcon fontSize="small" />, key: 'roles' },
   { label: 'Custom Domain', icon: <LanguageIcon fontSize="small" />, key: 'domain' },
+  { label: 'Admin & Auth', icon: <VerifiedUserIcon fontSize="small" />, key: 'auth' },
   { label: 'Summary', icon: <RocketLaunchIcon fontSize="small" />, key: 'summary' },
 ];
 
@@ -250,6 +252,11 @@ export function EditTenantModal({ open, tenant, onClose, onRefetch, onSnackbar }
   const [importing, setImporting] = useState(false);
   const [deployHookUrl, setDeployHookUrl] = useState('');
   const [vercelProjectId, setVercelProjectId] = useState('');
+
+  // ── Admin & Auth ─────────────────────────────────────────
+  const [adminEmail, setAdminEmail] = useState(DEFAULT_PLATFORM_ADMIN_EMAIL);
+  const [pinSignInEnabled, setPinSignInEnabled] = useState(true);
+
   const importFileRef = useRef<HTMLInputElement>(null);
 
   // ── Custom Domain ───────────────────────────────────────────
@@ -328,6 +335,11 @@ export function EditTenantModal({ open, tenant, onClose, onRefetch, onSnackbar }
 
       // Restore vercel project ID
       setVercelProjectId(tenant.vercelProjectId || '');
+
+      // Restore Admin & Auth config
+      const authConfig = (cfg.auth ?? {}) as Record<string, unknown>;
+      setAdminEmail((authConfig.adminEmail as string) || DEFAULT_PLATFORM_ADMIN_EMAIL);
+      setPinSignInEnabled(authConfig.pinSignInEnabled !== false);
 
       // Initialize custom domain state
       setCustomDomain('');
@@ -723,9 +735,14 @@ export function EditTenantModal({ open, tenant, onClose, onRefetch, onSnackbar }
         hooks: { deployHookUrl: deployHookUrl || undefined },
         vercelProjectId: vercelProjectId || undefined,
         supportEmail: googleOAuth.supportEmail,
+        adminEmail: adminEmail || DEFAULT_PLATFORM_ADMIN_EMAIL,
+        auth: {
+          adminEmail: adminEmail || DEFAULT_PLATFORM_ADMIN_EMAIL,
+          pinSignInEnabled,
+        },
       },
     };
-  }, [tenant, editTemplate, displayName, editPrimaryColor, editSecondaryColor, license, googleOAuth, dbConfig, envPairs]);
+  }, [tenant, editTemplate, displayName, editPrimaryColor, editSecondaryColor, license, googleOAuth, dbConfig, envPairs, adminEmail, pinSignInEnabled]);
 
   // ── Save handler ──────────────────────────────────────────
   const handleSave = useCallback(async () => {
@@ -767,6 +784,11 @@ export function EditTenantModal({ open, tenant, onClose, onRefetch, onSnackbar }
             env: Object.fromEntries(envPairs.filter((p) => p.key).map((p) => [p.key, p.value])),
             hooks: { deployHookUrl: deployHookUrl || undefined },
             vercelProjectId: vercelProjectId || undefined,
+            adminEmail: adminEmail || DEFAULT_PLATFORM_ADMIN_EMAIL,
+            auth: {
+              adminEmail: adminEmail || DEFAULT_PLATFORM_ADMIN_EMAIL,
+              pinSignInEnabled,
+            },
           },
         },
       };
@@ -2260,7 +2282,68 @@ export function EditTenantModal({ open, tenant, onClose, onRefetch, onSnackbar }
     );
   };
 
-  // ── Step 10: Summary ──────────────────────────────────────
+  // ── Step 12: Admin & Auth ──────────────────────────────
+  const renderStepAuth = () => (
+    <Stack spacing={3}>
+      <Stack direction="row" spacing={1.5} sx={{ alignItems: 'center' }}>
+        <VerifiedUserIcon color="primary" />
+        <Typography variant="subtitle1" sx={{ fontWeight: 600 }}>
+          Admin & Authentication
+        </Typography>
+      </Stack>
+      <Typography variant="body2" color="text.secondary">
+        Configure the default admin email for the tenant app and toggle authentication methods.
+      </Typography>
+
+      <Paper variant="outlined" sx={{ p: 2.5, borderColor: 'primary.main' }}>
+        <Typography variant="subtitle2" sx={{ fontWeight: 600, mb: 1.5 }}>
+          Default Admin Email
+        </Typography>
+        <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+          This email will be seeded as the <strong>platform-admin</strong> in the tenant database.
+          Users signing in with this email via Google OAuth will automatically get platform-admin
+          access in the tenant app.
+        </Typography>
+        <TextField
+          label="Admin Email"
+          value={adminEmail}
+          onChange={(e) => setAdminEmail(e.target.value)}
+          fullWidth
+          size="small"
+          placeholder="reward2learn@gmail.com"
+          helperText="Default: reward2learn@gmail.com"
+        />
+      </Paper>
+
+      <Paper variant="outlined" sx={{ p: 2.5, borderColor: 'primary.main' }}>
+        <Typography variant="subtitle2" sx={{ fontWeight: 600, mb: 1.5 }}>
+          Authentication Methods
+        </Typography>
+        <FormControlLabel
+          control={
+            <Switch
+              checked={pinSignInEnabled}
+              onChange={(e) => setPinSignInEnabled(e.target.checked)}
+            />
+          }
+          label={
+            <Stack spacing={0.5}>
+              <Typography variant="body2" sx={{ fontWeight: 500 }}>
+                Enable PIN Sign-in
+              </Typography>
+              <Typography variant="caption" color="text.secondary">
+                When enabled, users can sign in with both PIN codes and Google OAuth.
+                When disabled, only Google OAuth sign-in is available.
+              </Typography>
+            </Stack>
+          }
+          sx={{ alignItems: 'flex-start', mx: 0 }}
+        />
+      </Paper>
+    </Stack>
+  );
+
+  // ── Step 13: Summary ──────────────────────────────────────
   const renderStepSummary = () => (
     <Stack spacing={3}>
       <Stack direction="row" spacing={1.5} sx={{ alignItems: 'center' }}>
@@ -2331,6 +2414,17 @@ export function EditTenantModal({ open, tenant, onClose, onRefetch, onSnackbar }
         </Stack>
       </Paper>
 
+      {/* Admin & Auth */}
+      <Paper variant="outlined" sx={{ p: 2 }}>
+        <Typography variant="subtitle2" sx={{ fontWeight: 600, mb: 1 }}>
+          Admin & Auth
+        </Typography>
+        <Stack spacing={0.5}>
+          <SummaryRow label="Admin Email" value={adminEmail || DEFAULT_PLATFORM_ADMIN_EMAIL} />
+          <SummaryRow label="PIN Sign-in" value={pinSignInEnabled ? '✅ Enabled' : '❌ Disabled'} />
+        </Stack>
+      </Paper>
+
       {/* Custom Env & Roles */}
       <Paper variant="outlined" sx={{ p: 2 }}>
         <Typography variant="subtitle2" sx={{ fontWeight: 600, mb: 1 }}>
@@ -2394,7 +2488,8 @@ export function EditTenantModal({ open, tenant, onClose, onRefetch, onSnackbar }
       case 9: return renderStepHooks();
       case 10: return renderStepRoles();
       case 11: return renderStepCustomDomain();
-      case 12: return renderStepSummary();
+      case 12: return renderStepAuth();
+      case 13: return renderStepSummary();
       default: return null;
     }
   };
@@ -2499,23 +2594,12 @@ export function EditTenantModal({ open, tenant, onClose, onRefetch, onSnackbar }
 
         <Box sx={{ flex: 1 }} />
         {isSummaryStep ? (
-          <Stack direction="row" spacing={1.5}>
-            {deployHookUrl ? (
-              <Button variant="contained" color="primary" size="large" onClick={handleDeployWithGit}
-                disabled={!!deployingSlug || saving}
-                startIcon={deployingSlug ? <CircularProgress size={20} color="inherit" /> : <CloudUploadIcon />}
-                sx={{ fontWeight: 700, minWidth: { xs: '100%', sm: 220 } }}>
-                {deployingSlug ? 'DEPLOYING...' : 'Run Deploy Hook'}
-              </Button>
-            ) : (
-              <Button variant="outlined" size="small" onClick={handleDeploy}
-                disabled={!!deployingSlug || saving}
-                startIcon={deployingSlug ? <CircularProgress size={16} color="inherit" /> : <RocketLaunchIcon />}
-                sx={{ fontWeight: 600, whiteSpace: 'nowrap' }}>
-                {deployingSlug ? 'DEPLOYING...' : 'Deploy to Vercel'}
-              </Button>
-            )}
-          </Stack>
+          <Button variant="contained" color="primary" size="large" onClick={handleDeployWithGit}
+            disabled={!!deployingSlug || saving}
+            startIcon={deployingSlug ? <CircularProgress size={20} color="inherit" /> : <CloudUploadIcon />}
+            sx={{ fontWeight: 700, minWidth: { xs: '100%', sm: 220 } }}>
+            {deployingSlug ? 'DEPLOYING...' : 'Deploy with Git'}
+          </Button>
         ) : (
           <Button variant="contained" onClick={handleNext} disabled={!!deployingSlug || saving} sx={{ fontWeight: 600 }}>
             Continue
