@@ -47,6 +47,7 @@ import {
   useSeedTenantMutation,
   useMigrateTenantMutation,
   useDeployTenantMutation,
+  useUpdateTenantMutation,
   useGetTenantDomainsQuery,
   type TenantEntry,
 } from '@/store/apis/tenant-api';
@@ -126,6 +127,7 @@ export function TenantDashboard() {
   const [seedTenant, { isLoading: isSeeding }] = useSeedTenantMutation();
   const [migrateTenant, { isLoading: isMigrating }] = useMigrateTenantMutation();
   const [deployToVercel, { isLoading: isDeploying }] = useDeployTenantMutation();
+  const [updateTenant] = useUpdateTenantMutation();
   const [snackbar, setSnackbar] = useState<{ message: string; severity: 'success' | 'error' } | null>(null);
 
   // Domain refresh state
@@ -240,15 +242,36 @@ export function TenantDashboard() {
         appUrl = statusData.data?.appUrl || appUrl;
       }
 
+      // Map Vercel deploy state to tenant status
+      const mappedStatus: 'draft' | 'deploying' | 'live' | 'error' =
+        deployStatus === 'READY' ? 'live' :
+        deployStatus === 'ERROR' ? 'error' :
+        deployStatus === 'BUILDING' ? 'deploying' :
+        deployStatus === 'QUEUED' ? 'deploying' : 'error';
+
       // Evaluate license
       const hasLicense = !!license.licenseKey;
       const hasApiKey = !!apiKey;
       const licenseTier = (license.tier as string) || 'none';
       const licenseFeatures = Array.isArray(license.features) ? license.features : [];
 
+      // Persist updated status and appUrl to the backend
+      try {
+        await updateTenant({
+          slug,
+          status: mappedStatus,
+          appUrl: appUrl || undefined,
+        }).unwrap();
+      } catch (updateErr) {
+        console.warn(`[refresh-status] Failed to update tenant ${slug}:`, updateErr);
+      }
+
+      // Refresh the tenant list in the UI
+      refetch();
+
       setSnackbar({
-        message: `🔍 ${slug}: status=${deployStatus}, license=${licenseTier.toUpperCase()}${hasApiKey ? ' ✅' : ' ⚠️ no key'}, features=${licenseFeatures.length}`,
-        severity: deployStatus === 'READY' ? 'success' : 'error',
+        message: `🔍 ${slug}: status=${mappedStatus}, license=${licenseTier.toUpperCase()}${hasApiKey ? ' ✅' : ' ⚠️ no key'}, features=${licenseFeatures.length}`,
+        severity: mappedStatus === 'live' ? 'success' : 'error',
       });
     } catch {
       setSnackbar({ message: `Failed to refresh status for ${slug}`, severity: 'error' });
