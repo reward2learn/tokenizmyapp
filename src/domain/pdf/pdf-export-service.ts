@@ -4,6 +4,7 @@ import { existsSync } from 'node:fs';
 import { Buffer } from 'node:buffer';
 import type { DbClient } from '@/lib/db';
 import type { JobStatus } from '@/generated/prisma';
+import { COOKIE_NAME } from '@/lib/auth/jwt';
 
 export const PDF_FILENAME = 'RedRuby-Business-Review-June-2026.pdf';
 
@@ -62,11 +63,50 @@ export async function generateDashboardPdf(
 
   try {
     const page = await browser.newPage();
+    // Set the session cookie in the browser's cookie jar (not via extra headers,
+    // because setExtraHTTPHeaders may not propagate to fetch()/XHR calls).
+    // Extract just the session cookie from the full cookie header.
     if (cookieHeader) {
-      await page.setExtraHTTPHeaders({ cookie: cookieHeader });
+      const parsed = Object.fromEntries(
+        cookieHeader.split(';').map((p) => {
+          const [k, ...v] = p.trim().split('=');
+          return [k, v.join('=')];
+        }).filter(([k]) => k),
+      );
+      const sessionValue = parsed[COOKIE_NAME];
+      if (sessionValue) {
+        const url = new URL(targetUrl);
+        await page.setCookie({
+          name: COOKIE_NAME,
+          value: sessionValue,
+          domain: url.hostname,
+          path: '/',
+          httpOnly: true,
+          sameSite: 'Lax',
+        });
+      }
     }
     await page.goto(targetUrl, { waitUntil: 'networkidle0', timeout: 45_000 });
-    await page.waitForSelector('#pdfCapture', { timeout: 15_000 });
+    // Wait for the dashboard content to render (the DynamicPage wrapper).
+    // Fall back to waiting for any MUI element if #pdfCapture isn't present.
+    try {
+      await page.waitForSelector('#pdfCapture', { timeout: 15_000 });
+    } catch {
+      // #pdfCapture not found — check if auth is blocking by looking for sign-in elements
+      const signInVisible = await page.evaluate(() =>
+        document.querySelector('[data-testid="sign-in-panel"]') !== null
+      );
+      if (signInVisible) {
+        // Cookie didn't authenticate — user sees sign-in panel instead of dashboard
+        // Take a screenshot for debugging and throw a clear error
+        throw new Error('Session cookie not accepted — page shows sign-in panel instead of dashboard content');
+      }
+      // Maybe still loading (spinner visible). Wait extra time for React rendering.
+      await new Promise<void>((resolve) => {
+        globalThis.setTimeout(resolve, 10_000);
+      });
+      await page.waitForSelector('#pdfCapture', { timeout: 15_000 });
+    }
     await page.evaluate('document.fonts && document.fonts.ready');
 
     return await page.pdf({
