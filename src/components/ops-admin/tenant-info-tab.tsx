@@ -8,6 +8,7 @@ import Typography from '@mui/material/Typography';
 import OpenInNewIcon from '@mui/icons-material/OpenInNew';
 import Button from '@mui/material/Button';
 import { useGetBrandConfigQuery } from '@shared/store/apis/brand-config-api';
+import { useGetTenantQuery, useUploadTenantFaviconMutation, useRemoveTenantFaviconMutation } from '@/store/apis/tenant-api';
 import { getClientTenantConfig } from '@shared/lib/config/tenant';
 import { getTemplate } from '@/domain/tenant/template-catalog';
 
@@ -35,6 +36,9 @@ export function TenantInfoTab() {
             chip={effectiveTemplate !== 'default' ? effectiveTemplate : undefined}
           />
           <InfoRow label="App URL" value={`https://${tenant.slug}.vercel.app`} link={`https://${tenant.slug}.vercel.app`} />
+
+          {/* Favicon */}
+          <FaviconSection slug={tenant.slug} />
 
           {brand?.brandPrimaryColor ? (
             <Stack direction="row" spacing={2} sx={{ alignItems: 'center' }}>
@@ -65,6 +69,71 @@ export function TenantInfoTab() {
         </Stack>
       </Stack>
     </Paper>
+  );
+}
+
+function FaviconSection({ slug }: { slug: string }) {
+  const { data: tenantData } = useGetTenantQuery(slug);
+  const [uploadFavicon, { isLoading: uploading }] = useUploadTenantFaviconMutation();
+  const [removeFavicon] = useRemoveTenantFaviconMutation();
+
+  const tenant = tenantData?.data?.tenant;
+  const faviconData = tenant?.faviconData ?? null;
+  const faviconMimeType = tenant?.faviconMimeType ?? 'image/x-icon';
+
+  return (
+    <Stack direction="row" spacing={2} sx={{ alignItems: 'center' }}>
+      <Typography variant="caption" color="text.secondary" sx={{ minWidth: 120, fontWeight: 600 }}>
+        Favicon
+      </Typography>
+      <Stack direction="row" spacing={1.5} sx={{ alignItems: 'center' }}>
+        <Box
+          component="img"
+          src={faviconData ? `data:${faviconMimeType};base64,${faviconData}` : '/favicon.ico'}
+          alt="Favicon"
+          sx={{
+            width: 28, height: 28,
+            border: '1px solid', borderColor: 'divider',
+            borderRadius: 0.5,
+            objectFit: 'contain',
+            bgcolor: 'black',
+          }}
+          onError={(e: React.SyntheticEvent<HTMLImageElement>) => {
+            (e.target as HTMLImageElement).style.display = 'none';
+          }}
+        />
+        <Button
+          variant="outlined"
+          size="small"
+          component="label"
+          disabled={uploading}
+        >
+          {uploading ? 'Uploading...' : faviconData ? 'Replace' : 'Upload'}
+          <input
+            type="file"
+            hidden
+            accept=".ico,.png"
+            onChange={async (e) => {
+              const file = e.target.files?.[0];
+              if (!file) return;
+              if (file.size > 65536) return;
+              const reader = new FileReader();
+              reader.onload = () => {
+                const base64 = (reader.result as string).split(',')[1];
+                const mimeType = file.type || (file.name.endsWith('.ico') ? 'image/x-icon' : 'image/png');
+                uploadFavicon({ slug, data: base64, mimeType });
+              };
+              reader.readAsDataURL(file);
+            }}
+          />
+        </Button>
+        {faviconData ? (
+          <Button size="small" color="error" variant="text" onClick={() => removeFavicon(slug)}>
+            Remove
+          </Button>
+        ) : null}
+      </Stack>
+    </Stack>
   );
 }
 
