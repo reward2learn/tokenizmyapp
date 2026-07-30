@@ -2681,22 +2681,17 @@ export function EditTenantModal({ open, tenant, onClose, onRefetch, onSnackbar }
             {
               key: 'redirect-uris',
               label: 'Redirect URIs',
-              desc: 'Verify callback endpoints are reachable',
+              desc: 'Verify callback endpoints are reachable (proxied server-side)',
               action: async function() {
-                const results: string[] = [];
-                const uris = [
-                  '/api/auth?action=google-callback',
-                  '/api/auth/callback/google',
-                ];
-                for (const uri of uris) {
-                  try {
-                    const res = await fetch('https://' + (tenant?.slug || 'unknown') + '.vercel.app' + uri, { method: 'HEAD' });
-                    results.push(uri + '=' + res.status);
-                  } catch {
-                    results.push(uri + '=UNREACHABLE');
-                  }
+                if (!tenant) return 'No tenant selected';
+                try {
+                  const res = await fetch('/api/admin/tenants/' + tenant.slug + '/provision/check-redirects', { method: 'POST' });
+                  const data = await res.json();
+                  if (!data.success || !data.data?.results) return 'Check failed';
+                  return data.data.results.map((r: { uri: string; status: number | string }) => r.uri + '=' + r.status).join(', ');
+                } catch {
+                  return 'Check failed';
                 }
-                return results.join(', ');
               },
             },
             {
