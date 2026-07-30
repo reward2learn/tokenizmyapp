@@ -67,7 +67,7 @@ export async function generateDashboardPdf(
     // Collect JS errors and console output for diagnostics
     const jsErrors: string[] = [];
     const consoleLogs: string[] = [];
-    page.on('pageerror', (err) => jsErrors.push(err.message));
+    page.on('pageerror', (err: unknown) => jsErrors.push(err instanceof Error ? err.message : String(err)));
     page.on('console', (msg) => {
       if (msg.type() === 'error') consoleLogs.push(msg.text());
     });
