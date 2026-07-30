@@ -90,6 +90,7 @@ export async function generateDashboardPdf(
           name: COOKIE_NAME,
           value: jwtValue,
           url: targetUrl,
+          path: '/',
           httpOnly: true,
           secure: true,
           sameSite: 'Lax',
