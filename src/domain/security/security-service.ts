@@ -27,23 +27,50 @@ export async function upsertUserAccount(
   db: DbClient,
   input: { sub: string; email?: string | null; name?: string | null; tier: string; roleCode?: string | null },
 ): Promise<{ id: string; isActive: boolean }> {
-  const result = await db.$queryRawUnsafe<{ id: string; is_active: boolean }[]>(
-    `INSERT INTO user_accounts (id, sub, email, name, tier, role_code, last_seen_at, updated_at)
-     VALUES (gen_random_uuid()::TEXT, $1, $2, $3, $4, $5, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
-     ON CONFLICT (sub) DO UPDATE
-       SET email = COALESCE($2, user_accounts.email),
-           name = COALESCE($3, user_accounts.name),
-           tier = $4,
-           role_code = COALESCE($5, user_accounts.role_code),
-           last_seen_at = CURRENT_TIMESTAMP,
-           updated_at = CURRENT_TIMESTAMP
-     RETURNING id, is_active;`,
-    input.sub,
-    input.email ?? null,
-    input.name ?? null,
-    input.tier,
-    input.roleCode ?? null,
-  );
+  // Step 1: Try INSERT with ON CONFLICT (sub) — handles existing user by sub
+  let result: { id: string; is_active: boolean }[] | null = null;
+  try {
+    result = await db.$queryRawUnsafe<{ id: string; is_active: boolean }[]>(
+      `INSERT INTO user_accounts (id, sub, email, name, tier, role_code, last_seen_at, updated_at)
+       VALUES (gen_random_uuid()::TEXT, $1, $2, $3, $4, $5, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+       ON CONFLICT (sub) DO UPDATE
+         SET email = COALESCE($2, user_accounts.email),
+             name = COALESCE($3, user_accounts.name),
+             tier = $4,
+             role_code = COALESCE($5, user_accounts.role_code),
+             last_seen_at = CURRENT_TIMESTAMP,
+             updated_at = CURRENT_TIMESTAMP
+       RETURNING id, is_active;`,
+      input.sub,
+      input.email ?? null,
+      input.name ?? null,
+      input.tier,
+      input.roleCode ?? null,
+    );
+  } catch (err) {
+    // Step 2: If unique constraint on email (PG 23505), find existing by email and update
+    const pgErr = err as { code?: string; message?: string };
+    if (pgErr.code === '23505' && pgErr.message?.includes('email')) {
+      // Find existing user by email
+      const existing = await db.$queryRawUnsafe<{ id: string; is_active: boolean }[]>(
+        `SELECT id, is_active FROM user_accounts WHERE email = $1 LIMIT 1;`,
+        input.email ?? null,
+      );
+      if (existing && existing[0]) {
+        // Update existing user's sub to match the new identity
+        result = await db.$queryRawUnsafe<{ id: string; is_active: boolean }[]>(
+          `UPDATE user_accounts
+           SET sub = $1, name = COALESCE($2, name), tier = $3,
+               role_code = COALESCE($4, role_code),
+               last_seen_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
+           WHERE id = $5
+           RETURNING id, is_active;`,
+          input.sub, input.name ?? null, input.tier, input.roleCode ?? null, existing[0].id,
+        );
+      }
+    }
+    if (!result || !result[0]) throw err;
+  }
   const row = result[0];
   if (!row) throw new Error('Failed to upsert user account');
   return { id: row.id, isActive: row.is_active };
