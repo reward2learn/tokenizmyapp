@@ -79,9 +79,9 @@ export async function generateDashboardPdf(
         await page.setCookie({
           name: COOKIE_NAME,
           value: sessionValue,
-          domain: url.hostname,
-          path: '/',
+          url: targetUrl,
           httpOnly: true,
+          secure: true,
           sameSite: 'Lax',
         });
       }
