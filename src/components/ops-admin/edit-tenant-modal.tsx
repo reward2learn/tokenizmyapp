@@ -262,6 +262,19 @@ export function EditTenantModal({ open, tenant, onClose, onRefetch, onSnackbar }
   // ── Flight Check state ────────────────────────────────────
   type CheckItem = { label: string; status: 'pass' | 'fail' | 'warn'; detail: string; _key: string; fixAction?: () => Promise<void>; fixLabel?: string };
   const [fixingKey, setFixingKey] = useState<string | null>(null);
+  
+  // ── Flight Check tests state ──────────────────────────────
+  const [testResults, setTestResults] = useState<Record<string, { running: boolean; result?: string; error?: string }>>({});
+  
+  const runTest = useCallback(async (testKey: string, testFn: () => Promise<string>) => {
+    setTestResults(function(prev) { return { ...prev, [testKey]: { running: true } }; });
+    try {
+      const result = await testFn();
+      setTestResults(function(prev) { return { ...prev, [testKey]: { running: false, result } }; });
+    } catch (err) {
+      setTestResults(function(prev) { return { ...prev, [testKey]: { running: false, error: err instanceof Error ? err.message : String(err) } }; });
+    }
+  }, []);
   const [flightChecks, setFlightChecks] = useState<CheckItem[]>([]);
   const [flightRunning, setFlightRunning] = useState(false);
   const [flightRunId, setFlightRunId] = useState(0);
@@ -2620,6 +2633,115 @@ export function EditTenantModal({ open, tenant, onClose, onRefetch, onSnackbar }
              failCount + ' item(s) must be fixed. ' + warnCount + ' item(s) should be reviewed. Use Fix buttons to navigate to the relevant step.'}
           </Alert>
         ) : null}
+
+        {/* ── Connection Tests ─────────────────────────────── */}
+        <Divider />
+        <Typography variant="subtitle2" sx={{ fontWeight: 600 }}>
+          Connection Tests
+        </Typography>
+        <Typography variant="body2" color="text.secondary">
+          Run connectivity tests to verify integrations are working.
+        </Typography>
+
+        <Grid container spacing={1.5}>
+          {[
+            {
+              key: 'webhook',
+              label: 'Vercel Webhook',
+              desc: 'Test webhook endpoint reachability',
+              action: async function() {
+                const res = await fetch('/api/webhooks/vercel', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
+                return 'Webhook responded: ' + res.status;
+              },
+            },
+            {
+              key: 'deploy-hook',
+              label: 'Vercel Deploy Hook',
+              desc: 'Trigger a test deployment via deploy hook',
+              action: async function() {
+                const hookUrl = String((((tenant.metadata as Record<string, unknown>)?.config as Record<string, unknown>)?.hooks as Record<string, unknown>)?.deployHookUrl as string || '');
+                if (!hookUrl) throw new Error('No deploy hook URL configured');
+                const res = await fetch(hookUrl, { method: 'POST' });
+                const data = await res.json();
+                return 'Deploy triggered: job=' + (data.job?.id || 'unknown');
+              },
+            },
+            {
+              key: 'neon-test',
+              label: 'Neon DB Test',
+              desc: 'Test Neon database connection',
+              action: async function() {
+                if (!tenant) return 'No tenant selected';
+                const res = await fetch('/api/admin/tenants/' + tenant.slug + '/provision/neon/test');
+                const data = await res.json();
+                return data.success ? 'Neon connection OK' : 'Neon test failed: ' + (data.error || 'unknown');
+              },
+            },
+            {
+              key: 'redirect-uris',
+              label: 'Redirect URIs',
+              desc: 'Verify callback endpoints are reachable',
+              action: async function() {
+                const results: string[] = [];
+                const uris = [
+                  '/api/auth?action=google-callback',
+                  '/api/auth/callback/google',
+                ];
+                for (const uri of uris) {
+                  try {
+                    const res = await fetch('https://' + (tenant?.slug || 'unknown') + '.vercel.app' + uri, { method: 'HEAD' });
+                    results.push(uri + '=' + res.status);
+                  } catch {
+                    results.push(uri + '=UNREACHABLE');
+                  }
+                }
+                return results.join(', ');
+              },
+            },
+            {
+              key: 'openai-chat',
+              label: 'OpenAI Chat',
+              desc: 'Test OpenAI API with a simple prompt',
+              action: async function() {
+                const res = await fetch('/api/chat/ai-findings?limit=1');
+                if (!res.ok) {
+                  const data = await res.json().catch(function() { return {}; });
+                  throw new Error(data.error || 'Chat API returned ' + res.status);
+                }
+                return 'Chat API responded with ' + res.status;
+              },
+            },
+          ].map(function(test) {
+            const tr = testResults[test.key] || {};
+            return (
+              <Grid size={{ xs: 12, sm: 6 }} key={test.key}>
+                <Paper variant="outlined" sx={{ p: 1.5, height: '100%' }}>
+                  <Stack spacing={1}>
+                    <Stack direction="row" spacing={1} sx={{ alignItems: 'center', justifyContent: 'space-between' }}>
+                      <Typography variant="body2" sx={{ fontWeight: 600 }}>{test.label}</Typography>
+                      <Button
+                        size="small"
+                        variant="outlined"
+                        onClick={function() { runTest(test.key, test.action); }}
+                        disabled={tr.running}
+                        startIcon={tr.running ? <CircularProgress size={14} color="inherit" /> : null}
+                      >
+                        {tr.running ? 'Testing...' : 'Test'}
+                      </Button>
+                    </Stack>
+                    <Typography variant="caption" color="text.secondary">{test.desc}</Typography>
+                    {tr.result ? (
+                      <Typography variant="caption" sx={{ color: 'success.main', fontFamily: 'monospace', fontSize: '0.65rem', wordBreak: 'break-all' }}>{tr.result}</Typography>
+                    ) : null}
+                    {tr.error ? (
+                      <Typography variant="caption" sx={{ color: 'error.main', fontFamily: 'monospace', fontSize: '0.65rem', wordBreak: 'break-all' }}>{'Error: ' + tr.error}</Typography>
+                    ) : null}
+                  </Stack>
+                </Paper>
+              </Grid>
+            );
+          })}
+        </Grid>
       </Stack>
     );
   };
