@@ -30,7 +30,7 @@ export function PdfExportButton({ page = '/', label = 'Export PDF' }: PdfExportB
           globalThis.setTimeout(resolve, 2000);
         });
         const job = await pollStatus(jobId).unwrap();
-        if (job.status === 'completed' && job.pdfBase64) {
+        if (job.status === 'COMPLETED' && job.pdfBase64) {
           const link = globalThis.document.createElement('a');
           link.href = `data:application/pdf;base64,${job.pdfBase64}`;
           link.download = 'redruby-export.pdf';
@@ -38,7 +38,7 @@ export function PdfExportButton({ page = '/', label = 'Export PDF' }: PdfExportB
           setStatus('done');
           return;
         }
-        if (job.status === 'failed') {
+        if (job.status === 'FAILED') {
           setStatus('error');
           return;
         }
