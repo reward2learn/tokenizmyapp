@@ -12,8 +12,7 @@ import {
   getGoogleOAuthPublicConfig,
 } from '@/lib/auth/google-oauth';
 import { sessionIsPlatformAdmin, signSession } from '@/lib/auth/jwt';
-import { resolveRoleForEmail } from '@/domain/seed/seed-runner';
-import { PERSONS, resolvePerson } from '@/domain/security/persons';
+import { PERSONS, resolvePerson, resolvePersonByEmail } from '@/domain/security/persons';
 import {
   clearSessionCookie,
   getOrigin,
@@ -22,8 +21,7 @@ import {
 } from '@/lib/auth/session';
 import { requireGoogle } from '@/lib/auth/guards';
 import { getSecretPlaintext } from '@/lib/secrets';
-import { createClient, createBaseClient } from '@/lib/db';
-import { PdfExportService } from '@/domain/pdf/pdf-export-service';
+import { createBaseClient } from '@/lib/db';
 import { ensureJobQueueTable, ensureSecurityTables } from '@/lib/db-migrate';
 import { resolveGroupCodesForSub, resolveCapabilitiesForSub, upsertUserAccount } from '@/domain/security/security-service';
 import { legacyError, jsonError } from '@/lib/api/response';
@@ -33,7 +31,7 @@ export const maxDuration = 60;
 let jobQueueEnsured: Promise<boolean> | null = null;
 function ensureJobQueueOnce(): Promise<boolean> {
   if (!jobQueueEnsured) {
-    jobQueueEnsured = ensureJobQueueTable(createClient()).catch((err) => {
+    jobQueueEnsured = ensureJobQueueTable(createBaseClient()).catch((err) => {
       jobQueueEnsured = null;
       throw err;
     });
@@ -183,23 +181,23 @@ async function handleGoogleCallback(request: Request, url: URL): Promise<NextRes
       picture?: string;
     };
 
-    const matchedRole = resolveRoleForEmail(user.email);
+    const matchedPerson = resolvePersonByEmail(user.email);
     const { groups, permissions } = await resolveSessionGroups({
       sub: user.id,
       email: user.email,
       name: user.name,
       tier: 'google',
-      roleCode: matchedRole?.code,
+      roleCode: matchedPerson?.roleCode,
     });
     const platformAdmin =
-      (matchedRole?.isPlatformAdmin ?? false) || groups.includes('platform-admin');
+      (matchedPerson?.isPlatformAdmin ?? false) || groups.includes('platform-admin');
     const token = await signSession({
       sub: user.id,
       tier: 'google',
       email: user.email,
       name: user.name,
       picture: user.picture,
-      roleCode: matchedRole?.code,
+      roleCode: matchedPerson?.roleCode,
       platformAdmin,
       groups,
       permissions,
@@ -260,11 +258,11 @@ async function handleMe(request: Request): Promise<NextResponse> {
       data: {
         user: session
           ? {
-              id: guard.session.sub,
+              id: session.sub,
               email: session.email,
               name: session.name,
               picture: session.picture,
-              authMethod: guard.session.tier,
+              authMethod: session.tier,
             }
           : null,
         tier: session?.tier ?? 'public',
@@ -398,19 +396,27 @@ async function handlePdf(request: Request, url: URL): Promise<NextResponse> {
     const origin = getOrigin(request);
     const sessionCookie = request.headers.get('cookie') ?? '';
     const pagePath = url.searchParams.get('page') || '/';
+    const payload = JSON.stringify({ origin, sessionCookie, pagePath });
 
-    const db = createClient({ tier: guard.session.tier, sub: guard.session.sub });
-    const pdfService = new PdfExportService(db);
+    const db = createBaseClient();
     try {
       await ensureJobQueueOnce();
     } catch {
-      // Table ensure is best-effort; queueJob surfaces the real error if the table is missing.
+      // Table ensure is best-effort; INSERT surfaces the real error if the table is missing.
     }
-    const jobId = await pdfService.queueJob(guard.session.sub, {
-      origin,
-      sessionCookie,
-      pagePath,
-    });
+
+    // Template schema has no Prisma PdfJob model — enqueue via the job_queue DDL table.
+    const rows = await db.$queryRawUnsafe<{ job_id: string }[]>(
+      `INSERT INTO job_queue (requested_by_session, payload, status)
+       VALUES ($1, $2::jsonb, 'PENDING')
+       RETURNING job_id::text AS job_id`,
+      guard.session.sub,
+      payload,
+    );
+    const jobId = rows[0]?.job_id;
+    if (!jobId) {
+      return legacyError('Failed to queue PDF job.', 500);
+    }
 
     return NextResponse.json(
       {
