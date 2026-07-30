@@ -3,9 +3,12 @@
  *
  * Validates a Neon database connection string by checking the branch endpoint
  * status via the Neon API. Returns success if the endpoint is reachable.
+ *
+ * If no dbUrl is provided in the body, looks up the tenant's dbUrl from the DB.
  */
 import { NextResponse } from 'next/server';
 import { requireWriteAuth } from '@/lib/auth/guards';
+import { PrismaClient } from '@/generated/prisma';
 import { jsonError, jsonOk } from '@/lib/api/response';
 
 export const dynamic = 'force-dynamic';
@@ -22,17 +25,37 @@ export async function POST(
 
   let body: { dbUrl?: string };
   try { body = await request.json(); } catch {
-    return jsonError('Invalid JSON body', 400);
+    body = {};
   }
 
-  const dbUrl = body.dbUrl;
+  let dbUrl = body.dbUrl;
+
+  // If no dbUrl provided, look up from Tenant record
   if (!dbUrl) {
-    return jsonError('dbUrl is required', 400);
+    try {
+      const url = process.env.POSTGRES_URL ?? process.env.DATABASE_URL;
+      if (!url) {
+        return jsonError('POSTGRES_URL not configured on this server', 500);
+      }
+      const prisma = new PrismaClient({ datasources: { db: { url } } });
+      const tenant = await prisma.tenant.findUnique({ where: { slug } });
+      await prisma.$disconnect();
+      if (!tenant) {
+        return jsonError('Tenant not found', 404);
+      }
+      if (!tenant.dbUrl) {
+        return jsonError(`Tenant "${slug}" has no dbUrl set. Provision Neon first or pass dbUrl explicitly.`, 400);
+      }
+      dbUrl = tenant.dbUrl;
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Unknown error';
+      return jsonError(`Failed to look up tenant dbUrl: ${msg}`, 500);
+    }
   }
 
   try {
     // Validate URL format
-    const parsed = new URL(dbUrl);
+    const parsed = new URL(dbUrl!);
     const hostname = parsed.hostname;
 
     // Check if it's a Neon host
