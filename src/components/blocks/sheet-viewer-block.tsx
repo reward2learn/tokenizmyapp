@@ -104,12 +104,12 @@ export function SheetViewerBlock({ config }: { config: Record<string, unknown> }
 
   const data = payload?.data;
   return (
-    <Box sx={{ display: 'flex', flexDirection: 'column', height: 'calc(100dvh - 130px)', minHeight: 400, width: '100%' }}>
-      {title ? (
+    <Box sx={{ display: 'flex', flexDirection: 'column', height: 'calc(100dvh - 66px)', minHeight: 400, width: '100%' }}>
+      {/* {title ? (
         <Typography variant="h6" sx={{ fontWeight: 700, mb: 1, flexShrink: 0 }}>
           {title}
         </Typography>
-      ) : null}
+      ) : null} */}
 
       {!sheet ? (
         <Typography color="text.secondary">No sheet configured.</Typography>

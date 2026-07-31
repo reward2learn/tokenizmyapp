@@ -93,7 +93,7 @@ function SheetDataView({ sheet, title }: { sheet: string; title?: string }) {
   }, [data]);
 
   return (
-    <Box sx={{ display: 'flex', flexDirection: 'column', height: 'calc(100dvh - 140px)', minHeight: 400, mx: 'auto', px: 3, py: 1.5 }}>
+    <Box sx={{ display: 'flex', flexDirection: 'column', height: 'calc(100dvh - 66px)', minHeight: 400, mx: 'auto', px: 3, py: 1.5 }}>
       <Typography variant="h6" sx={{ fontWeight: 700, mb: 2, flexShrink: 0 }}>
         {title ?? `${sheet} — Data`}
       </Typography>

@@ -12,7 +12,7 @@
 import type { DbClient } from '@/lib/db';
 import { createBaseClient, getBasePrisma } from '@/lib/db';
 import { backfillKnownAccounts } from '@/domain/security/security-service';
-import { FUNCTIONAL_ROLES } from '@/domain/security/functional-roles';
+import { FUNCTIONAL_ROLES, DEFAULT_PLATFORM_ADMIN_EMAIL } from '@/domain/security/functional-roles';
 import { getSecretPlaintext, setSecret } from '@/lib/secrets';
 
 const DAILY_METRICS_DDL = `
@@ -286,6 +286,23 @@ export async function ensureSecurityTables(
         await setSecret(newKey, oldPin);
       }
     }
+  });
+
+  // === ONE-TIME MIGRATION: Ensure admin user_account exists ===
+  // This guarantees that DEFAULT_PLATFORM_ADMIN_EMAIL always has a user_accounts
+  // row with role_code = 'platform-admin'. Called on every ensureSecurityTables().
+  await withRetry(async () => {
+    await raw.$executeRawUnsafe(
+      `INSERT INTO user_accounts (sub, name, email, tier, role_code, last_seen_at, updated_at)
+       VALUES ('admin', 'Platform Admin', $1, 'google', 'platform-admin', 
+               CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+       ON CONFLICT (sub) DO UPDATE 
+         SET email = COALESCE($1, user_accounts.email),
+             role_code = COALESCE('platform-admin', user_accounts.role_code),
+             last_seen_at = CURRENT_TIMESTAMP,
+             updated_at = CURRENT_TIMESTAMP;`,
+      DEFAULT_PLATFORM_ADMIN_EMAIL
+    );
   });
 
   // Backfill user_account rows for known operational identities (PIN roles +
