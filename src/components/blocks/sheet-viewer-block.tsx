@@ -100,14 +100,86 @@ export function SheetViewerBlock({ config }: { config: Record<string, unknown> }
   }, [payload?.data, pinnedColumns.length]);
 
   const handleSortModelChange = useCallback((newSortModel: GridSortModel) => {
-    // MUI X DataGrid natively supports multi-column sort when holding Shift while clicking headers.
-    // The sortModel array order determines priority (first = primary sort).
-    // We limit to max 3 sort columns to avoid performance issues.
+    // Fallback for any external sort model changes (e.g. column menu). For header clicks,
+    // we use custom onColumnHeaderClick to support multi-sort in Community edition.
     const limitedModel = newSortModel.slice(0, 3);
     setSortModel(limitedModel);
-    
-    console.log("[SheetViewerBlock] Sort model updated:", limitedModel);
+    console.log("[SheetViewerBlock] Sort model updated (external):", limitedModel);
   }, []);
+
+  /**
+   * Custom multi-column sort handler for MUI X Community edition.
+   * - Normal click: replaces sortModel with this column only (cycles asc → desc → none)
+   * - Shift+Click: adds to multi-sort (append as lowest priority, asc), or toggles direction/remove if already present
+   * - Max 3 columns
+   * - Uses event.defaultMuiPrevented to bypass default single-column sort behavior
+   * - Console logs added for Shift key debugging
+   */
+  const handleColumnHeaderClick = useCallback((
+    params: GridColumnHeaderParams,
+    event: React.MouseEvent<HTMLElement>
+  ) => {
+    const field = params.field;
+    console.log(`[SheetViewerBlock] Column header clicked - field: "${field}", shiftKey: ${event.shiftKey}, currentSortModel:`, sortModel);
+
+    if (field === '__check__' || field === 'actions') {
+      return;
+    }
+
+    // Prevent default MUI sort behavior so we can fully control multi-sort
+    (event as any).defaultMuiPrevented = true;
+
+    const currentModel = [...sortModel];
+    const existingIdx = currentModel.findIndex((s) => s.field === field);
+    let newModel: GridSortModel = [];
+
+    if (!event.shiftKey) {
+      // Normal click: replace entire sort model with this column (asc → desc → none cycle)
+      const currentDir = currentModel.find((s) => s.field === field)?.sort;
+      let nextDir: 'asc' | 'desc' | null = null;
+
+      if (currentDir === 'asc') {
+        nextDir = 'desc';
+      } else if (currentDir === 'desc') {
+        nextDir = null;
+      } else {
+        nextDir = 'asc';
+      }
+
+      if (nextDir) {
+        newModel = [{ field, sort: nextDir }];
+      } else {
+        newModel = [];
+      }
+      console.log(`[SheetViewerBlock] Normal click on "${field}": set to ${nextDir || 'unsorted'}, model:`, newModel);
+    } else {
+      // Shift+Click: manage multi-sort (add/remove/toggle up to 3 columns)
+      if (existingIdx !== -1) {
+        // Already present: cycle asc -> desc -> remove (preserves priority order for others)
+        const currentDir = currentModel[existingIdx].sort;
+        if (currentDir === 'asc') {
+          currentModel[existingIdx] = { field, sort: 'desc' };
+          newModel = currentModel;
+          console.log(`[SheetViewerBlock] Shift+click: toggled "${field}" to desc (position ${existingIdx + 1})`);
+        } else {
+          // desc -> remove from model
+          newModel = currentModel.filter((s) => s.field !== field);
+          console.log(`[SheetViewerBlock] Shift+click: removed "${field}" from multi-sort`);
+        }
+      } else {
+        // Not present: add at end with asc (if under limit)
+        if (currentModel.length >= 3) {
+          console.log('[SheetViewerBlock] Max 3 sort columns reached - cannot add more');
+          newModel = currentModel;
+        } else {
+          newModel = [...currentModel, { field, sort: 'asc' }];
+          console.log(`[SheetViewerBlock] Shift+click: added "${field}" as sort #${newModel.length}`);
+        }
+      }
+    }
+
+    setSortModel(newModel);
+  }, [sortModel]);
 
   const handleSettingsClick = useCallback((event: React.MouseEvent<HTMLElement>) => {
     setSettingsAnchor(event.currentTarget);
@@ -181,6 +253,9 @@ export function SheetViewerBlock({ config }: { config: Record<string, unknown> }
     return orderedColumnFields.map((col) => {
       const isPinned = pinnedSet.has(col);
       const sortIndex = sortModel.findIndex((s) => s.field === col);
+      // Update column sortDirection based on current sortModel so DataGrid shows correct arrows
+      // and header state. sortIndex is used both for column metadata and badge display (1, 2, 3).
+      const sortDirection = sortIndex >= 0 ? sortModel[sortIndex].sort : null;
 
       return {
         field: col,
@@ -190,11 +265,12 @@ export function SheetViewerBlock({ config }: { config: Record<string, unknown> }
         minWidth: isPinned ? 140 : 100,
         width: isPinned ? 160 : undefined,
         sortable: true,
+        sortDirection,
         filterable: true,
         resizable: true,
         editable: true, // All columns editable with write-back
         // Note: pinnedColumns prop requires MUI X Pro. We use CSS sticky workaround below.
-        sortIndex, // for reference
+        sortIndex, // for reference (also used by custom renderHeader)
         valueGetter: (_value: unknown, row: GridValidRowModel) => {
           const raw = row[col];
           if (isLikelyFinancial(col, raw) && typeof raw === 'number') {
@@ -209,7 +285,8 @@ export function SheetViewerBlock({ config }: { config: Record<string, unknown> }
           return value ?? '';
         },
         renderHeader: (params: GridColumnHeaderParams) => {
-          // Custom header to show sort index (1, 2, 3...) for multi-column sorts
+          // Keep custom renderHeader that shows sort numbers (1, 2, 3) for multi-column sort.
+          // The badge appears next to column name based on position in sortModel.
           const index = sortIndex >= 0 ? sortIndex + 1 : null;
           return (
             <Box sx={{ display: 'flex', alignItems: 'center', width: '100%' }}>
@@ -449,8 +526,10 @@ export function SheetViewerBlock({ config }: { config: Record<string, unknown> }
             onRowSelectionModelChange={(newModel) => setRowSelectionModel(newModel)}
             sortModel={sortModel}
             onSortModelChange={handleSortModelChange}
-            // disableMultipleColumnsSorting removed to satisfy community edition types in v9;
-            // multi-sort is supported natively via Shift+click on headers (see handleSortModelChange)
+            onColumnHeaderClick={handleColumnHeaderClick}
+            // disableMultipleColumnsSorting removed (causes type errors in v9 Community edition).
+            // Multi-sort now fully managed via onColumnHeaderClick + controlled sortModel (up to 3 cols).
+            // Normal click replaces sort; Shift+click adds/toggles/removes from multi-model.
             processRowUpdate={processRowUpdate}
             onCellKeyDown={handleCellKeyDown}
             slots={{
