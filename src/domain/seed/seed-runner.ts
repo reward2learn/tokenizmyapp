@@ -10,7 +10,6 @@ import {
 } from '@/generated/prisma';
 import { getFullCatalog, PAGE_CATALOG, REVIEW_PART_CATALOG } from '@/lib/page-catalog';
 import type { DbClient } from '@/lib/db';
-import { legacyTaskCodeForSub, PERSONS } from '@/domain/security/persons';
 import { FUNCTIONAL_ROLES } from '@/domain/security/functional-roles';
 import { parseBusinessReviewParts } from '@/lib/parse-business-review';
 import {
@@ -351,9 +350,9 @@ function buildActionItems(): { priority: ActionPriority; label: string; sortOrde
 
 /**
  * Known roles for the exit-viability task tracking system.
- * Derived from PERSONS — the shared source of truth for operational identities.
+ * Derived from FUNCTIONAL_ROLES — the role catalog.
  * Roles are a display-name catalog (code + name only): the person-to-role link
- * lives in the PERSONS registry, NOT on the role row (no email field).
+ * lives in the FUNCTIONAL_ROLES catalog.
  * `code` matches the "Name:" prefix used in PRIORITY_ACTIONS labels (with
  * secondary lowercase match in parseTaskLabel for case-insensitive lookup).
  * Preserves the original capitalized codes so existing task labels continue to work.
@@ -366,15 +365,21 @@ const KNOWN_ROLES: { code: string; name: string; isPlatformAdmin?: boolean }[] =
   }));
 
 /** Resolve a known role by email (case-insensitive). Used by Google sign-in. */
-export function resolveRoleForEmail(email: string | undefined): {
-  code: string;
-  name: string;
-  isPlatformAdmin: boolean;
-} | null {
+/**
+ * Resolve a known role by email from the roles DB table.
+ * Replaces the old PERSONS-registry lookup with a live DB query.
+ */
+export async function resolveRoleForEmail(
+  email: string | undefined,
+  db: { $queryRawUnsafe: (sql: string, ...params: unknown[]) => Promise<unknown[]> },
+): Promise<{ code: string; name: string; isPlatformAdmin: boolean } | null> {
   if (!email) return null;
-  const match = PERSONS.find((p) => p.email && p.email.toLowerCase() === email.toLowerCase());
-  if (!match) return null;
-  return { code: match.roleCode, name: match.name, isPlatformAdmin: match.isPlatformAdmin ?? false };
+  const rows = await db.$queryRawUnsafe(
+    `SELECT code, name, is_platform_admin FROM roles WHERE email = $1 LIMIT 1`,
+    email,
+  ) as { code: string; name: string; is_platform_admin: boolean }[];
+  if (!rows[0]) return null;
+  return { code: rows[0].code, name: rows[0].name, isPlatformAdmin: rows[0].is_platform_admin ?? false };
 }
 
 /**
@@ -384,11 +389,11 @@ export function resolveRoleForEmail(email: string | undefined): {
  * their lowercased code as sub (matching verify-pin).
  */
 export function listKnownAccounts(): { sub: string; name: string; tier: string; roleCode?: string | null }[] {
-  return PERSONS.map((p) => ({
-    sub: p.sub,
-    name: p.name,
-    tier: 'pin',
-    roleCode: p.roleCode,
+  return FUNCTIONAL_ROLES.map((fr) => ({
+    sub: fr.code,
+    name: fr.isPlatformAdmin ? 'Admin' : fr.name,
+    tier: fr.isPlatformAdmin ? 'pin' : 'pin',
+    roleCode: fr.code,
   }));
 }
 
