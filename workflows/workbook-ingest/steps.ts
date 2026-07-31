@@ -296,7 +296,7 @@ export async function upsertSheetPagesStep(
            show_in_nav = EXCLUDED.show_in_nav,
            tenant_slug = COALESCE(EXCLUDED.tenant_slug, app_pages.tenant_slug)
          RETURNING id;`,
-        [slug, sheet.title, sortOrder++, sheet.title],
+        [slug, sheet.title, sortOrder++, sheet.title, tenantSlug ?? null],
       );
       const pageId = pageRows[0]?.id;
       if (!pageId) continue;
@@ -331,8 +331,47 @@ export async function upsertSheetPagesStep(
           [pageId, i + 1, block.blockType, JSON.stringify({ sheet: sheet.tabName, title: block.title })],
         );
       }
-
       created.push({ slug, title: sheet.title });
+    }
+
+    // Auto-populate navigation_items: add each sheet page as a child of the "Excel" folder.
+    // Find the Excel folder first, or create it if it doesn't exist yet.
+    const excelFolder = await queryRows<{ id: string }>(
+      db,
+      `SELECT id FROM navigation_items WHERE title = $1 AND parent_id IS NULL LIMIT 1`,
+      ['Excel'],
+    );
+    let excelId = excelFolder[0]?.id;
+    if (!excelId) {
+      // Create the Excel folder if it doesn't exist yet
+      const created = await queryRows<{ id: string }>(
+        db,
+        `INSERT INTO navigation_items (id, parent_id, sort_order, title, path, icon, auth_tier, required_groups, is_visible, is_dynamic)
+         VALUES (gen_random_uuid()::TEXT, NULL, (SELECT COALESCE(MAX(sort_order), 0) + 1 FROM navigation_items WHERE parent_id IS NULL),
+         'Excel', '/excel', 'Folder', CAST('google' AS "AuthTier"), 'viewer,ops-admin,finance,platform-admin', true, true)
+         RETURNING id`,
+      );
+      excelId = created[0]?.id;
+    }
+    if (excelId) {
+      let navSort = 0;
+      for (const sheet of comprehension.sheets) {
+        const slug = `sheet-${normalizeSlug(sheet.tabName)}`;
+        // Skip if already present
+        const existing = await queryRows<{ id: string }>(
+          db,
+          `SELECT id FROM navigation_items WHERE path = $1 AND parent_id = $2 LIMIT 1`,
+          [`/${slug}`, excelId],
+        );
+        if (existing.length === 0) {
+          await executeOne(
+            db,
+            `INSERT INTO navigation_items (id, parent_id, sort_order, title, path, icon, auth_tier, required_groups, is_visible, is_dynamic)
+             VALUES (gen_random_uuid()::TEXT, $1, $2, $3, $4, 'Description', CAST('google' AS "AuthTier"), '', true, true)`,
+            [excelId, navSort++, sheet.title, `/${slug}`],
+          );
+        }
+      }
     }
   });
 
