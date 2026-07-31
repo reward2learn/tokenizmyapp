@@ -88,8 +88,13 @@ export function SheetViewerBlock({ config }: { config: Record<string, unknown> }
   }, [payload?.data, pinnedColumns.length]);
 
   const handleSortModelChange = useCallback((newSortModel: GridSortModel) => {
-    // Supports multi-column sort via Shift+Click in MUI X (limited in Community edition)
-    setSortModel(newSortModel);
+    // MUI X DataGrid natively supports multi-column sort when holding Shift while clicking headers.
+    // The sortModel array order determines priority (first = primary sort).
+    // We limit to max 3 sort columns to avoid performance issues.
+    const limitedModel = newSortModel.slice(0, 3);
+    setSortModel(limitedModel);
+    
+    console.log("[SheetViewerBlock] Sort model updated:", limitedModel);
   }, []);
 
   const handleSettingsClick = useCallback((event: React.MouseEvent<HTMLElement>) => {
@@ -323,6 +328,7 @@ export function SheetViewerBlock({ config }: { config: Record<string, unknown> }
             disableRowSelectionOnClick
             sortModel={sortModel}
             onSortModelChange={handleSortModelChange}
+            disableMultipleColumnsSorting={false}  // Explicitly enable multi-column sort
             processRowUpdate={processRowUpdate}
             slots={{
               toolbar: CustomToolbar,
