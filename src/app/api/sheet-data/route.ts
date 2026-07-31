@@ -159,7 +159,7 @@ export async function GET(request: Request): Promise<NextResponse> {
     const startIdx = (page - 1) * perPage;
     const rows = dataRows.slice(startIdx, startIdx + perPage);
 
-    return NextResponse.json({
+    const data = {
       sheet: tabName,
       headerRow,
       columns,
@@ -169,7 +169,8 @@ export async function GET(request: Request): Promise<NextResponse> {
       page,
       perPage,
       totalPages,
-    });
+    };
+    return NextResponse.json({ success: true, data });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     return NextResponse.json({ error: message }, { status: 500 });
