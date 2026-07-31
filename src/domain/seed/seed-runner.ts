@@ -11,6 +11,7 @@ import {
 import { getFullCatalog, PAGE_CATALOG, REVIEW_PART_CATALOG } from '@/lib/page-catalog';
 import type { DbClient } from '@/lib/db';
 import { legacyTaskCodeForSub, PERSONS } from '@/domain/security/persons';
+import { FUNCTIONAL_ROLES } from '@/domain/security/functional-roles';
 import { parseBusinessReviewParts } from '@/lib/parse-business-review';
 import {
   parseFinancialProjectionsFromBuffer,
@@ -358,12 +359,10 @@ function buildActionItems(): { priority: ActionPriority; label: string; sortOrde
  * Preserves the original capitalized codes so existing task labels continue to work.
  */
 const KNOWN_ROLES: { code: string; name: string; isPlatformAdmin?: boolean }[] =
-  PERSONS.map((p) => ({
-    // Use the original capitalized code for task-label backward compat.
-    // Map the new persons schema to the legacy KNOWN_ROLES shape.
-    code: legacyTaskCodeForSub(p.sub) ?? p.sub,
-    name: p.isPlatformAdmin ? p.name : `${p.name} (${p.roleName})`,
-    isPlatformAdmin: p.isPlatformAdmin,
+  FUNCTIONAL_ROLES.map((fr) => ({
+    code: fr.code,
+    name: fr.isPlatformAdmin ? 'Platform Admin' : fr.name,
+    isPlatformAdmin: fr.isPlatformAdmin ?? false,
   }));
 
 /** Resolve a known role by email (case-insensitive). Used by Google sign-in. */
