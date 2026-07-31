@@ -136,7 +136,7 @@ async function upsertSheetPages(
     // (new OR existing — handles slug collision without orphan FK references).
     const pageRows = await db.$queryRaw<{ id: string }[]>`
       INSERT INTO app_pages (id, slug, title, auth_tier, sort_order, nav_label, show_in_nav, tenant_slug)
-      VALUES (${crypto.randomUUID()}, ${slug}, ${sheet.title}, 'google', ${sortOrder++}, ${sheet.title}, true, NULL)
+      VALUES (${crypto.randomUUID()}, ${slug}, ${sheet.title}, 'google', ${sortOrder++}, ${sheet.title}, true, ${process.env.NEXT_PUBLIC_TENANT_SLUG || null})
       ON CONFLICT (slug) DO UPDATE SET
         title = EXCLUDED.title,
         auth_tier = EXCLUDED.auth_tier,
