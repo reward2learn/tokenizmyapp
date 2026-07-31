@@ -106,10 +106,26 @@ function buildTheme(brand: BrandColors) {
       },
       MuiSwitch: {
         styleOverrides: {
-          root: {
-            width: 48,
-            height: 48,
-          },
+          // Reference spec (see DevTools target markup):
+          //   .MuiSwitch-root (sizeMedium): padding 9px; width 70px
+          //   .MuiSwitch-switchBase:         padding 14px (checked AND unchecked)
+          //   .MuiSwitch-track:              border-radius 15px
+          // Scoped to sizeMedium — size="small" switches keep their
+          // compact geometry. Touch target is met via the 70px-wide root
+          // + MuiFormControlLabel minHeight 48 below.
+          root: ({ ownerState }) => ownerState.size === 'medium' ? {
+            width: 70,
+            padding: 9,
+          } : {},
+          switchBase: ({ ownerState }) => ownerState.size === 'medium' ? {
+            padding: 14,
+            '&.Mui-checked, &.MuiSwitch-checked': {
+              padding: 14, // keep identical when checked so the thumb doesn't jump
+            },
+          } : {},
+          track: ({ ownerState }) => ownerState.size === 'medium' ? {
+            borderRadius: 15,
+          } : {},
         },
       },
       MuiFormControlLabel: {
