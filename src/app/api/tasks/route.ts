@@ -3,6 +3,7 @@ import { createClient } from '@/lib/db';
 import { requireWriteAuth, requireSession, requireRead, requireWrite } from '@/lib/auth/guards';
 import { jsonError, jsonOk } from '@/lib/api/response';
 import { ensureTaskTables, seedTaskTracking } from '@/domain/seed/seed-runner';
+import { legacyTaskCodeForSub, PERSONS } from '@/domain/security/persons';
 import type { SessionClaims } from '@/lib/auth/jwt';
 
 export const maxDuration = 30;
@@ -91,24 +92,35 @@ function toTaskView(task: {
   };
 }
 
-/** Resolve the viewer's role from the session's roleCode (preferred) or email/name. */
+/**
+ * Resolve the viewer's task role from the session.
+ * Roles are a display-name catalog (code + name) and are NOT tied to a person,
+ * so resolution keys off the session's `sub` / functional `roleCode` and maps
+ * them through the PERSONS registry to the legacy task-owner codes (e.g.
+ * 'Ama', 'Lukas'). No email matching — person→role mapping lives in persons.ts.
+ */
 async function resolveViewerRole(
   db: Awaited<ReturnType<typeof createClient>>,
   session: SessionClaims,
 ) {
+  const candidates: string[] = [];
+  if (session.roleCode) candidates.push(session.roleCode);
+  // PIN/Google sessions carry a functional role code (e.g. 'finance') or a
+  // person sub — map both to the legacy task code used by the roles table.
+  const legacyCode = legacyTaskCodeForSub(session.sub ?? '');
+  if (legacyCode) candidates.push(legacyCode);
   if (session.roleCode) {
-    const byCode = await db.role.findFirst({ where: { code: session.roleCode } });
+    const person = PERSONS.find((p) => p.roleCode === session.roleCode);
+    if (person) {
+      const mapped = legacyTaskCodeForSub(person.sub);
+      if (mapped) candidates.push(mapped);
+    }
+  }
+  for (const code of candidates) {
+    const byCode = await db.role.findFirst({ where: { code } });
     if (byCode) return byCode;
   }
-  const email = session.email?.toLowerCase();
-  const name = session.name?.toLowerCase();
-  const roles = await db.role.findMany();
-  const match = roles.find((r) => {
-    if (email && r.email && r.email.toLowerCase() === email) return true;
-    if (name && r.name.toLowerCase().includes(name)) return true;
-    return false;
-  });
-  return match ?? null;
+  return null;
 }
 
 export async function GET(request: Request): Promise<NextResponse> {

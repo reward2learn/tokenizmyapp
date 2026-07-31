@@ -73,6 +73,19 @@ export function resolvePerson(sub: string): Person | undefined {
   return PERSONS.find((p) => p.sub === sub.toLowerCase());
 }
 
+/**
+ * Map a person's `sub` to the legacy task-owner code used in PRIORITY_ACTIONS
+ * task labels (e.g. "Ama:", "Lukas + Made:"). Roles are a display-name catalog;
+ * this is the single mapping from an identity (sub) to a task role code.
+ */
+export function legacyTaskCodeForSub(sub: string): string | null {
+  const person = resolvePerson(sub);
+  if (!person) return null;
+  // Task labels use "Lukas" while the person's sub is 'lucas'.
+  if (person.sub === 'lucas') return 'Lukas';
+  return person.sub.charAt(0).toUpperCase() + person.sub.slice(1);
+}
+
 /** Resolve a person by email (case-insensitive). Used by Google sign-in. */
 export function resolvePersonByEmail(email: string | undefined): Person | null {
   if (!email) return null;

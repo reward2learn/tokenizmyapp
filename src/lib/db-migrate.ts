@@ -249,28 +249,24 @@ export async function ensureSecurityTables(
         id TEXT PRIMARY KEY DEFAULT gen_random_uuid(),
         code TEXT NOT NULL UNIQUE,
         name TEXT NOT NULL,
-        email TEXT UNIQUE,
         is_platform_admin BOOLEAN NOT NULL DEFAULT false,
         created_at TIMESTAMP WITHOUT TIME ZONE DEFAULT CURRENT_TIMESTAMP
       );`,
     );
     for (const fr of FUNCTIONAL_ROLES) {
-      // Prefer PERSONS email for this role code (e.g. platform-admin → reward2learn@gmail.com).
-      const personEmail =
-        PERSONS.find((p) => p.roleCode === fr.code && p.email)?.email ??
-        (fr.isPlatformAdmin ? DEFAULT_PLATFORM_ADMIN_EMAIL : null);
-      // The roles table was originally created by Prisma with id TEXT (no
-      // DB-level DEFAULT), so we must supply an id in raw INSERTs.
       await raw.$executeRawUnsafe(
-        `INSERT INTO roles (id, code, name, email, is_platform_admin)
-         VALUES (gen_random_uuid()::TEXT, $1, $2, $3, $4)
+        `INSERT INTO roles (id, code, name, is_platform_admin)
+         VALUES (gen_random_uuid()::TEXT, $1, $2, $3)
          ON CONFLICT (code) DO UPDATE
            SET name = $2,
-               email = COALESCE($3, roles.email),
-               is_platform_admin = $4;`,
-        fr.code, fr.name, personEmail, fr.isPlatformAdmin ?? false,
+               is_platform_admin = $3;`,
+        fr.code, fr.name, fr.isPlatformAdmin ?? false,
       );
     }
+    // Drop legacy email constraint that no longer exists in the schema.
+    await raw.$executeRawUnsafe(
+      `ALTER TABLE roles DROP CONSTRAINT IF EXISTS roles_email_key;`,
+    );
   });
 
   // One-time migration: re-key old ROLE_PIN_* secrets to USER_PIN_* format.

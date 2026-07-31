@@ -6,8 +6,8 @@ const TEST_KEY = 'a'.repeat(64);
 // In-memory fake DB shaped to the subset of the Prisma client the route uses.
 function makeDb(overrides: Record<string, unknown> = {}) {
   const roles = [
-    { id: 'r-ama', code: 'ama', name: 'Ama', email: 'ama@redruby.com', isPlatformAdmin: false },
-    { id: 'r-admin', code: 'admin', name: 'Platform Admin', email: null, isPlatformAdmin: true },
+    { id: 'r-ama', code: 'ama', name: 'Ama', isPlatformAdmin: false },
+    { id: 'r-admin', code: 'admin', name: 'Platform Admin', isPlatformAdmin: true },
   ];
   const tasks = [
     {

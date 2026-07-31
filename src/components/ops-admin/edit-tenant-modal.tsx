@@ -268,7 +268,7 @@ export function EditTenantModal({ open, tenant, onClose, onRefetch, onSnackbar }
   const [newEnvValue, setNewEnvValue] = useState('');
 
   // ── Functional Roles ───────────────────────────────────────
-  const [rolesList, setRolesList] = useState<Array<{ code: string; name: string; isPlatformAdmin: boolean; email: string | null; pinConfigured: boolean }>>([]);
+  const [rolesList, setRolesList] = useState<Array<{ code: string; name: string; isPlatformAdmin: boolean; pinConfigured: boolean }>>([]);
   const [rolesLoading, setRolesLoading] = useState(false);
   const [rolesError, setRolesError] = useState<string | null>(null);
   const [settingPinRole, setSettingPinRole] = useState<string | null>(null);
@@ -279,7 +279,6 @@ export function EditTenantModal({ open, tenant, onClose, onRefetch, onSnackbar }
   const [roleFormCode, setRoleFormCode] = useState('');
   const [roleFormName, setRoleFormName] = useState('');
   const [roleFormIsPlatformAdmin, setRoleFormIsPlatformAdmin] = useState(false);
-  const [roleFormEmail, setRoleFormEmail] = useState('');
   const [roleDeleteConfirm, setRoleDeleteConfirm] = useState<string | null>(null);
   const [roleSaving, setRoleSaving] = useState(false);
 
@@ -391,16 +390,14 @@ export function EditTenantModal({ open, tenant, onClose, onRefetch, onSnackbar }
     setRoleFormCode('');
     setRoleFormName('');
     setRoleFormIsPlatformAdmin(false);
-    setRoleFormEmail('');
     setRoleDialogMode('create');
     setRoleDialogOpen(true);
   }, []);
 
-  const openEditRole = useCallback((role: { code: string; name: string; isPlatformAdmin: boolean; email: string | null }) => {
+  const openEditRole = useCallback((role: { code: string; name: string; isPlatformAdmin: boolean }) => {
     setRoleFormCode(role.code);
     setRoleFormName(role.name);
     setRoleFormIsPlatformAdmin(role.isPlatformAdmin);
-    setRoleFormEmail(role.email || '');
     setRoleDialogMode('edit');
     setRoleDialogOpen(true);
   }, []);
@@ -2082,7 +2079,6 @@ export function EditTenantModal({ open, tenant, onClose, onRefetch, onSnackbar }
                     <Typography variant="caption" sx={{ fontFamily: 'monospace', color: 'text.secondary' }}>({role.code})</Typography>
                     {role.isPlatformAdmin && <Chip label="Platform Admin" size="small" color="primary" variant="outlined" />}
                   </Stack>
-                  {role.email && <Typography variant="caption" color="text.secondary">{role.email}</Typography>}
                   <Chip icon={role.pinConfigured ? <CheckCircleIcon /> : <LockIcon />}
                     label={role.pinConfigured ? 'PIN Configured' : 'No PIN'} size="small"
                     color={role.pinConfigured ? 'success' : 'warning'}

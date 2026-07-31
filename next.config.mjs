@@ -1,4 +1,5 @@
 import withBundleAnalyzer from '@next/bundle-analyzer';
+import { withWorkflow } from 'workflow/next';
 
 const withBundleAnalyzerConfig = withBundleAnalyzer({
   enabled: process.env.ANALYZE === 'true',
@@ -16,4 +17,4 @@ const nextConfig = {
   },
 };
 
-export default withBundleAnalyzerConfig(nextConfig);
+export default withWorkflow(withBundleAnalyzerConfig(nextConfig));

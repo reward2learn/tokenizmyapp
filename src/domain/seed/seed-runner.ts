@@ -10,7 +10,7 @@ import {
 } from '@/generated/prisma';
 import { getFullCatalog, PAGE_CATALOG, REVIEW_PART_CATALOG } from '@/lib/page-catalog';
 import type { DbClient } from '@/lib/db';
-import { PERSONS } from '@/domain/security/persons';
+import { legacyTaskCodeForSub, PERSONS } from '@/domain/security/persons';
 import { parseBusinessReviewParts } from '@/lib/parse-business-review';
 import {
   parseFinancialProjectionsFromBuffer,
@@ -77,6 +77,12 @@ export interface SeedOptions {
   /** When true, persist overrides to the configured source directory. */
   persistOverrides?: boolean;
   sourceDir?: string;
+  /**
+   * When true, skip the deterministic financial-projection upserts.
+   * Used by the AI workbook pipeline (comprehension-driven projections
+   * take precedence); deterministic values remain the fallback.
+   */
+  skipFinancialProjections?: boolean;
 }
 
 export interface SeedResult {
@@ -187,7 +193,6 @@ const CONTENT_TABLE_STATEMENTS = [
     id TEXT PRIMARY KEY,
     code TEXT NOT NULL UNIQUE,
     name TEXT NOT NULL,
-    email TEXT UNIQUE,
     is_platform_admin BOOLEAN NOT NULL DEFAULT false,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
   )`,
@@ -346,28 +351,20 @@ function buildActionItems(): { priority: ActionPriority; label: string; sortOrde
 /**
  * Known roles for the exit-viability task tracking system.
  * Derived from PERSONS — the shared source of truth for operational identities.
+ * Roles are a display-name catalog (code + name only): the person-to-role link
+ * lives in the PERSONS registry, NOT on the role row (no email field).
  * `code` matches the "Name:" prefix used in PRIORITY_ACTIONS labels (with
  * secondary lowercase match in parseTaskLabel for case-insensitive lookup).
  * Preserves the original capitalized codes so existing task labels continue to work.
  */
-const KNOWN_ROLES: { code: string; name: string; isPlatformAdmin?: boolean; email?: string }[] =
-  PERSONS.filter((p) => p.sub !== 'admin' || true).map((p) => {
+const KNOWN_ROLES: { code: string; name: string; isPlatformAdmin?: boolean }[] =
+  PERSONS.map((p) => ({
     // Use the original capitalized code for task-label backward compat.
     // Map the new persons schema to the legacy KNOWN_ROLES shape.
-    const legacyCode =
-      p.sub === 'admin' ? 'Admin' :
-      p.sub === 'ama' ? 'Ama' :
-      p.sub === 'graham' ? 'Graham' :
-      p.sub === 'james' ? 'James' :
-      p.sub === 'lucas' ? 'Lukas' :    // task labels use "Lukas:"
-      p.sub === 'made' ? 'Made' : p.sub;
-    return {
-      code: legacyCode,
-      name: p.isPlatformAdmin ? p.name : `${p.name} (${p.roleName})`,
-      isPlatformAdmin: p.isPlatformAdmin,
-      email: p.email,
-    };
-  });
+    code: legacyTaskCodeForSub(p.sub) ?? p.sub,
+    name: p.isPlatformAdmin ? p.name : `${p.name} (${p.roleName})`,
+    isPlatformAdmin: p.isPlatformAdmin,
+  }));
 
 /** Resolve a known role by email (case-insensitive). Used by Google sign-in. */
 export function resolveRoleForEmail(email: string | undefined): {
@@ -505,7 +502,7 @@ export async function ensureTaskTables(prisma: {
  * Uses the ZenStack-enhanced client so policy checks apply. Idempotent.
  */
 export async function seedTaskTracking(prisma: DbClient): Promise<void> {
-  // Always sync known roles (idempotent upsert) so emails/platform-admin flags stay current.
+  // Always sync known roles (idempotent upsert) so display names/platform-admin flags stay current.
   const roleIdByCode = new Map<string, string>();
   for (const role of KNOWN_ROLES) {
     const created = await prisma.role.upsert({
@@ -514,12 +511,10 @@ export async function seedTaskTracking(prisma: DbClient): Promise<void> {
         code: role.code,
         name: role.name,
         isPlatformAdmin: role.isPlatformAdmin ?? false,
-        email: role.email ?? null,
       },
       update: {
         name: role.name,
         isPlatformAdmin: role.isPlatformAdmin ?? false,
-        email: role.email ?? null,
       },
     });
     roleIdByCode.set(created.code, created.id);
@@ -682,7 +677,9 @@ export async function seedFromSources(options: SeedOptions = {}): Promise<SeedRe
   const excelBuffers: Buffer[] = Array.isArray(excel) ? excel : (excel ? [excel] : []);
 
   // Parse projections from Excel if it's available — otherwise skip.
-  // Gracefully handles workbooks that don't match the expected RedRuby/2027/2029/2030 sheet layout.
+  // Sheet-agnostic: reads EVERY sheet (legacy fixed-row layouts kept for
+  // backward compatibility; generic label/period-axis detection for any other
+  // workbook, e.g. the accountant's GL/TB/PL/BS export). Never throws.
   let projections: FinancialProjectionRow[] | null = null;
   if (excelBuffer) {
     try {
@@ -855,10 +852,12 @@ export async function seedFromSources(options: SeedOptions = {}): Promise<SeedRe
     await ensureLegacyTables(prisma);
     await ensureContentTables(prisma);
 
-    if (projections) {
+    if (projections && !options.skipFinancialProjections) {
       for (const row of projections) {
         await upsertFinancialProjectionRaw(prisma, row);
       }
+    } else if (options.skipFinancialProjections) {
+      console.log('[seed] skipFinancialProjections=true — financial projections left to the AI workbook pipeline');
     }
 
     for (const part of reviewParts) {
@@ -926,12 +925,10 @@ export async function seedFromSources(options: SeedOptions = {}): Promise<SeedRe
           code: role.code,
           name: role.name,
           isPlatformAdmin: role.isPlatformAdmin ?? false,
-          email: role.email ?? null,
         },
         update: {
           name: role.name,
           isPlatformAdmin: role.isPlatformAdmin ?? false,
-          email: role.email ?? null,
         },
       });
       roleIdByCode.set(role.code, created.id);

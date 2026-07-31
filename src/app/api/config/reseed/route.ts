@@ -10,6 +10,10 @@ import {
 } from '@/lib/config/upload-validation';
 import { seedFromSources, type SeedCounts } from '@/domain/seed/seed-runner';
 import type { SourceFileKey } from '@/domain/seed/source-files';
+import type { AiPipelineResult } from '@/domain/ai-workbook/pipeline';
+import { start, getRun } from 'workflow/api';
+import { handleWorkbookIngest } from '../../../../../workflows/workbook-ingest';
+import type { WorkbookIngestInput } from '../../../../../workflows/workbook-ingest/types';
 
 export const maxDuration = 300; // 5 min — workbook analysis + full DB seed can be heavy
 
@@ -17,6 +21,9 @@ export interface ReseedResponse {
   counts: SeedCounts;
   filesUsed: Record<SourceFileKey, 'upload' | 'disk'>;
   uploaded: SourceFileKey[];
+  /** Result of the AI workbook comprehension pipeline (AI mode). */
+  aiPipeline?: AiPipelineResult & { skipped?: boolean };
+  warnings?: string[];
 }
 
 function fileFromForm(formData: FormData, key: string): File | null {
@@ -56,6 +63,9 @@ export async function POST(request: Request): Promise<NextResponse> {
     formData,
     CONFIG_UPLOAD_FIELD_NAMES.executiveSummary,
   );
+  const mode =
+    (formData.get('mode') as string | null) === 'deterministic' ? 'deterministic' : 'ai';
+  const model = (formData.get('model') as string | null) || undefined;
 
   const validationErrors = [
     ...excelFiles.map((f) => validateExcelUpload(f)),
@@ -108,6 +118,49 @@ export async function POST(request: Request): Promise<NextResponse> {
       uploaded.push('executiveSummary');
     }
 
+    const warnings: string[] = [];
+
+    if (mode === 'ai' && overrides.excel && overrides.excel.length > 0) {
+      // ── AI-first: seed base content synchronously, then launch durable workflow ──
+      const baseSeed = await seedFromSources({
+        overrides,
+        persistOverrides: true,
+        skipFinancialProjections: true,
+      });
+
+      const maxDurationOverride = (formData.get('maxDurationSeconds') as string | null);
+      const maxDurationSeconds = maxDurationOverride
+        ? Math.min(Math.max(Number(maxDurationOverride), 60), 900)
+        : 900; // 15 min default, clamped 1–15 min
+
+      const input: WorkbookIngestInput = {
+        files: overrides.excel.map((buf) => ({
+          name: 'workbook.xlsx',
+          data: new Uint8Array(buf),
+          size: buf.byteLength,
+        })),
+        model: model ?? 'gpt-4o',
+        skipContentGeneration: false,
+        dbUrl: process.env.POSTGRES_URL || '',
+        openaiApiKey: process.env.OPENAI_API_KEY || null,
+      };
+
+      const run = await start(handleWorkbookIngest, [input]);
+
+      const payload = {
+        ok: true,
+        runId: run.runId,
+        status: 'accepted',
+        counts: baseSeed.counts,
+        filesUsed: baseSeed.filesUsed,
+        uploaded,
+        warnings: [] as string[],
+      };
+
+      return NextResponse.json(payload, { status: 202 });
+    }
+
+    // ── Deterministic mode (or no Excel uploaded) ────────────
     const result = await seedFromSources({
       overrides,
       persistOverrides: true,
@@ -117,6 +170,7 @@ export async function POST(request: Request): Promise<NextResponse> {
       counts: result.counts,
       filesUsed: result.filesUsed,
       uploaded,
+      aiPipeline: { success: false, skipped: true, model: model ?? 'gpt-4o', projectionsCount: 0, pagesCreated: [], contentGenerated: false },
     };
 
     return jsonOk(payload);

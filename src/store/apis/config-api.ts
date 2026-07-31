@@ -4,6 +4,23 @@ import type { ApiEnvelope } from '@/store/api-types';
 import type { ReseedResponse } from '@/app/api/config/reseed/route';
 import type { ReprocessResponse } from '@/app/api/config/reprocess/route';
 
+export interface WorkflowAcceptedResponse {
+  ok: boolean;
+  runId: string;
+  status: 'accepted';
+  counts: Record<string, number>;
+  filesUsed: Record<string, 'upload' | 'disk'>;
+  uploaded: string[];
+  warnings: string[];
+}
+
+export interface WorkflowStatusResponse {
+  status: 'running' | 'completed' | 'failed' | 'not_found';
+  runId: string;
+  result?: Record<string, unknown>;
+  error?: string;
+}
+
 export interface OpenAiKeyStatus {
   configured: boolean;
   source: 'db' | 'env' | null;
@@ -97,6 +114,11 @@ export const configApi = createApi({
         body,
       }),
     }),
+    /** GET /api/config/reseed/status?runId= — poll workflow completion */
+    getReseedWorkflowStatus: builder.query<WorkflowStatusResponse, string>({
+      query: (runId) => `config/reseed/status?runId=${runId}`,
+      keepUnusedDataFor: 5,
+    }),
   }),
 });
 
@@ -110,4 +132,5 @@ export const {
   useUpdateChatSettingsMutation,
   useGetSeedDetailsQuery,
   useImportDataMutation,
+  useLazyGetReseedWorkflowStatusQuery,
 } = configApi;

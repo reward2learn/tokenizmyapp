@@ -187,8 +187,8 @@ export function DataViewTab() {
       key: 'roles', table: 'roles', label: 'Roles', icon: '👤',
       count: details.roleDetails.length, detail: details.roleDetails,
       renderDetail: () => details.roleDetails.length > 0 ? (
-        <Table size="small"><TableHead><TableRow><TableCell>Code</TableCell><TableCell>Name</TableCell><TableCell>Email</TableCell></TableRow></TableHead><TableBody>
-          {details.roleDetails.map((r) => <TableRow key={r.code}><TableCell>{r.code}</TableCell><TableCell>{r.name}</TableCell><TableCell>{r.email ?? '—'}</TableCell></TableRow>)}
+        <Table size="small"><TableHead><TableRow><TableCell>Code</TableCell><TableCell>Name</TableCell></TableRow></TableHead><TableBody>
+          {details.roleDetails.map((r) => <TableRow key={r.code}><TableCell>{r.code}</TableCell><TableCell>{r.name}</TableCell></TableRow>)}
         </TableBody></Table>
       ) : <Typography variant="body2" color="text.secondary">No roles seeded.</Typography>,
     },

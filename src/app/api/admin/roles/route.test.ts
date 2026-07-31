@@ -26,9 +26,9 @@ import { getSecretPlaintext, setSecret } from '@/lib/secrets';
 
 function makeDb() {
   const roles = [
-    { id: 'r-ama', code: 'ama', name: 'Ama', email: 'ama@redruby.com', isPlatformAdmin: false },
-    { id: 'r-made', code: 'made', name: 'Made', email: 'made@redruby.com', isPlatformAdmin: false },
-    { id: 'r-admin', code: 'admin', name: 'Platform Admin', email: null, isPlatformAdmin: true },
+    { id: 'r-ama', code: 'ama', name: 'Ama', isPlatformAdmin: false },
+    { id: 'r-made', code: 'made', name: 'Made', isPlatformAdmin: false },
+    { id: 'r-admin', code: 'admin', name: 'Platform Admin', isPlatformAdmin: true },
   ];
   return {
     role: {

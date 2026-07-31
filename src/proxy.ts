@@ -147,8 +147,9 @@ export const config = {
      * - _next/static (static files)
      * - _next/image (image optimization files)
      * - favicon.ico (favicon file)
+     * - .well-known (Workflow SDK internal routes — must pass through untouched)
      * - Files with static extensions (images, fonts, etc.)
      */
-    '/((?!_next/static|_next/image|favicon\\.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp|avif|ico|woff|woff2|ttf|eot|css|map)$).*)',
+    '/((?!_next/static|_next/image|favicon\\.ico|\\.well-known|.*\\.(?:svg|png|jpg|jpeg|gif|webp|avif|ico|woff|woff2|ttf|eot|css|map)$).*)',
   ],
 };

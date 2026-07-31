@@ -73,37 +73,23 @@ export async function seedTenantAdminDefaults(
         id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::TEXT,
         code TEXT NOT NULL UNIQUE,
         name TEXT NOT NULL,
-        email TEXT UNIQUE,
         is_platform_admin BOOLEAN NOT NULL DEFAULT false,
         created_at TIMESTAMP WITHOUT TIME ZONE DEFAULT CURRENT_TIMESTAMP
       );
     `);
 
     for (const fr of FUNCTIONAL_ROLES) {
-      const personEmail =
-        PERSONS.find((p) => p.roleCode === fr.code && p.email)?.email ??
-        (fr.isPlatformAdmin ? adminEmail : null);
       await tenantPrisma.$executeRawUnsafe(
-        `INSERT INTO roles (id, code, name, email, is_platform_admin)
-         VALUES (gen_random_uuid()::TEXT, $1, $2, $3, $4)
+        `INSERT INTO roles (id, code, name, is_platform_admin)
+         VALUES (gen_random_uuid()::TEXT, $1, $2, $3)
          ON CONFLICT (code) DO UPDATE
            SET name = $2,
-               email = COALESCE($3, roles.email),
-               is_platform_admin = $4;`,
+               is_platform_admin = $3;`,
         fr.code,
         fr.name,
-        personEmail,
         fr.isPlatformAdmin ?? false,
       );
     }
-
-    // Force platform-admin + Admin dedicated email even if role already existed without one.
-    await tenantPrisma.$executeRawUnsafe(
-      `UPDATE roles SET email = $1, is_platform_admin = true
-       WHERE code IN ('platform-admin', 'Admin', 'admin')
-         AND (email IS NULL OR email = '');`,
-      adminEmail,
-    );
 
     await tenantPrisma.$executeRawUnsafe(`
       CREATE TABLE IF NOT EXISTS app_config (

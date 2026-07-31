@@ -151,14 +151,16 @@ model ActionItem {
 
 // ── Task tracking (role-based exit-viability action tracking) ──
 
-/// A role/owner of tasks — Ama, Made, Lukas, James, Graham (platform-admin managed).
+/// A role/owner of tasks — a display-name catalog (code + name).
+/// Roles are NOT tied to a person: people map to roles via the PERSONS
+/// registry (person.roleCode), and group/route security uses SecurityGroup
+/// memberships, never this table.
 model Role {
   id          String           @id @default(cuid())
   /// Short code used to match task labels, e.g. "Ama", "Made", "Lukas", "James", "Graham".
   code        String           @unique @map("code")
+  /// Display name shown in task views and the Admin UI.
   name        String
-  /// Google email used to auto-assign the signed-in user to this role.
-  email       String?          @unique @map("email")
   isPlatformAdmin Boolean       @default(false) @map("is_platform_admin")
   tasks       TaskAssignment[]
   createdAt   DateTime         @default(now()) @map("created_at")

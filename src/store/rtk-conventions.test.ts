@@ -7,7 +7,7 @@ import { metricsApi } from '@/store/apis/metrics-api';
 describe('RTK Query client conventions', () => {
   it('baseQuery uses cookie credentials', () => {
     expect(baseQuery).toBeDefined();
-    const configPath = join(process.cwd(), 'src/store/base-query.ts');
+    const configPath = join(process.cwd(), 'shared/src/store/base-query.ts');
     const source = readFileSync(configPath, 'utf8');
     expect(source).toContain("credentials: 'include'");
     expect(source).not.toMatch(/headers\s*:\s*\{[^}]*x-admin-key/i);

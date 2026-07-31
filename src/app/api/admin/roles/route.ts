@@ -3,7 +3,7 @@ import { createClient } from '@/lib/db';
 import { requireWriteAuth } from '@/lib/auth/guards';
 import { sessionIsPlatformAdmin } from '@/lib/auth/jwt';
 import { jsonError, jsonOk } from '@/lib/api/response';
-import { PERSONS, resolvePerson } from '@/domain/security/persons';
+import { legacyTaskCodeForSub, PERSONS, resolvePerson } from '@/domain/security/persons';
 import { getSecretPlaintext, setSecret } from '@/lib/secrets';
 
 export const maxDuration = 30;
@@ -14,22 +14,16 @@ export const maxDuration = 30;
  * labels use (e.g. 'Lukas' → sub 'lucas' since the user's name is Lucas).
  */
 const LEGACY_CODE_TO_SUB: Record<string, string> = Object.fromEntries(
-  PERSONS.map((p) => {
-    // Most legacy codes are just the sub with first letter capitalized,
-    // but Lukas uses the old spelling "Lukas" in task labels while the
-    // user's sub is 'lucas'.
-    const legacyCode = p.sub === 'lucas' ? 'Lukas' :
-      p.sub.charAt(0).toUpperCase() + p.sub.slice(1);
-    return [legacyCode, p.sub];
-  }),
+  PERSONS.map((p) => [legacyTaskCodeForSub(p.sub) ?? p.sub, p.sub]),
 );
 
 /**
  * Resolve the secret key that stores a role's PIN.
  * Platform-admin roles share the single ADMIN_PIN secret (matching verify-pin);
- * all other roles use USER_PIN_<sub> for the person assigned to that role.
+ * all other roles use USER_PIN_<sub> for the person mapped to that role via the
+ * PERSONS registry (roles themselves carry no person/email).
  * Handles both functional role codes (e.g. 'finance' → ama) and legacy
- * person-oriented codes (e.g. 'Lukas' → lucas).
+ * task-owner codes (e.g. 'Lukas' → lucas).
  */
 function pinKeyForRole(role: { code: string; isPlatformAdmin: boolean }): string {
   if (role.isPlatformAdmin) return 'ADMIN_PIN';
@@ -47,7 +41,6 @@ export interface RoleConfigView {
   code: string;
   name: string;
   isPlatformAdmin: boolean;
-  email: string | null;
   pinConfigured: boolean;
 }
 
@@ -76,7 +69,6 @@ export async function GET(request: Request): Promise<NextResponse> {
       code: role.code,
       name: role.name,
       isPlatformAdmin: role.isPlatformAdmin,
-      email: role.email,
       pinConfigured,
     });
   }

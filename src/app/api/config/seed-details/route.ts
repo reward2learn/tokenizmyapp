@@ -103,7 +103,6 @@ export async function GET(): Promise<NextResponse> {
     const roleDetails = roleRecords.map((r) => ({
       code: r.code,
       name: r.name,
-      email: r.email,
     }));
 
     // ── Monthly targets ──────────────────────────────────

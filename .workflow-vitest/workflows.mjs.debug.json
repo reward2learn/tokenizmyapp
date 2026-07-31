@@ -1,0 +1,8 @@
+{
+  "workflowFiles": [
+    "/Users/iliashapiro/RedRuby-FPA/tokenizmyapp/workflows/workbook-ingest/index.ts"
+  ],
+  "serdeOnlyFiles": [
+    "/Users/iliashapiro/RedRuby-FPA/tokenizmyapp/node_modules/@workflow/builders/dist/serde-checker.js"
+  ]
+}

@@ -51,13 +51,13 @@ import {
 import type { AdminUserView } from '@/app/api/admin/users/route';
 import type { AdminGroupView } from '@/app/api/admin/groups/route';
 import { FUNCTIONAL_ROLES } from '@/domain/security/functional-roles';
-import { PERSONS, DEFAULT_PLATFORM_ADMIN_EMAIL } from '@/domain/security/persons';
+import { PERSONS } from '@/domain/security/persons';
 import { CAPABILITY_AREAS, capability } from '@/domain/security/capabilities';
 
 /** Roles that persist regardless of seeded data state. */
-const PERSISTENT_ROLES: { code: string; name: string; isPlatformAdmin: boolean; email: string | null }[] = [
-  { code: 'platform-admin', name: 'Platform Admin', isPlatformAdmin: true, email: DEFAULT_PLATFORM_ADMIN_EMAIL },
-  { code: 'admin', name: 'Admin', isPlatformAdmin: true, email: DEFAULT_PLATFORM_ADMIN_EMAIL },
+const PERSISTENT_ROLES: { code: string; name: string; isPlatformAdmin: boolean }[] = [
+  { code: 'platform-admin', name: 'Platform Admin', isPlatformAdmin: true },
+  { code: 'admin', name: 'Admin', isPlatformAdmin: true },
 ];
 
 function RoleManager() {
@@ -87,7 +87,7 @@ function RoleManager() {
       </Typography>
       <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
         {hasDbData
-          ? 'Each functional role is assigned to one person. Manage PINs in the User Accounts tab.'
+          ? 'Roles are a display-name catalog (code + name), not tied to a person. People map to roles via the PERSONS registry; PINs are managed in the User Accounts tab.'
           : 'No seeded roles — showing persistent defaults (Platform Admin, Admin). Seed data to restore all functional roles.'}
       </Typography>
       {isError ? (
@@ -99,8 +99,7 @@ function RoleManager() {
         <TableHead>
           <TableRow>
             <TableCell>Role</TableCell>
-            <TableCell>Person</TableCell>
-            <TableCell>Email</TableCell>
+            <TableCell>Code</TableCell>
             <TableCell>PIN</TableCell>
           </TableRow>
         </TableHead>
@@ -108,8 +107,7 @@ function RoleManager() {
           {displayRoles.map((r) => (
             <TableRow key={r.code}>
               <TableCell sx={{ fontWeight: 600 }}>{r.name}</TableCell>
-              <TableCell>{r.code === 'admin' ? 'Admin' : r.code === 'platform-admin' ? 'Platform Admin' : '—'}</TableCell>
-              <TableCell>{r.email ?? '—'}</TableCell>
+              <TableCell sx={{ fontFamily: 'monospace' }}>{r.code}</TableCell>
               <TableCell>
                 {'pinConfigured' in r ? (
                   (r as { pinConfigured: boolean }).pinConfigured ? (

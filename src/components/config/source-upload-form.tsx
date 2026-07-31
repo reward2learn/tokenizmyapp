@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useForm } from 'react-hook-form';
 import Accordion from '@mui/material/Accordion';
 import AccordionDetails from '@mui/material/AccordionDetails';
@@ -10,6 +10,7 @@ import Box from '@mui/material/Box';
 import Button from '@mui/material/Button';
 import Chip from '@mui/material/Chip';
 import CircularProgress from '@mui/material/CircularProgress';
+import LinearProgress from '@mui/material/LinearProgress';
 import Paper from '@mui/material/Paper';
 import Stack from '@mui/material/Stack';
 import Table from '@mui/material/Table';
@@ -28,7 +29,8 @@ import {
   validateExcelUpload,
   validateMarkdownUpload,
 } from '@/lib/config/upload-validation';
-import { useReseedFromSourcesMutation, useReprocessFromCacheMutation, useGetSeedDetailsQuery } from '@/store/apis/config-api';
+import { useReseedFromSourcesMutation, useReprocessFromCacheMutation, useGetSeedDetailsQuery, useLazyGetReseedWorkflowStatusQuery } from '@/store/apis/config-api';
+import type { WorkflowAcceptedResponse } from '@/store/apis/config-api';
 import type { ReseedResponse } from '@/app/api/config/reseed/route';
 import type { ReprocessResponse } from '@/app/api/config/reprocess/route';
 
@@ -102,6 +104,11 @@ export function SourceUploadForm({ showSummaryOnly }: { showSummaryOnly?: boolea
     businessReview: null,
     executiveSummary: null,
   });
+  const [workflowRunId, setWorkflowRunId] = useState<string | null>(null);
+  const [workflowProgress, setWorkflowProgress] = useState<{ step: string; message: string; pct: number } | null>(null);
+  const [workflowComplete, setWorkflowComplete] = useState(false);
+  const eventSourceRef = useRef<EventSource | null>(null);
+  const [triggerStatus, { data: statusData }] = useLazyGetReseedWorkflowStatusQuery();
 
   const {
     register,
@@ -153,7 +160,23 @@ export function SourceUploadForm({ showSummaryOnly }: { showSummaryOnly?: boolea
     }
 
     resetMutation();
-    await reseed(formData).unwrap();
+    setWorkflowRunId(null);
+    setWorkflowProgress(null);
+    setWorkflowComplete(false);
+
+    try {
+      const result = await reseed(formData).unwrap();
+      if (result.success && (result.data as unknown as WorkflowAcceptedResponse)?.runId) {
+        const accepted = result.data as unknown as WorkflowAcceptedResponse;
+        setWorkflowRunId(accepted.runId);
+        startProgressStream(accepted.runId);
+      } else {
+        setWorkflowComplete(true);
+      }
+    } catch {
+      // error handled by mutation state
+    }
+
     reset();
     setFieldStatus({ excel: null, businessReview: null, executiveSummary: null });
   };
@@ -176,6 +199,43 @@ export function SourceUploadForm({ showSummaryOnly }: { showSummaryOnly?: boolea
     }
     setFieldStatus((prev) => ({ ...prev, [field]: message }));
   };
+
+  function startProgressStream(runId: string) {
+    if (eventSourceRef.current) {
+      eventSourceRef.current.close();
+    }
+
+    const es = new EventSource(`/api/config/reseed/stream?runId=${runId}`);
+    eventSourceRef.current = es;
+
+    es.onmessage = (event) => {
+      try {
+        const chunk = JSON.parse(event.data);
+        setWorkflowProgress(chunk);
+        if (chunk.pct === 100) {
+          es.close();
+          setWorkflowComplete(true);
+        }
+      } catch {
+        // non-JSON message (keep-alive or heartbeat) — ignore
+      }
+    };
+
+    es.onerror = () => {
+      es.close();
+      pollUntilComplete(runId);
+    };
+  }
+
+  function pollUntilComplete(runId: string) {
+    const interval = setInterval(async () => {
+      const status = await triggerStatus(runId).unwrap();
+      if (status.status === 'completed' || status.status === 'failed') {
+        clearInterval(interval);
+        setWorkflowComplete(true);
+      }
+    }, 2000);
+  }
 
   const result: ReseedResponse | undefined = data?.success ? data.data : undefined;
   const apiError =
@@ -326,6 +386,26 @@ export function SourceUploadForm({ showSummaryOnly }: { showSummaryOnly?: boolea
 
       {isReprocessSuccess && reprocessData?.success && reprocessData.data ? (
         <SeedSummary result={reprocessData.data} />
+      ) : null}
+
+      {/* ── Workflow Progress ─────────────────────────────── */}
+      {workflowRunId && !workflowComplete ? (
+        <Paper variant="outlined" sx={{ p: 2, mb: 2, bgcolor: 'rgba(10,249,254,0.04)' }}>
+          <Stack spacing={1}>
+            <Typography variant="subtitle2" sx={{ fontFamily: 'monospace', fontSize: '0.75rem', color: 'text.secondary' }}>
+              Run: {workflowRunId}
+            </Typography>
+            <LinearProgress variant="determinate" value={workflowProgress?.pct ?? 0} />
+            <Typography variant="body2" color="text.secondary">
+              {workflowProgress?.message ?? 'Starting workflow…'}
+            </Typography>
+          </Stack>
+        </Paper>
+      ) : null}
+      {workflowComplete && workflowRunId ? (
+        <Alert severity="success" sx={{ mb: 2 }} role="status">
+          Workflow completed. Refresh the page to see updated data.
+        </Alert>
       ) : null}
     </Box>
   );
@@ -512,7 +592,6 @@ function SeedSummary({ result }: { result: ReseedResponse }) {
               <TableRow>
                 <TableCell>Code</TableCell>
                 <TableCell>Name</TableCell>
-                <TableCell>Email</TableCell>
               </TableRow>
             </TableHead>
             <TableBody>
@@ -520,7 +599,6 @@ function SeedSummary({ result }: { result: ReseedResponse }) {
                 <TableRow key={r.code}>
                   <TableCell>{r.code}</TableCell>
                   <TableCell>{r.name}</TableCell>
-                  <TableCell>{r.email ?? '—'}</TableCell>
                 </TableRow>
               ))}
             </TableBody>
