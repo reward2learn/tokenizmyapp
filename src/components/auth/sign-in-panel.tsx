@@ -80,7 +80,7 @@ export function SignInPanel({ requiredTier }: SignInPanelProps) {
 
   const oauthError = searchParams.get('auth') === 'error';
   const showPin = requiredTier !== 'google';
-  const googleHref = googleAuthHref(pathname || '/dashboard');
+  const googleHref = googleAuthHref(pathname || '/');
 
   const handlePinSubmit = async (event: FormEvent) => {
     event.preventDefault();

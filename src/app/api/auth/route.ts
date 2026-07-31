@@ -27,6 +27,7 @@ import { PdfExportService } from '@/domain/pdf/pdf-export-service';
 import { ensureJobQueueTable, ensureSecurityTables } from '@/lib/db-migrate';
 import { resolveGroupCodesForSub, resolveCapabilitiesForSub, upsertUserAccount } from '@/domain/security/security-service';
 import { legacyError, jsonError } from '@/lib/api/response';
+import { getDefaultRoutePath } from '@/lib/navigation/default-route';
 
 export const maxDuration = 60;
 export const dynamic = 'force-dynamic';
@@ -302,14 +303,17 @@ async function handleMe(request: Request): Promise<NextResponse> {
   }
 }
 
-function handleLogout(request: Request): NextResponse {
+async function handleLogout(request: Request): Promise<NextResponse> {
   // Use the request host directly so logout always stays on the current domain.
   // Do NOT use getOrigin() — its canonical URL resolution (getTenantAppUrl) can
   // resolve to a different app when NEXT_PUBLIC_APP_URL is unset or wrong.
   const host = request.headers.get('x-forwarded-host') ?? request.headers.get('host') ?? '';
   const proto = request.headers.get('x-forwarded-proto') === 'https' ? 'https' : 'http';
   const origin = host ? `${proto}://${host.split(',')[0].trim()}` : 'http://localhost:3000';
-  const response = NextResponse.redirect(new URL('/dashboard', origin));
+  // Land on the app's configured default route (e.g. Home '/') after sign-out
+  // instead of a hardcoded /dashboard.
+  const defaultPath = await getDefaultRoutePath();
+  const response = NextResponse.redirect(new URL(defaultPath, origin));
   clearSessionCookie(response);
   return response;
 }

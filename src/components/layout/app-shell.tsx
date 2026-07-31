@@ -395,7 +395,7 @@ export function AppShell({ children }: { children: ReactNode }) {
           {tier === 'public' ? (
             <Button
               component="a"
-              href={`/api/auth?action=google&redirect=${encodeURIComponent(pathname || '/dashboard')}`}
+              href={`/api/auth?action=google&redirect=${encodeURIComponent(pathname || '/')}`}
               variant="outlined"
               size="small"
               fullWidth
