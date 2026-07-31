@@ -8,6 +8,7 @@ import {
   validateExcelUpload,
   validateMarkdownUpload,
 } from '@/lib/config/upload-validation';
+import { resolveOpenAiKey } from '@/lib/openai';
 import { seedFromSources, type SeedCounts } from '@/domain/seed/seed-runner';
 import type { SourceFileKey } from '@/domain/seed/source-files';
 import type { AiPipelineResult } from '@/domain/ai-workbook/pipeline';
@@ -141,8 +142,9 @@ export async function POST(request: Request): Promise<NextResponse> {
         })),
         model: model ?? 'gpt-4o',
         skipContentGeneration: false,
+        tenantSlug: process.env.NEXT_PUBLIC_TENANT_SLUG || undefined,
         dbUrl: process.env.POSTGRES_URL || '',
-        openaiApiKey: process.env.OPENAI_API_KEY || null,
+        openaiApiKey: (await resolveOpenAiKey()) || process.env.OPENAI_API_KEY || null,
       };
 
       const run = await start(handleWorkbookIngest, [input]);

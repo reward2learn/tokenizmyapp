@@ -116,7 +116,7 @@ export async function handleWorkbookIngest(
   const projectionsCount = await populateProjectionsStep(comprehension.comprehension, dbUrl);
 
   // ── 6. UPSERT SHEET PAGES (with §7.1 orphan fix) ───────────────
-  const pagesCreated = await upsertSheetPagesStep(comprehension.comprehension, dbUrl);
+  const pagesCreated = await upsertSheetPagesStep(comprehension.comprehension, dbUrl, input.tenantSlug);
 
   // ── 7. REGISTER DYNAMIC PAGES (best-effort runtime catalog) ────
   const pagesRegistered = await registerDynamicPagesStep(comprehension.comprehension);

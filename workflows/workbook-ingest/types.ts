@@ -26,6 +26,7 @@ export interface WorkbookIngestInput {
   skipContentGeneration?: boolean;
   /** OpenAI API key — resolved by the route from DB secrets (Config > OpenAI Key) or left undefined for env fallback. */
   openaiApiKey?: string | null;
+  tenantSlug?: string;
   /** Database connection string for the target tenant (resolved by the route from tenants.db_url or root POSTGRES_URL). */
   dbUrl: string;
 }

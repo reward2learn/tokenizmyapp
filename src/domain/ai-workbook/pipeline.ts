@@ -135,14 +135,15 @@ async function upsertSheetPages(
     // §7.1 FIX: use RETURNING id so we always have the real page ID
     // (new OR existing — handles slug collision without orphan FK references).
     const pageRows = await db.$queryRaw<{ id: string }[]>`
-      INSERT INTO app_pages (id, slug, title, auth_tier, sort_order, nav_label, show_in_nav)
-      VALUES (${crypto.randomUUID()}, ${slug}, ${sheet.title}, 'google', ${sortOrder++}, ${sheet.title}, true)
+      INSERT INTO app_pages (id, slug, title, auth_tier, sort_order, nav_label, show_in_nav, tenant_slug)
+      VALUES (${crypto.randomUUID()}, ${slug}, ${sheet.title}, 'google', ${sortOrder++}, ${sheet.title}, true, NULL)
       ON CONFLICT (slug) DO UPDATE SET
         title = EXCLUDED.title,
         auth_tier = EXCLUDED.auth_tier,
         sort_order = EXCLUDED.sort_order,
         nav_label = EXCLUDED.nav_label,
-        show_in_nav = EXCLUDED.show_in_nav
+        show_in_nav = EXCLUDED.show_in_nav,
+        tenant_slug = COALESCE(EXCLUDED.tenant_slug, app_pages.tenant_slug)
       RETURNING id;
     `;
     const pageId = pageRows[0]?.id;

@@ -271,6 +271,7 @@ const SHEET_CATEGORY_BLOCKS: Record<string, { blockType: string; title: string }
 export async function upsertSheetPagesStep(
   comprehension: WorkbookComprehension,
   dbUrl: string,
+  tenantSlug?: string,
 ): Promise<Array<{ slug: string; title: string }>> {
   'use step';
 
@@ -285,14 +286,15 @@ export async function upsertSheetPagesStep(
       // §7.1 fix: RETURNING id gives us the real page ID on insert OR conflict.
       const pageRows = await queryRows<{ id: string }>(
         db,
-        `INSERT INTO app_pages (id, slug, title, auth_tier, sort_order, nav_label, show_in_nav)
-         VALUES (gen_random_uuid()::TEXT, $1, $2, 'google', $3, $4, true)
+        `INSERT INTO app_pages (id, slug, title, auth_tier, sort_order, nav_label, show_in_nav, tenant_slug)
+         VALUES (gen_random_uuid()::TEXT, $1, $2, 'google', $3, $4, true, $5)
          ON CONFLICT (slug) DO UPDATE SET
            title = EXCLUDED.title,
            auth_tier = EXCLUDED.auth_tier,
            sort_order = EXCLUDED.sort_order,
            nav_label = EXCLUDED.nav_label,
-           show_in_nav = EXCLUDED.show_in_nav
+           show_in_nav = EXCLUDED.show_in_nav,
+           tenant_slug = COALESCE(EXCLUDED.tenant_slug, app_pages.tenant_slug)
          RETURNING id;`,
         [slug, sheet.title, sortOrder++, sheet.title],
       );
