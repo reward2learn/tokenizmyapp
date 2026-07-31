@@ -272,6 +272,8 @@ model NavigationItem {
   isVisible      Boolean          @default(true) @map("is_visible")
   /// When true the path is treated as a dynamic /[slug] route rather than static.
   isDynamic      Boolean          @default(false) @map("is_dynamic")
+  /// When true this item is the configured default landing route for root visits.
+  isDefault      Boolean          @default(false) @map("is_default")
   createdAt      DateTime         @default(now()) @map("created_at")
   updatedAt      DateTime         @updatedAt() @map("updated_at")
 
