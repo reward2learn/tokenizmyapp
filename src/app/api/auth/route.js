@@ -236,7 +236,12 @@ async function handleMe(request) {
     }
 }
 function handleLogout(request) {
-    const origin = getOrigin(request);
+    // Use the request host directly so logout always stays on the current domain.
+    // Do NOT use getOrigin() — its canonical URL resolution (getTenantAppUrl) can
+    // resolve to a different app when NEXT_PUBLIC_APP_URL is unset or wrong.
+    const host = request.headers.get('x-forwarded-host') ?? request.headers.get('host') ?? '';
+    const proto = request.headers.get('x-forwarded-proto') === 'https' ? 'https' : 'http';
+    const origin = host ? `${proto}://${host.split(',')[0].trim()}` : 'http://localhost:3000';
     const response = NextResponse.redirect(new URL('/dashboard', origin));
     clearSessionCookie(response);
     return response;
