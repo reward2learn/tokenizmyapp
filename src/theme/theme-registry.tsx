@@ -99,7 +99,7 @@ function buildTheme(brand: BrandColors) {
       MuiCheckbox: {
         styleOverrides: {
           sizeSmall: {
-            width: 48,
+            width: 70,
             height: 48,
           },
         },
@@ -125,6 +125,7 @@ function buildTheme(brand: BrandColors) {
           } : {},
           track: ({ ownerState }) => ownerState.size === 'medium' ? {
             borderRadius: 15,
+            padding: 15,
           } : {},
         },
       },
