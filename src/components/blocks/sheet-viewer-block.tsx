@@ -71,6 +71,8 @@ export function SheetViewerBlock({ config }: { config: Record<string, unknown> }
   const [sortModel, setSortModel] = useState<GridSortModel>([]);
   const [pinnedColumns, setPinnedColumns] = useState<string[]>([]);
   const [settingsAnchor, setSettingsAnchor] = useState<HTMLElement | null>(null);
+  const [isSaving, setIsSaving] = useState(false);
+  const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   const { data: payload, isLoading, error: queryError } = useGetSheetDataQuery(
     { sheet: sheet ?? '', page: paginationModel.page + 1, perPage: PER_PAGE },
