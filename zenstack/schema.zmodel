@@ -344,6 +344,7 @@ model AppSetting {
   brandSecondaryColor String   @default("#0af9fe") @map("brand_secondary_color")
   updatedAt           DateTime @updatedAt @map("updated_at")
 
+  @@index([tenantSlug], name: "idx_app_settings_tenant_slug")
   @@allow('all', true)
   @@map("app_settings")
 }
