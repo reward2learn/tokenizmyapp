@@ -74,6 +74,14 @@ export async function getGoogleOAuthPublicConfig(): Promise<GoogleOAuthPublicCon
 }
 
 export async function getGoogleOAuthCredentials(): Promise<GoogleOAuthCredentials | null> {
+  // Prefer this app's own GOOGLE_* env credentials when present. The
+  // google_oauth_config row is a singleton (id 'default') living in the
+  // factory's SHARED database — preferring it first would leak the factory's
+  // client id to every tenant app that shares the DB (my-finance-review,
+  // redrubybali, ...). Tenant deployments carry their own credentials in env.
+  const fromEnv = credentialsFromEnv();
+  if (fromEnv) return fromEnv;
+
   try {
     const db = createClient();
     const row = await db.googleOAuthConfig.findUnique({ where: { id: CONFIG_ID } });
