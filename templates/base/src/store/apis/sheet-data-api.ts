@@ -18,9 +18,17 @@ export interface SheetDataResponse {
   totalPages: number;
 }
 
+export interface UpdateSheetCellParams {
+  sheet: string;
+  rowIndex: number;
+  column: string;
+  value: unknown;
+}
+
 export const sheetDataApi = createApi({
   reducerPath: 'sheetDataApi',
   baseQuery,
+  tagTypes: ['SheetData'],
   endpoints: (builder) => ({
     getSheetData: builder.query<ApiEnvelope<SheetDataResponse>, SheetDataParams>({
       query: (params) => ({
@@ -31,10 +39,25 @@ export const sheetDataApi = createApi({
           perPage: params.perPage ?? 200,
         },
       }),
+      providesTags: (result, error, arg) => [{ type: 'SheetData' as const, id: arg.sheet }],
+    }),
+    updateSheetCell: builder.mutation<
+      ApiEnvelope<{ success: boolean }>,
+      UpdateSheetCellParams
+    >({
+      query: (params) => ({
+        url: 'sheet-data/update-cell',
+        method: 'POST',
+        body: params,
+      }),
+      invalidatesTags: (result, error, arg) => [
+        { type: 'SheetData' as const, id: arg.sheet },
+      ],
     }),
   }),
 });
 
 export const {
   useGetSheetDataQuery,
+  useUpdateSheetCellMutation,
 } = sheetDataApi;
