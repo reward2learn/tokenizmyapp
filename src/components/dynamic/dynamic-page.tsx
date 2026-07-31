@@ -57,7 +57,7 @@ export function DynamicPage({ page }: DynamicPageProps) {
       <Box
         component="h1"
         sx={{
-          position: 'absolute',
+          position: 'sticky',
           width: 1,
           height: 1,
           margin: 0,
