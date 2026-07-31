@@ -190,8 +190,8 @@ export async function seedTenantDefaults(input: SeedTenantInput): Promise<{
       // Provide explicit created_at and updated_at to satisfy NOT NULL constraints
       const navId = genRandomId();
       await db.$executeRawUnsafe(
-        `INSERT INTO navigation_items (id, title, path, icon, auth_tier, sort_order, tenant_slug, created_at, updated_at)
-         VALUES ($1, $2, $3, $4, CAST($5 AS "AuthTier"), $6, $7, NOW(), NOW());`,
+        `INSERT INTO navigation_items (id, title, path, icon, auth_tier, sort_order, tenant_slug, is_default, created_at, updated_at)
+         VALUES ($1, $2, $3, $4, CAST($5 AS "AuthTier"), $6, $7, $8, NOW(), NOW());`,
         navId,
         navItem.title,
         navItem.path,
@@ -199,6 +199,7 @@ export async function seedTenantDefaults(input: SeedTenantInput): Promise<{
         navItem.authTier,
         i, // sort_order reflects nav definition order in the template
         input.slug,
+        navItem.path === '/', // the Home '/' item is the default landing route on initial provisioning
       );
       navCount++;
     } catch (err) {

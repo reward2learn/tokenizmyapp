@@ -49,7 +49,16 @@ const ADMIN_PAGE = {
   blockTypes: ['ops_admin_tabs'],
 };
 
+/** Home landing page — standard layout with hero block as the default snippet. */
+const HOME_PAGE = {
+  slug: 'home', title: 'Home', navLabel: 'Home', authTier: 'public' as const,
+  blockTypes: ['hero'],
+};
+/** Home nav item — serves the '/' route and is the default landing route on initial provisioning. */
+const HOME_NAV = { title: 'Home', path: '/', icon: 'Home', authTier: 'public' as const };
+
 const BASIC_NAV = [
+  { title: 'Home', path: '/', icon: 'Home', authTier: 'public' as const },
   { title: 'Dashboard', path: '/dashboard', icon: 'Dashboard', authTier: 'public' as const },
   { title: 'Tasks', path: '/tasks', icon: 'CheckCircle', authTier: 'pin' as const },
   { title: 'Admin', path: '/admin', icon: 'Settings', authTier: 'pin' as const },
@@ -66,6 +75,7 @@ export const TEMPLATE_CATALOG: Record<string, TemplateDefinition> = {
     icon: 'Analytics',
     defaultColors: { primary: '#eb3d28', secondary: '#0af9fe' },
     defaultPages: [
+      HOME_PAGE,
       DASHBOARD_PAGE(['hero', 'kpi_cards', 'chart_financial']),
       SUMMARY_PAGE,
       { slug: 'review', title: 'Business Review', navLabel: 'Review', authTier: 'google', blockTypes: ['review_blocks'] },
@@ -74,6 +84,7 @@ export const TEMPLATE_CATALOG: Record<string, TemplateDefinition> = {
       { slug: 'ops-tracking', title: 'Ops Tracking', navLabel: 'Ops Tracking', authTier: 'pin', blockTypes: ['kpi_cards', 'sheet_viewer'] },
     ],
     defaultNavItems: [
+      HOME_NAV,
       { title: 'Dashboard', path: '/dashboard', icon: 'Dashboard', authTier: 'public' },
       { title: 'Business Review', path: '/review', icon: 'Description', authTier: 'google' },
       { title: 'Tasks', path: '/tasks', icon: 'CheckCircle', authTier: 'pin' },
@@ -93,6 +104,7 @@ export const TEMPLATE_CATALOG: Record<string, TemplateDefinition> = {
     icon: 'Restaurant',
     defaultColors: { primary: '#2e7d32', secondary: '#ff8f00' },
     defaultPages: [
+      HOME_PAGE,
       DASHBOARD_PAGE(['hero', 'kpi_cards', 'chart_financial']),
       { slug: 'menu', title: 'Menu', navLabel: 'Menu', authTier: 'public', blockTypes: ['dynamic_form'] },
       { slug: 'reservations', title: 'Reservations', navLabel: 'Reservations', authTier: 'public', blockTypes: ['dynamic_form'] },
@@ -101,6 +113,7 @@ export const TEMPLATE_CATALOG: Record<string, TemplateDefinition> = {
       ADMIN_PAGE,
     ],
     defaultNavItems: [
+      HOME_NAV,
       { title: 'Dashboard', path: '/dashboard', icon: 'Dashboard', authTier: 'public' },
       { title: 'Menu', path: '/menu', icon: 'RestaurantMenu', authTier: 'public' },
       { title: 'Reservations', path: '/reservations', icon: 'EventSeat', authTier: 'public' },
@@ -119,6 +132,7 @@ export const TEMPLATE_CATALOG: Record<string, TemplateDefinition> = {
     icon: 'Hotel',
     defaultColors: { primary: '#1565c0', secondary: '#ff8f00' },
     defaultPages: [
+      HOME_PAGE,
       DASHBOARD_PAGE(['hero', 'kpi_cards', 'chart_financial']),
       { slug: 'rooms', title: 'Rooms', navLabel: 'Rooms', authTier: 'public', blockTypes: ['dynamic_form'] },
       { slug: 'bookings', title: 'Bookings', navLabel: 'Bookings', authTier: 'public', blockTypes: ['dynamic_form'] },
@@ -127,6 +141,7 @@ export const TEMPLATE_CATALOG: Record<string, TemplateDefinition> = {
       ADMIN_PAGE,
     ],
     defaultNavItems: [
+      HOME_NAV,
       { title: 'Dashboard', path: '/dashboard', icon: 'Dashboard', authTier: 'public' },
       { title: 'Rooms', path: '/rooms', icon: 'Hotel', authTier: 'public' },
       { title: 'Bookings', path: '/bookings', icon: 'BookOnline', authTier: 'public' },
@@ -145,6 +160,7 @@ export const TEMPLATE_CATALOG: Record<string, TemplateDefinition> = {
     icon: 'ShoppingCart',
     defaultColors: { primary: '#7b1fa2', secondary: '#00bcd4' },
     defaultPages: [
+      HOME_PAGE,
       DASHBOARD_PAGE(['hero', 'kpi_cards', 'chart_financial']),
       { slug: 'products', title: 'Products', navLabel: 'Products', authTier: 'public', blockTypes: ['dynamic_form'] },
       { slug: 'orders', title: 'Orders', navLabel: 'Orders', authTier: 'pin', blockTypes: ['dynamic_form'] },
@@ -153,6 +169,7 @@ export const TEMPLATE_CATALOG: Record<string, TemplateDefinition> = {
       ADMIN_PAGE,
     ],
     defaultNavItems: [
+      HOME_NAV,
       { title: 'Dashboard', path: '/dashboard', icon: 'Dashboard', authTier: 'public' },
       { title: 'Products', path: '/products', icon: 'Inventory', authTier: 'public' },
       { title: 'Orders', path: '/orders', icon: 'Receipt', authTier: 'pin' },
@@ -171,6 +188,7 @@ export const TEMPLATE_CATALOG: Record<string, TemplateDefinition> = {
     icon: 'LocalHospital',
     defaultColors: { primary: '#0097a7', secondary: '#ff6f00' },
     defaultPages: [
+      HOME_PAGE,
       DASHBOARD_PAGE(['hero', 'kpi_cards', 'chart_financial']),
       { slug: 'patients', title: 'Patients', navLabel: 'Patients', authTier: 'pin', blockTypes: ['dynamic_form'] },
       { slug: 'claims', title: 'Insurance Claims', navLabel: 'Claims', authTier: 'pin', blockTypes: ['dynamic_form'] },
@@ -179,6 +197,7 @@ export const TEMPLATE_CATALOG: Record<string, TemplateDefinition> = {
       ADMIN_PAGE,
     ],
     defaultNavItems: [
+      HOME_NAV,
       { title: 'Dashboard', path: '/dashboard', icon: 'Dashboard', authTier: 'public' },
       { title: 'Patients', path: '/patients', icon: 'Person', authTier: 'pin' },
       { title: 'Claims', path: '/claims', icon: 'Assignment', authTier: 'pin' },
@@ -197,6 +216,7 @@ export const TEMPLATE_CATALOG: Record<string, TemplateDefinition> = {
     icon: 'LocalShipping',
     defaultColors: { primary: '#37474f', secondary: '#ff9800' },
     defaultPages: [
+      HOME_PAGE,
       DASHBOARD_PAGE(['hero', 'kpi_cards', 'chart_financial']),
       { slug: 'shipments', title: 'Shipments', navLabel: 'Shipments', authTier: 'pin', blockTypes: ['dynamic_form'] },
       { slug: 'warehouse', title: 'Warehouse', navLabel: 'Warehouse', authTier: 'pin', blockTypes: ['dynamic_form'] },
@@ -205,6 +225,7 @@ export const TEMPLATE_CATALOG: Record<string, TemplateDefinition> = {
       ADMIN_PAGE,
     ],
     defaultNavItems: [
+      HOME_NAV,
       { title: 'Dashboard', path: '/dashboard', icon: 'Dashboard', authTier: 'public' },
       { title: 'Shipments', path: '/shipments', icon: 'LocalShipping', authTier: 'pin' },
       { title: 'Warehouse', path: '/warehouse', icon: 'Warehouse', authTier: 'pin' },
@@ -223,6 +244,7 @@ export const TEMPLATE_CATALOG: Record<string, TemplateDefinition> = {
     icon: 'Home',
     defaultColors: { primary: '#1b5e20', secondary: '#f57c00' },
     defaultPages: [
+      HOME_PAGE,
       DASHBOARD_PAGE(['hero', 'kpi_cards', 'chart_financial']),
       { slug: 'properties', title: 'Properties', navLabel: 'Properties', authTier: 'public', blockTypes: ['dynamic_form'] },
       { slug: 'leases', title: 'Leases', navLabel: 'Leases', authTier: 'pin', blockTypes: ['dynamic_form'] },
@@ -231,6 +253,7 @@ export const TEMPLATE_CATALOG: Record<string, TemplateDefinition> = {
       ADMIN_PAGE,
     ],
     defaultNavItems: [
+      HOME_NAV,
       { title: 'Dashboard', path: '/dashboard', icon: 'Dashboard', authTier: 'public' },
       { title: 'Properties', path: '/properties', icon: 'Home', authTier: 'public' },
       { title: 'Leases', path: '/leases', icon: 'Description', authTier: 'pin' },
@@ -249,6 +272,7 @@ export const TEMPLATE_CATALOG: Record<string, TemplateDefinition> = {
     icon: 'School',
     defaultColors: { primary: '#0d47a1', secondary: '#ffc107' },
     defaultPages: [
+      HOME_PAGE,
       DASHBOARD_PAGE(['hero', 'kpi_cards', 'chart_financial']),
       { slug: 'courses', title: 'Courses', navLabel: 'Courses', authTier: 'public', blockTypes: ['dynamic_form'] },
       { slug: 'enrollments', title: 'Enrollments', navLabel: 'Enrollments', authTier: 'pin', blockTypes: ['dynamic_form'] },
@@ -257,6 +281,7 @@ export const TEMPLATE_CATALOG: Record<string, TemplateDefinition> = {
       ADMIN_PAGE,
     ],
     defaultNavItems: [
+      HOME_NAV,
       { title: 'Dashboard', path: '/dashboard', icon: 'Dashboard', authTier: 'public' },
       { title: 'Courses', path: '/courses', icon: 'School', authTier: 'public' },
       { title: 'Enrollments', path: '/enrollments', icon: 'AssignmentInd', authTier: 'pin' },
@@ -275,6 +300,7 @@ export const TEMPLATE_CATALOG: Record<string, TemplateDefinition> = {
     icon: 'BusinessCenter',
     defaultColors: { primary: '#263238', secondary: '#00bcd4' },
     defaultPages: [
+      HOME_PAGE,
       DASHBOARD_PAGE(['hero', 'kpi_cards', 'chart_financial']),
       { slug: 'projects', title: 'Projects', navLabel: 'Projects', authTier: 'pin', blockTypes: ['dynamic_form'] },
       { slug: 'invoices', title: 'Invoices', navLabel: 'Invoices', authTier: 'pin', blockTypes: ['dynamic_form'] },
@@ -283,6 +309,7 @@ export const TEMPLATE_CATALOG: Record<string, TemplateDefinition> = {
       ADMIN_PAGE,
     ],
     defaultNavItems: [
+      HOME_NAV,
       { title: 'Dashboard', path: '/dashboard', icon: 'Dashboard', authTier: 'public' },
       { title: 'Projects', path: '/projects', icon: 'Folder', authTier: 'pin' },
       { title: 'Invoices', path: '/invoices', icon: 'Receipt', authTier: 'pin' },
@@ -301,6 +328,7 @@ export const TEMPLATE_CATALOG: Record<string, TemplateDefinition> = {
     icon: 'PrecisionManufacturing',
     defaultColors: { primary: '#bf360c', secondary: '#ffab00' },
     defaultPages: [
+      HOME_PAGE,
       DASHBOARD_PAGE(['hero', 'kpi_cards', 'chart_financial']),
       { slug: 'production', title: 'Production Orders', navLabel: 'Production', authTier: 'pin', blockTypes: ['dynamic_form'] },
       { slug: 'quality', title: 'Quality Control', navLabel: 'Quality', authTier: 'pin', blockTypes: ['dynamic_form'] },
@@ -309,6 +337,7 @@ export const TEMPLATE_CATALOG: Record<string, TemplateDefinition> = {
       ADMIN_PAGE,
     ],
     defaultNavItems: [
+      HOME_NAV,
       { title: 'Dashboard', path: '/dashboard', icon: 'Dashboard', authTier: 'public' },
       { title: 'Production', path: '/production', icon: 'PrecisionManufacturing', authTier: 'pin' },
       { title: 'Quality', path: '/quality', icon: 'Verified', authTier: 'pin' },
@@ -327,6 +356,7 @@ export const TEMPLATE_CATALOG: Record<string, TemplateDefinition> = {
     icon: 'AdminPanelSettings',
     defaultColors: { primary: '#1a237e', secondary: '#00bcd4' },
     defaultPages: [
+      HOME_PAGE,
       DASHBOARD_PAGE(['hero', 'kpi_cards', 'metric_grid']),
       { slug: 'ops-admin', title: 'System Admin', navLabel: 'Ops Admin', authTier: 'pin', blockTypes: ['ops_admin_tabs', 'z_report_form', 'costs_form'] },
       SUMMARY_PAGE,
@@ -334,6 +364,7 @@ export const TEMPLATE_CATALOG: Record<string, TemplateDefinition> = {
       ADMIN_PAGE,
     ],
     defaultNavItems: [
+      HOME_NAV,
       { title: 'Dashboard', path: '/dashboard', icon: 'Dashboard', authTier: 'public' },
       { title: 'System Admin', path: '/ops-admin', icon: 'AdminPanelSettings', authTier: 'pin' },
       { title: 'Summary', path: '/summary', icon: 'Description', authTier: 'google' },
@@ -352,6 +383,7 @@ export const TEMPLATE_CATALOG: Record<string, TemplateDefinition> = {
     icon: 'Dashboard',
     defaultColors: { primary: '#eb3d28', secondary: '#0af9fe' },
     defaultPages: [
+      HOME_PAGE,
       DASHBOARD_PAGE(['hero', 'kpi_cards', 'chart_financial', 'chat_panel']),
       SUMMARY_PAGE,
       TASKS_PAGE,

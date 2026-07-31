@@ -105,7 +105,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   const toggleDrawer = () => dispatch(setDrawerOpen(!drawerOpen));
 
   const isActive = (href: string) =>
-    pathname === href || (href !== '/dashboard' && pathname.startsWith(href));
+    pathname === href || (href !== '/' && href !== '/dashboard' && pathname.startsWith(href));
 
   /** Resolve breadcrumb trail from the current pathname. */
   const getBreadcrumbs = useCallback((p: string) => {

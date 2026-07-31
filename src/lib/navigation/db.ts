@@ -98,13 +98,14 @@ export async function seedMissingNavigationFromCatalog(prisma: PrismaClient): Pr
     if (existingIds.has(id) || existingPaths.has(path)) return;
     try {
       await prisma.$executeRawUnsafe(
-        `INSERT INTO navigation_items (id, parent_id, sort_order, title, path, icon, auth_tier, required_groups, is_visible, is_dynamic, updated_at)
-         VALUES ($1, NULL, $2, $3, $4, '', CAST($5 AS "AuthTier"), '', TRUE, FALSE, NOW())`,
+        `INSERT INTO navigation_items (id, parent_id, sort_order, title, path, icon, auth_tier, required_groups, is_visible, is_dynamic, is_default, updated_at)
+         VALUES ($1, NULL, $2, $3, $4, '', CAST($5 AS "AuthTier"), '', TRUE, FALSE, $6, NOW())`,
         id,
         inserted,
         title,
         path,
         authTier,
+        path === '/', // the Home '/' item becomes the default landing route when seeded
       );
       existingIds.add(id);
       inserted++;

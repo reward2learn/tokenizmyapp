@@ -138,6 +138,23 @@ export function getFullCatalog(): Record<string, PageDefinition> {
 }
 
 export const PAGE_CATALOG: Record<string, PageDefinition> = {
+  home: {
+    slug: 'home',
+    title: 'Home',
+    navLabel: 'Home',
+    showInNav: true,
+    authTier: 'public',
+    sections: [
+      {
+        blockType: 'hero',
+        config: {
+          headline: 'Welcome',
+          subtitle: 'Your business application — configure pages, data and branding from the Admin area.',
+          minTier: 'public',
+        },
+      },
+    ],
+  },
   dashboard: {
     slug: 'dashboard',
     title: 'Dashboard',

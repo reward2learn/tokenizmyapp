@@ -33,8 +33,10 @@ export async function getDefaultRoutePath(): Promise<string> {
       `SELECT path FROM navigation_items WHERE is_default = TRUE AND is_visible = TRUE LIMIT 1`,
     );
     const path = rows.length > 0 ? rows[0].path : '';
-    // Guard: never redirect to the root itself (self-loop) or to external URLs.
-    if (!path || path === '/' || path.startsWith('http')) return FALLBACK_PATH;
+    // Guard: never return an empty or external URL. The '/' path is VALID —
+    // it is the Home page route and the root page renders it directly
+    // (no redirect), so a self-loop cannot occur.
+    if (!path || path.startsWith('http')) return FALLBACK_PATH;
     return path;
   } catch {
     return FALLBACK_PATH;
