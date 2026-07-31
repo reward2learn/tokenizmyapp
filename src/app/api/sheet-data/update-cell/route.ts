@@ -105,25 +105,38 @@ export async function POST(request: Request): Promise<NextResponse> {
     const buf = Buffer.from(cached.content, 'base64');
     const wb = read(buf, { type: 'buffer' });
 
-    const tabName = wb.SheetNames.find((n) => n.toLowerCase() === sheet.toLowerCase());
+    const tabName = wb.SheetNames?.find((n) => 
+      typeof n === "string" && n.toLowerCase() === (sheet || "").toLowerCase()
+    );
     if (!tabName) {
       return NextResponse.json({ 
         error: `Sheet "${sheet}" not found`,
-        availableSheets: wb.SheetNames 
+        availableSheets: wb.SheetNames || [] 
       }, { status: 404 });
     }
 
-    const ws = wb.Sheets[tabName]!;
+    const ws = wb.Sheets?.[tabName];
+    if (!ws) {
+      return NextResponse.json({ error: `Worksheet "${tabName}" not found in workbook` }, { status: 404 });
+    }
 
-    const { headers } = findHeaderRow(ws);
-    const colIndex = headers.findIndex(h => 
-      h.toLowerCase() === column.toLowerCase() || 
-      h.toLowerCase().replace(/\s+/g, '') === column.toLowerCase().replace(/\s+/g, '')
-    );
+    const headerResult = findHeaderRow(ws);
+    const headers = headerResult?.headers || [];
+    if (headers.length === 0) {
+      return NextResponse.json({ error: "Could not detect headers in sheet" }, { status: 400 });
+    }
+
+    const colIndex = headers.findIndex((h) => {
+      if (typeof h !== "string") return false;
+      const hLower = h.toLowerCase().trim();
+      const colLower = (column || "").toLowerCase().trim();
+      return hLower === colLower || 
+             hLower.replace(/\s+/g, "") === colLower.replace(/\s+/g, "");
+    });
     
     if (colIndex === -1) {
       return NextResponse.json({ 
-        error: `Column "${column}" not found in sheet "${sheet}". Available: ${headers.join(', ')}` 
+        error: `Column "${column}" not found in sheet "${sheet}". Available: ${headers.join(", ")}` 
       }, { status: 400 });
     }
 
