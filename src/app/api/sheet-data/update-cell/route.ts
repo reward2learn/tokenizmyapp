@@ -120,27 +120,39 @@ export async function POST(request: Request): Promise<NextResponse> {
       return NextResponse.json({ error: `Worksheet "${tabName}" not found in workbook` }, { status: 404 });
     }
 
-    const headerResult = findHeaderRow(ws);
-    const headers = headerResult?.headers || [];
-    if (headers.length === 0) {
-      return NextResponse.json({ error: "Could not detect headers in sheet" }, { status: 400 });
-    }
-
-    const colIndex = headers.findIndex((h) => {
-      if (typeof h !== "string") return false;
-      const hLower = h.toLowerCase().trim();
-      const colLower = (column || "").toLowerCase().trim();
-      return hLower === colLower || 
-             hLower.replace(/\s+/g, "") === colLower.replace(/\s+/g, "");
-    });
+    // Use the same header detection and column key logic as the main GET endpoint
+    const { headerRow, headers: rawHeaders } = findHeaderRow(ws);
     
+    // Build clean column keys with deduplication (same logic as main sheet-data/route.ts)
+    const seen = new Map<string, number>();
+    let emptyColIdx = 0;
+    const columnKeys = rawHeaders.map((h) => {
+      const trimmed = (h || '').toString().trim();
+      if (!trimmed) return `__hidden_${emptyColIdx++}`;
+      const count = seen.get(trimmed) ?? 0;
+      seen.set(trimmed, count + 1);
+      return count > 0 ? `${trimmed}_${count}` : trimmed;
+    });
+
+    const columns = columnKeys.filter((k) => !k.startsWith('__hidden_'));
+
+    const colIndex = columnKeys.findIndex((key, idx) => {
+      const rawHeader = (rawHeaders[idx] || '').toString().trim();
+      const searchColumn = (column || '').toString().trim();
+      
+      return rawHeader === searchColumn || 
+             key.toLowerCase() === searchColumn.toLowerCase() ||
+             rawHeader.toLowerCase().replace(/\s+/g, '') === searchColumn.toLowerCase().replace(/\s+/g, '') ||
+             key.toLowerCase().replace(/\s+/g, '') === searchColumn.toLowerCase().replace(/\s+/g, '');
+    });
+
     if (colIndex === -1) {
       return NextResponse.json({ 
-        error: `Column "${column}" not found in sheet "${sheet}". Available: ${headers.join(", ")}` 
+        error: `Column "${column}" not found in sheet "${sheet}". Available: ${columns.join(', ')}` 
       }, { status: 400 });
     }
 
-    const excelRow = Number(rowIndex) + 1; // +1 because Excel is 1-based, frontend skips header
+    const excelRow = Number(rowIndex) + 1; // +1 because Excel is 1-based, frontend rowIndex skips header
     const cellAddress = utils.encode_cell({ r: excelRow, c: colIndex });
 
     const cellValue = typeof value === 'number' ? value : String(value || '');
@@ -159,8 +171,9 @@ export async function POST(request: Request): Promise<NextResponse> {
 
     return NextResponse.json({ 
       success: true, 
-      message: `Updated ${sheet}!${cellAddress}`,
+      message: `Updated ${sheet}!${cellAddress} (column key: ${columnKeys[colIndex]})`,
       cell: cellAddress,
+      columnKey: columnKeys[colIndex],
       value: cellValue
     });
 
