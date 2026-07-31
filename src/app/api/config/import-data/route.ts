@@ -121,7 +121,7 @@ export async function POST(request: Request): Promise<NextResponse> {
         if (!row.slug || !row.markdown) continue;
         await prisma.$executeRawUnsafe(
           `INSERT INTO business_review_parts (id, part_key, slug, title, sort_order, auth_tier, markdown)
-           VALUES (gen_random_uuid()::text, $1, $2, $3, $4, $5, $6)
+           VALUES (gen_random_uuid()::text, $1, $2, $3, $4, CAST($5 AS "AuthTier"), $6)
            ON CONFLICT (slug) DO UPDATE SET title = $3, sort_order = $4, markdown = $6`,
           String(row.partKey ?? ''), String(row.slug), String(row.title ?? ''), Number(row.sortOrder ?? 0), String(row.authTier ?? 'google'), String(row.markdown),
         );

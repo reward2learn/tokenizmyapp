@@ -117,7 +117,7 @@ export async function POST(request: Request): Promise<NextResponse> {
     await ensureNavigationTable(prisma);
     await prisma.$executeRawUnsafe(
       `INSERT INTO navigation_items (id, parent_id, sort_order, title, path, icon, auth_tier, required_groups, is_visible, is_dynamic)
-       VALUES (gen_random_uuid()::text, $1, (SELECT COALESCE(MAX(sort_order), 0) + 1 FROM navigation_items WHERE parent_id IS NULL), $2, $3, $4, $5, $6, $7, TRUE)`,
+       VALUES (gen_random_uuid()::text, $1, (SELECT COALESCE(MAX(sort_order), 0) + 1 FROM navigation_items WHERE parent_id IS NULL), $2, $3, $4, CAST($5 AS "AuthTier"), $6, $7, TRUE)`,
       parentId ?? null, title, path ?? '', icon ?? '', authTier ?? 'public', requiredGroups ?? '', isVisible ?? true,
     );
     return jsonOk({ created: true });
