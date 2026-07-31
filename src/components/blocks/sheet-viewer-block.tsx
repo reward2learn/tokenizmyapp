@@ -130,6 +130,16 @@ export function SheetViewerBlock({ config }: { config: Record<string, unknown> }
           pageSizeOptions={[PER_PAGE]}
           disableRowSelectionOnClick
           sx={{
+            // Freeze first column (CSS workaround — MUI Community doesn't support pinnedColumns)
+            ...(columns[0] ? {
+              [`& .MuiDataGrid-columnHeader[data-field="${columns[0].field}"]`]: {
+                position: 'sticky', left: 0, zIndex: 3, bgcolor: 'background.paper',
+              },
+              [`& .MuiDataGrid-cell[data-field="${columns[0].field}"]`]: {
+                position: 'sticky', left: 0, zIndex: 2, bgcolor: 'background.paper',
+              },
+            } : {}),
+
             border: '1px solid',
             borderColor: 'divider',
             borderRadius: 1,
