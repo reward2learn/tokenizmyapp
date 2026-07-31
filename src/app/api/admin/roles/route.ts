@@ -3,27 +3,28 @@ import { createClient } from '@/lib/db';
 import { requireWriteAuth } from '@/lib/auth/guards';
 import { sessionIsPlatformAdmin } from '@/lib/auth/jwt';
 import { jsonError, jsonOk } from '@/lib/api/response';
-import { legacyTaskCodeForSub, PERSONS, resolvePerson } from '@/domain/security/persons';
+import { legacyTaskCodeForSub, PERSONS } from '@/domain/security/persons'; // LEGACY: minimize further use
 import { getSecretPlaintext, setSecret } from '@/lib/secrets';
 
 export const maxDuration = 30;
 
 /**
- * Map legacy person codes (from KNOWN_ROLES / seedTaskTracking) to the
- * correct USER_PIN_<sub> key. These are the capitalized codes that task
- * labels use (e.g. 'Lukas' → sub 'lucas' since the user's name is Lucas).
+ * @LEGACY mapping — used only for PIN secret key resolution during transition.
+ * Maps legacy task-owner codes (from persons.ts) to sub for USER_PIN_<sub>.
+ * See persons.ts deprecation notes and security-service.ts for new user_accounts approach.
+ * Will be replaced by per-user_account PIN config in future.
  */
 const LEGACY_CODE_TO_SUB: Record<string, string> = Object.fromEntries(
   PERSONS.map((p) => [legacyTaskCodeForSub(p.sub) ?? p.sub, p.sub]),
 );
 
 /**
- * Resolve the secret key that stores a role's PIN.
- * Platform-admin roles share the single ADMIN_PIN secret (matching verify-pin);
- * all other roles use USER_PIN_<sub> for the person mapped to that role via the
- * PERSONS registry (roles themselves carry no person/email).
- * Handles both functional role codes (e.g. 'finance' → ama) and legacy
- * task-owner codes (e.g. 'Lukas' → lucas).
+ * @LEGACY — Resolves PIN secret key (ADMIN_PIN or USER_PIN_<sub>) for a role.
+ * Uses PERSONS lookup for roleCode → sub mapping (transitional bridge to user_accounts).
+ * Platform admins share ADMIN_PIN; others map via legacy persons or role code.
+ * See persons.ts deprecation header, security-service.ts:listConfiguredPinUsers,
+ * and functional-roles.ts. Minimal PERSONS usage preserved for compatibility;
+ * future versions should tie PINs directly to user_accounts rows.
  */
 function pinKeyForRole(role: { code: string; isPlatformAdmin: boolean }): string {
   if (role.isPlatformAdmin) return 'ADMIN_PIN';
@@ -170,8 +171,9 @@ export async function PUT(request: Request): Promise<NextResponse> {
   try {
     const existing = await db.role.findUnique({ where: { code: normalizedCode } });
 
-    // Roles are just display names — email is not stored on the role.
-    // Person-to-role mapping is handled by the PERSONS registry in persons.ts.
+    // Roles are just display names + isPlatformAdmin flag (no email/person data).
+    // Person/sub mapping is now in user_accounts table (see security-service.ts).
+    // PERSONS.ts is LEGACY for transitional PIN/role bridging only.
     const roleData: Record<string, unknown> = {
       name: name.trim(),
       isPlatformAdmin: isPlatformAdmin ?? false,

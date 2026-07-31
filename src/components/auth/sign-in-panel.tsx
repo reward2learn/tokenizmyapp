@@ -15,14 +15,17 @@ import Stack from '@mui/material/Stack';
 import TextField from '@mui/material/TextField';
 import Typography from '@mui/material/Typography';
 import type { AuthTier } from '@/lib/page-catalog';
-import { PERSONS } from '@/domain/security/persons';
 import { useGetSessionQuery, useVerifyPinMutation, useListPinUsersQuery } from '@/store/apis/auth-api';
 
 export interface SignInPanelProps {
   requiredTier: AuthTier;
 }
 
-/** Options derived from the live PIN-users RTK Query endpoint, falling back to PERSONS. */
+/** 
+ * User list now comes entirely from user_accounts + roles via listConfiguredPinUsers
+ * (replaces static PERSONS fallback). The RTK Query returns only PIN-configured
+ * accounts; lastUsedName drives server-side pre-selection from last_seen_at.
+ */
 function usePinUsers(): {
   options: { value: string; sub: string }[];
   lastUsedName: string | null;
@@ -30,27 +33,27 @@ function usePinUsers(): {
 } {
   const { data, isLoading } = useListPinUsersQuery();
 
-  if (isLoading || !data) {
+  if (isLoading || !data?.success) {
     return {
-      options: PERSONS.map((p) => ({ value: p.name, sub: p.sub })),
+      options: [],
       lastUsedName: null,
       isLoading,
     };
   }
 
-  if (data?.success && Array.isArray(data.data?.users)) {
+  if (Array.isArray(data.data?.users)) {
     const active = data.data.users
-      .filter((u) => (u as { pinConfigured?: boolean }).pinConfigured ?? (u as { hasPin?: boolean }).hasPin)
+      .filter((u) => (u as { pinConfigured?: boolean }).pinConfigured)
       .map((u) => ({ value: u.name, sub: u.sub }));
     return {
-      options: active.length > 0 ? active : PERSONS.map((p) => ({ value: p.name, sub: p.sub })),
+      options: active,
       lastUsedName: data.data.lastUsedName ?? null,
       isLoading: false,
     };
   }
 
   return {
-    options: PERSONS.map((p) => ({ value: p.name, sub: p.sub })),
+    options: [],
     lastUsedName: null,
     isLoading: false,
   };
@@ -60,7 +63,7 @@ export function SignInPanel({ requiredTier }: SignInPanelProps) {
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const [pin, setPin] = useState('');
-  const { options: personOptions, lastUsedName } = usePinUsers();
+  const { options: personOptions, lastUsedName, isLoading: usersLoading } = usePinUsers();
   const [personName, setPersonName] = useState('');
 
   // Prefer the last PIN user persisted in Neon (user_accounts.last_seen_at).
@@ -85,7 +88,7 @@ export function SignInPanel({ requiredTier }: SignInPanelProps) {
   const handlePinSubmit = async (event: FormEvent) => {
     event.preventDefault();
     if (!pin.trim()) return;
-    // Send the person's name so the endpoint can resolve the sub from PERSONS.
+    // Send the person's name so the endpoint can resolve the sub from user_accounts.
     // Successful verify-pin upserts user_accounts.last_seen_at in Neon.
     const result = await verifyPin({ name: personName, pin: pin.trim() });
     if ('data' in result && result.data?.ok) {
@@ -94,6 +97,7 @@ export function SignInPanel({ requiredTier }: SignInPanelProps) {
       await refetchSession();
     }
   };
+
 
   return (
     <Box
@@ -149,52 +153,64 @@ export function SignInPanel({ requiredTier }: SignInPanelProps) {
                 or
               </Typography>
             </Divider>
-            <Stack
-              component="form"
-              direction="column"
-              spacing={1.5}
-              onSubmit={handlePinSubmit}
-            >
-              <FormControl size="small" fullWidth>
-                <InputLabel id="pin-role-label">User Account</InputLabel>
-                <Select
-                  labelId="pin-role-label"
-                  label="User Account"
-                  value={personName}
-                  onChange={(e) => setPersonName(e.target.value)}
-                  data-testid="pin-role-select"
-                >
-                  {personOptions.map((opt) => (
-                    <MenuItem key={opt.sub} value={opt.value}>
-                      {opt.value}
-                    </MenuItem>
-                  ))}
-                </Select>
-              </FormControl>
-              <Stack direction="row" spacing={1}>
-                <TextField
-                  type="password"
-                  placeholder="PIN"
-                  value={pin}
-                  onChange={(e) => setPin(e.target.value)}
-                  size="small"
-                  fullWidth
-                  autoComplete="off"
-                  slotProps={{
-                    htmlInput: { 'data-testid': 'pin-input', maxLength: 12 },
-                  }}
-                />
-                <Button
-                  type="submit"
-                  variant="contained"
-                  color="primary"
-                  disabled={!pin.trim() || isLoading}
-                  data-testid="pin-submit"
-                >
-                  {isLoading ? '…' : 'Unlock'}
-                </Button>
+            {usersLoading ? (
+              <Box sx={{ py: 4, display: 'flex', justifyContent: 'center' }}>
+                <CircularProgress size={28} />
+              </Box>
+            ) : personOptions.length === 0 ? (
+              <Alert severity="warning" sx={{ textAlign: 'left' }}>
+                No PIN-configured user accounts found. PIN users are managed via
+                user_accounts + roles (listConfiguredPinUsers). Use Google sign-in or
+                configure in admin settings.
+              </Alert>
+            ) : (
+              <Stack
+                component="form"
+                direction="column"
+                spacing={1.5}
+                onSubmit={handlePinSubmit}
+              >
+                <FormControl size="small" fullWidth>
+                  <InputLabel id="pin-role-label">User Account</InputLabel>
+                  <Select
+                    labelId="pin-role-label"
+                    label="User Account"
+                    value={personName}
+                    onChange={(e) => setPersonName(e.target.value)}
+                    data-testid="pin-role-select"
+                  >
+                    {personOptions.map((opt) => (
+                      <MenuItem key={opt.sub} value={opt.value}>
+                        {opt.value}
+                      </MenuItem>
+                    ))}
+                  </Select>
+                </FormControl>
+                <Stack direction="row" spacing={1}>
+                  <TextField
+                    type="password"
+                    placeholder="PIN"
+                    value={pin}
+                    onChange={(e) => setPin(e.target.value)}
+                    size="small"
+                    fullWidth
+                    autoComplete="off"
+                    slotProps={{
+                      htmlInput: { 'data-testid': 'pin-input', maxLength: 12 },
+                    }}
+                  />
+                  <Button
+                    type="submit"
+                    variant="contained"
+                    color="primary"
+                    disabled={!pin.trim() || isLoading}
+                    data-testid="pin-submit"
+                  >
+                    {isLoading ? '…' : 'Unlock'}
+                  </Button>
+                </Stack>
               </Stack>
-            </Stack>
+            )}
           </>
         ) : null}
       </Box>

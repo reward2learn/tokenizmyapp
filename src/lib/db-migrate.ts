@@ -13,7 +13,6 @@ import type { DbClient } from '@/lib/db';
 import { createBaseClient, getBasePrisma } from '@/lib/db';
 import { backfillKnownAccounts } from '@/domain/security/security-service';
 import { FUNCTIONAL_ROLES } from '@/domain/security/functional-roles';
-import { PERSONS, DEFAULT_PLATFORM_ADMIN_EMAIL } from '@/domain/security/persons';
 import { getSecretPlaintext, setSecret } from '@/lib/secrets';
 
 const DAILY_METRICS_DDL = `

@@ -1,5 +1,6 @@
 import type { DbClient } from '@/lib/db';
 import { expandCapabilities } from '@/domain/security/capabilities';
+import { getSecretPlaintext } from '@/lib/secrets';
 
 /**
  * Resolve the security-group codes a user belongs to, keyed by auth subject (sub).
@@ -123,5 +124,68 @@ export async function backfillKnownAccounts(
       k.tier,
       k.roleCode ?? null,
     );
+  }
+}
+
+/**
+ * Replaces PERSONS-based PIN user listing for the auth flow.
+ * - Queries user_accounts joined with roles for role_code, name, is_platform_admin, last_seen_at
+ * - For each, checks if a PIN secret is configured (ADMIN_PIN or USER_PIN_${sub}) via getSecretPlaintext
+ * - Returns enriched list compatible with listPinUsers API (includes lastSeenAt for pre-select)
+ * - Error handling and backward compat for existing secrets/env PINs maintained.
+ * - Called from handleListPinUsers in /api/auth/route.ts
+ */
+export type PinUser = {
+  sub: string;
+  name: string;
+  role: string;
+  pinConfigured: boolean;
+  lastSeenAt: string | null;
+};
+
+export async function listConfiguredPinUsers(db: DbClient): Promise<PinUser[]> {
+  try {
+    const rows = await db.$queryRawUnsafe<{
+      sub: string;
+      name?: string | null;
+      role_code?: string | null;
+      last_seen_at?: Date | null;
+      is_platform_admin?: boolean | null;
+    }[]>(`
+      SELECT 
+        ua.sub,
+        ua.name,
+        ua.role_code,
+        ua.last_seen_at,
+        COALESCE(r.is_platform_admin, false) as is_platform_admin
+      FROM user_accounts ua
+      LEFT JOIN roles r ON r.code = ua.role_code
+      WHERE ua.is_active = true
+      ORDER BY COALESCE(ua.name, ua.sub) ASC;
+    `);
+
+    const results = await Promise.all(
+      (rows ?? []).map(async (row): Promise<PinUser> => {
+        const subLower = row.sub.toLowerCase();
+        const isPlatformAdmin = row.is_platform_admin === true || subLower === 'admin';
+        const key = isPlatformAdmin ? 'ADMIN_PIN' : `USER_PIN_${subLower}`;
+        const hasPin = (await getSecretPlaintext(key)) != null;
+        return {
+          sub: row.sub,
+          name: row.name ?? row.sub,
+          role: row.role_code ?? row.sub,
+          pinConfigured: hasPin,
+          lastSeenAt: row.last_seen_at ? new Date(row.last_seen_at).toISOString() : null,
+        };
+      }),
+    );
+
+    return results;
+  } catch (err) {
+    console.error(
+      '[security/listConfiguredPinUsers] failed:',
+      err instanceof Error ? err.message : err,
+    );
+    return [];
   }
 }

@@ -4,6 +4,23 @@ import { COOKIE_NAME } from '@/lib/auth/jwt';
 
 const TEST_KEY = 'a'.repeat(64);
 
+// Mock DB for user_accounts + roles queries used by new PIN flow (listConfiguredPinUsers
+// and handleVerifyPin user resolution). Falls back gracefully in tests.
+const mockDb = {
+  $queryRawUnsafe: vi.fn().mockImplementation(async (sql: string, param?: any) => {
+    const sqlStr = String(sql || '').toLowerCase();
+    if (sqlStr.includes('user_accounts') && (sqlStr.includes('admin') || param === 'admin' || (typeof param === 'string' && param?.toLowerCase?.() === 'admin'))) {
+      return [{ sub: 'admin', name: 'Admin', role_code: 'platform-admin', is_platform_admin: true }];
+    }
+    if (sqlStr.includes('from user_accounts') && sqlStr.includes('name')) {
+      return [{ sub: 'ama', name: param || 'Test', role_code: 'finance', is_platform_admin: false }];
+    }
+    // Default for resolveGroupCodesForSub, upsertUserAccount, ensure queries etc.
+    // (those are wrapped in try/catch in production code)
+    return [];
+  }),
+};
+
 vi.mock('@/lib/secrets', () => ({
   getSecretPlaintext: vi.fn(),
   setSecret: vi.fn(),
@@ -22,8 +39,8 @@ vi.mock('@/domain/pdf/pdf-export-service', () => ({
 }));
 
 vi.mock('@/lib/db', () => ({
-  createClient: vi.fn(() => ({})),
-  createBaseClient: vi.fn(() => ({})),
+  createClient: vi.fn(() => mockDb),
+  createBaseClient: vi.fn(() => mockDb),
 }));
 
 import { getSecretPlaintext, setSecret } from '@/lib/secrets';

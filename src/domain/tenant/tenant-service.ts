@@ -3,8 +3,7 @@
  * Uses the same idempotent pattern as app-settings-service.
  */
 import { PrismaClient } from '@/generated/prisma';
-import { DEFAULT_PLATFORM_ADMIN_EMAIL, PERSONS } from '@/domain/security/persons';
-import { FUNCTIONAL_ROLES } from '@/domain/security/functional-roles';
+import { FUNCTIONAL_ROLES, DEFAULT_PLATFORM_ADMIN_EMAIL } from '@/domain/security/functional-roles';
 
 const TENANTS_DDL = `
 CREATE TABLE IF NOT EXISTS tenants (
@@ -51,8 +50,9 @@ export async function ensureTenantsTable(db: any): Promise<void> {
 
 /**
  * Seed default platform-admin identity into a tenant Neon database.
- * Ensures reward2learn@gmail.com is the dedicated admin email so Google
- * sign-in maps to platformAdmin on the tenant app.
+ * Ensures DEFAULT_PLATFORM_ADMIN_EMAIL (from functional-roles.ts) is set in
+ * app_config and seeds the roles table. See security-service.ts for user_accounts
+ * backfill and group assignment. Legacy PERSONS usage minimized.
  */
 export async function seedTenantAdminDefaults(
   tenantDbUrl: string | undefined,

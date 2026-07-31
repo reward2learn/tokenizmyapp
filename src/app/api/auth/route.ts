@@ -13,7 +13,6 @@ import {
 } from '@/lib/auth/google-oauth';
 import { sessionIsPlatformAdmin, signSession } from '@/lib/auth/jwt';
 import { resolveRoleForEmail } from '@/domain/seed/seed-runner';
-import { PERSONS, resolvePerson } from '@/domain/security/persons';
 import {
   clearSessionCookie,
   getOrigin,
@@ -25,7 +24,13 @@ import { getSecretPlaintext } from '@/lib/secrets';
 import { createClient, createBaseClient } from '@/lib/db';
 import { PdfExportService } from '@/domain/pdf/pdf-export-service';
 import { ensureJobQueueTable, ensureSecurityTables } from '@/lib/db-migrate';
-import { resolveGroupCodesForSub, resolveCapabilitiesForSub, upsertUserAccount } from '@/domain/security/security-service';
+import {
+  resolveGroupCodesForSub,
+  resolveCapabilitiesForSub,
+  upsertUserAccount,
+  listConfiguredPinUsers,
+  type PinUser,
+} from '@/domain/security/security-service';
 import { legacyError, jsonError } from '@/lib/api/response';
 import { getDefaultRoutePath } from '@/lib/navigation/default-route';
 
@@ -317,25 +322,80 @@ async function handleVerifyPin(request: Request): Promise<NextResponse> {
   const { name, role, pin } = parsed.data;
 
   try {
-    // Resolve the person identity by name (e.g. "Ama") or fall back to role (sub).
+    const db = createBaseClient();
+    // Ensure security tables (user_accounts, roles, secrets) exist — best-effort.
+    try {
+      await ensureSecurityTables(db);
+    } catch (ensureErr) {
+      console.error('[auth/verify-pin] ensureSecurityTables failed (continuing):', ensureErr);
+    }
+
+    // Resolve user by name (or role/sub) from user_accounts joined with roles.
+    // Full replacement for PERSONS.find() / resolvePerson().
     let sub: string;
-    let person: ReturnType<typeof resolvePerson>;
+    let displayName: string;
+    let roleCode: string | null = null;
+    let isPlatformAdmin = false;
+
     if (name) {
-      person = PERSONS.find((p) => p.name.toLowerCase() === name.toLowerCase());
-      if (!person) {
+      const rows = await db.$queryRawUnsafe<{
+        sub: string;
+        name: string;
+        role_code?: string | null;
+        is_platform_admin?: boolean | null;
+      }[]>(
+        `SELECT 
+          ua.sub,
+          ua.name,
+          ua.role_code,
+          r.is_platform_admin
+         FROM user_accounts ua
+         LEFT JOIN roles r ON r.code = ua.role_code
+         WHERE LOWER(TRIM(ua.name)) = LOWER(TRIM($1))
+         LIMIT 1;`,
+        name,
+      );
+
+      if (!rows?.[0]) {
         return NextResponse.json({ ok: false, error: 'Unknown user' }, { status: 400 });
       }
-      sub = person.sub;
+      const user = rows[0];
+      sub = user.sub;
+      displayName = user.name;
+      roleCode = user.role_code ?? null;
+      isPlatformAdmin = user.is_platform_admin === true || sub.toLowerCase() === 'admin';
     } else if (role) {
       sub = role.toLowerCase();
-      person = resolvePerson(sub);
+      displayName = sub;
+      const rows = await db.$queryRawUnsafe<{
+        name?: string | null;
+        role_code?: string | null;
+        is_platform_admin?: boolean | null;
+      }[]>(
+        `SELECT 
+          ua.name,
+          ua.role_code,
+          r.is_platform_admin
+         FROM user_accounts ua
+         LEFT JOIN roles r ON r.code = ua.role_code
+         WHERE ua.sub = $1
+         LIMIT 1;`,
+        sub,
+      );
+      if (rows?.[0]) {
+        const user = rows[0];
+        displayName = user.name ?? sub;
+        roleCode = user.role_code ?? null;
+        isPlatformAdmin = user.is_platform_admin === true || sub === 'admin';
+      } else {
+        isPlatformAdmin = sub === 'admin';
+      }
     } else {
       return NextResponse.json({ ok: false, error: 'name or role is required' }, { status: 400 });
     }
 
-    const isPlatformAdmin = person?.isPlatformAdmin ?? sub === 'admin';
-
     // PIN key: USER_PIN_<sub> for individuals, ADMIN_PIN for platform admin.
+    // Backward compatibility for existing secrets table entries preserved.
     const secretKey = isPlatformAdmin ? 'ADMIN_PIN' : `USER_PIN_${sub}`;
     // Try DB first, fall back to env var (which works without POSTGRES_URL)
     let stored: string | null = null;
@@ -355,14 +415,13 @@ async function handleVerifyPin(request: Request): Promise<NextResponse> {
       return NextResponse.json({ ok: false, error: 'Incorrect PIN' });
     }
 
-    const roleCode = person?.roleCode ?? null;
     // Resolve groups/permissions (best-effort — works without DB when env PIN is used)
     let groups: string[] = [];
     let permissions: string[] = [];
     try {
       const resolved = await resolveSessionGroups({
         sub,
-        name: person?.name ?? sub,
+        name: displayName,
         tier: 'pin',
         roleCode,
       });
@@ -374,7 +433,7 @@ async function handleVerifyPin(request: Request): Promise<NextResponse> {
     const platformAdmin = isPlatformAdmin || groups.includes('platform-admin');
     const token = await signSession({
       sub,
-      name: person?.name ?? sub,
+      name: displayName,
       tier: 'pin',
       roleCode,
       platformAdmin,
@@ -391,48 +450,30 @@ async function handleVerifyPin(request: Request): Promise<NextResponse> {
 }
 
 /**
- * Public endpoint that returns the list of persons who have a PIN configured,
- * so the sign-in dropdown only shows users who can actually authenticate.
- * Also surfaces the most recently signed-in PIN user (from Neon last_seen_at)
+ * Public endpoint that returns the list of users who have a PIN configured,
+ * sourced from user_accounts + roles (replaces static PERSONS).
+ * Also surfaces the most recently signed-in PIN user via last_seen_at
  * so the client can pre-select without localStorage.
  */
 async function handleListPinUsers(): Promise<NextResponse> {
-  // Best-effort: read last_seen_at from Neon for PIN preference.
-  let lastSeenBySub = new Map<string, Date>();
+  let users: PinUser[] = [];
   try {
     if (process.env.POSTGRES_URL || process.env.DATABASE_URL) {
       const db = createBaseClient();
       await ensureSecurityTables(db);
-      const rows = await db.$queryRawUnsafe<{ sub: string; last_seen_at: Date | null }[]>(
-        `SELECT sub, last_seen_at FROM user_accounts WHERE last_seen_at IS NOT NULL;`,
-      );
-      for (const row of rows ?? []) {
-        if (row.last_seen_at) lastSeenBySub.set(row.sub, new Date(row.last_seen_at));
-      }
+      users = await listConfiguredPinUsers(db);
     }
   } catch (err) {
-    console.error('[auth/list-pin-users] last_seen lookup failed:', err instanceof Error ? err.message : err);
+    console.error(
+      '[auth/list-pin-users] failed:',
+      err instanceof Error ? err.message : err,
+    );
   }
 
-  const results = await Promise.all(
-    PERSONS.map(async (p) => {
-      const key = p.isPlatformAdmin ? 'ADMIN_PIN' : `USER_PIN_${p.sub}`;
-      const hasPin = (await getSecretPlaintext(key)) != null;
-      return {
-        name: p.name,
-        sub: p.sub,
-        role: p.roleCode ?? p.sub,
-        pinConfigured: hasPin,
-        hasPin,
-        lastSeenAt: lastSeenBySub.get(p.sub)?.toISOString() ?? null,
-      };
-    }),
-  );
-
-  // Prefer the PIN user with the most recent Neon last_seen_at.
+  // Prefer the PIN user with the most recent last_seen_at.
   let lastUsedSub: string | null = null;
   let latest = 0;
-  for (const u of results) {
+  for (const u of users) {
     if (!u.lastSeenAt) continue;
     const ts = Date.parse(u.lastSeenAt);
     if (ts > latest) {
@@ -441,14 +482,16 @@ async function handleListPinUsers(): Promise<NextResponse> {
     }
   }
 
+  const lastUsedName: string | null = lastUsedSub
+    ? (users.find((u) => u.sub === lastUsedSub)?.name ?? null)
+    : null;
+
   return NextResponse.json({
     success: true,
     data: {
-      users: results,
+      users,
       lastUsedSub,
-      lastUsedName: lastUsedSub
-        ? (results.find((u) => u.sub === lastUsedSub)?.name ?? null)
-        : null,
+      lastUsedName,
     },
   });
 }
