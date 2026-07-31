@@ -23,6 +23,10 @@ export interface UpdateSheetCellParams {
   rowIndex: number;
   column: string;
   value: unknown;
+  /** Original Excel cell reference (e.g. "D7") from initial load.
+   *  When provided, the backend uses this directly instead of recalculating
+   *  from rowIndex/column, ensuring correct cell is updated even after sorting/filtering. */
+  _excelCell?: string;
 }
 
 export const sheetDataApi = createApi({

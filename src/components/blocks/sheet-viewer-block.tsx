@@ -80,6 +80,11 @@ export function SheetViewerBlock({ config }: { config: Record<string, unknown> }
     type: 'include' as const,
     ids: new Set<GridRowId>(),
   });
+  // Cell-level multi-selection (Ctrl for individual, Shift for range/grouped cells)
+  // Keys are `${rowId}|${field}`. Supports copy via Ctrl+C (prioritized over row selection).
+  const [selectedCells, setSelectedCells] = useState<Set<string>>(new Set());
+  const lastClickedCellRef = useRef<{ rowId: GridRowId; field: string } | null>(null);
+
   const [snackbarOpen, setSnackbarOpen] = useState(false);
   const [snackbarMessage, setSnackbarMessage] = useState('');
   const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
@@ -98,6 +103,12 @@ export function SheetViewerBlock({ config }: { config: Record<string, unknown> }
       setPinnedColumns([sd.columns[0]]);
     }
   }, [payload?.data, pinnedColumns.length]);
+
+  // Clear cell selection on pagination or sort changes (prevents stale selections across pages)
+  useEffect(() => {
+    setSelectedCells(new Set());
+    lastClickedCellRef.current = null;
+  }, [paginationModel.page, sortModel]);
 
   const handleSortModelChange = useCallback((newSortModel: GridSortModel) => {
     // Fallback for any external sort model changes (e.g. column menu). For header clicks,
@@ -345,6 +356,14 @@ export function SheetViewerBlock({ config }: { config: Record<string, unknown> }
       },
       '& .MuiDataGrid-columnHeader': { fontWeight: 700 },
       '& .MuiDataGrid-columnHeaders': { backgroundColor: 'background.paper' },
+      // Cell selection highlighting (Ctrl/Shift multi-cell select)
+      '& .selected-cell': {
+        bgcolor: 'primary.100 !important',
+        borderColor: 'primary.main',
+        '&:hover': {
+          bgcolor: 'primary.200 !important',
+        },
+      },
     };
 
     let currentLeft = 0;
@@ -442,13 +461,157 @@ export function SheetViewerBlock({ config }: { config: Record<string, unknown> }
     [payload, rows, columns, showCopyToast]
   );
 
+  const getCellKey = useCallback((rowId: GridRowId, field: string): string => {
+    return `${rowId}|${field}`;
+  }, []);
+
+  // New: Cell-level multi-selection with Ctrl (toggle individual/non-contiguous) + Shift (range/grouped contiguous cells)
+  // Range uses bounding box of current page's rows (by _rowIndex order) and columns (display order).
+  // Visual highlight via .selected-cell class. Ctrl+C prioritizes cells over row selection.
+  const handleCellClick = useCallback(
+    (params: GridCellParams, event: React.MouseEvent<HTMLElement>) => {
+      const { id: rowId, field } = params;
+      const key = getCellKey(rowId, field);
+      const isCtrl = event.ctrlKey || event.metaKey;
+      const isShift = event.shiftKey;
+
+      console.log(`[SheetViewerBlock] Cell clicked - rowId:${rowId}, field:${field}, ctrl:${isCtrl}, shift:${isShift}, currentCells:${selectedCells.size}`);
+
+      setSelectedCells((prev) => {
+        const newSet = new Set(prev);
+        if (isShift && lastClickedCellRef.current) {
+          const anchor = lastClickedCellRef.current;
+          // Current page rows in display order (_rowIndex is sequential)
+          const rowOrder = rows
+            .map((r: any) => r._rowIndex ?? r.id)
+            .sort((a: any, b: any) => Number(a) - Number(b));
+          const colOrder = columns.map((c) => c.field);
+
+          const anchorRowIdx = rowOrder.indexOf(anchor.rowId);
+          const currentRowIdx = rowOrder.indexOf(rowId);
+          const anchorColIdx = colOrder.indexOf(anchor.field);
+          const currentColIdx = colOrder.indexOf(field);
+
+          if (
+            anchorRowIdx === -1 ||
+            currentRowIdx === -1 ||
+            anchorColIdx === -1 ||
+            currentColIdx === -1
+          ) {
+            newSet.add(key);
+          } else {
+            const minR = Math.min(anchorRowIdx, currentRowIdx);
+            const maxR = Math.max(anchorRowIdx, currentRowIdx);
+            const minC = Math.min(anchorColIdx, currentColIdx);
+            const maxC = Math.max(anchorColIdx, currentColIdx);
+            for (let rIdx = minR; rIdx <= maxR; rIdx++) {
+              for (let cIdx = minC; cIdx <= maxC; cIdx++) {
+                const rId = rowOrder[rIdx];
+                const f = colOrder[cIdx];
+                newSet.add(getCellKey(rId, f));
+              }
+            }
+          }
+        } else if (isCtrl) {
+          // Toggle individual cell (supports non-contiguous multi-select)
+          if (newSet.has(key)) {
+            newSet.delete(key);
+          } else {
+            newSet.add(key);
+          }
+        } else {
+          // Normal click: single cell (clears previous)
+          newSet.clear();
+          newSet.add(key);
+        }
+        return newSet;
+      });
+
+      lastClickedCellRef.current = { rowId, field };
+    },
+    [rows, columns, selectedCells, getCellKey]
+  );
+
+  // Copy selected cells as TSV sub-grid (preserves structure, raw values, headers for selected columns only)
+  // Falls back to row copy if no cells selected. Called preferentially on Ctrl+C.
+  const copySelectedCells = useCallback(async () => {
+    if (selectedCells.size === 0) return false;
+
+    const sd = payload?.data;
+    if (!sd || rows.length === 0) {
+      showCopyToast('No data available for cell copy');
+      return false;
+    }
+
+    const selectedRowIds = new Set<string>();
+    const selectedFieldsSet = new Set<string>();
+    selectedCells.forEach((k) => {
+      const [rId, f] = k.split('|');
+      selectedRowIds.add(rId);
+      selectedFieldsSet.add(f);
+    });
+
+    const rowOrder = Array.from(selectedRowIds).sort((a, b) => Number(a) - Number(b));
+    const colOrder = columns.map((c) => c.field).filter((f) => selectedFieldsSet.has(f));
+
+    if (rowOrder.length === 0 || colOrder.length === 0) return false;
+
+    const headers = [
+      'Row #',
+      ...colOrder.map((f) => {
+        const colDef = columns.find((c) => c.field === f);
+        return colDef?.headerName || String(f);
+      }),
+    ];
+
+    const tsvRows: string[] = rowOrder.map((rowIdStr) => {
+      const rowAny = rows.find(
+        (r: any) => String(r._rowIndex ?? r.id) === rowIdStr
+      ) as any;
+      if (!rowAny) return '';
+      const values = [
+        rowIdStr,
+        ...colOrder.map((field) => {
+          let val = rowAny[field];
+          if (val == null) return '';
+          if (typeof val === 'object') return JSON.stringify(val);
+          return String(val);
+        }),
+      ];
+      return values.join('\t');
+    });
+
+    const tsvContent = [headers.join('\t'), ...tsvRows].join('\n');
+
+    try {
+      await navigator.clipboard.writeText(tsvContent);
+      showCopyToast(
+        `Copied ${selectedCells.size} cell${selectedCells.size !== 1 ? 's' : ''} ` +
+          `(${tsvRows.length}×${colOrder.length}) to clipboard`
+      );
+      return true;
+    } catch (error) {
+      console.error('Cell clipboard copy failed:', error);
+      showCopyToast('Failed to copy cells to clipboard');
+      return false;
+    }
+  }, [selectedCells, rows, columns, payload, showCopyToast]);
+
   // onCellKeyDown handler to capture Ctrl+C (and Cmd+C on Mac) globally on the grid
   const handleCellKeyDown = useCallback(
     (params: GridCellParams, event: KeyboardEvent<HTMLElement>) => {
+      if (event.key === 'Escape') {
+        setSelectedCells(new Set());
+        lastClickedCellRef.current = null;
+        return;
+      }
+
       if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'c') {
         event.preventDefault();
-        // Pass full model; if no selection, the copy func falls back inside but here we ensure at least current row
-        if (rowSelectionModel.ids.size === 0) {
+        // Prioritize cell selection (Ctrl for multi, Shift for range); fallback to row copy if none
+        if (selectedCells.size > 0) {
+          copySelectedCells(); // fire-and-forget (handles its own toast + clipboard)
+        } else if (rowSelectionModel.ids.size === 0) {
           const singleModel: GridRowSelectionModel = {
             type: 'include' as const,
             ids: new Set([params.id]),
@@ -459,7 +622,7 @@ export function SheetViewerBlock({ config }: { config: Record<string, unknown> }
         }
       }
     },
-    [rowSelectionModel, handleCopySelection]
+    [selectedCells, rowSelectionModel, handleCopySelection, copySelectedCells]
   );
 
   const CustomToolbar = () => (
@@ -481,18 +644,41 @@ export function SheetViewerBlock({ config }: { config: Record<string, unknown> }
           {rowSelectionModel.ids.size} row{rowSelectionModel.ids.size !== 1 ? 's' : ''} selected
         </Typography>
       )}
+      {selectedCells.size > 0 && (
+        <Typography
+          variant="body2"
+          sx={{
+            color: 'secondary.main',
+            fontWeight: 600,
+            px: 2,
+            py: 0.5,
+            bgcolor: 'secondary.50',
+            borderRadius: 1,
+            border: '1px solid',
+            borderColor: 'secondary.100',
+          }}
+        >
+          {selectedCells.size} cell{selectedCells.size !== 1 ? 's' : ''} selected (Ctrl/Shift)
+        </Typography>
+      )}
       <Tooltip title="Settings: Select columns to freeze (pin left)">
         <IconButton onClick={handleSettingsClick} size="small">
           <SettingsIcon />
         </IconButton>
       </Tooltip>
       {/* Standard toolbar features can be extended here (filter, density, columns, etc.).
-          Built-in MUI export is available via slots but we use custom TSV+headers copy via Ctrl+C. */}
+          Built-in MUI export is available via slots but we use custom TSV+headers copy via Ctrl+C.
+          Cell selection (Ctrl+click individual, Shift+click range) now supported with copy. */}
     </GridToolbarContainer>
   );
 
   const data = payload?.data;
   const openSettings = Boolean(settingsAnchor);
+
+  const getCellClassName = useCallback((params: GridCellParams) => {
+    const key = getCellKey(params.id, params.field);
+    return selectedCells.has(key) ? 'selected-cell' : '';
+  }, [selectedCells, getCellKey]);
 
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', height: 'calc(100dvh - 66px)', minHeight: 400, width: '100%' }}>
@@ -527,6 +713,8 @@ export function SheetViewerBlock({ config }: { config: Record<string, unknown> }
             sortModel={sortModel}
             onSortModelChange={handleSortModelChange}
             onColumnHeaderClick={handleColumnHeaderClick}
+            onCellClick={handleCellClick}
+            getCellClassName={getCellClassName}
             // disableMultipleColumnsSorting removed (causes type errors in v9 Community edition).
             // Multi-sort now fully managed via onColumnHeaderClick + controlled sortModel (up to 3 cols).
             // Normal click replaces sort; Shift+click adds/toggles/removes from multi-model.
