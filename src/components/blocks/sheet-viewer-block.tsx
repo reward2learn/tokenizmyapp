@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState, useRef } from 'react';
+import { useCallback, useEffect, useMemo, useState, useRef, type KeyboardEvent } from 'react';
 import dynamic from 'next/dynamic';
 import Box from '@mui/material/Box';
 import CircularProgress from '@mui/material/CircularProgress';
@@ -13,6 +13,7 @@ import ListItem from '@mui/material/ListItem';
 import ListItemText from '@mui/material/ListItemText';
 import FormControlLabel from '@mui/material/FormControlLabel';
 import Tooltip from '@mui/material/Tooltip';
+import Snackbar from '@mui/material/Snackbar';
 import SettingsIcon from '@mui/icons-material/Settings';
 import type {
   GridColDef,
@@ -20,6 +21,9 @@ import type {
   GridSortModel,
   GridRowModel,
   GridColumnHeaderParams,
+  GridRowSelectionModel,
+  GridCellParams,
+  GridRowId,
 } from '@mui/x-data-grid';
 import { GridToolbarContainer } from '@mui/x-data-grid';
 import { useGetSheetDataQuery, useUpdateSheetCellMutation } from '@/store/apis/sheet-data-api';
@@ -72,6 +76,12 @@ export function SheetViewerBlock({ config }: { config: Record<string, unknown> }
   const [pinnedColumns, setPinnedColumns] = useState<string[]>([]);
   const [settingsAnchor, setSettingsAnchor] = useState<HTMLElement | null>(null);
   const [isSaving, setIsSaving] = useState(false);
+  const [rowSelectionModel, setRowSelectionModel] = useState<GridRowSelectionModel>({
+    type: 'include' as const,
+    ids: new Set<GridRowId>(),
+  });
+  const [snackbarOpen, setSnackbarOpen] = useState(false);
+  const [snackbarMessage, setSnackbarMessage] = useState('');
   const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   const { data: payload, isLoading, error: queryError } = useGetSheetDataQuery(
@@ -287,14 +297,120 @@ export function SheetViewerBlock({ config }: { config: Record<string, unknown> }
     return sx;
   }, [pinnedColumns]);
 
+  // Show toast notification for copy action
+  const showCopyToast = useCallback((message: string) => {
+    setSnackbarMessage(message);
+    setSnackbarOpen(true);
+  }, []);
+
+  // Enhanced multi-row copy functionality (MUI X v9 compatible with new GridRowSelectionModel {type, ids: Set}):
+  // - When Ctrl/Cmd+C pressed, copies BOTH column headers AND row data as TSV
+  // - Includes 'Row #' identifier column
+  // - Uses raw values (numbers as-is) so it pastes cleanly into Excel/Google Sheets
+  // - Shows toast with count of copied rows
+  // - Supports multi-row checkbox selection + falls back to current focused row
+  const handleCopySelection = useCallback(
+    async (selectionModel: GridRowSelectionModel) => {
+      const selectedIds = Array.from(selectionModel.ids);
+      if (selectedIds.length === 0) {
+        showCopyToast('No rows selected');
+        return;
+      }
+
+      const sd = payload?.data;
+      if (!sd || rows.length === 0) {
+        showCopyToast('No data available');
+        return;
+      }
+
+      // Use column order from current columns (respects pinned column reordering)
+      const colFields = columns.map((c) => c.field);
+      const headers = [
+        'Row #',
+        ...colFields.map((f) => {
+          const colDef = columns.find((c) => c.field === f);
+          return colDef?.headerName || String(f);
+        }),
+      ];
+
+      const selectedRowData = rows.filter((row) => {
+        const rowId = (row as any)._rowIndex ?? (row as any).id;
+        return selectedIds.includes(rowId as GridRowId);
+      });
+
+      const tsvRows = selectedRowData.map((row) => {
+        const rowAny = row as any;
+        const values = [
+          rowAny._rowIndex || rowAny.id || '',
+          ...colFields.map((field: string) => {
+            let val = rowAny[field];
+            if (val == null) return '';
+            if (typeof val === 'object') return JSON.stringify(val);
+            return String(val); // raw value for spreadsheet compatibility (no locale strings)
+          }),
+        ];
+        return values.join('\t');
+      });
+
+      const tsvContent = [headers.join('\t'), ...tsvRows].join('\n');
+
+      try {
+        await navigator.clipboard.writeText(tsvContent);
+        showCopyToast(`Copied ${selectedRowData.length} rows to clipboard`);
+      } catch (error) {
+        console.error('Clipboard copy failed:', error);
+        showCopyToast('Failed to copy to clipboard');
+      }
+    },
+    [payload, rows, columns, showCopyToast]
+  );
+
+  // onCellKeyDown handler to capture Ctrl+C (and Cmd+C on Mac) globally on the grid
+  const handleCellKeyDown = useCallback(
+    (params: GridCellParams, event: KeyboardEvent<HTMLElement>) => {
+      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'c') {
+        event.preventDefault();
+        // Pass full model; if no selection, the copy func falls back inside but here we ensure at least current row
+        if (rowSelectionModel.ids.size === 0) {
+          const singleModel: GridRowSelectionModel = {
+            type: 'include' as const,
+            ids: new Set([params.id]),
+          };
+          handleCopySelection(singleModel);
+        } else {
+          handleCopySelection(rowSelectionModel);
+        }
+      }
+    },
+    [rowSelectionModel, handleCopySelection]
+  );
+
   const CustomToolbar = () => (
-    <GridToolbarContainer sx={{ pl: 1, gap: 1 }}>
+    <GridToolbarContainer sx={{ pl: 1, gap: 1, alignItems: 'center' }}>
+      {rowSelectionModel.ids.size > 0 && (
+        <Typography
+          variant="body2"
+          sx={{
+            color: 'primary.main',
+            fontWeight: 600,
+            px: 2,
+            py: 0.5,
+            bgcolor: 'primary.50',
+            borderRadius: 1,
+            border: '1px solid',
+            borderColor: 'primary.100',
+          }}
+        >
+          {rowSelectionModel.ids.size} row{rowSelectionModel.ids.size !== 1 ? 's' : ''} selected
+        </Typography>
+      )}
       <Tooltip title="Settings: Select columns to freeze (pin left)">
         <IconButton onClick={handleSettingsClick} size="small">
           <SettingsIcon />
         </IconButton>
       </Tooltip>
-      {/* Standard toolbar features can be extended here (filter, density, etc.) */}
+      {/* Standard toolbar features can be extended here (filter, density, columns, etc.).
+          Built-in MUI export is available via slots but we use custom TSV+headers copy via Ctrl+C. */}
     </GridToolbarContainer>
   );
 
@@ -328,10 +444,15 @@ export function SheetViewerBlock({ config }: { config: Record<string, unknown> }
             onPaginationModelChange={setPaginationModel}
             pageSizeOptions={[PER_PAGE]}
             disableRowSelectionOnClick
+            checkboxSelection
+            rowSelectionModel={rowSelectionModel}
+            onRowSelectionModelChange={(newModel) => setRowSelectionModel(newModel)}
             sortModel={sortModel}
             onSortModelChange={handleSortModelChange}
-            disableMultipleColumnsSorting={false}  // Explicitly enable multi-column sort
+            // disableMultipleColumnsSorting removed to satisfy community edition types in v9;
+            // multi-sort is supported natively via Shift+click on headers (see handleSortModelChange)
             processRowUpdate={processRowUpdate}
+            onCellKeyDown={handleCellKeyDown}
             slots={{
               toolbar: CustomToolbar,
             }}
@@ -368,9 +489,19 @@ export function SheetViewerBlock({ config }: { config: Record<string, unknown> }
                 </ListItem>
               ))}
             </List>
-          </Popover>
-        </>
-      ) : null}
-    </Box>
-  );
-}
+           </Popover>
+         </>
+       ) : null}
+
+       {/* Copy success notification */}
+       <Snackbar
+         open={snackbarOpen}
+         autoHideDuration={2500}
+         onClose={() => setSnackbarOpen(false)}
+         message={snackbarMessage}
+         anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
+       />
+     </Box>
+   );
+ }
+

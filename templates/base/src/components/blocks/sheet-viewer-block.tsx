@@ -1,11 +1,13 @@
 'use client';
 
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useMemo, useState, type KeyboardEvent } from 'react';
 import dynamic from 'next/dynamic';
 import Box from '@mui/material/Box';
 import CircularProgress from '@mui/material/CircularProgress';
 import Typography from '@mui/material/Typography';
-import type { GridColDef, GridValidRowModel } from '@mui/x-data-grid';
+import Snackbar from '@mui/material/Snackbar';
+import type { GridColDef, GridValidRowModel, GridRowSelectionModel, GridCellParams, GridRowId } from '@mui/x-data-grid';
+import { GridToolbarContainer } from '@mui/x-data-grid';
 import { useGetSheetDataQuery } from '@/store/apis/sheet-data-api';
 
 const DataGrid = dynamic(
@@ -61,6 +63,12 @@ function formatCellValue(key: string, value: unknown): string | number {
 export function SheetViewerBlock({ config }: { config: Record<string, unknown> }) {
   const { sheet, title } = config as SheetViewerConfig;
   const [paginationModel, setPaginationModel] = useState({ page: 0, pageSize: PER_PAGE });
+  const [rowSelectionModel, setRowSelectionModel] = useState<GridRowSelectionModel>({
+    type: 'include' as const,
+    ids: new Set<GridRowId>(),
+  });
+  const [snackbarOpen, setSnackbarOpen] = useState(false);
+  const [snackbarMessage, setSnackbarMessage] = useState('');
   const { data: payload, isLoading, error: queryError } = useGetSheetDataQuery(
     { sheet: sheet ?? '', page: paginationModel.page + 1, perPage: PER_PAGE },
     { skip: !sheet },
@@ -102,6 +110,89 @@ export function SheetViewerBlock({ config }: { config: Record<string, unknown> }
     }));
   }, [payload]);
 
+  // Show toast for copy feedback
+  const showCopyToast = useCallback((message: string) => {
+    setSnackbarMessage(message);
+    setSnackbarOpen(true);
+  }, []);
+
+  const handleCopySelection = useCallback(
+    async (selectionModel: GridRowSelectionModel) => {
+      const selectedIds = Array.from(selectionModel.ids);
+      if (selectedIds.length === 0) {
+        showCopyToast('No rows selected');
+        return;
+      }
+
+      const sd = payload?.data as SheetDataPayload | undefined;
+      if (!sd || rows.length === 0) {
+        showCopyToast('No data available');
+        return;
+      }
+
+      const colFields = sd.columns; // simple order from payload
+      const headers = ['Row #', ...colFields];
+
+      const selectedRowData = rows.filter((row: any) => {
+        const rowId = (row as any)._rowIndex ?? (row as any).id;
+        return selectedIds.includes(rowId as GridRowId);
+      });
+
+      const tsvRows = selectedRowData.map((row: any) => {
+        const values = [
+          row._rowIndex || row.id || '',
+          ...colFields.map((field) => {
+            let val = row[field];
+            if (val == null) return '';
+            if (typeof val === 'object') return JSON.stringify(val);
+            return String(val);
+          }),
+        ];
+        return values.join('\t');
+      });
+
+      const tsvContent = [headers.join('\t'), ...tsvRows].join('\n');
+
+      try {
+        await navigator.clipboard.writeText(tsvContent);
+        showCopyToast(`Copied ${selectedRowData.length} rows to clipboard`);
+      } catch (error) {
+        console.error('Clipboard copy failed:', error);
+        showCopyToast('Failed to copy to clipboard');
+      }
+    },
+    [payload, rows, showCopyToast]
+  );
+
+  const handleCellKeyDown = useCallback(
+    (params: GridCellParams, event: KeyboardEvent<HTMLElement>) => {
+      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'c') {
+        event.preventDefault();
+        if (rowSelectionModel.ids.size === 0) {
+          const singleModel: GridRowSelectionModel = {
+            type: 'include' as const,
+            ids: new Set([params.id]),
+          };
+          handleCopySelection(singleModel);
+        } else {
+          handleCopySelection(rowSelectionModel);
+        }
+      }
+    },
+    [rowSelectionModel, handleCopySelection]
+  );
+
+  const CustomToolbar = () => (
+    <GridToolbarContainer sx={{ pl: 1, gap: 1, alignItems: 'center' }}>
+      {rowSelectionModel.ids.size > 0 && (
+        <Typography variant="body2" color="primary.main" sx={{ fontWeight: 600 }}>
+          {rowSelectionModel.ids.size} row{rowSelectionModel.ids.size !== 1 ? 's' : ''} selected
+        </Typography>
+      )}
+      {/* Custom toolbar with selection count; Ctrl+C for TSV copy with headers */}
+    </GridToolbarContainer>
+  );
+
   const data = payload?.data;
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', height: 'calc(100dvh - 66px)', minHeight: 400, width: '100%' }}>
@@ -129,6 +220,13 @@ export function SheetViewerBlock({ config }: { config: Record<string, unknown> }
           onPaginationModelChange={setPaginationModel}
           pageSizeOptions={[PER_PAGE]}
           disableRowSelectionOnClick
+          checkboxSelection
+          rowSelectionModel={rowSelectionModel}
+          onRowSelectionModelChange={(newModel) => setRowSelectionModel(newModel)}
+          onCellKeyDown={handleCellKeyDown}
+          slots={{
+            toolbar: CustomToolbar,
+          }}
           sx={{
             // Freeze first column (CSS workaround — MUI Community doesn't support pinnedColumns)
             ...(columns[0] ? {
@@ -148,6 +246,15 @@ export function SheetViewerBlock({ config }: { config: Record<string, unknown> }
           }}
         />
       ) : null}
+
+      {/* Copy notification */}
+      <Snackbar
+        open={snackbarOpen}
+        autoHideDuration={2500}
+        onClose={() => setSnackbarOpen(false)}
+        message={snackbarMessage}
+        anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
+      />
     </Box>
   );
 }
