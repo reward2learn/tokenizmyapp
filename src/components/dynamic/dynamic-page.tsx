@@ -54,7 +54,7 @@ export function DynamicPage({ page }: DynamicPageProps) {
 
   return (
     <Box component="main" id="pdfCapture">
-      <Box
+      {/* <Box
         component="h1"
         sx={{
           position: 'sticky',
@@ -67,7 +67,7 @@ export function DynamicPage({ page }: DynamicPageProps) {
         }}
       >
         {page.title}
-      </Box>
+      </Box> */}
 
       {!isPdf && page.pdfExport && platformAdmin ? (
         <Box sx={{ display: 'flex', justifyContent: 'flex-end', px: 3, pt: 2 }}>
