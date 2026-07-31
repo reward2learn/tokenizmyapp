@@ -16,7 +16,7 @@
 
 import { NextResponse } from 'next/server';
 import { PrismaClient } from '@/generated/prisma';
-import { read, utils } from 'xlsx';
+import { read, utils, write } from 'xlsx';
 import type { WorkSheet } from 'xlsx';
 
 export const dynamic = 'force-dynamic';
@@ -81,6 +81,90 @@ function findHeaderRow(ws: WorkSheet): { headerRow: number; headers: string[] } 
 }
 
 // ── GET handler ─────────────────────────────────────────
+
+
+
+
+export async function POST(request: Request): Promise<NextResponse> {
+  const prisma = getClient();
+  try {
+    const body = await request.json();
+    const { sheet, rowIndex, column, value } = body;
+
+    if (!sheet || rowIndex === undefined || !column) {
+      return NextResponse.json({ 
+        error: 'Missing required fields: sheet, rowIndex, column' 
+      }, { status: 400 });
+    }
+
+    const cached = await prisma.knowledgeSnippet.findUnique({
+      where: { key: 'workbook_data' },
+    });
+
+    if (!cached?.content) {
+      return NextResponse.json({ 
+        error: 'No workbook cached. Upload via Config > Source first.' 
+      }, { status: 404 });
+    }
+
+    const buf = Buffer.from(cached.content, 'base64');
+    const wb = read(buf, { type: 'buffer' });
+
+    const tabName = wb.SheetNames.find((n) => n.toLowerCase() === sheet.toLowerCase());
+    if (!tabName) {
+      return NextResponse.json({ 
+        error: `Sheet "${sheet}" not found`,
+        availableSheets: wb.SheetNames 
+      }, { status: 404 });
+    }
+
+    const ws = wb.Sheets[tabName]!;
+
+    const { headers } = findHeaderRow(ws);
+    const colIndex = headers.findIndex(h => 
+      h.toLowerCase() === column.toLowerCase() || 
+      h.toLowerCase().replace(/\s+/g, '') === column.toLowerCase().replace(/\s+/g, '')
+    );
+    
+    if (colIndex === -1) {
+      return NextResponse.json({ 
+        error: `Column "${column}" not found in sheet "${sheet}". Available: ${headers.join(', ')}` 
+      }, { status: 400 });
+    }
+
+    const excelRow = Number(rowIndex) + 1; // +1 because Excel is 1-based, frontend rowIndex skips header
+    const cellAddress = utils.encode_cell({ r: excelRow, c: colIndex });
+
+    const cellValue = typeof value === 'number' ? value : String(value || '');
+    ws[cellAddress] = { 
+      v: cellValue, 
+      t: typeof value === 'number' ? 'n' : 's' 
+    };
+
+    const updatedBuffer = write(wb, { bookType: 'xlsx', type: 'buffer' });
+    const base64Updated = Buffer.from(updatedBuffer).toString('base64');
+
+    await prisma.knowledgeSnippet.update({
+      where: { key: 'workbook_data' },
+      data: { content: base64Updated },
+    });
+
+    return NextResponse.json({ 
+      success: true, 
+      message: `Updated ${sheet}!${cellAddress}`,
+      cell: cellAddress,
+      value: cellValue
+    });
+
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.error('[sheet-data POST] Error:', message);
+    return NextResponse.json({ error: message }, { status: 500 });
+  } finally {
+    await prisma.$disconnect();
+  }
+}
+
 
 export async function GET(request: Request): Promise<NextResponse> {
   const { searchParams } = new URL(request.url);
@@ -178,3 +262,4 @@ export async function GET(request: Request): Promise<NextResponse> {
     await prisma.$disconnect();
   }
 }
+
