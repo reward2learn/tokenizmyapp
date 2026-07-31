@@ -374,13 +374,57 @@ export async function resolveRoleForEmail(
   db: { $queryRawUnsafe: (sql: string, ...params: unknown[]) => Promise<unknown[]> },
 ): Promise<{ code: string; name: string; isPlatformAdmin: boolean } | null> {
   if (!email) return null;
-  const rows = await db.$queryRawUnsafe(
-    `SELECT code, name, is_platform_admin FROM roles WHERE email = $1 LIMIT 1`,
-    email,
+  const lowerEmail = email.toLowerCase();
+
+  // First check user_accounts (preferred source after first sign-in)
+  const accountRows = await db.$queryRawUnsafe(
+    `SELECT 
+       r.code, 
+       COALESCE(ua.name, r.name) as name,
+       COALESCE(r.is_platform_admin, false) as is_platform_admin
+     FROM user_accounts ua
+     LEFT JOIN roles r ON r.code = ua.role_code
+     WHERE LOWER(ua.email) = $1
+     LIMIT 1`,
+    lowerEmail,
   ) as { code: string; name: string; is_platform_admin: boolean }[];
-  if (!rows[0]) return null;
-  return { code: rows[0].code, name: rows[0].name, isPlatformAdmin: rows[0].is_platform_admin ?? false };
+
+  if (accountRows?.[0]) {
+    return { 
+      code: accountRows[0].code, 
+      name: accountRows[0].name, 
+      isPlatformAdmin: accountRows[0].is_platform_admin ?? false 
+    };
+  }
+
+  // Fallback: check app_config for dedicated admin email (seeded during tenant provisioning)
+  try {
+    const configRows = await db.$queryRawUnsafe(
+      `SELECT 
+         (data->>'adminEmail')::text as admin_email,
+         (data->'googleAuth'->>'dedicatedAdminEmail')::text as dedicated_admin_email
+       FROM app_config 
+       WHERE id = 'main' 
+       LIMIT 1`,
+    ) as { admin_email?: string; dedicated_admin_email?: string }[];
+
+    const config = configRows?.[0];
+    const dedicatedEmail = (config?.dedicated_admin_email || config?.admin_email || '').toLowerCase();
+
+    if (dedicatedEmail === lowerEmail) {
+      return {
+        code: 'platform-admin',
+        name: 'Platform Admin',
+        isPlatformAdmin: true,
+      };
+    }
+  } catch (err) {
+    console.warn('[resolveRoleForEmail] app_config check failed (non-fatal):', err);
+  }
+
+  return null;
 }
+
 
 /**
  * Operational identities the system knows about (PIN roles + platform admins).
