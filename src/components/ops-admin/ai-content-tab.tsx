@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { useGetAiContentQuery, useGenerateAiContentMutation, useClearSeedMutation } from '@/store/apis/admin-api';
+import { useGetAiContentQuery, useGenerateAiContentMutation, useClearSeedMutation, useGetNavigationQuery, usePopulateSheetPagesMutation } from '@/store/apis/admin-api';
 import Accordion from '@mui/material/Accordion';
 import AccordionDetails from '@mui/material/AccordionDetails';
 import AccordionSummary from '@mui/material/AccordionSummary';
@@ -26,6 +26,12 @@ import RadioButtonUncheckedIcon from '@mui/icons-material/RadioButtonUnchecked';
 import DeleteSweepIcon from '@mui/icons-material/DeleteSweep';
 import TextField from '@mui/material/TextField';
 import Divider from '@mui/material/Divider';
+import MenuItem from '@mui/material/MenuItem';
+import Select from '@mui/material/Select';
+import FormControl from '@mui/material/FormControl';
+import InputLabel from '@mui/material/InputLabel';
+import FolderOpenIcon from '@mui/icons-material/FolderOpen';
+import AutoAwesomeMosaicIcon from '@mui/icons-material/AutoAwesomeMosaic';
 import Dialog from '@mui/material/Dialog';
 import DialogActions from '@mui/material/DialogActions';
 import DialogContent from '@mui/material/DialogContent';
@@ -132,6 +138,16 @@ export function AiContentTab() {
   // RTK Query: POST /api/admin/clear-seed
   const [clearSeed, { isLoading: clearing }] = useClearSeedMutation();
 
+  // RTK Query: POST /api/admin/populate-sheet-pages
+  const [populateSheets, { isLoading: populatingSheets }] = usePopulateSheetPagesMutation();
+
+  // Navigation folder list for parent selector
+  const { data: navData } = useGetNavigationQuery();
+  const navFolders = useMemo(() => {
+    const items = (navData?.data as { items?: Array<{ id: string; title: string; parentId: string | null; path: string }> })?.items ?? [];
+    return items.filter((i) => !i.parentId || i.parentId === null);
+  }, [navData]);
+
   // Derive a human-readable fetch error message
   const fetchErrorMsg = useMemo(() => {
     if (!queryError) return null;
@@ -157,6 +173,10 @@ export function AiContentTab() {
   const [clearConfirmOpen, setClearConfirmOpen] = useState(false);
   const [clearConfirmText, setClearConfirmText] = useState('');
   const [clearError, setClearError] = useState<string | null>(null);
+  const [sheetParentNavId, setSheetParentNavId] = useState<string>('');
+  const [sheetParentTitle, setSheetParentTitle] = useState<string>('Excel');
+  const [sheetPopulateResult, setSheetPopulateResult] = useState<{ created: number; parentId: string; totalSheets: number } | null>(null);
+  const [sheetPopulateError, setSheetPopulateError] = useState<string | null>(null);
   const [clearResult, setClearResult] = useState<Record<string, number> | null>(null);
 
   // ── Additional context from AI Findings ───────────────
@@ -777,6 +797,79 @@ export function AiContentTab() {
           Refresh Data Status
         </Button>
       </Stack>
+
+      {/* ── Populate Sheet Pages in Navigation ────────── */}
+      <Paper variant="outlined" sx={{ p: 3 }}>
+        <Stack direction="row" spacing={1.5} sx={{ alignItems: 'center', mb: 2 }}>
+          <AutoAwesomeMosaicIcon color="primary" />
+          <Typography variant="subtitle2" sx={{ fontWeight: 700 }}>
+            Populate Sheet Pages in Navigation
+          </Typography>
+        </Stack>
+        <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+          Add all dynamic sheet pages (derived from the Excel workbook upload) to the
+          navigation menu. Choose a parent folder to group them under.
+        </Typography>
+
+        <Stack spacing={2} direction={{ xs: 'column', sm: 'row' }} sx={{ alignItems: 'flex-start' }}>
+          <FormControl size="small" sx={{ minWidth: 220 }}>
+            <InputLabel>Parent Folder</InputLabel>
+            <Select
+              value={sheetParentNavId}
+              label="Parent Folder"
+              onChange={(e) => {
+                const id = e.target.value as string;
+                setSheetParentNavId(id);
+                const folder = navFolders.find((f) => f.id === id);
+                if (folder) setSheetParentTitle(folder.title);
+              }}
+              disabled={populatingSheets}
+            >
+              <MenuItem value="">— New &quot;Excel&quot; folder —</MenuItem>
+              {navFolders.map((f) => (
+                <MenuItem key={f.id} value={f.id}>
+                  <FolderOpenIcon sx={{ mr: 1, fontSize: 18 }} />
+                  {f.title} {f.path ? `(${f.path})` : ''}
+                </MenuItem>
+              ))}
+            </Select>
+          </FormControl>
+
+          <Button
+            variant="contained"
+            size="small"
+            onClick={async () => {
+              setSheetPopulateResult(null);
+              setSheetPopulateError(null);
+              try {
+                const res = await populateSheets({
+                  parentId: sheetParentNavId || undefined,
+                  parentTitle: sheetParentNavId ? undefined : sheetParentTitle || 'Excel',
+                }).unwrap();
+                setSheetPopulateResult(res.data as { created: number; parentId: string; totalSheets: number });
+              } catch (err) {
+                setSheetPopulateError(err instanceof Error ? err.message : String(err));
+              }
+            }}
+            disabled={populatingSheets}
+            startIcon={populatingSheets ? <CircularProgress size={18} color="inherit" /> : <AutoAwesomeMosaicIcon />}
+          >
+            {populatingSheets ? 'Populating...' : 'Populate Sheet Pages'}
+          </Button>
+        </Stack>
+
+        {sheetPopulateResult ? (
+          <Alert severity="success" icon={<CheckCircleIcon />} sx={{ mt: 2 }}>
+            <Typography variant="body2">
+              Created {sheetPopulateResult.created} navigation items for {sheetPopulateResult.totalSheets} sheet pages under the selected folder.
+            </Typography>
+          </Alert>
+        ) : null}
+
+        {sheetPopulateError ? (
+          <Alert severity="error" sx={{ mt: 2 }}>{sheetPopulateError}</Alert>
+        ) : null}
+      </Paper>
 
       {/* ── Danger Zone: Clear All Seeded Data ──────────── */}
       <Divider sx={{ my: 1 }} />

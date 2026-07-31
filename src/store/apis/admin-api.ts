@@ -166,6 +166,15 @@ export const adminApi = createApi({
       }),
       invalidatesTags: ['Navigation'],
     }),
+    /** POST /api/admin/populate-sheet-pages — sync sheet pages into navigation */
+    populateSheetPages: builder.mutation<ApiEnvelope<{ created: number; parentId: string; totalSheets: number }>, { parentId?: string; parentTitle?: string }>({
+      query: (body) => ({
+        url: 'admin/populate-sheet-pages',
+        method: 'POST',
+        body,
+      }),
+      invalidatesTags: ['Navigation', 'SeedData'],
+    }),
   }),
 });
 
@@ -189,4 +198,5 @@ export const {
   useCreateNavigationItemMutation,
   useUpdateNavigationItemsMutation,
   useDeleteNavigationItemsMutation,
+  usePopulateSheetPagesMutation,
 } = adminApi;
