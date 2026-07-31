@@ -60,6 +60,7 @@ export function DynamicPage({ page }: DynamicPageProps) {
           position: 'absolute',
           width: 1,
           height: 1,
+          margin: 0,
           overflow: 'hidden',
           clip: 'rect(0,0,0,0)',
           whiteSpace: 'nowrap',
