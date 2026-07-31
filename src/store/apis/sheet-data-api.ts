@@ -27,6 +27,9 @@ export interface UpdateSheetCellParams {
    *  When provided, the backend uses this directly instead of recalculating
    *  from rowIndex/column, ensuring correct cell is updated even after sorting/filtering. */
   _excelCell?: string;
+  /** Actual Excel row number from initial load (1-based).
+   *  Used as fallback when _excelCell is not provided. */
+  _excelRow?: number;
 }
 
 export const sheetDataApi = createApi({

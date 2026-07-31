@@ -58,7 +58,7 @@ export async function POST(request: Request): Promise<NextResponse> {
   const prisma = getClient();
   try {
     const body = await request.json();
-    const { sheet, rowIndex, column, value, _excelCell } = body;
+    const { sheet, rowIndex, column, value, _excelCell, _excelRow } = body;
 
     console.log("[sheet-data/update-cell] Received:", { sheet, rowIndex, column, value, _excelCell });
 

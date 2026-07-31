@@ -232,12 +232,20 @@ export function SheetViewerBlock({ config }: { config: Record<string, unknown> }
       if (!changedField) return oldRow;
 
       try {
-        const params: UpdateSheetCellParams = {
-          sheet: sheetName,
-          rowIndex: Number(newRow._rowIndex || newRow.id),
-          column: changedField,
-          value: newValue,
-        };
+        // CRITICAL: Use _excelRow (actual Excel row from initial load) not _rowIndex (page-sequential)
+      // _rowIndex is just the position within the current page and does NOT correspond to the Excel row
+      const excelRow = Number(newRow._excelRow) || Number(newRow._rowIndex) || 1;
+
+      const params: UpdateSheetCellParams = {
+        sheet: sheetName,
+        rowIndex: excelRow,
+        column: changedField,
+        value: newValue,
+        // Pass the original Excel cell reference if available (e.g. "D7")
+        _excelCell: newRow[`${changedField}_cell`] || undefined,
+        // Also pass _excelRow directly for backend to use
+        _excelRow: excelRow,
+      };
 
         await updateSheetCell(params).unwrap();
         return newRow; // Optimistic update succeeds - keep new row in UI
