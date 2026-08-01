@@ -24,6 +24,9 @@ import SettingsIcon from '@mui/icons-material/Settings';
 import MoreHorizIcon from '@mui/icons-material/MoreHoriz';
 import FunctionsIcon from '@mui/icons-material/Functions';
 import AdsClickIcon from '@mui/icons-material/AdsClick';
+import RefreshIcon from '@mui/icons-material/Refresh';
+import ChatIcon from '@mui/icons-material/Chat';
+import Button from '@mui/material/Button';
 import type {
   GridColDef,
   GridValidRowModel,
@@ -38,6 +41,24 @@ import { GridToolbarContainer, useGridApiRef, GridFooter, GridEditInputCell } fr
 import type { GridRenderEditCellParams } from '@mui/x-data-grid';
 import { useGetSheetDataQuery, useUpdateSheetCellMutation } from '@/store/apis/sheet-data-api';
 import type { UpdateSheetCellParams, SheetDataResponse } from '@/store/apis/sheet-data-api';
+import { useAppDispatch, useAppSelector } from '@/store/hooks';
+import { sendStreamingMessage } from '@/store/chat-stream-slice';
+import {
+  setFormulaMode,
+  toggleCell,
+  shiftSelectRange,
+  dragStart,
+  dragMove,
+  dragEnd,
+  clearCellSelection,
+  togglePinnedColumn,
+  toggleExtraStat,
+  selectFormulaMode,
+  selectDragActive,
+  selectSelectedCells,
+  selectPinnedColumns,
+  selectExtraStats,
+} from '@/store/sheet-viewer-slice';
 
 const DataGrid = dynamic(
   () => import('@mui/x-data-grid').then((m) => ({ default: m.DataGrid })),
@@ -410,75 +431,49 @@ export function SheetViewerBlock({ config }: { config: Record<string, unknown> }
   // apiRef gives access to the DataGrid's CURRENT display order (post-sort/post-filter)
   const apiRef = useGridApiRef();
 
-  // While the formula builder is in cell-picking mode, prevent mousedown on grid
-  // cells from stealing focus (which would end the edit session). Clicks inside
-  // the editor itself are unaffected so cursor placement keeps working.
-  useEffect(() => {
-    const root = apiRef.current?.rootElementRef?.current;
-    if (!root) return;
-    const onMouseDownCapture = (e: MouseEvent) => {
-      const target = e.target as HTMLElement | null;
-      if (!target || target.closest('[data-formula-editor]')) return;
-      if (formulaPickerRef.current?.active) e.preventDefault();
-    };
-    root.addEventListener('mousedown', onMouseDownCapture, true);
-    return () => root.removeEventListener('mousedown', onMouseDownCapture, true);
-  }, [apiRef]);
+  const dispatch = useAppDispatch();
+  const chatMessages = useAppSelector((s) => s.chatStream.messages);
+  // Sheet-viewer UI state lives in the Redux store (single source of truth).
+  // The component only reads selectors and dispatches actions — no local
+  // mirrors, no state refs, no effects for state wiring.
+  const formulaMode = useAppSelector(selectFormulaMode);
+  const dragActive = useAppSelector(selectDragActive);
+  const selectedCells = useAppSelector(selectSelectedCells);
+  const pinnedColumns = useAppSelector(selectPinnedColumns);
+  const extraStats = useAppSelector(selectExtraStats);
+  // Derived O(1) membership view for render paths.
+  const selectedCellSet = useMemo(() => new Set(selectedCells), [selectedCells]);
+
   const [paginationModel, setPaginationModel] = useState({ page: 0, pageSize: PER_PAGE });
   const [sortModel, setSortModel] = useState<GridSortModel>([]);
-  const [pinnedColumns, setPinnedColumns] = useState<string[]>([]);
   const [settingsAnchor, setSettingsAnchor] = useState<HTMLElement | null>(null);
-  const [isSaving, setIsSaving] = useState(false);
   const [rowSelectionModel, setRowSelectionModel] = useState<GridRowSelectionModel>({
     type: 'include' as const,
     ids: new Set<GridRowId>(),
   });
-  // Cell-level multi-selection (Ctrl for individual, Shift for range/grouped cells)
-  // Keys are `${rowId}|${field}`. Supports copy via Ctrl+C (prioritized over row selection).
-  const [selectedCells, setSelectedCells] = useState<Set<string>>(new Set());
-  const lastClickedCellRef = useRef<{ rowId: GridRowId; field: string } | null>(null);
   // Formula-builder cell-picking handle (set by the active FormulaEditCell)
   const formulaPickerRef = useRef<FormulaPickerHandle | null>(null);
-  // Excel-style status-bar aggregates (extra functions added via dropdown)
-  const [extraStats, setExtraStats] = useState<string[]>([]);
   const [statsAnchor, setStatsAnchor] = useState<HTMLElement | null>(null);
-  // Formula mode (default OFF): when enabled the grid parses/edits/evaluates
-  // Excel formulas ("=" edits); when disabled every cell is plain data and the
-  // GET request skips formula parsing entirely (formulas=0).
-  const [formulaMode, setFormulaMode] = useState(false);
 
   const [snackbarOpen, setSnackbarOpen] = useState(false);
   const [snackbarMessage, setSnackbarMessage] = useState('');
-  const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
-  const { data: payload, isLoading, error: queryError } = useGetSheetDataQuery(
+  const { data: payload, isLoading, error: queryError, refetch } = useGetSheetDataQuery(
     { sheet: sheet ?? '', page: paginationModel.page + 1, perPage: PER_PAGE, formulas: formulaMode ? 1 : 0 },
     { skip: !sheet },
   );
 
   const [updateSheetCell] = useUpdateSheetCellMutation();
 
-  // Initialize pinned columns to first column when data loads (for freeze example)
-  useEffect(() => {
-    const sd = payload?.data;
-    if (sd && pinnedColumns.length === 0 && sd.columns.length > 0) {
-      setPinnedColumns([sd.columns[0]]);
-    }
-  }, [payload?.data, pinnedColumns.length]);
-
-  // Clear cell selection on pagination or sort changes (prevents stale selections across pages)
-  useEffect(() => {
-    setSelectedCells(new Set());
-    lastClickedCellRef.current = null;
-  }, [paginationModel.page, sortModel]);
-
   const handleSortModelChange = useCallback((newSortModel: GridSortModel) => {
     // Fallback for any external sort model changes (e.g. column menu). For header clicks,
     // we use custom onColumnHeaderClick to support multi-sort in Community edition.
     const limitedModel = newSortModel.slice(0, 3);
     setSortModel(limitedModel);
+    // Cell selection is page/view-scoped — stale selections must not leak across views.
+    dispatch(clearCellSelection());
     console.log("[SheetViewerBlock] Sort model updated (external):", limitedModel);
-  }, []);
+  }, [dispatch]);
 
   /**
    * Custom multi-column sort handler for MUI X Community edition.
@@ -552,7 +547,8 @@ export function SheetViewerBlock({ config }: { config: Record<string, unknown> }
     }
 
     setSortModel(newModel);
-  }, [sortModel]);
+    dispatch(clearCellSelection());
+  }, [sortModel, dispatch]);
 
   const handleSettingsClick = useCallback((event: React.MouseEvent<HTMLElement>) => {
     setSettingsAnchor(event.currentTarget);
@@ -560,14 +556,6 @@ export function SheetViewerBlock({ config }: { config: Record<string, unknown> }
 
   const handleSettingsClose = useCallback(() => {
     setSettingsAnchor(null);
-  }, []);
-
-  const togglePinnedColumn = useCallback((colField: string) => {
-    setPinnedColumns((prev) =>
-      prev.includes(colField)
-        ? prev.filter((f) => f !== colField)
-        : [...prev, colField]
-    );
   }, []);
 
   const processRowUpdate = useCallback(
@@ -611,6 +599,9 @@ export function SheetViewerBlock({ config }: { config: Record<string, unknown> }
       };
 
         const resp = await updateSheetCell(params).unwrap();
+        // Reload the sheet after a successful update so dependent cells
+        // (recalculated formulas, cross-cell values) reflect the change.
+        void refetch();
         const data = resp?.data as
           | { value?: unknown; formula?: string; unevaluable?: boolean }
           | undefined;
@@ -760,12 +751,23 @@ export function SheetViewerBlock({ config }: { config: Record<string, unknown> }
     }));
   }, [payload]);
 
+  // Current display order (post-sort/post-filter) for range math — mirrors what
+  // the user sees, falling back to page order when the grid isn't mounted yet.
+  const getRowOrder = useCallback((): GridRowId[] => {
+    const sortedIds = apiRef.current ? (apiRef.current.getSortedRowIds() as GridRowId[]) : [];
+    return sortedIds.length > 0
+      ? sortedIds
+      : rows.map((r: any) => r._rowIndex ?? r.id);
+  }, [apiRef, rows]);
+
+  const getColOrder = useCallback((): string[] => columns.map((c) => c.field), [columns]);
+
   // Compute Excel-style aggregates over the currently selected cells
   const cellStats = useMemo(() => {
-    if (selectedCells.size < 2) return null; // only for multi-cell selections
+    if (selectedCellSet.size < 2) return null; // only for multi-cell selections
     const rowById = new Map(rows.map((r: any) => [r._rowIndex, r]));
     const all: unknown[] = [];
-    selectedCells.forEach((key) => {
+    selectedCellSet.forEach((key) => {
       const sep = key.lastIndexOf('|');
       const rId = key.slice(0, sep);
       const field = key.slice(sep + 1);
@@ -779,7 +781,7 @@ export function SheetViewerBlock({ config }: { config: Record<string, unknown> }
       .filter((v) => typeof v === 'number' && isFinite(v));
     const fns = [...STAT_DEFAULTS, ...extraStats];
     return fns.map((fn) => ({ label: fn, value: formatStatValue(computeCellStat(fn, nums, all)) }));
-  }, [selectedCells, rows, extraStats]);
+  }, [selectedCellSet, rows, extraStats]);
 
   // Dynamic sticky styles for user-selected pinned columns (Community edition workaround)
   // NOTE: True column pinning with auto-width handling, resize support, and scroll sync
@@ -841,6 +843,55 @@ export function SheetViewerBlock({ config }: { config: Record<string, unknown> }
     setSnackbarMessage(message);
     setSnackbarOpen(true);
   }, []);
+
+  // Build a compact TSV prompt from the current cell selection (headers +
+  // values) to hand the data to the AI chat.
+  const buildSelectionPrompt = useCallback((): string => {
+    const sd = payload?.data;
+    if (!sd || rows.length === 0 || selectedCellSet.size === 0) return '';
+
+    const selectedRowIds = new Set<string>();
+    const selectedFieldsSet = new Set<string>();
+    selectedCellSet.forEach((k) => {
+      const [rId, f] = k.split('|');
+      selectedRowIds.add(rId);
+      selectedFieldsSet.add(f);
+    });
+
+    const rowOrder = Array.from(selectedRowIds).sort((a, b) => Number(a) - Number(b));
+    const colOrder = columns.map((c) => c.field).filter((f) => selectedFieldsSet.has(f));
+    if (rowOrder.length === 0 || colOrder.length === 0) return '';
+
+    const headerLine = ['Row #', ...colOrder].join('\t');
+    const bodyLines: string[] = rowOrder.map((rowIdStr) => {
+      const rowAny = rows.find((r: any) => String(r._rowIndex ?? r.id) === rowIdStr) as any;
+      if (!rowAny) return '';
+      return [
+        rowIdStr,
+        ...colOrder.map((field) => {
+          const val = rowAny[field];
+          if (val == null) return '';
+          return typeof val === 'object' ? JSON.stringify(val) : String(val);
+        }),
+      ].join('\t');
+    });
+
+    return `Sheet "${sd.sheet}" — selected cells (${rowOrder.length} rows × ${colOrder.length} cols):\n${headerLine}\n${bodyLines.join('\n')}`;
+  }, [payload, rows, selectedCellSet, columns]);
+
+  const handleSendSelectionToChat = useCallback(() => {
+    const prompt = buildSelectionPrompt();
+    if (!prompt) {
+      showCopyToast('Select cells first (Ctrl/Shift click or drag)');
+      return;
+    }
+    const message = `Here is the data I selected from the spreadsheet. Please analyze it:\n\n${prompt}`;
+    void dispatch(sendStreamingMessage({ message, history: chatMessages }));
+    showCopyToast(
+      `Sent ${selectedCells.length} cell${selectedCells.length !== 1 ? 's' : ''} to AI chat`
+    );
+    handleSettingsClose();
+  }, [buildSelectionPrompt, dispatch, chatMessages, selectedCells.length, showCopyToast, handleSettingsClose]);
 
   // Enhanced multi-row copy functionality (MUI X v9 compatible with new GridRowSelectionModel {type, ids: Set}):
   // - When Ctrl/Cmd+C pressed, copies BOTH column headers AND row data as TSV
@@ -908,93 +959,107 @@ export function SheetViewerBlock({ config }: { config: Record<string, unknown> }
     return `${rowId}|${field}`;
   }, []);
 
-  // New: Cell-level multi-selection with Ctrl (toggle individual/non-contiguous) + Shift (range/grouped contiguous cells)
-  // Range uses bounding box of current page's rows (by _rowIndex order) and columns (display order).
-  // Visual highlight via .selected-cell class. Ctrl+C prioritizes cells over row selection.
+  // Cell selection is fully store-driven: plain click / Ctrl+click / Shift+click /
+  // drag all dispatch to the sheetViewer slice from the wrapper's pointer
+  // handlers. onCellClick is reserved for the formula-builder picking mode
+  // (append the clicked cell's Excel reference, e.g. "D6"; Shift+click appends
+  // a range ":D9") — and must never mutate selection while picking.
   const handleCellClick = useCallback(
     (params: GridCellParams, event: React.MouseEvent<HTMLElement>) => {
-      const { id: rowId, field } = params;
-      const key = getCellKey(rowId, field);
-      const isCtrl = event.ctrlKey || event.metaKey;
-      const isShift = event.shiftKey;
-
-      // Formula-builder picking mode: append the clicked cell's Excel reference
-      // (e.g. "D6") to the formula; Shift+click appends a range (":D9").
       const picker = formulaPickerRef.current;
-      if (picker?.active) {
-        const cellRef = (params.row as Record<string, unknown>)[`${field}_cell`];
-        if (typeof cellRef === 'string' && cellRef.length > 0) {
-          picker.append(cellRef, isShift);
-        }
-        return; // do not alter cell selection while picking
+      if (!picker?.active) return;
+      const cellRef = (params.row as Record<string, unknown>)[`${params.field}_cell`];
+      if (typeof cellRef === 'string' && cellRef.length > 0) {
+        picker.append(cellRef, event.shiftKey);
       }
-
-      console.log(`[SheetViewerBlock] Cell clicked - rowId:${rowId}, field:${field}, ctrl:${isCtrl}, shift:${isShift}, currentCells:${selectedCells.size}`);
-
-      setSelectedCells((prev) => {
-        const newSet = new Set(prev);
-        if (isShift && lastClickedCellRef.current) {
-          const anchor = lastClickedCellRef.current;
-          // Use the DataGrid's CURRENT display order (post-sort/post-filter) so the
-          // Shift-range matches what the user visually sees. Fall back to _rowIndex
-          // numeric order if the api ref is not ready yet.
-          const sortedIds = apiRef.current ? (apiRef.current.getSortedRowIds() as any[]) : null;
-          const rowOrder: any[] = sortedIds && sortedIds.length > 0
-            ? sortedIds
-            : rows
-                .map((r: any) => r._rowIndex ?? r.id)
-                .sort((a: any, b: any) => Number(a) - Number(b));
-          const colOrder = columns.map((c) => c.field);
-
-          const anchorRowIdx = rowOrder.indexOf(anchor.rowId);
-          const currentRowIdx = rowOrder.indexOf(rowId);
-          const anchorColIdx = colOrder.indexOf(anchor.field);
-          const currentColIdx = colOrder.indexOf(field);
-
-          if (
-            anchorRowIdx === -1 ||
-            currentRowIdx === -1 ||
-            anchorColIdx === -1 ||
-            currentColIdx === -1
-          ) {
-            newSet.add(key);
-          } else {
-            const minR = Math.min(anchorRowIdx, currentRowIdx);
-            const maxR = Math.max(anchorRowIdx, currentRowIdx);
-            const minC = Math.min(anchorColIdx, currentColIdx);
-            const maxC = Math.max(anchorColIdx, currentColIdx);
-            for (let rIdx = minR; rIdx <= maxR; rIdx++) {
-              for (let cIdx = minC; cIdx <= maxC; cIdx++) {
-                const rId = rowOrder[rIdx];
-                const f = colOrder[cIdx];
-                newSet.add(getCellKey(rId, f));
-              }
-            }
-          }
-        } else if (isCtrl) {
-          // Toggle individual cell (supports non-contiguous multi-select)
-          if (newSet.has(key)) {
-            newSet.delete(key);
-          } else {
-            newSet.add(key);
-          }
-        } else {
-          // Normal click: single cell (clears previous)
-          newSet.clear();
-          newSet.add(key);
-        }
-        return newSet;
-      });
-
-      lastClickedCellRef.current = { rowId, field };
     },
-    [rows, columns, selectedCells, getCellKey, apiRef]
+    [],
+  );
+
+  // ── Drag-to-select multiple cells (store-driven pointer events) ───────
+  // MUI X v9 does not expose onCellMouse* DataGrid props, and apiRef event
+  // subscriptions would need an effect — so the wrapper Box around the grid
+  // handles pointer events directly and dispatches every transition to the
+  // sheetViewer slice (single source of truth, zero effect-based wiring).
+  const resolveCellFromEvent = useCallback(
+    (e: React.PointerEvent<HTMLDivElement>): { rowId: GridRowId; field: string } | null => {
+      const target = e.target as HTMLElement | null;
+      if (!target) return null;
+      const cellEl = target.closest('.MuiDataGrid-cell');
+      if (!cellEl) return null;
+      const field = cellEl.getAttribute('data-field');
+      if (!field) return null;
+      const rowEl = cellEl.closest('.MuiDataGrid-row');
+      const rowIndex = rowEl?.getAttribute('data-rowindex');
+      if (rowIndex == null) return null;
+      const rowOrder = getRowOrder();
+      const rowId = rowOrder[Number(rowIndex)];
+      if (rowId == null) return null;
+      return { rowId, field };
+    },
+    [getRowOrder],
+  );
+
+  const handleGridPointerDown = useCallback(
+    (e: React.PointerEvent<HTMLDivElement>) => {
+      if (e.button !== 0) return; // left button only
+      const cell = resolveCellFromEvent(e);
+      if (!cell) return;
+      if (cell.field === '__check__') return; // row checkbox column
+      if (formulaPickerRef.current?.active) return; // picking mode → onCellClick handles it
+      const target = e.target as HTMLElement | null;
+      if (target?.closest('[data-formula-editor]')) return; // inside the formula editor
+      if (target?.closest('.MuiDataGrid-cell--editing')) return; // active edit session
+
+      const rowOrder = getRowOrder();
+      const colOrder = getColOrder();
+      if (e.ctrlKey || e.metaKey) {
+        dispatch(toggleCell(cell)); // non-contiguous toggle
+      } else if (e.shiftKey) {
+        dispatch(shiftSelectRange({ current: cell, rowOrder, colOrder })); // range from last anchor
+      } else {
+        dispatch(dragStart(cell)); // plain click / drag start
+      }
+    },
+    [resolveCellFromEvent, getRowOrder, getColOrder, dispatch],
+  );
+
+  const handleGridPointerMove = useCallback(
+    (e: React.PointerEvent<HTMLDivElement>) => {
+      if (!dragActive) return;
+      const cell = resolveCellFromEvent(e);
+      if (!cell) return;
+      dispatch(dragMove({ current: cell, rowOrder: getRowOrder(), colOrder: getColOrder() }));
+    },
+    [dragActive, resolveCellFromEvent, getRowOrder, getColOrder, dispatch],
+  );
+
+  const handleGridPointerUp = useCallback(() => {
+    dispatch(dragEnd());
+  }, [dispatch]);
+
+  // While the formula builder is in cell-picking mode, prevent mousedown on
+  // grid cells from stealing focus (which would end the edit session). Runs in
+  // the capture phase on the wrapper so it precedes the cell's own mousedown.
+  const handleGridMouseDownCapture = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
+    const target = e.target as HTMLElement | null;
+    if (!target || target.closest('[data-formula-editor]')) return;
+    if (formulaPickerRef.current?.active) e.preventDefault();
+  }, []);
+
+  const handlePaginationModelChange = useCallback(
+    (m: { page: number; pageSize: number }) => {
+      setPaginationModel(m);
+      // Cell selection is page-scoped — clear it so stale cells never persist.
+      dispatch(clearCellSelection());
+    },
+    [dispatch],
   );
 
   // Copy selected cells as TSV sub-grid (preserves structure, raw values, headers for selected columns only)
   // Falls back to row copy if no cells selected. Called preferentially on Ctrl+C.
   const copySelectedCells = useCallback(async () => {
-    if (selectedCells.size === 0) return false;
+    if (selectedCellSet.size === 0) return false;
 
     const sd = payload?.data;
     if (!sd || rows.length === 0) {
@@ -1004,7 +1069,7 @@ export function SheetViewerBlock({ config }: { config: Record<string, unknown> }
 
     const selectedRowIds = new Set<string>();
     const selectedFieldsSet = new Set<string>();
-    selectedCells.forEach((k) => {
+    selectedCellSet.forEach((k) => {
       const [rId, f] = k.split('|');
       selectedRowIds.add(rId);
       selectedFieldsSet.add(f);
@@ -1045,7 +1110,7 @@ export function SheetViewerBlock({ config }: { config: Record<string, unknown> }
     try {
       await navigator.clipboard.writeText(tsvContent);
       showCopyToast(
-        `Copied ${selectedCells.size} cell${selectedCells.size !== 1 ? 's' : ''} ` +
+        `Copied ${selectedCellSet.size} cell${selectedCellSet.size !== 1 ? 's' : ''} ` +
           `(${tsvRows.length}×${colOrder.length}) to clipboard`
       );
       return true;
@@ -1054,21 +1119,20 @@ export function SheetViewerBlock({ config }: { config: Record<string, unknown> }
       showCopyToast('Failed to copy cells to clipboard');
       return false;
     }
-  }, [selectedCells, rows, columns, payload, showCopyToast]);
+  }, [selectedCellSet, rows, columns, payload, showCopyToast]);
 
   // onCellKeyDown handler to capture Ctrl+C (and Cmd+C on Mac) globally on the grid
   const handleCellKeyDown = useCallback(
     (params: GridCellParams, event: KeyboardEvent<HTMLElement>) => {
       if (event.key === 'Escape') {
-        setSelectedCells(new Set());
-        lastClickedCellRef.current = null;
+        dispatch(clearCellSelection());
         return;
       }
 
       if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'c') {
         event.preventDefault();
         // Prioritize cell selection (Ctrl for multi, Shift for range); fallback to row copy if none
-        if (selectedCells.size > 0) {
+        if (selectedCells.length > 0) {
           copySelectedCells(); // fire-and-forget (handles its own toast + clipboard)
         } else if (rowSelectionModel.ids.size === 0) {
           const singleModel: GridRowSelectionModel = {
@@ -1081,7 +1145,7 @@ export function SheetViewerBlock({ config }: { config: Record<string, unknown> }
         }
       }
     },
-    [selectedCells, rowSelectionModel, handleCopySelection, copySelectedCells]
+    [dispatch, selectedCells, rowSelectionModel, handleCopySelection, copySelectedCells]
   );
 
   const CustomToolbar = () => (
@@ -1103,7 +1167,7 @@ export function SheetViewerBlock({ config }: { config: Record<string, unknown> }
           {rowSelectionModel.ids.size} row{rowSelectionModel.ids.size !== 1 ? 's' : ''} selected
         </Typography>
       )}
-      {selectedCells.size > 0 && (
+      {selectedCells.length > 0 && (
         <Typography
           variant="body2"
           sx={{
@@ -1117,9 +1181,14 @@ export function SheetViewerBlock({ config }: { config: Record<string, unknown> }
             borderColor: 'secondary.100',
           }}
         >
-          {selectedCells.size} cell{selectedCells.size !== 1 ? 's' : ''} selected (Ctrl/Shift)
+          {selectedCells.length} cell{selectedCells.length !== 1 ? 's' : ''} selected (Ctrl/Shift)
         </Typography>
       )}
+      <Tooltip title="Reload sheet data">
+        <IconButton onClick={() => void refetch()} size="small">
+          <RefreshIcon />
+        </IconButton>
+      </Tooltip>
       <Tooltip title="Settings: Select columns to freeze (pin left)">
         <IconButton onClick={handleSettingsClick} size="small">
           <SettingsIcon />
@@ -1133,8 +1202,6 @@ export function SheetViewerBlock({ config }: { config: Record<string, unknown> }
 
   const handleStatsClick = (event: React.MouseEvent<HTMLElement>) => setStatsAnchor(event.currentTarget);
   const handleStatsClose = () => setStatsAnchor(null);
-  const toggleStat = (fn: string) =>
-    setExtraStats((prev) => (prev.includes(fn) ? prev.filter((f) => f !== fn) : [...prev, fn]));
 
   // Footer with left-aligned aggregate bar (Excel-style status bar) + default pagination
   const CustomFooter = () => (
@@ -1177,8 +1244,8 @@ export function SheetViewerBlock({ config }: { config: Record<string, unknown> }
 
   const getCellClassName = useCallback((params: GridCellParams) => {
     const key = getCellKey(params.id, params.field);
-    return selectedCells.has(key) ? 'selected-cell' : '';
-  }, [selectedCells, getCellKey]);
+    return selectedCellSet.has(key) ? 'selected-cell' : '';
+  }, [selectedCellSet, getCellKey]);
 
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', height: 'calc(100dvh - 66px)', minHeight: 400, width: '100%' }}>
@@ -1196,39 +1263,52 @@ export function SheetViewerBlock({ config }: { config: Record<string, unknown> }
         <Typography color="error">{String(queryError)}</Typography>
       ) : data ? (
         <>
-          <DataGrid
-            rows={rows}
-            columns={columns}
-            apiRef={apiRef}
-            getRowId={(row) => row._rowIndex}
-            loading={isLoading}
-            rowCount={data.totalRows}
-            paginationMode="server"
-            paginationModel={paginationModel}
-            onPaginationModelChange={setPaginationModel}
-            pageSizeOptions={[PER_PAGE]}
-            disableRowSelectionOnClick
-            checkboxSelection
-            rowSelectionModel={rowSelectionModel}
-            onRowSelectionModelChange={(newModel) => setRowSelectionModel(newModel)}
-            sortModel={sortModel}
-            onSortModelChange={handleSortModelChange}
-            onColumnHeaderClick={handleColumnHeaderClick}
-            onCellClick={handleCellClick}
-            getCellClassName={getCellClassName}
-            // disableMultipleColumnsSorting removed (causes type errors in v9 Community edition).
-            // Multi-sort now fully managed via onColumnHeaderClick + controlled sortModel (up to 3 cols).
-            // Normal click replaces sort; Shift+click adds/toggles/removes from multi-model.
-            processRowUpdate={processRowUpdate}
-            onCellKeyDown={handleCellKeyDown}
-            slots={{
-              toolbar: CustomToolbar,
-              footer: CustomFooter,
-            }}
-            editMode="cell"
-            tabNavigation="content" // Tab moves to next cell (Shift+Tab previous), wraps rows
-            sx={pinnedSx}
-          />
+          {/* The wrapper Box is the drag-selection surface: MUI X v9 has no
+              onCellMouse* DataGrid props, so pointer events on the wrapper
+              dispatch every selection transition to the sheetViewer slice
+              (Redux single source of truth — no effects, no apiRef events). */}
+          <Box
+            sx={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0, width: '100%' }}
+            onPointerDown={handleGridPointerDown}
+            onPointerMove={handleGridPointerMove}
+            onPointerUp={handleGridPointerUp}
+            onPointerCancel={handleGridPointerUp}
+            onMouseDownCapture={handleGridMouseDownCapture}
+          >
+            <DataGrid
+              rows={rows}
+              columns={columns}
+              apiRef={apiRef}
+              getRowId={(row) => row._rowIndex}
+              loading={isLoading}
+              rowCount={data.totalRows}
+              paginationMode="server"
+              paginationModel={paginationModel}
+              onPaginationModelChange={handlePaginationModelChange}
+              pageSizeOptions={[PER_PAGE]}
+              disableRowSelectionOnClick
+              checkboxSelection
+              rowSelectionModel={rowSelectionModel}
+              onRowSelectionModelChange={(newModel) => setRowSelectionModel(newModel)}
+              sortModel={sortModel}
+              onSortModelChange={handleSortModelChange}
+              onColumnHeaderClick={handleColumnHeaderClick}
+              onCellClick={handleCellClick}
+              getCellClassName={getCellClassName}
+              // disableMultipleColumnsSorting removed (causes type errors in v9 Community edition).
+              // Multi-sort now fully managed via onColumnHeaderClick + controlled sortModel (up to 3 cols).
+              // Normal click replaces sort; Shift+click adds/toggles/removes from multi-model.
+              processRowUpdate={processRowUpdate}
+              onCellKeyDown={handleCellKeyDown}
+              slots={{
+                toolbar: CustomToolbar,
+                footer: CustomFooter,
+              }}
+              editMode="cell"
+              tabNavigation="content" // Tab moves to next cell (Shift+Tab previous), wraps rows
+              sx={pinnedSx}
+            />
+          </Box>
 
           {/* Settings Popover for selectable freeze columns */}
           <Popover
@@ -1243,7 +1323,7 @@ export function SheetViewerBlock({ config }: { config: Record<string, unknown> }
                   control={
                     <Switch
                       checked={formulaMode}
-                      onChange={(e) => setFormulaMode(e.target.checked)}
+                      onChange={(e) => dispatch(setFormulaMode(e.target.checked))}
                       size="small"
                     />
                   }
@@ -1253,6 +1333,25 @@ export function SheetViewerBlock({ config }: { config: Record<string, unknown> }
               </ListItem>
               <Typography variant="caption" sx={{ px: 3, pb: 1, display: 'block', color: 'text.secondary' }}>
                 Enable Excel formula editing &amp; evaluation. Off by default — cells are stored as plain values.
+              </Typography>
+              <Divider sx={{ mb: 1 }} />
+              <ListItem>
+                <Button
+                  fullWidth
+                  variant="outlined"
+                  size="small"
+                  startIcon={<ChatIcon fontSize="small" />}
+                  disabled={selectedCells.length === 0}
+                  onClick={handleSendSelectionToChat}
+                  sx={{ mx: 2 }}
+                >
+                  Send selected cells to AI chat
+                </Button>
+              </ListItem>
+              <Typography variant="caption" sx={{ px: 3, pb: 1, display: 'block', color: 'text.secondary' }}>
+                {selectedCells.length > 0
+                  ? `Will send ${selectedCells.length} selected cell${selectedCells.length !== 1 ? 's' : ''} as data for the AI prompt.`
+                  : 'Select cells (Ctrl/Shift click or drag) to enable.'}
               </Typography>
               <Divider sx={{ mb: 1 }} />
               <ListItem>
@@ -1266,7 +1365,7 @@ export function SheetViewerBlock({ config }: { config: Record<string, unknown> }
                     control={
                       <Checkbox
                         checked={pinnedColumns.includes(col)}
-                        onChange={() => togglePinnedColumn(col)}
+                        onChange={() => dispatch(togglePinnedColumn(col))}
                         size="small"
                       />
                     }
@@ -1297,7 +1396,7 @@ export function SheetViewerBlock({ config }: { config: Record<string, unknown> }
                     control={
                       <Checkbox
                         checked={extraStats.includes(fn)}
-                        onChange={() => toggleStat(fn)}
+                        onChange={() => dispatch(toggleExtraStat(fn))}
                         size="small"
                       />
                     }

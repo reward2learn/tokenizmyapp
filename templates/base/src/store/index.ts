@@ -2,47 +2,42 @@ import { configureStore } from '@reduxjs/toolkit';
 import { authSlice } from '@/store/auth-slice';
 import { uiSlice } from '@/store/ui-slice';
 import { chatStreamSlice } from '@/store/chat-stream-slice';
+import { sheetViewerSlice, sheetViewerListenerMiddleware } from '@/store/sheet-viewer-slice';
 import { authApi } from '@/store/apis/auth-api';
+import { financialApi } from '@/store/apis/financial-api';
+import { metricsApi } from '@/store/apis/metrics-api';
+import { monthlyActualsApi } from '@/store/apis/monthly-actuals-api';
 import { contentApi } from '@/store/apis/content-api';
 import { chatApi } from '@/store/apis/chat-api';
+import { pdfApi } from '@/store/apis/pdf-api';
+import { posApi } from '@/store/apis/pos-api';
 import { configApi } from '@/store/apis/config-api';
 import { tasksApi } from '@/store/apis/tasks-api';
 import { adminApi } from '@/store/apis/admin-api';
+import { dashboardApi } from '@/store/apis/dashboard-api';
+import { sheetDataApi } from '@/store/apis/sheet-data-api';
 import { brandConfigApi } from '@shared/store/apis/brand-config-api';
 import { navigationApi } from '@/store/apis/navigation-api';
 import { tenantApi } from '@/store/apis/tenant-api';
-import { contentPageApi } from '@/store/apis/content-page-api';
-import { mediaApi } from '@/store/apis/media-api';
-import { notificationApi } from '@/store/apis/notification-api';
-import { commerceApi } from '@/store/apis/commerce-api';
-import { marketingApi } from '@/store/apis/marketing-api';
-import { userApi } from '@/store/apis/user-api';
-import { aiAgentApi } from '@/store/apis/ai-agent-api';
-import { whatsappApi } from '@/store/apis/whatsapp-api';
-import { integrationApi } from '@/store/apis/integration-api';
-import { billingApi } from '@/store/apis/billing-api';
 
 const apiMiddleware = [
   authApi.middleware,
+  financialApi.middleware,
+  metricsApi.middleware,
+  monthlyActualsApi.middleware,
   contentApi.middleware,
   chatApi.middleware,
+  pdfApi.middleware,
+  posApi.middleware,
   configApi.middleware,
   tasksApi.middleware,
   adminApi.middleware,
-  brandConfigApi.middleware,
+  dashboardApi.middleware,
   sheetDataApi.middleware,
+  brandConfigApi.middleware,
   navigationApi.middleware,
   tenantApi.middleware,
-  contentPageApi.middleware,
-  mediaApi.middleware,
-  notificationApi.middleware,
-  commerceApi.middleware,
-  marketingApi.middleware,
-  userApi.middleware,
-  aiAgentApi.middleware,
-  whatsappApi.middleware,
-  integrationApi.middleware,
-  billingApi.middleware,
+  sheetViewerListenerMiddleware,
 ] as const;
 
 export function makeStore() {
@@ -51,26 +46,23 @@ export function makeStore() {
       auth: authSlice.reducer,
       ui: uiSlice.reducer,
       chatStream: chatStreamSlice.reducer,
+      sheetViewer: sheetViewerSlice.reducer,
       [authApi.reducerPath]: authApi.reducer,
+      [financialApi.reducerPath]: financialApi.reducer,
+      [metricsApi.reducerPath]: metricsApi.reducer,
+      [monthlyActualsApi.reducerPath]: monthlyActualsApi.reducer,
       [contentApi.reducerPath]: contentApi.reducer,
       [chatApi.reducerPath]: chatApi.reducer,
+      [pdfApi.reducerPath]: pdfApi.reducer,
+      [posApi.reducerPath]: posApi.reducer,
       [configApi.reducerPath]: configApi.reducer,
       [tasksApi.reducerPath]: tasksApi.reducer,
-      [sheetDataApi.reducerPath]: sheetDataApi.reducer,
       [adminApi.reducerPath]: adminApi.reducer,
+      [dashboardApi.reducerPath]: dashboardApi.reducer,
+      [sheetDataApi.reducerPath]: sheetDataApi.reducer,
       [brandConfigApi.reducerPath]: brandConfigApi.reducer,
       [navigationApi.reducerPath]: navigationApi.reducer,
       [tenantApi.reducerPath]: tenantApi.reducer,
-      [contentPageApi.reducerPath]: contentPageApi.reducer,
-      [mediaApi.reducerPath]: mediaApi.reducer,
-      [notificationApi.reducerPath]: notificationApi.reducer,
-      [commerceApi.reducerPath]: commerceApi.reducer,
-      [marketingApi.reducerPath]: marketingApi.reducer,
-      [userApi.reducerPath]: userApi.reducer,
-      [aiAgentApi.reducerPath]: aiAgentApi.reducer,
-      [whatsappApi.reducerPath]: whatsappApi.reducer,
-      [integrationApi.reducerPath]: integrationApi.reducer,
-      [billingApi.reducerPath]: billingApi.reducer,
     },
     middleware: (getDefaultMiddleware) =>
       getDefaultMiddleware().concat(...apiMiddleware),

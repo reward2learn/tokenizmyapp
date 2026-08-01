@@ -2,6 +2,7 @@ import { configureStore } from '@reduxjs/toolkit';
 import { authSlice } from '@/store/auth-slice';
 import { uiSlice } from '@/store/ui-slice';
 import { chatStreamSlice } from '@/store/chat-stream-slice';
+import { sheetViewerSlice, sheetViewerListenerMiddleware } from '@/store/sheet-viewer-slice';
 import { authApi } from '@/store/apis/auth-api';
 import { financialApi } from '@/store/apis/financial-api';
 import { metricsApi } from '@/store/apis/metrics-api';
@@ -36,6 +37,7 @@ const apiMiddleware = [
   brandConfigApi.middleware,
   navigationApi.middleware,
   tenantApi.middleware,
+  sheetViewerListenerMiddleware,
 ] as const;
 
 export function makeStore() {
@@ -44,6 +46,7 @@ export function makeStore() {
       auth: authSlice.reducer,
       ui: uiSlice.reducer,
       chatStream: chatStreamSlice.reducer,
+      sheetViewer: sheetViewerSlice.reducer,
       [authApi.reducerPath]: authApi.reducer,
       [financialApi.reducerPath]: financialApi.reducer,
       [metricsApi.reducerPath]: metricsApi.reducer,
