@@ -15,6 +15,7 @@ import FormControlLabel from '@mui/material/FormControlLabel';
 import Tooltip from '@mui/material/Tooltip';
 import Snackbar from '@mui/material/Snackbar';
 import SettingsIcon from '@mui/icons-material/Settings';
+import MoreHorizIcon from '@mui/icons-material/MoreHoriz';
 import type {
   GridColDef,
   GridValidRowModel,
@@ -25,7 +26,7 @@ import type {
   GridCellParams,
   GridRowId,
 } from '@mui/x-data-grid';
-import { GridToolbarContainer, useGridApiRef } from '@mui/x-data-grid';
+import { GridToolbarContainer, useGridApiRef, GridFooter } from '@mui/x-data-grid';
 import { useGetSheetDataQuery, useUpdateSheetCellMutation } from '@/store/apis/sheet-data-api';
 import type { UpdateSheetCellParams, SheetDataResponse } from '@/store/apis/sheet-data-api';
 
@@ -69,6 +70,123 @@ function formatCellValue(key: string, value: unknown): string | number {
   return String(value);
 }
 
+// ── Status-bar aggregate functions (Excel-style) ────────────────────────
+const STAT_DEFAULTS = ['SUM', 'AVERAGE', 'MIN', 'MAX', 'COUNTA'] as const;
+const STAT_OPTIONS = [
+  'AVERAGEA', 'COUNT', 'COUNTBLANK', 'DEVSQ', 'GCD', 'GEOMEAN', 'HARMEAN',
+  'LCM', 'MAXA', 'MEDIAN', 'MINA', 'MODE', 'MULTINOMIAL', 'OR', 'PRODUCT',
+  'STDEV', 'STDEVP', 'STDEVPA', 'SUMSQ', 'VAR', 'VARA', 'VARP', 'AVEDEV', 'VARPA',
+];
+
+function statSum(a: number[]): number { return a.reduce((s, v) => s + v, 0); }
+function statAvg(a: number[]): number { return a.length ? statSum(a) / a.length : NaN; }
+function statVarSample(a: number[]): number {
+  const m = statAvg(a);
+  return a.length > 1 ? statSum(a.map((v) => (v - m) ** 2)) / (a.length - 1) : NaN;
+}
+function statVarPop(a: number[]): number {
+  const m = statAvg(a);
+  return a.length ? statSum(a.map((v) => (v - m) ** 2)) / a.length : NaN;
+}
+function statGcd(a: number, b: number): number {
+  a = Math.abs(Math.round(a)); b = Math.abs(Math.round(b));
+  while (b) { [a, b] = [b, a % b]; }
+  return a;
+}
+function statLcm(a: number, b: number): number {
+  if (!a || !b) return 0;
+  return Math.abs(Math.round(a * b)) / statGcd(a, b);
+}
+function statFact(n: number): number { let r = 1; for (let i = 2; i <= n; i++) r *= i; return r; }
+function statMedian(a: number[]): number {
+  if (!a.length) return NaN;
+  const s = [...a].sort((x, y) => x - y);
+  const mid = Math.floor(s.length / 2);
+  return s.length % 2 ? s[mid] : (s[mid - 1] + s[mid]) / 2;
+}
+function statMode(a: number[]): number {
+  const counts = new Map<number, number>();
+  for (const v of a) counts.set(v, (counts.get(v) ?? 0) + 1);
+  let best: number | null = null; let bestCount = 1;
+  for (const [v, c] of counts) if (c > bestCount) { best = v; bestCount = c; }
+  return best ?? NaN; // no repeated value → N/A (Excel MODE behavior)
+}
+// AVERAGEA/MAXA/MINA/STDEVA/VARA style coercion: text → 0, TRUE → 1, FALSE → 0
+function statCoerce(v: unknown): number {
+  if (typeof v === 'number') return v;
+  if (typeof v === 'boolean') return v ? 1 : 0;
+  if (typeof v === 'string') {
+    const t = v.trim().toLowerCase();
+    if (t === 'true') return 1;
+    if (t === 'false') return 0;
+    const n = Number(v.replace(/[,\s]/g, ''));
+    return isFinite(n) ? n : 0;
+  }
+  return 0;
+}
+
+function computeCellStat(fn: string, nums: number[], all: unknown[]): number | string {
+  const nonEmpty = all.filter((v) => v !== '' && v !== null && v !== undefined);
+  const coerced = nonEmpty.map(statCoerce);
+  switch (fn) {
+    case 'SUM': return statSum(nums);
+    case 'AVERAGE': return statAvg(nums);
+    case 'MIN': return nums.length ? Math.min(...nums) : NaN;
+    case 'MAX': return nums.length ? Math.max(...nums) : NaN;
+    case 'COUNTA': return nonEmpty.length;
+    case 'COUNT': return nums.length;
+    case 'COUNTBLANK': return all.length - nonEmpty.length;
+    case 'AVERAGEA': return statAvg(coerced);
+    case 'MAXA': return coerced.length ? Math.max(...coerced) : NaN;
+    case 'MINA': return coerced.length ? Math.min(...coerced) : NaN;
+    case 'MEDIAN': return statMedian(nums);
+    case 'MODE': return statMode(nums);
+    case 'PRODUCT': return nums.length ? nums.reduce((p, v) => p * v, 1) : NaN;
+    case 'SUMSQ': return statSum(nums.map((v) => v * v));
+    case 'DEVSQ': { const m = statAvg(nums); return statSum(nums.map((v) => (v - m) ** 2)); }
+    case 'GEOMEAN': {
+      const pos = nums.filter((v) => v > 0);
+      return pos.length === nums.length && nums.length
+        ? Math.pow(nums.reduce((p, v) => p * v, 1), 1 / nums.length) : NaN;
+    }
+    case 'HARMEAN': {
+      const pos = nums.filter((v) => v > 0);
+      return pos.length === nums.length && nums.length
+        ? nums.length / statSum(nums.map((v) => 1 / v)) : NaN;
+    }
+    case 'GCD': return nums.length ? nums.reduce(statGcd) : NaN;
+    case 'LCM': return nums.length ? nums.reduce(statLcm) : NaN;
+    case 'MULTINOMIAL': {
+      const ints = nums.map((v) => Math.round(Math.abs(v)));
+      const total = statSum(ints);
+      return ints.length ? statFact(total) / ints.reduce((p, v) => p * statFact(v), 1) : NaN;
+    }
+    case 'STDEV': return Math.sqrt(statVarSample(nums));
+    case 'STDEVP': return Math.sqrt(statVarPop(nums));
+    case 'STDEVA': return Math.sqrt(statVarSample(coerced));
+    case 'STDEVPA': return Math.sqrt(statVarPop(coerced));
+    case 'VAR': return statVarSample(nums);
+    case 'VARA': return statVarSample(coerced);
+    case 'VARP': return statVarPop(nums);
+    case 'VARPA': return statVarPop(coerced);
+    case 'AVEDEV': {
+      const m = statAvg(nums);
+      return nums.length ? statSum(nums.map((v) => Math.abs(v - m))) / nums.length : NaN;
+    }
+    case 'OR': return nonEmpty.some((v) =>
+      v === true || v === 'TRUE' || v === 'true' || (typeof v === 'number' && v !== 0)
+    ) ? 'TRUE' : 'FALSE';
+    default: return NaN;
+  }
+}
+
+function formatStatValue(v: number | string): string {
+  if (typeof v === 'string') return v; // TRUE / FALSE
+  if (!isFinite(v)) return 'N/A';
+  if (Number.isInteger(v)) return v.toLocaleString('en-US');
+  return v.toLocaleString('en-US', { maximumFractionDigits: 4 });
+}
+
 export function SheetViewerBlock({ config }: { config: Record<string, unknown> }) {
   const { sheet, title } = config as SheetViewerConfig;
   // apiRef gives access to the DataGrid's CURRENT display order (post-sort/post-filter)
@@ -86,6 +204,9 @@ export function SheetViewerBlock({ config }: { config: Record<string, unknown> }
   // Keys are `${rowId}|${field}`. Supports copy via Ctrl+C (prioritized over row selection).
   const [selectedCells, setSelectedCells] = useState<Set<string>>(new Set());
   const lastClickedCellRef = useRef<{ rowId: GridRowId; field: string } | null>(null);
+  // Excel-style status-bar aggregates (extra functions added via dropdown)
+  const [extraStats, setExtraStats] = useState<string[]>([]);
+  const [statsAnchor, setStatsAnchor] = useState<HTMLElement | null>(null);
 
   const [snackbarOpen, setSnackbarOpen] = useState(false);
   const [snackbarMessage, setSnackbarMessage] = useState('');
@@ -347,6 +468,27 @@ export function SheetViewerBlock({ config }: { config: Record<string, unknown> }
       _rowIndex: (sd.page - 1) * sd.perPage + idx + 1,
     }));
   }, [payload]);
+
+  // Compute Excel-style aggregates over the currently selected cells
+  const cellStats = useMemo(() => {
+    if (selectedCells.size < 2) return null; // only for multi-cell selections
+    const rowById = new Map(rows.map((r: any) => [r._rowIndex, r]));
+    const all: unknown[] = [];
+    selectedCells.forEach((key) => {
+      const sep = key.lastIndexOf('|');
+      const rId = key.slice(0, sep);
+      const field = key.slice(sep + 1);
+      const row = rowById.get(Number(rId));
+      if (row && field in row) all.push(row[field]);
+    });
+    if (all.length === 0) return null;
+    const nonEmpty = all.filter((v) => v !== '' && v !== null && v !== undefined);
+    const nums = nonEmpty
+      .map((v) => (typeof v === 'number' ? v : Number(String(v).replace(/[,\s]/g, ''))))
+      .filter((v) => typeof v === 'number' && isFinite(v));
+    const fns = [...STAT_DEFAULTS, ...extraStats];
+    return fns.map((fn) => ({ label: fn, value: formatStatValue(computeCellStat(fn, nums, all)) }));
+  }, [selectedCells, rows, extraStats]);
 
   // Dynamic sticky styles for user-selected pinned columns (Community edition workaround)
   // NOTE: True column pinning with auto-width handling, resize support, and scroll sync
@@ -687,6 +829,42 @@ export function SheetViewerBlock({ config }: { config: Record<string, unknown> }
     </GridToolbarContainer>
   );
 
+  const handleStatsClick = (event: React.MouseEvent<HTMLElement>) => setStatsAnchor(event.currentTarget);
+  const handleStatsClose = () => setStatsAnchor(null);
+  const toggleStat = (fn: string) =>
+    setExtraStats((prev) => (prev.includes(fn) ? prev.filter((f) => f !== fn) : [...prev, fn]));
+
+  // Footer with left-aligned aggregate bar (Excel-style status bar) + default pagination
+  const CustomFooter = () => (
+    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, px: 1, minHeight: 52, width: '100%', overflowX: 'hidden' }}>
+      {cellStats && (
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, overflowX: 'auto', py: 0.5, maxWidth: '60%' }}>
+          {cellStats.map((s) => (
+            <Box
+              key={s.label}
+              sx={{
+                display: 'flex', alignItems: 'baseline', gap: 0.5, whiteSpace: 'nowrap',
+                bgcolor: 'action.hover', borderRadius: 1, px: 1, py: 0.25,
+              }}
+            >
+              <Typography variant="caption" sx={{ fontWeight: 600, color: 'text.secondary' }}>
+                {s.label}
+              </Typography>
+              <Typography variant="caption" sx={{ fontWeight: 700 }}>{s.value}</Typography>
+            </Box>
+          ))}
+          <Tooltip title="More functions…">
+            <IconButton size="small" onClick={handleStatsClick} sx={{ ml: 0.25 }}>
+              <MoreHorizIcon fontSize="small" />
+            </IconButton>
+          </Tooltip>
+        </Box>
+      )}
+      <Box sx={{ flexGrow: 1 }} />
+      <GridFooter />
+    </Box>
+  );
+
   const data = payload?.data;
   const openSettings = Boolean(settingsAnchor);
 
@@ -738,6 +916,7 @@ export function SheetViewerBlock({ config }: { config: Record<string, unknown> }
             onCellKeyDown={handleCellKeyDown}
             slots={{
               toolbar: CustomToolbar,
+              footer: CustomFooter,
             }}
             editMode="cell"
             tabNavigation="content" // Tab moves to next cell (Shift+Tab previous), wraps rows
@@ -774,6 +953,37 @@ export function SheetViewerBlock({ config }: { config: Record<string, unknown> }
               ))}
             </List>
            </Popover>
+
+          {/* Status-bar function picker (extra aggregates) */}
+          <Popover
+            open={Boolean(statsAnchor)}
+            anchorEl={statsAnchor}
+            onClose={handleStatsClose}
+            anchorOrigin={{ vertical: 'top', horizontal: 'left' }}
+          >
+            <List sx={{ width: 240, maxHeight: 360, overflowY: 'auto', pt: 1 }}>
+              <ListItem>
+                <Typography variant="subtitle2" sx={{ px: 2, py: 1 }}>
+                  Additional Stats
+                </Typography>
+              </ListItem>
+              {STAT_OPTIONS.map((fn) => (
+                <ListItem key={fn} dense>
+                  <FormControlLabel
+                    control={
+                      <Checkbox
+                        checked={extraStats.includes(fn)}
+                        onChange={() => toggleStat(fn)}
+                        size="small"
+                      />
+                    }
+                    label={fn}
+                    sx={{ width: '100%', mx: 0 }}
+                  />
+                </ListItem>
+              ))}
+            </List>
+          </Popover>
          </>
        ) : null}
 
