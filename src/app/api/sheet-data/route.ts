@@ -147,6 +147,7 @@ export async function GET(request: Request): Promise<NextResponse> {
 
     // Add original Excel cell references to each row
     // This ensures that after sorting/filtering in the frontend, we can still map back to the correct Excel cell
+    // CRITICAL: Use columnKeys (not columns) for the Excel column index to preserve correct cell positions
     const rowsWithCellRefs = dataRows.map((row, idx) => {
       const excelRow = headerRow + 1 + idx; // Excel is 1-based
       const rowWithRefs: any = { 
@@ -155,8 +156,10 @@ export async function GET(request: Request): Promise<NextResponse> {
         _excelRow: excelRow 
       };
 
-      // Add cell reference for each column (e.g. "TB_cell": "D7")
-      columns.forEach((colKey, colIdx) => {
+      // Add cell reference for each column using the ORIGINAL columnKeys index
+      // (which matches the actual Excel column position, including hidden columns)
+      columnKeys.forEach((colKey, colIdx) => {
+        if (colKey.startsWith("__hidden_")) return; // skip hidden columns
         const cellAddress = utils.encode_cell({ r: excelRow, c: colIdx });
         rowWithRefs[`${colKey}_cell`] = cellAddress;
       });
