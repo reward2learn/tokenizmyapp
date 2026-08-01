@@ -25,6 +25,7 @@ import MoreHorizIcon from '@mui/icons-material/MoreHoriz';
 import FunctionsIcon from '@mui/icons-material/Functions';
 import AdsClickIcon from '@mui/icons-material/AdsClick';
 import RefreshIcon from '@mui/icons-material/Refresh';
+import TouchAppIcon from '@mui/icons-material/TouchApp';
 import ChatIcon from '@mui/icons-material/Chat';
 import Button from '@mui/material/Button';
 import type {
@@ -44,6 +45,7 @@ import type { UpdateSheetCellParams, SheetDataResponse } from '@/store/apis/shee
 import { useAppDispatch, useAppSelector } from '@/store/hooks';
 import { sendStreamingMessage } from '@/store/chat-stream-slice';
 import { setChatDrawerOpen } from '@/store/ui-slice';
+import { buildCellsPrompt, type PromptRow } from '@/lib/sheet-prompt';
 import {
   setFormulaMode,
   toggleCell,
@@ -59,6 +61,8 @@ import {
   selectSelectedCells,
   selectPinnedColumns,
   selectExtraStats,
+  selectTouchSelectMode,
+  setTouchSelectMode,
 } from '@/store/sheet-viewer-slice';
 
 const DataGrid = dynamic(
@@ -439,6 +443,7 @@ export function SheetViewerBlock({ config }: { config: Record<string, unknown> }
   // mirrors, no state refs, no effects for state wiring.
   const formulaMode = useAppSelector(selectFormulaMode);
   const dragActive = useAppSelector(selectDragActive);
+  const touchSelectMode = useAppSelector(selectTouchSelectMode);
   const selectedCells = useAppSelector(selectSelectedCells);
   const pinnedColumns = useAppSelector(selectPinnedColumns);
   const extraStats = useAppSelector(selectExtraStats);
@@ -454,6 +459,14 @@ export function SheetViewerBlock({ config }: { config: Record<string, unknown> }
   });
   // Formula-builder cell-picking handle (set by the active FormulaEditCell)
   const formulaPickerRef = useRef<FormulaPickerHandle | null>(null);
+  // Mobile long-press tracking: a stationary 400ms press on a cell arms
+  // touch-selection mode (gesture-local transient, cleaned up on release).
+  const touchPressRef = useRef<{
+    timer: ReturnType<typeof setTimeout> | null;
+    x: number;
+    y: number;
+    fired: boolean;
+  }>({ timer: null, x: 0, y: 0, fired: false });
   const [statsAnchor, setStatsAnchor] = useState<HTMLElement | null>(null);
 
   const [snackbarOpen, setSnackbarOpen] = useState(false);
@@ -846,39 +859,18 @@ export function SheetViewerBlock({ config }: { config: Record<string, unknown> }
   }, []);
 
   // Build a compact TSV prompt from the current cell selection (headers +
-  // values) to hand the data to the AI chat.
+  // values) to hand the data to the AI chat. Shared with the chat drawer's
+  // "Attach from page" (src/lib/sheet-prompt.ts).
   const buildSelectionPrompt = useCallback((): string => {
     const sd = payload?.data;
-    if (!sd || rows.length === 0 || selectedCellSet.size === 0) return '';
-
-    const selectedRowIds = new Set<string>();
-    const selectedFieldsSet = new Set<string>();
-    selectedCellSet.forEach((k) => {
-      const [rId, f] = k.split('|');
-      selectedRowIds.add(rId);
-      selectedFieldsSet.add(f);
+    if (!sd || rows.length === 0 || selectedCells.length === 0) return '';
+    return buildCellsPrompt({
+      sheet: sd.sheet,
+      rows: rows as PromptRow[],
+      colOrder: columns.map((c) => c.field),
+      selectedKeys: selectedCells,
     });
-
-    const rowOrder = Array.from(selectedRowIds).sort((a, b) => Number(a) - Number(b));
-    const colOrder = columns.map((c) => c.field).filter((f) => selectedFieldsSet.has(f));
-    if (rowOrder.length === 0 || colOrder.length === 0) return '';
-
-    const headerLine = ['Row #', ...colOrder].join('\t');
-    const bodyLines: string[] = rowOrder.map((rowIdStr) => {
-      const rowAny = rows.find((r: any) => String(r._rowIndex ?? r.id) === rowIdStr) as any;
-      if (!rowAny) return '';
-      return [
-        rowIdStr,
-        ...colOrder.map((field) => {
-          const val = rowAny[field];
-          if (val == null) return '';
-          return typeof val === 'object' ? JSON.stringify(val) : String(val);
-        }),
-      ].join('\t');
-    });
-
-    return `Sheet "${sd.sheet}" — selected cells (${rowOrder.length} rows × ${colOrder.length} cols):\n${headerLine}\n${bodyLines.join('\n')}`;
-  }, [payload, rows, selectedCellSet, columns]);
+  }, [payload, rows, selectedCells, columns]);
 
   const handleSendSelectionToChat = useCallback(() => {
     const prompt = buildSelectionPrompt();
@@ -1016,6 +1008,38 @@ export function SheetViewerBlock({ config }: { config: Record<string, unknown> }
 
       const rowOrder = getRowOrder();
       const colOrder = getColOrder();
+
+      // ── Touch gestures (mobile) ─────────────────────────────────
+      if (e.pointerType === 'touch') {
+        if (touchSelectMode) {
+          // Selection mode is armed: any touch drag grows the selection from
+          // this cell (touch-action: none prevents panning while armed).
+          dispatch(dragStart(cell));
+          return;
+        }
+        // First touch on a cell: wait for a stationary long-press (scroll
+        // gestures move >10px and cancel the timer), then arm selection mode.
+        const press = touchPressRef.current;
+        if (press.timer) clearTimeout(press.timer);
+        touchPressRef.current = {
+          x: e.clientX,
+          y: e.clientY,
+          fired: false,
+          timer: setTimeout(() => {
+            touchPressRef.current.fired = true;
+            dispatch(dragStart(cell));
+            // Haptic confirmation where supported (iOS Safari: no-op).
+            try {
+              if (typeof navigator !== 'undefined' && 'vibrate' in navigator) navigator.vibrate?.(10);
+            } catch {
+              /* not supported */
+            }
+          }, 400),
+        };
+        return;
+      }
+
+      // ── Mouse / pen ─────────────────────────────────────────────
       if (e.ctrlKey || e.metaKey) {
         dispatch(toggleCell(cell)); // non-contiguous toggle
       } else if (e.shiftKey) {
@@ -1024,11 +1048,24 @@ export function SheetViewerBlock({ config }: { config: Record<string, unknown> }
         dispatch(dragStart(cell)); // plain click / drag start
       }
     },
-    [resolveCellFromEvent, getRowOrder, getColOrder, dispatch],
+    [resolveCellFromEvent, getRowOrder, getColOrder, dispatch, touchSelectMode],
   );
 
   const handleGridPointerMove = useCallback(
     (e: React.PointerEvent<HTMLDivElement>) => {
+      // A pending touch long-press is really a scroll once the finger moves
+      // beyond the threshold — cancel it so scrolling stays native.
+      if (e.pointerType === 'touch') {
+        const press = touchPressRef.current;
+        if (press.timer) {
+          const dx = e.clientX - press.x;
+          const dy = e.clientY - press.y;
+          if (Math.hypot(dx, dy) > 10) {
+            clearTimeout(press.timer);
+            press.timer = null;
+          }
+        }
+      }
       if (!dragActive) return;
       const cell = resolveCellFromEvent(e);
       if (!cell) return;
@@ -1037,9 +1074,23 @@ export function SheetViewerBlock({ config }: { config: Record<string, unknown> }
     [dragActive, resolveCellFromEvent, getRowOrder, getColOrder, dispatch],
   );
 
-  const handleGridPointerUp = useCallback(() => {
-    dispatch(dragEnd());
-  }, [dispatch]);
+  const handleGridPointerUp = useCallback(
+    (e?: React.PointerEvent<HTMLDivElement>) => {
+      const press = touchPressRef.current;
+      if (press.timer) {
+        clearTimeout(press.timer);
+        press.timer = null;
+      }
+      // A completed long-press arms touch-selection mode for the NEXT gesture:
+      // the finger-lift selects the anchor cell, then dragging grows the range.
+      if (press.fired && e?.pointerType === 'touch') {
+        dispatch(setTouchSelectMode(true));
+      }
+      press.fired = false;
+      dispatch(dragEnd());
+    },
+    [dispatch],
+  );
 
   // While the formula builder is in cell-picking mode, prevent mousedown on
   // grid cells from stealing focus (which would end the edit session). Runs in
@@ -1187,6 +1238,20 @@ export function SheetViewerBlock({ config }: { config: Record<string, unknown> }
           {selectedCells.length} cell{selectedCells.length !== 1 ? 's' : ''} selected (Ctrl/Shift)
         </Typography>
       )}
+      {touchSelectMode ? (
+        <Tooltip title="Touch-selection is on: drag on the table to select multiple cells. Tap to exit.">
+          <Button
+            size="small"
+            variant="outlined"
+            color="secondary"
+            onClick={() => dispatch(setTouchSelectMode(false))}
+            sx={{ textTransform: 'none', borderRadius: 1, px: 1, minHeight: 32 }}
+          >
+            <TouchAppIcon fontSize="small" sx={{ mr: 0.5 }} />
+            Touch-select on
+          </Button>
+        </Tooltip>
+      ) : null}
       <Tooltip title="Reload sheet data">
         <IconButton onClick={() => void refetch()} size="small">
           <RefreshIcon />
@@ -1271,7 +1336,20 @@ export function SheetViewerBlock({ config }: { config: Record<string, unknown> }
               dispatch every selection transition to the sheetViewer slice
               (Redux single source of truth — no effects, no apiRef events). */}
           <Box
-            sx={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0, width: '100%' }}
+            sx={{
+              display: 'flex',
+              flexDirection: 'column',
+              flex: 1,
+              minHeight: 0,
+              width: '100%',
+              // Touch: pan normally, but while touch-selection mode is armed
+              // disable panning so drags grow the cell selection instead.
+              touchAction: touchSelectMode ? 'none' : 'manipulation',
+              // Prevent iOS long-press text-selection/callout from fighting
+              // the long-press cell-selection gesture.
+              WebkitTouchCallout: 'none',
+              '& .MuiDataGrid-cell': { WebkitTouchCallout: 'none', userSelect: 'none' },
+            }}
             onPointerDown={handleGridPointerDown}
             onPointerMove={handleGridPointerMove}
             onPointerUp={handleGridPointerUp}

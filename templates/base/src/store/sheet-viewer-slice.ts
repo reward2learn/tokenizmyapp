@@ -1,7 +1,7 @@
 import { createListenerMiddleware, createSlice } from '@reduxjs/toolkit';
 import type { PayloadAction } from '@reduxjs/toolkit';
 import type { GridRowId } from '@mui/x-data-grid';
-import { sheetDataApi } from '@/store/apis/sheet-data-api';
+import { sheetDataApi, type SheetDataParams } from '@/store/apis/sheet-data-api';
 
 /**
  * SheetViewer UI state — the single source of truth for the spreadsheet
@@ -34,6 +34,15 @@ export interface SheetViewerState {
   pinnedColumns: string[];
   /** Extra status-bar aggregate functions (beyond STAT_DEFAULTS). */
   extraStats: string[];
+  /**
+   * Mobile touch-selection mode: armed after a long-press on a cell; while
+   * active the grid disables touch panning (touch-action: none) so a drag
+   * grows the cell selection instead of scrolling.
+   */
+  touchSelectMode: boolean;
+  /** Exact args of the last successful sheet GET — lets other components
+   *  (e.g. the chat drawer) read the same data from the RTK Query cache. */
+  activeSheetArg: SheetDataParams | null;
 }
 
 const FORMULA_MODE_KEY = 'sheetViewer.formulaMode';
@@ -55,6 +64,8 @@ const initialState: SheetViewerState = {
   dragAnchor: null,
   pinnedColumns: [],
   extraStats: [],
+  touchSelectMode: false,
+  activeSheetArg: null,
 };
 
 /** cellKey factory shared by reducers and selectors. */
@@ -182,14 +193,24 @@ export const sheetViewerSlice = createSlice({
         ? state.extraStats.filter((f) => f !== fn)
         : [...state.extraStats, fn];
     },
+    setTouchSelectMode(state, action: PayloadAction<boolean>) {
+      state.touchSelectMode = action.payload;
+      if (!action.payload) {
+        state.dragActive = false;
+        state.dragAnchor = null;
+      }
+    },
   },
   extraReducers: (builder) => {
     // Initialize pinned columns to the first data column once (and only once)
     // per sheet load — pure store-driven state, no component effect needed.
+    // Also records the exact request args so other components (chat drawer)
+    // can read the same data straight from the RTK Query cache.
     builder.addMatcher(
       sheetDataApi.endpoints.getSheetData.matchFulfilled,
       (state, action) => {
         const sd = action.payload.data;
+        state.activeSheetArg = action.meta.arg.originalArgs;
         if (state.pinnedColumns.length === 0 && sd && sd.columns.length > 0) {
           state.pinnedColumns = [sd.columns[0]];
         }
@@ -211,6 +232,7 @@ export const {
   togglePinnedColumn,
   setExtraStats,
   toggleExtraStat,
+  setTouchSelectMode,
 } = sheetViewerSlice.actions;
 
 /** Persist formula mode for the session whenever the store value changes. */
@@ -233,3 +255,5 @@ export const selectDragActive = (s: { sheetViewer: SheetViewerState }) => s.shee
 export const selectSelectedCells = (s: { sheetViewer: SheetViewerState }) => s.sheetViewer.selectedCells;
 export const selectPinnedColumns = (s: { sheetViewer: SheetViewerState }) => s.sheetViewer.pinnedColumns;
 export const selectExtraStats = (s: { sheetViewer: SheetViewerState }) => s.sheetViewer.extraStats;
+export const selectTouchSelectMode = (s: { sheetViewer: SheetViewerState }) => s.sheetViewer.touchSelectMode;
+export const selectActiveSheetArg = (s: { sheetViewer: SheetViewerState }) => s.sheetViewer.activeSheetArg;

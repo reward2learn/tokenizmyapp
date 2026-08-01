@@ -5,6 +5,7 @@ import { configureStore } from '@reduxjs/toolkit';
 import { ChatPanel } from '@/components/chat/chat-panel';
 import { chatStreamSlice } from '@/store/chat-stream-slice';
 import { chatApi } from '@/store/apis/chat-api';
+import { sheetViewerSlice } from '@/store/sheet-viewer-slice';
 
 const searchParamsRef: { current: URLSearchParams } = { current: new URLSearchParams('') };
 
@@ -18,6 +19,7 @@ function renderPanel(search: string) {
   const store = configureStore({
     reducer: {
       chatStream: chatStreamSlice.reducer,
+      sheetViewer: sheetViewerSlice.reducer,
       [chatApi.reducerPath]: chatApi.reducer,
     },
     middleware: (getDefault) => getDefault().concat(chatApi.middleware),

@@ -273,7 +273,10 @@ export function AppShell({ children }: { children: ReactNode }) {
   };
 
   return (
-    <Box sx={{ display: 'flex', flexDirection: 'column', minHeight: '100dvh' }}>
+    <Box sx={{ display: 'flex', flexDirection: 'row', width: '100%', minHeight: '100dvh', alignItems: 'stretch' }}>
+      {/* Main column: app header + page content (shrinks when the chat
+          drawer opens — push, never overlay) */}
+      <Box sx={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', minHeight: '100dvh' }}>
       <AppBar position="sticky" elevation={0} color="transparent">
         <Toolbar sx={{ minHeight: 52, pt: 'env(safe-area-inset-top, 0px)' }}>
           {/* Hamburger toggle — left aligned */}
@@ -453,7 +456,6 @@ export function AppShell({ children }: { children: ReactNode }) {
         </Box>
       </Drawer>
 
-      <Box sx={{ display: 'flex', flex: 1, minHeight: 0, width: '100%' }}>
         {/* Main content — shrinks when the chat drawer opens (push, never overlay) */}
         <Box
           component="div"
@@ -467,55 +469,59 @@ export function AppShell({ children }: { children: ReactNode }) {
         >
           {children}
         </Box>
+      </Box>
 
-        {/* Right-side AI chat drawer — persistent width transition that pushes
-            the main container instead of overlaying it. Mounted always so the
-            conversation + draft input survive open/close. */}
+      {/* Right-side AI chat drawer — always exactly the window height
+          (sticky, spans header + content) and persistent: its width push
+          shrinks the main column instead of overlaying. Mounted always so the
+          conversation + draft input survive open/close. */}
+      <Box
+        component="aside"
+        aria-label="AI chat drawer"
+        sx={{
+          width: chatDrawerOpen ? CHAT_DRAWER_WIDTH : 0,
+          flexShrink: 0,
+          height: '100dvh',
+          position: 'sticky',
+          top: 0,
+          overflow: 'hidden',
+          display: 'flex',
+          flexDirection: 'column',
+          borderLeft: '1px solid',
+          borderColor: 'divider',
+          bgcolor: 'background.default',
+          visibility: chatDrawerOpen ? 'visible' : 'hidden',
+          transition: 'width 220ms cubic-bezier(0.4, 0, 0.2, 1)',
+        }}
+      >
         <Box
-          component="aside"
-          aria-label="AI chat drawer"
           sx={{
-            width: chatDrawerOpen ? CHAT_DRAWER_WIDTH : 0,
-            flexShrink: 0,
-            overflow: 'hidden',
             display: 'flex',
-            flexDirection: 'column',
-            borderLeft: '1px solid',
+            alignItems: 'center',
+            gap: 1,
+            px: 1.5,
+            py: 1,
+            flexShrink: 0,
+            borderBottom: '1px solid',
             borderColor: 'divider',
-            bgcolor: 'background.default',
-            visibility: chatDrawerOpen ? 'visible' : 'hidden',
-            transition: 'width 220ms cubic-bezier(0.4, 0, 0.2, 1)',
+            bgcolor: 'background.paper',
           }}
         >
-          <Box
-            sx={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: 1,
-              px: 1.5,
-              py: 1,
-              flexShrink: 0,
-              borderBottom: '1px solid',
-              borderColor: 'divider',
-              bgcolor: 'background.paper',
-            }}
-          >
-            <Typography variant="subtitle2" sx={{ fontWeight: 700, flex: 1, minWidth: 0 }}>
-              AI Chat
-            </Typography>
-            <Tooltip title="Close AI chat">
-              <IconButton
-                size="small"
-                aria-label="Close AI chat drawer"
-                onClick={() => dispatch(setChatDrawerOpen(false))}
-              >
-                <CloseIcon fontSize="small" />
-              </IconButton>
-            </Tooltip>
-          </Box>
-          <Box sx={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-            <ChatDrawerPanel variant="drawer" />
-          </Box>
+          <Typography variant="subtitle2" sx={{ fontWeight: 700, flex: 1, minWidth: 0 }}>
+            AI Chat
+          </Typography>
+          <Tooltip title="Close AI chat">
+            <IconButton
+              size="small"
+              aria-label="Close AI chat drawer"
+              onClick={() => dispatch(setChatDrawerOpen(false))}
+            >
+              <CloseIcon fontSize="small" />
+            </IconButton>
+          </Tooltip>
+        </Box>
+        <Box sx={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+          <ChatDrawerPanel variant="drawer" />
         </Box>
       </Box>
     </Box>

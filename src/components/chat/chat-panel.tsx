@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useRef, useState, type ChangeEvent } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent } from 'react';
 import { useSearchParams } from 'next/navigation';
 import Box from '@mui/material/Box';
 import Button from '@mui/material/Button';
@@ -27,6 +27,7 @@ import Accordion from '@mui/material/Accordion';
 import AccordionDetails from '@mui/material/AccordionDetails';
 import AccordionSummary from '@mui/material/AccordionSummary';
 import AttachFileIcon from '@mui/icons-material/AttachFile';
+import GridOnIcon from '@mui/icons-material/GridOn';
 import ClearAllIcon from '@mui/icons-material/ClearAll';
 import ContentCopyIcon from '@mui/icons-material/ContentCopy';
 import DownloadIcon from '@mui/icons-material/Download';
@@ -57,6 +58,9 @@ import {
   type ChatStreamMessage,
 } from '@/store/chat-stream-slice';
 import { getClientTenantConfig } from '@shared/lib/config/tenant';
+import { selectActiveSheetArg, selectSelectedCells } from '@/store/sheet-viewer-slice';
+import { sheetDataApi } from '@/store/apis/sheet-data-api';
+import { buildCellsPrompt, buildPagePrompt, type PromptRow } from '@/lib/sheet-prompt';
 import { isClientClearSessionAction, isExplicitSessionRequest } from '@/lib/chat/session-tools';
 import { listReviewParts, getReviewPartDisplayTitle } from '@/lib/page-catalog';
 import { useTtsVoicePreference } from '@/hooks/use-tts-voice-preference';
@@ -99,6 +103,13 @@ export function ChatPanel({ variant = 'page' }: { variant?: 'page' | 'drawer' } 
   const dispatch = useAppDispatch();
   const searchParams = useSearchParams();
   const { messages, isStreaming, error, pendingSessionActions } = useAppSelector((s) => s.chatStream);
+  // Sheet data from the grid (via RTK Query cache — the sheetViewer slice
+  // records the exact args of the last successful load).
+  const selectedCells = useAppSelector(selectSelectedCells);
+  const activeSheetArg = useAppSelector(selectActiveSheetArg);
+  const sheetData = useAppSelector((s) =>
+    activeSheetArg ? sheetDataApi.endpoints.getSheetData.select(activeSheetArg)(s)?.data?.data : undefined,
+  );
   const [input, setInput] = useState('');
   const [attachments, setAttachments] = useState<ChatAttachment[]>([]);
   const [attachmentLoading, setAttachmentLoading] = useState(false);
@@ -312,6 +323,52 @@ export function ChatPanel({ variant = 'page' }: { variant?: 'page' | 'drawer' } 
   const removeAttachment = (index: number) => {
     setAttachments((prev) => prev.filter((_, i) => i !== index));
   };
+
+  // ── Attach from page (selected cells / current page content) ─────────
+  const [attachAnchor, setAttachAnchor] = useState<HTMLElement | null>(null);
+
+  /** Current page rows enriched with the same Row # (_rowIndex) the grid shows. */
+  const pageRows = useMemo(() => {
+    if (!sheetData) return [];
+    const sd = sheetData;
+    return sd.rows.map((row, idx) => ({
+      ...row,
+      _rowIndex: (sd.page - 1) * sd.perPage + idx + 1,
+    })) as PromptRow[];
+  }, [sheetData]);
+
+  const handleAttachFromPage = useCallback(
+    (source: 'cells' | 'page') => {
+      const sd = sheetData;
+      setAttachAnchor(null);
+      if (!sd || !pageRows.length) {
+        setStatus('No spreadsheet data on this page.');
+        return;
+      }
+      let prompt = '';
+      if (source === 'cells') {
+        prompt = buildCellsPrompt({
+          sheet: sd.sheet,
+          rows: pageRows,
+          colOrder: sd.columns,
+          selectedKeys: selectedCells,
+        });
+        if (!prompt) {
+          setStatus('Select cells first (click, Ctrl/Shift or drag on the table).');
+          return;
+        }
+      } else {
+        prompt = buildPagePrompt({ sheet: sd.sheet, rows: pageRows, colOrder: sd.columns });
+      }
+      setInput((prev) => (prev && prev.trim() ? prev + '\n\n' : '') + prompt);
+      setStatus(
+        source === 'cells'
+          ? `Attached ${selectedCells.length} selected cell${selectedCells.length !== 1 ? 's' : ''}.`
+          : 'Attached current page content.',
+      );
+    },
+    [sheetData, pageRows, selectedCells],
+  );
 
   const handleSave = async () => {
     if (!messages.length) return;
@@ -961,6 +1018,30 @@ export function ChatPanel({ variant = 'page' }: { variant?: 'page' | 'drawer' } 
                   </IconButton>
                 </span>
               </Tooltip>
+              <Tooltip title="Attach from page — selected cells or current page content">
+                <span>
+                  <IconButton
+                    onClick={(e) => setAttachAnchor(e.currentTarget)}
+                    aria-label="Attach from page"
+                    aria-haspopup="menu"
+                    sx={ICON_BUTTON_SX}
+                  >
+                    <GridOnIcon />
+                  </IconButton>
+                </span>
+              </Tooltip>
+              <Menu
+                anchorEl={attachAnchor}
+                open={Boolean(attachAnchor)}
+                onClose={() => setAttachAnchor(null)}
+              >
+                <MenuItem onClick={() => handleAttachFromPage('cells')} disabled={selectedCells.length === 0}>
+                  Selected cells{selectedCells.length > 0 ? ` (${selectedCells.length})` : ''}
+                </MenuItem>
+                <MenuItem onClick={() => handleAttachFromPage('page')} disabled={!sheetData}>
+                  Current page content
+                </MenuItem>
+              </Menu>
               {isStreaming ? <CircularProgress size={22} sx={{ ml: 0.5 }} /> : null}
             </Stack>
             {attachments.length ? (
