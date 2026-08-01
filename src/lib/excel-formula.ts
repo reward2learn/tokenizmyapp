@@ -97,6 +97,7 @@ function tokenize(src: string): Token[] {
 }
 
 function toNum(v: unknown): number {
+  if (v === undefined || v === null) return 0; // Excel: empty cell in numeric context = 0
   if (typeof v === 'number') return v;
   if (typeof v === 'boolean') return v ? 1 : 0;
   if (typeof v === 'string') {
@@ -281,7 +282,8 @@ class Parser {
     const clean = addr.replace(/\$/g, '');
     const cell = ws[clean];
     // Excel coerces references to empty/missing cells to 0 in numeric contexts
-    if (!cell) return 0;
+    // (handled in toNum) and to "" in text contexts (handled in text helpers).
+    if (!cell) return undefined;
     if (cell.v !== undefined && cell.v !== null) return cell.v;
     if (typeof cell.f === 'string' && cell.f.trim() !== '') {
       // OOXML stores formulas WITHOUT the leading '='; normalize before evaluating
@@ -289,7 +291,7 @@ class Parser {
       const sub = evaluateFormula(this.wb, ws, f, depth + 1, clean);
       return sub.unevaluable ? undefined : sub.value;
     }
-    return 0;
+    return undefined;
   }
 
   /**
@@ -343,11 +345,31 @@ class Parser {
     // result falls back to the second argument instead of failing the formula.
     if (name === 'IFERROR') {
       this.expectOp('(');
+      const startPos = this.pos;
       let first: unknown;
       try {
         first = this.parseExpr();
       } catch {
         first = undefined; // evaluation error -> use fallback
+        // On a nested error the cursor is left mid-expression; seek forward
+        // from the start of the value argument to its top-level ',' (the
+        // fallback separator) or to the closing ')' if there is no fallback.
+        let depth = 0;
+        this.pos = startPos;
+        while (this.pos < this.tokens.length) {
+          const t = this.tokens[this.pos];
+          if (t.type === 'op') {
+            if (t.value === '(') depth++;
+            else if (t.value === ')') {
+              if (depth === 0) { this.pos++; break; } // no fallback: stop at IFERROR's ')'
+              depth--;
+            } else if (t.value === ',' && depth === 0) {
+              this.pos++; // consume fallback separator
+              break;
+            }
+          }
+          this.pos++;
+        }
       }
       // Comma-separated fallback argument
       if (this.peek() && this.peek()!.type === 'op' && this.peek()!.value === ',') this.next();
@@ -437,11 +459,13 @@ function toNumSafe(v: unknown): number | undefined {
 
 /** Collapse whitespace + trim (Excel TRIM). */
 function excelTrim(v: unknown): string {
+  if (v === undefined || v === null) return "";
   return String(v ?? '').replace(/\s+/g, ' ').trim();
 }
 
 /** Excel PROPER: uppercase first letter of every word, lowercase the rest. */
 function excelProper(v: unknown): string {
+  if (v === undefined || v === null) return ""; // Excel: empty cell in text context
   return String(v ?? '').toLowerCase().replace(/(^|[^A-Za-z0-9])([a-z])/g, (_, p: string, c: string) => p + c.toUpperCase());
 }
 
@@ -465,6 +489,7 @@ function dateToSerial(y: number, m: number, d: number): number {
 
 /** Minimal Excel TEXT formats: numeric (0, 0.00, #,##0, #,##0.00, 0%, 0.0%) and date tokens (yyyy yy mmmm mmm mm m dddd ddd dd d hh h mm m ss s). Throws on unrecognized formats. */
 function excelTextFormat(v: unknown, format: string): string {
+  if (v === undefined || v === null) return "";
   const fmt = String(format);
   const num = typeof v === 'number' ? v : Number(String(v ?? '').trim());
   const isDateLike = /[yYdDhHmMsS]/.test(fmt.replace(/[^a-zA-Z]/g, '')) && /y|d|h|s/i.test(fmt);
@@ -732,7 +757,7 @@ function applyFunction(name: string, args: unknown[], thisCellAddr?: string): un
       return arr.values[pos] ?? 0; // Excel coerces empty cells to 0
     }
     case 'TEXT': {
-      const fmt = args[1];
+      const fmt = String(args[1] ?? '');
       if (isRange(args[0])) {
         // Array context: apply TEXT element-wise (e.g. building a lookup array
         // for MATCH against a formatted header row).
