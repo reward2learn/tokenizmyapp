@@ -138,7 +138,8 @@ export async function POST(request: Request): Promise<NextResponse> {
 
     if (isFormula) {
       formula = value.trim();
-      const result = evaluateFormula(wb, ws, formula, 0);
+      const storedFormula = formula.replace(/^=/, '');
+      const result = evaluateFormula(wb, ws, formula, 0, cellAddress);
       unevaluable = result.unevaluable;
       // Ensure Excel recalculates all formulas when the workbook is next opened
       // (cached values written by SheetJS may be stale for unevaluable formulas).
@@ -146,17 +147,17 @@ export async function POST(request: Request): Promise<NextResponse> {
       if (!unevaluable) {
         responseValue = result.value;
         if (typeof responseValue === 'number') {
-          ws[cellAddress] = { f: formula, v: responseValue, t: 'n', w: String(responseValue) };
+          ws[cellAddress] = { f: storedFormula, v: responseValue, t: 'n', w: String(responseValue) };
         } else {
           const strVal = String(responseValue ?? '');
-          ws[cellAddress] = { f: formula, v: strVal, t: 's', w: strVal };
+          ws[cellAddress] = { f: storedFormula, v: strVal, t: 's', w: strVal };
         }
       } else {
         // SheetJS drops formula-only cells on read (f without v), so keep the
         // previous cached value to preserve the cell; Excel recalcs on open.
         const prev = ws[cellAddress]?.v;
         ws[cellAddress] = {
-          f: formula,
+          f: storedFormula,
           v: typeof prev === 'number' ? prev : 0,
           t: 'n',
         };

@@ -277,6 +277,8 @@ const FORMULA_FUNCTIONS: { group: string; fns: string[] }[] = [
 const EVALUABLE_FORMULAS = new Set([
   'SUM', 'AVERAGE', 'MIN', 'MAX', 'COUNT', 'COUNTA', 'PRODUCT', 'ABS', 'INT',
   'SQRT', 'ROUND', 'ROUNDUP', 'ROUNDDOWN', 'MOD', 'POWER', 'IF', 'SUBTOTAL',
+  'AND', 'OR', 'TRIM', 'PROPER', 'CHOOSE', 'DATE', 'WEEKDAY', 'COLUMN',
+  'SUMIF', 'VLOOKUP', 'MATCH', 'INDEX', 'TEXT', 'IFERROR',
 ]);
 
 // ── Status-bar aggregate functions (Excel-style) ────────────────────────
