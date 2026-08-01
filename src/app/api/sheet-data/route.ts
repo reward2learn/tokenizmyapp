@@ -84,6 +84,12 @@ export async function GET(request: Request): Promise<NextResponse> {
   const page = Math.max(1, parseInt(searchParams.get('page') ?? '1', 10));
   const perPage = Math.min(1000, Math.max(1, parseInt(searchParams.get('perPage') ?? '200', 10)));
 
+  // Formula mode OFF by default: the GET reads the workbook WITHOUT parsing
+  // formula strings (cellFormula: false) and returns no `_formula` metadata,
+  // so table loads never trigger formula parsing/operations. When enabled
+  // (?formulas=1) formulas are read and attached as `<col>_formula`.
+  const formulasEnabled = searchParams.get('formulas') === '1';
+
   if (!sheetName) {
     return NextResponse.json({ error: 'Query param "sheet" is required (e.g. ?sheet=PL)' }, { status: 400 });
   }
@@ -98,7 +104,7 @@ export async function GET(request: Request): Promise<NextResponse> {
     }
 
     const buf = Buffer.from(cached.content, 'base64');
-    const wb = read(buf, { type: 'buffer', cellFormula: true });
+    const wb = read(buf, { type: 'buffer', cellFormula: formulasEnabled });
 
     const tabName = wb.SheetNames?.find((n) => 
       typeof n === "string" && n.toLowerCase() === sheetName.toLowerCase()
@@ -163,11 +169,13 @@ export async function GET(request: Request): Promise<NextResponse> {
         if (colKey.startsWith("__hidden_")) return; // skip hidden columns
         const cellAddress = utils.encode_cell({ r: excelRow, c: colIdx });
         rowWithRefs[`${colKey}_cell`] = cellAddress;
-        // Preserve the Excel formula (e.g. "=SUM(E10:E11)") so the frontend can
-        // display/edit it; empty string when the cell holds a static value.
-        const cell = ws[cellAddress];
-        rowWithRefs[`${colKey}_formula`] =
-          cell && typeof cell.f === 'string' && cell.f.startsWith('=') ? cell.f : '';
+        // Formula strings are only attached when formula mode is enabled;
+        // the default load returns cached values only (no formula parsing).
+        if (formulasEnabled) {
+          const cell = ws[cellAddress];
+          rowWithRefs[`${colKey}_formula`] =
+            cell && typeof cell.f === 'string' && cell.f.startsWith('=') ? cell.f : '';
+        }
       });
 
       return rowWithRefs;

@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState, useRef, type KeyboardEvent }
 import dynamic from 'next/dynamic';
 import Box from '@mui/material/Box';
 import CircularProgress from '@mui/material/CircularProgress';
+import Divider from '@mui/material/Divider';
 import Typography from '@mui/material/Typography';
 import IconButton from '@mui/material/IconButton';
 import Popover from '@mui/material/Popover';
@@ -14,6 +15,7 @@ import ListItemText from '@mui/material/ListItemText';
 import FormControlLabel from '@mui/material/FormControlLabel';
 import Tooltip from '@mui/material/Tooltip';
 import Snackbar from '@mui/material/Snackbar';
+import Switch from '@mui/material/Switch';
 import TextField from '@mui/material/TextField';
 import Menu from '@mui/material/Menu';
 import MenuItem from '@mui/material/MenuItem';
@@ -438,13 +440,17 @@ export function SheetViewerBlock({ config }: { config: Record<string, unknown> }
   // Excel-style status-bar aggregates (extra functions added via dropdown)
   const [extraStats, setExtraStats] = useState<string[]>([]);
   const [statsAnchor, setStatsAnchor] = useState<HTMLElement | null>(null);
+  // Formula mode (default OFF): when enabled the grid parses/edits/evaluates
+  // Excel formulas ("=" edits); when disabled every cell is plain data and the
+  // GET request skips formula parsing entirely (formulas=0).
+  const [formulaMode, setFormulaMode] = useState(false);
 
   const [snackbarOpen, setSnackbarOpen] = useState(false);
   const [snackbarMessage, setSnackbarMessage] = useState('');
   const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   const { data: payload, isLoading, error: queryError } = useGetSheetDataQuery(
-    { sheet: sheet ?? '', page: paginationModel.page + 1, perPage: PER_PAGE },
+    { sheet: sheet ?? '', page: paginationModel.page + 1, perPage: PER_PAGE, formulas: formulaMode ? 1 : 0 },
     { skip: !sheet },
   );
 
@@ -599,6 +605,7 @@ export function SheetViewerBlock({ config }: { config: Record<string, unknown> }
         _excelCell: newRow[`${changedField}_cell`] || undefined,
         // Also pass _excelRow directly for backend to use
         _excelRow: excelRow,
+        formulaMode,
       };
 
         const resp = await updateSheetCell(params).unwrap();
@@ -623,7 +630,7 @@ export function SheetViewerBlock({ config }: { config: Record<string, unknown> }
         throw error;
       }
     },
-    [updateSheetCell, sheet],
+    [updateSheetCell, sheet, formulaMode],
   );
 
   const columns: GridColDef[] = useMemo(() => {
@@ -673,23 +680,27 @@ export function SheetViewerBlock({ config }: { config: Record<string, unknown> }
           }
           // Unevaluable formulas have no cached value — show the formula text
           // so the user can see the cell is formula-driven.
-          if ((value === '' || value === null || value === undefined)) {
+          // Formula text is only shown when formula mode is enabled.
+          if (formulaMode && (value === '' || value === null || value === undefined)) {
             const formula = (row as Record<string, unknown>)[`${col}_formula`];
             if (typeof formula === 'string' && formula.length > 0) return formula;
           }
           return value ?? '';
         },
-        // Seed the editor with the cell's formula (if any) so it can be amended.
-        renderEditCell: (params: GridRenderEditCellParams) => (
-          <FormulaEditCell {...params} pickerRef={formulaPickerRef} />
-        ),
+        // Formula builder editor only when formula mode is enabled; otherwise
+        // the default MUI cell editor (plain text/values) is used.
+        renderEditCell: formulaMode
+          ? (params: GridRenderEditCellParams) => (
+              <FormulaEditCell {...params} pickerRef={formulaPickerRef} />
+            )
+          : undefined,
         // Coerce edited strings back to numbers so IDR formatting is preserved
         // after commit (also accepts "620,122K" / "IDR 700K" style input).
         valueParser: (value: unknown) => {
           if (typeof value !== 'string') return value;
           const t = value.trim().replace(/^IDR\s*/i, '');
           if (!t) return '';
-          if (t.startsWith('=')) return t; // Excel formula — pass through untouched
+          if (formulaMode && t.startsWith('=')) return t; // Excel formula — pass through untouched (formula mode only)
           const m = t.match(/^(-?[\d.,]+)\s*([KMBkmb])?$/);
           if (m) {
             let num = Number(m[1].replace(/,/g, ''));
@@ -736,7 +747,7 @@ export function SheetViewerBlock({ config }: { config: Record<string, unknown> }
         },
       };
     });
-  }, [payload, pinnedColumns, sortModel]);
+  }, [payload, pinnedColumns, sortModel, formulaMode]);
 
   const rows = useMemo(() => {
     const sd = payload?.data as SheetDataResponse | undefined;
@@ -1150,6 +1161,11 @@ export function SheetViewerBlock({ config }: { config: Record<string, unknown> }
         </Box>
       )}
       <Box sx={{ flexGrow: 1 }} />
+      <Tooltip title="Table settings">
+        <IconButton onClick={handleSettingsClick} size="small">
+          <SettingsIcon fontSize="small" />
+        </IconButton>
+      </Tooltip>
       <GridFooter />
     </Box>
   );
@@ -1220,6 +1236,23 @@ export function SheetViewerBlock({ config }: { config: Record<string, unknown> }
             anchorOrigin={{ vertical: 'bottom', horizontal: 'left' }}
           >
             <List sx={{ width: 280, pt: 1 }}>
+              <ListItem>
+                <FormControlLabel
+                  control={
+                    <Switch
+                      checked={formulaMode}
+                      onChange={(e) => setFormulaMode(e.target.checked)}
+                      size="small"
+                    />
+                  }
+                  label="Formula mode"
+                  sx={{ width: '100%', mx: 0 }}
+                />
+              </ListItem>
+              <Typography variant="caption" sx={{ px: 3, pb: 1, display: 'block', color: 'text.secondary' }}>
+                Enable Excel formula editing &amp; evaluation. Off by default — cells are stored as plain values.
+              </Typography>
+              <Divider sx={{ mb: 1 }} />
               <ListItem>
                 <Typography variant="subtitle2" sx={{ px: 2, py: 1 }}>
                   Freeze Columns (Pin Left)

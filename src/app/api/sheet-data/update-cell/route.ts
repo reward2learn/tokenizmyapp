@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { PrismaClient } from '@/generated/prisma';
 import { read, utils, write } from 'xlsx';
 import type { WorkSheet } from 'xlsx';
+import { evaluateFormula } from '@/lib/excel-formula';
 
 export const dynamic = 'force-dynamic';
 
@@ -58,11 +59,14 @@ export async function POST(request: Request): Promise<NextResponse> {
   const prisma = getClient();
   try {
     const body = await request.json();
-    const { sheet, rowIndex, column, value, _excelCell, _excelRow } = body;
+    const { sheet, rowIndex, column, value, _excelCell, _excelRow, formulaMode } = body;
 
-    console.log("[sheet-data/update-cell] Received:", { sheet, rowIndex, column, value, _excelCell });
+    const sheetStr = String(sheet ?? '').trim();
+    const colStr = String(column ?? '').trim();
 
-    if (!sheet || (!rowIndex && !_excelCell) || !column) {
+    console.log("[sheet-data/update-cell] Received:", { sheet: sheetStr, rowIndex, column: colStr, value, _excelCell });
+
+    if (!sheetStr || (!rowIndex && !_excelCell) || !colStr) {
       return NextResponse.json({ error: 'Missing required fields: sheet, rowIndex/_cell, column' }, { status: 400 });
     }
 
@@ -72,11 +76,12 @@ export async function POST(request: Request): Promise<NextResponse> {
     }
 
     const buf = Buffer.from(cached.content, 'base64');
-    const wb = read(buf, { type: 'buffer' });
+    // cellFormula: true is REQUIRED — otherwise write() below strips every formula from the workbook.
+    const wb = read(buf, { type: 'buffer', cellFormula: true });
 
-    const tabName = wb.SheetNames?.find((n) => typeof n === "string" && n.toLowerCase() === sheet.toLowerCase());
+    const tabName = wb.SheetNames?.find((n) => typeof n === "string" && n.toLowerCase() === sheetStr.toLowerCase());
     if (!tabName) {
-      return NextResponse.json({ error: `Sheet "${sheet}" not found`, availableSheets: wb.SheetNames || [] }, { status: 404 });
+      return NextResponse.json({ error: `Sheet "${sheetStr}" not found`, availableSheets: wb.SheetNames || [] }, { status: 404 });
     }
 
     const ws = wb.Sheets?.[tabName];
@@ -105,16 +110,15 @@ export async function POST(request: Request): Promise<NextResponse> {
 
       const colIndex = columnKeys.findIndex((key, idx) => {
         const rawHeader = String(rawHeaders[idx] ?? '').trim();
-        const searchColumn = String(column ?? '').trim();
-        return rawHeader === searchColumn ||
-               key.toLowerCase() === searchColumn.toLowerCase() ||
-               rawHeader.toLowerCase().replace(/\s+/g, '') === searchColumn.toLowerCase().replace(/\s+/g, '') ||
-               key.toLowerCase().replace(/\s+/g, '') === searchColumn.toLowerCase().replace(/\s+/g, '');
+        return rawHeader === colStr ||
+               key.toLowerCase() === colStr.toLowerCase() ||
+               rawHeader.toLowerCase().replace(/\s+/g, '') === colStr.toLowerCase().replace(/\s+/g, '') ||
+               key.toLowerCase().replace(/\s+/g, '') === colStr.toLowerCase().replace(/\s+/g, '');
       });
 
       if (colIndex === -1) {
         return NextResponse.json({
-          error: `Column "${column}" not found in sheet "${sheet}". Available: ${columnKeys.filter(k => !k.startsWith('__hidden_')).join(', ')}`
+          error: `Column "${colStr}" not found in sheet "${sheetStr}". Available: ${columnKeys.filter(k => !k.startsWith('__hidden_')).join(', ')}`
         }, { status: 400 });
       }
 
@@ -122,8 +126,48 @@ export async function POST(request: Request): Promise<NextResponse> {
       cellAddress = utils.encode_cell({ r: excelRow, c: colIndex });
     }
 
-    const cellValue = typeof value === 'number' ? value : String(value || '');
-    ws[cellAddress] = { v: cellValue, t: typeof value === 'number' ? 'n' : 's' };
+    // ── Formula support (gated by formulaMode, default OFF) ──────────────
+    // When formulaMode is enabled and the edited value starts with "=" the
+    // cell stores a formula (f) plus the calculated result (v) when evaluable.
+    // When OFF (default) every edit is stored as a plain value — no formula
+    // parsing or evaluation happens.
+    const isFormula = !!formulaMode && typeof value === 'string' && value.trim().startsWith('=');
+    let responseValue: unknown = value;
+    let formula: string | undefined;
+    let unevaluable = false;
+
+    if (isFormula) {
+      formula = value.trim();
+      const result = evaluateFormula(wb, ws, formula, 0);
+      unevaluable = result.unevaluable;
+      // Ensure Excel recalculates all formulas when the workbook is next opened
+      // (cached values written by SheetJS may be stale for unevaluable formulas).
+      if (wb.Workbook) (wb.Workbook as unknown as { CalcPr: { fullCalcOnLoad: boolean } }).CalcPr = { fullCalcOnLoad: true };
+      if (!unevaluable) {
+        responseValue = result.value;
+        if (typeof responseValue === 'number') {
+          ws[cellAddress] = { f: formula, v: responseValue, t: 'n', w: String(responseValue) };
+        } else {
+          const strVal = String(responseValue ?? '');
+          ws[cellAddress] = { f: formula, v: strVal, t: 's', w: strVal };
+        }
+      } else {
+        // SheetJS drops formula-only cells on read (f without v), so keep the
+        // previous cached value to preserve the cell; Excel recalcs on open.
+        const prev = ws[cellAddress]?.v;
+        ws[cellAddress] = {
+          f: formula,
+          v: typeof prev === 'number' ? prev : 0,
+          t: 'n',
+        };
+        responseValue = null;
+      }
+    } else {
+      const cellValue = typeof value === 'number' ? value : String(value || '');
+      // Replacing the whole cell object also clears any previous formula
+      ws[cellAddress] = { v: cellValue, t: typeof value === 'number' ? 'n' : 's' };
+      responseValue = cellValue;
+    }
 
     const updatedBuffer = write(wb, { bookType: 'xlsx', type: 'buffer' });
     const base64Updated = Buffer.from(updatedBuffer).toString('base64');
@@ -135,9 +179,11 @@ export async function POST(request: Request): Promise<NextResponse> {
 
     return NextResponse.json({
       success: true,
-      message: `Updated ${sheet}!${cellAddress}`,
+      message: `Updated ${sheetStr}!${cellAddress}`,
       cell: cellAddress,
-      value: cellValue
+      value: responseValue ?? null,
+      formula,
+      unevaluable,
     });
 
   } catch (err) {

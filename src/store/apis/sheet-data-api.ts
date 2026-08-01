@@ -6,6 +6,8 @@ export interface SheetDataParams {
   sheet: string;
   page?: number;
   perPage?: number;
+  /** 1 = formula mode (GET parses & returns cell formulas). Default 0 (off). */
+  formulas?: number;
 }
 
 export interface SheetDataResponse {
@@ -30,6 +32,8 @@ export interface UpdateSheetCellParams {
   /** Actual Excel row number from initial load (1-based).
    *  Used as fallback when _excelCell is not provided. */
   _excelRow?: number;
+  /** When true the backend stores/evaluates "=..." edits as Excel formulas. Default false (plain values). */
+  formulaMode?: boolean;
 }
 
 export const sheetDataApi = createApi({
@@ -44,6 +48,7 @@ export const sheetDataApi = createApi({
           sheet: params.sheet,
           page: params.page ?? 1,
           perPage: params.perPage ?? 200,
+          formulas: params.formulas ?? 0,
         },
       }),
       providesTags: (result, error, arg) => [{ type: 'SheetData' as const, id: arg.sheet }],
