@@ -76,6 +76,7 @@ const STAT_OPTIONS = [
   'AVERAGEA', 'COUNT', 'COUNTBLANK', 'DEVSQ', 'GCD', 'GEOMEAN', 'HARMEAN',
   'LCM', 'MAXA', 'MEDIAN', 'MINA', 'MODE', 'MULTINOMIAL', 'OR', 'PRODUCT',
   'STDEV', 'STDEVP', 'STDEVPA', 'SUMSQ', 'VAR', 'VARA', 'VARP', 'AVEDEV', 'VARPA',
+  'T', 'F',
 ];
 
 function statSum(a: number[]): number { return a.reduce((s, v) => s + v, 0); }
@@ -176,12 +177,18 @@ function computeCellStat(fn: string, nums: number[], all: unknown[]): number | s
     case 'OR': return nonEmpty.some((v) =>
       v === true || v === 'TRUE' || v === 'true' || (typeof v === 'number' && v !== 0)
     ) ? 'TRUE' : 'FALSE';
+    case 'T': {
+      // Excel T(): text if the value is text, otherwise empty string
+      const firstText = nonEmpty.find((v) => typeof v === 'string' && v.trim() !== '');
+      return typeof firstText === 'string' ? firstText : '';
+    }
+    case 'F': return 'FALSE'; // Excel F() takes no arguments and always returns FALSE
     default: return NaN;
   }
 }
 
 function formatStatValue(v: number | string): string {
-  if (typeof v === 'string') return v; // TRUE / FALSE
+  if (typeof v === 'string') return v === '' ? '\u2014' : v; // TRUE / FALSE / T() empty -> em dash
   if (!isFinite(v)) return 'N/A';
   if (Number.isInteger(v)) return v.toLocaleString('en-US');
   return v.toLocaleString('en-US', { maximumFractionDigits: 4 });
