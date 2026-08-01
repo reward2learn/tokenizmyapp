@@ -14,8 +14,14 @@ import ListItemText from '@mui/material/ListItemText';
 import FormControlLabel from '@mui/material/FormControlLabel';
 import Tooltip from '@mui/material/Tooltip';
 import Snackbar from '@mui/material/Snackbar';
+import TextField from '@mui/material/TextField';
+import Menu from '@mui/material/Menu';
+import MenuItem from '@mui/material/MenuItem';
+import ListSubheader from '@mui/material/ListSubheader';
 import SettingsIcon from '@mui/icons-material/Settings';
 import MoreHorizIcon from '@mui/icons-material/MoreHoriz';
+import FunctionsIcon from '@mui/icons-material/Functions';
+import AdsClickIcon from '@mui/icons-material/AdsClick';
 import type {
   GridColDef,
   GridValidRowModel,
@@ -73,19 +79,175 @@ function formatCellValue(key: string, value: unknown): string | number {
   return String(value);
 }
 
-// Custom edit cell: when the underlying Excel cell contains a formula
-// (e.g. "=SUM(E10:E11)"), seed the editor with the formula itself so the
-// user can amend it. Committing an "=" value writes the formula back to Excel.
-function FormulaEditCell(props: GridRenderEditCellParams) {
-  const { id, field, api, value } = props;
-  const formula = (props.row as Record<string, unknown>)[`${field}_formula`];
+/** Handle the formula editor exposes to the grid for cell-picking mode. */
+export interface FormulaPickerHandle {
+  active: boolean;
+  /** Appends a cell reference (e.g. "D6") to the formula being edited. */
+  append: (ref: string, isRangeEnd: boolean) => void;
+}
+
+/**
+ * Custom edit cell — the in-cell Excel formula builder.
+ *
+ * When the edited value starts with "=" (existing formula cell or the user
+ * just typed "="), the editor becomes a mini formula bar:
+ *   - "ƒ" opens a dropdown of Excel functions grouped by category; picking one
+ *     inserts "FUNCTION(" at the cursor (✓ marks functions the server can
+ *     calculate immediately).
+ *   - The "pick cells" button enters picking mode: clicking grid cells appends
+ *     their Excel references (e.g. "D6"), Shift+click appends a range
+ *     (":D9"). Enter commits, Escape cancels.
+ * Non-formula edits keep the default MUI cell editor.
+ */
+function FormulaEditCell(
+  props: GridRenderEditCellParams & { pickerRef: React.MutableRefObject<FormulaPickerHandle | null> },
+) {
+  const { id, field, api, value, pickerRef } = props;
+  const row = props.row as Record<string, unknown>;
+  const formula = row[`${field}_formula`];
+  const [picker, setPicker] = useState(false);
+  const [fnAnchor, setFnAnchor] = useState<null | HTMLElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+  const fnBtnRef = useRef<HTMLButtonElement>(null);
+
+  // Seed the editor with the cell's formula (if any) when editing starts
   useEffect(() => {
     if (typeof formula === 'string' && formula.length > 0 && formula !== value) {
       api.setEditCellValue({ id, field, value: formula });
     }
   }, [formula, value, api, id, field]);
-  return <GridEditInputCell {...props} />;
+
+  const isFormulaMode = typeof value === 'string' && value.startsWith('=');
+
+  // Auto-open the function list right after the user types "="
+  useEffect(() => {
+    if (isFormulaMode && value === '=' && fnBtnRef.current) {
+      setFnAnchor(fnBtnRef.current);
+    }
+  }, [isFormulaMode, value]);
+
+  const insertFunction = (fn: string) => {
+    const el = inputRef.current;
+    const cur = typeof value === 'string' ? value : '';
+    const start = el?.selectionStart ?? cur.length;
+    const end = el?.selectionEnd ?? start;
+    const text = `${fn}(`;
+    const next = cur.slice(0, start) + text + cur.slice(end);
+    api.setEditCellValue({ id, field, value: next, debounceMs: 0 });
+    setFnAnchor(null);
+    requestAnimationFrame(() => {
+      el?.focus();
+      const pos = start + text.length;
+      el?.setSelectionRange(pos, pos);
+    });
+  };
+
+  const append = (ref: string, isRangeEnd: boolean) => {
+    const cur = typeof value === 'string' ? value : '';
+    let next: string;
+    if (isRangeEnd) {
+      next = cur + ':' + ref;
+    } else {
+      const last = cur[cur.length - 1];
+      next = cur + (last === undefined || '(,+-*/^:'.includes(last) ? '' : ',') + ref;
+    }
+    api.setEditCellValue({ id, field, value: next, debounceMs: 0 });
+  };
+
+  // Expose picker state to the grid-level click handler
+  useEffect(() => {
+    pickerRef.current = { active: picker, append };
+    return () => {
+      if (pickerRef.current) pickerRef.current = null;
+    };
+  }, [picker, append, pickerRef]);
+
+  if (!isFormulaMode) {
+    const { pickerRef: _pickerRef, ...rest } = props;
+    return <GridEditInputCell {...rest} />;
+  }
+
+  return (
+    <Box
+      data-formula-editor
+      sx={{ display: 'flex', alignItems: 'center', gap: 0.25, width: '100%', minWidth: 260 }}
+    >
+      <TextField
+        inputRef={inputRef}
+        autoFocus
+        fullWidth
+        size="small"
+        variant="standard"
+        value={value}
+        onChange={(e) => api.setEditCellValue({ id, field, value: e.target.value, debounceMs: 0 })}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') {
+            e.stopPropagation();
+            api.stopCellEditMode({ id, field });
+          } else if (e.key === 'Escape') {
+            e.stopPropagation();
+            api.stopCellEditMode({ id, field, ignoreModifications: true });
+          }
+        }}
+        onFocus={(e) => e.target.select()}
+        placeholder="=FUNCTION(cell refs…)"
+        slotProps={{ input: { sx: { fontSize: '0.8125rem', py: 0 } } }}
+      />
+      <Tooltip title="Insert Excel function">
+        <IconButton ref={fnBtnRef} size="small" onClick={(e) => setFnAnchor(e.currentTarget)}>
+          <FunctionsIcon fontSize="small" />
+        </IconButton>
+      </Tooltip>
+      <Tooltip
+        title={
+          picker
+            ? 'Picking cells: click to add a reference, Shift+click for a range. Enter to finish.'
+            : 'Pick cells from the sheet to insert into the formula'
+        }
+      >
+        <IconButton size="small" color={picker ? 'primary' : 'default'} onClick={() => setPicker((p) => !p)}>
+          <AdsClickIcon fontSize="small" />
+        </IconButton>
+      </Tooltip>
+      <Menu anchorEl={fnAnchor} open={Boolean(fnAnchor)} onClose={() => setFnAnchor(null)}>
+        {FORMULA_FUNCTIONS.map((g) => [
+          <ListSubheader key={g.group} sx={{ bgcolor: 'background.paper', lineHeight: '28px' }}>
+            {g.group}
+          </ListSubheader>,
+          ...g.fns.map((fn) => (
+            <MenuItem key={fn} dense onClick={() => insertFunction(fn)} sx={{ justifyContent: 'space-between', gap: 3 }}>
+              {fn}
+              {EVALUABLE_FORMULAS.has(fn) && (
+                <Typography variant="caption" color="text.secondary">✓ instant</Typography>
+              )}
+            </MenuItem>
+          )),
+        ])}
+      </Menu>
+      {picker && (
+        <Typography variant="caption" color="primary" sx={{ whiteSpace: 'nowrap' }}>
+          click cells…
+        </Typography>
+      )}
+    </Box>
+  );
 }
+
+// ── Excel formula catalog for the in-cell formula builder ────────────────
+const FORMULA_FUNCTIONS: { group: string; fns: string[] }[] = [
+  { group: 'Math & Trig', fns: ['SUM', 'AVERAGE', 'MIN', 'MAX', 'PRODUCT', 'COUNT', 'COUNTA', 'COUNTBLANK', 'SUMSQ', 'MEDIAN', 'MODE', 'STDEV', 'VAR', 'ABS', 'SQRT', 'ROUND', 'ROUNDUP', 'ROUNDDOWN', 'MOD', 'POWER', 'INT', 'SUMPRODUCT'] },
+  { group: 'Logical', fns: ['IF', 'IFERROR', 'AND', 'OR', 'NOT', 'TRUE', 'FALSE'] },
+  { group: 'Lookup & Reference', fns: ['VLOOKUP', 'HLOOKUP', 'INDEX', 'MATCH', 'CHOOSE', 'OFFSET', 'INDIRECT'] },
+  { group: 'Text', fns: ['CONCATENATE', 'TEXT', 'TRIM', 'LEN', 'LEFT', 'RIGHT', 'MID', 'UPPER', 'LOWER', 'SUBSTITUTE'] },
+  { group: 'Date & Time', fns: ['TODAY', 'NOW', 'DATE', 'YEAR', 'MONTH', 'DAY', 'WEEKDAY', 'EOMONTH'] },
+  { group: 'Financial', fns: ['PMT', 'FV', 'PV', 'RATE', 'NPER', 'NPV', 'IRR'] },
+];
+
+/** Formulas the server evaluator can actually compute (src/lib/excel-formula.ts). */
+const EVALUABLE_FORMULAS = new Set([
+  'SUM', 'AVERAGE', 'MIN', 'MAX', 'COUNT', 'COUNTA', 'PRODUCT', 'ABS', 'INT',
+  'SQRT', 'ROUND', 'ROUNDUP', 'ROUNDDOWN', 'MOD', 'POWER', 'IF', 'SUBTOTAL',
+]);
 
 // ── Status-bar aggregate functions (Excel-style) ────────────────────────
 const STAT_DEFAULTS = ['SUM', 'AVERAGE', 'MIN', 'MAX', 'COUNTA'] as const;
@@ -215,6 +377,21 @@ export function SheetViewerBlock({ config }: { config: Record<string, unknown> }
   const { sheet, title } = config as SheetViewerConfig;
   // apiRef gives access to the DataGrid's CURRENT display order (post-sort/post-filter)
   const apiRef = useGridApiRef();
+
+  // While the formula builder is in cell-picking mode, prevent mousedown on grid
+  // cells from stealing focus (which would end the edit session). Clicks inside
+  // the editor itself are unaffected so cursor placement keeps working.
+  useEffect(() => {
+    const root = apiRef.current?.rootElementRef?.current;
+    if (!root) return;
+    const onMouseDownCapture = (e: MouseEvent) => {
+      const target = e.target as HTMLElement | null;
+      if (!target || target.closest('[data-formula-editor]')) return;
+      if (formulaPickerRef.current?.active) e.preventDefault();
+    };
+    root.addEventListener('mousedown', onMouseDownCapture, true);
+    return () => root.removeEventListener('mousedown', onMouseDownCapture, true);
+  }, [apiRef]);
   const [paginationModel, setPaginationModel] = useState({ page: 0, pageSize: PER_PAGE });
   const [sortModel, setSortModel] = useState<GridSortModel>([]);
   const [pinnedColumns, setPinnedColumns] = useState<string[]>([]);
@@ -228,6 +405,8 @@ export function SheetViewerBlock({ config }: { config: Record<string, unknown> }
   // Keys are `${rowId}|${field}`. Supports copy via Ctrl+C (prioritized over row selection).
   const [selectedCells, setSelectedCells] = useState<Set<string>>(new Set());
   const lastClickedCellRef = useRef<{ rowId: GridRowId; field: string } | null>(null);
+  // Formula-builder cell-picking handle (set by the active FormulaEditCell)
+  const formulaPickerRef = useRef<FormulaPickerHandle | null>(null);
   // Excel-style status-bar aggregates (extra functions added via dropdown)
   const [extraStats, setExtraStats] = useState<string[]>([]);
   const [statsAnchor, setStatsAnchor] = useState<HTMLElement | null>(null);
@@ -448,7 +627,9 @@ export function SheetViewerBlock({ config }: { config: Record<string, unknown> }
         sortDirection,
         filterable: true,
         resizable: true,
-        editable: true, // All columns editable with write-back
+        // Freeze-pane (pinned) columns are read-only — only non-frozen columns
+        // can be edited so the sticky identifier columns are never modified.
+        editable: !isPinned,
         // Note: pinnedColumns prop requires MUI X Pro. We use CSS sticky workaround below.
         sortIndex, // for reference (also used by custom renderHeader)
         valueGetter: (_value: unknown, row: GridValidRowModel) => {
@@ -471,7 +652,9 @@ export function SheetViewerBlock({ config }: { config: Record<string, unknown> }
           return value ?? '';
         },
         // Seed the editor with the cell's formula (if any) so it can be amended.
-        renderEditCell: (params: GridRenderEditCellParams) => <FormulaEditCell {...params} />,
+        renderEditCell: (params: GridRenderEditCellParams) => (
+          <FormulaEditCell {...params} pickerRef={formulaPickerRef} />
+        ),
         // Coerce edited strings back to numbers so IDR formatting is preserved
         // after commit (also accepts "620,122K" / "IDR 700K" style input).
         valueParser: (value: unknown) => {
@@ -693,6 +876,17 @@ export function SheetViewerBlock({ config }: { config: Record<string, unknown> }
       const key = getCellKey(rowId, field);
       const isCtrl = event.ctrlKey || event.metaKey;
       const isShift = event.shiftKey;
+
+      // Formula-builder picking mode: append the clicked cell's Excel reference
+      // (e.g. "D6") to the formula; Shift+click appends a range (":D9").
+      const picker = formulaPickerRef.current;
+      if (picker?.active) {
+        const cellRef = (params.row as Record<string, unknown>)[`${field}_cell`];
+        if (typeof cellRef === 'string' && cellRef.length > 0) {
+          picker.append(cellRef, isShift);
+        }
+        return; // do not alter cell selection while picking
+      }
 
       console.log(`[SheetViewerBlock] Cell clicked - rowId:${rowId}, field:${field}, ctrl:${isCtrl}, shift:${isShift}, currentCells:${selectedCells.size}`);
 
