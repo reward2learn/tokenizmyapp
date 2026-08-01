@@ -48,7 +48,11 @@ import {
   useMigrateTenantMutation,
   useDeployTenantMutation,
   useUpdateTenantMutation,
+  useGetDeployStatusQuery,
+  useLazyGetDeployStatusQuery,
   useGetTenantDomainsQuery,
+  useLazyGetTenantDomainsQuery,
+  useTriggerDeployHookMutation,
   type TenantEntry,
 } from '@/store/apis/tenant-api';
 import { getTemplate } from '@/domain/tenant/template-catalog';
@@ -128,6 +132,9 @@ export function TenantDashboard() {
   const [migrateTenant, { isLoading: isMigrating }] = useMigrateTenantMutation();
   const [deployToVercel, { isLoading: isDeploying }] = useDeployTenantMutation();
   const [updateTenant] = useUpdateTenantMutation();
+  const [getTenantDomains] = useLazyGetTenantDomainsQuery();
+  const [getDeployStatus] = useLazyGetDeployStatusQuery();
+  const [triggerDeployHook] = useTriggerDeployHookMutation();
   const [snackbar, setSnackbar] = useState<{ message: string; severity: 'success' | 'error' } | null>(null);
 
   // Domain refresh state
@@ -197,26 +204,26 @@ export function TenantDashboard() {
     }
   };
 
-  // ── Deploy Hook: Check Status ──────────────────────────────
+  // ── Deploy Status Check ─────────────────────────────────────
   const [checkingStatus, setCheckingStatus] = useState<string | null>(null);
   const handleCheckStatus = async (slug: string) => {
     handleMenuClose();
     setCheckingStatus(slug);
     try {
-      const res = await fetch(`/api/admin/tenants/${slug}/deploy/status`);
-      const data = await res.json();
-      if (data.success) {
-        const status = data.data?.state || 'unknown';
-        const url = data.data?.appUrl || `https://${slug}.vercel.app`;
+      const result = await getDeployStatus(slug).unwrap();
+      if (result.success) {
+        const status = result.data?.state || 'unknown';
+        const url = result.data?.appUrl || `https://${slug}.vercel.app`;
         setSnackbar({
           message: `🔍 ${slug}: deployment status = ${status} — ${url}`,
           severity: status === 'READY' ? 'success' : 'error',
         });
       } else {
-        setSnackbar({ message: data.error || 'Status check failed', severity: 'error' });
+        setSnackbar({ message: result.error || 'Status check failed', severity: 'error' });
       }
-    } catch {
-      setSnackbar({ message: 'Failed to check deployment status', severity: 'error' });
+    } catch (err: any) {
+      const msg = err?.data?.error || err?.error || 'Failed to check deployment status';
+      setSnackbar({ message: msg, severity: 'error' });
     } finally {
       setCheckingStatus(null);
     }
@@ -232,14 +239,13 @@ export function TenantDashboard() {
       const license = (config?.license ?? {}) as Record<string, unknown>;
       const apiKey = (config?.apiKey as string) || '';
 
-      // Check deployment status
-      const statusRes = await fetch(`/api/admin/tenants/${slug}/deploy/status`);
-      const statusData = await statusRes.json();
+      // Check deployment status via RTK Query
+      const statusResult = await getDeployStatus(slug).unwrap();
       let deployStatus = 'unknown';
       let appUrl = `https://${slug}.vercel.app`;
-      if (statusData.success) {
-        deployStatus = statusData.data?.state || 'unknown';
-        appUrl = statusData.data?.appUrl || appUrl;
+      if (statusResult.success) {
+        deployStatus = statusResult.data?.state || 'unknown';
+        appUrl = statusResult.data?.appUrl || appUrl;
       }
 
       // Map Vercel deploy state to tenant status
@@ -286,12 +292,11 @@ export function TenantDashboard() {
     handleMenuClose();
     setRefreshingDomains(slug);
     try {
-      const res = await fetch(`/api/admin/tenants/${slug}/domain`);
-      const data = await res.json();
-      if (data.success) {
-        const domains = data.data?.domains || [];
-        const projectInfo = data.data?.projectInfo;
-        const autoVercelUrl = data.data?.autoVercelUrl;
+      const result = await getTenantDomains(slug).unwrap();
+      if (result.success) {
+        const domains = result.data?.domains || [];
+        const projectInfo = result.data?.projectInfo;
+        const autoVercelUrl = result.data?.autoVercelUrl;
 
         const parts: string[] = [];
         if (domains.length > 0) {
@@ -304,7 +309,7 @@ export function TenantDashboard() {
         if (autoVercelUrl) {
           parts.push(`URL: ${autoVercelUrl}`);
         }
-        const warnings: string[] = data.data?.warnings || [];
+        const warnings: string[] = result.data?.warnings || [];
         if (warnings.length > 0) {
           const wMsg = warnings.join('; ');
           console.warn(`[tenant-dashboard] Domain warnings for ${slug}:`, wMsg);
@@ -329,10 +334,11 @@ export function TenantDashboard() {
           severity: 'error', // warnings displayed in message
         });
       } else {
-        setSnackbar({ message: data.error || 'Failed to fetch domains', severity: 'error' });
+        setSnackbar({ message: result.error || 'Failed to fetch domains', severity: 'error' });
       }
-    } catch {
-      setSnackbar({ message: 'Failed to refresh domains', severity: 'error' });
+    } catch (err: any) {
+      const msg = err?.data?.error || err?.error || 'Failed to refresh domains';
+      setSnackbar({ message: msg, severity: 'error' });
     } finally {
       setRefreshingDomains(null);
     }
@@ -353,16 +359,17 @@ export function TenantDashboard() {
         setTriggeringHook(null);
         return;
       }
-      const res = await fetch(hookUrl, { method: 'POST' });
-      const data = await res.json();
+      const result = await triggerDeployHook(hookUrl).unwrap();
+      const data = result as { job?: { state: string }; success?: boolean };
       if (data.job?.state) {
         setSnackbar({ message: `🚀 Deploy triggered via hook — job ${data.job.state}`, severity: 'success' });
         refetch();
       } else {
-        setSnackbar({ message: 'Hook triggered, but response unexpected', severity: 'success' });
+        setSnackbar({ message: 'Hook triggered successfully', severity: 'success' });
       }
-    } catch {
-      setSnackbar({ message: 'Failed to trigger deploy hook', severity: 'error' });
+    } catch (err: any) {
+      const msg = err?.data?.error || err?.error || 'Failed to trigger deploy hook';
+      setSnackbar({ message: msg, severity: 'error' });
     } finally {
       setTriggeringHook(null);
     }

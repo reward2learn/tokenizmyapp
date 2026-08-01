@@ -37,6 +37,16 @@ export interface TenantUserView {
   tenantSlug: string;
 }
 
+export interface DeployStatusResponse {
+  state: 'READY' | 'ERROR' | 'BUILDING' | 'QUEUED' | 'NOT_FOUND' | 'NO_DEPLOYMENTS';
+  slug?: string;
+  projectId?: string;
+  appUrl?: string;
+  note?: string;
+  createdAt?: number;
+  readyAt?: number;
+}
+
 export interface ScrapeTenantResult {
   scraped: {
     businessName?: string;
@@ -183,10 +193,25 @@ export const tenantApi = createApi({
       invalidatesTags: ['Tenants'],
     }),
 
+    /** GET /api/admin/tenants/[slug]/deploy/status — returns latest Vercel
+     *  production deployment state. Supports pollingInterval when in-flight. */
+    getDeployStatus: builder.query<ApiEnvelope<DeployStatusResponse>, string>({
+      query: (slug) => `admin/tenants/${slug}/deploy/status`,
+      providesTags: (_result, _error, slug) => [{ type: 'Tenants', id: slug }],
+    }),
+
     // ── Custom Domain ─────────────────────────────────
 
     getTenantDomains: builder.query<
-      ApiEnvelope<{ domains: { name: string; verified: boolean; createdAt: string }[]; projectId: string | null; appUrl: string | null }>,
+      ApiEnvelope<{
+        domains: { name: string; verified: boolean; createdAt: string }[];
+        projectId: string | null;
+        projectInfo?: { name: string; id: string; updatedAt: string } | null;
+        autoVercelUrl?: string | null;
+        appUrl: string | null;
+        note?: string | null;
+        warnings?: string[];
+      }>,
       string
     >({
       query: (slug) => `admin/tenants/${slug}/domain`,
@@ -242,6 +267,37 @@ export const tenantApi = createApi({
         body,
       }),
     }),
+
+    /** POST to an arbitrary deploy hook URL (Vercel webhook, etc).
+     *  Uses queryFn so absolute URLs are supported and the enforce-redux
+     *  gate can reach zero violations. Returns any because external webhooks
+     *  have arbitrary response shapes. */
+    triggerDeployHook: builder.mutation<any, string>({
+      queryFn: async (hookUrl, _api, _extraOptions, baseQuery) => {
+        if (hookUrl.startsWith('http')) {
+          // External webhook — use native fetch with absolute URL
+          try {
+            const res = await fetch(hookUrl, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+            });
+            if (!res.ok) {
+              return { error: { status: res.status, data: await res.text() } };
+            }
+            const data = await res.json();
+            return { data };
+          } catch (err) {
+            return { error: { status: 500, data: String(err) } };
+          }
+        }
+        // Internal path fallback
+        const result = await baseQuery({
+          url: hookUrl,
+          method: 'POST',
+        });
+        return result;
+      },
+    }),
   }),
 });
 
@@ -257,9 +313,13 @@ export const {
   useSeedTenantMutation,
   useMigrateTenantMutation,
   useDeployTenantMutation,
+  useGetDeployStatusQuery,
+  useLazyGetDeployStatusQuery,
+  useLazyGetTenantDomainsQuery,
   useGetTenantDomainsQuery,
   useSetTenantDomainMutation,
   useUploadTenantFaviconMutation,
   useRemoveTenantFaviconMutation,
   useScrapeTenantMutation,
+  useTriggerDeployHookMutation,
 } = tenantApi;
