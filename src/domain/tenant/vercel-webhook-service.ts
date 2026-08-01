@@ -151,12 +151,20 @@ async function recordWebhookEvent(
 ) {
   try {
     const db = createBaseClient();
+    // WebhookEvent requires a WebhookConfig relation; resolve an active Vercel
+    // config and skip the audit record if none is configured yet.
+    const config = await db.webhookConfig.findFirst({
+      where: { provider: 'vercel', isActive: true },
+      select: { id: true },
+    });
+    if (!config) return;
     await db.webhookEvent.create({
       data: {
-        type,
+        configId: config.id,
+        eventType: type,
         payload: payload as any,
         status,
-        error,
+        errorMessage: error,
         durationMs: durationMs || 0,
       },
     });
@@ -249,7 +257,7 @@ export async function handleVercelWebhook(
         action = 'cleanup';
         if (tenantSlug) {
           console.log(`[vercel-webhook] Triggering cleanup for tenant ${tenantSlug} (project ${projectId})`);
-          await cleanupTenant({ tenantSlug, projectId: projectId || undefined, source: 'webhook' });
+          await cleanupTenant({ tenantSlug, vercelProjectId: projectId || undefined });
         }
         break;
 
