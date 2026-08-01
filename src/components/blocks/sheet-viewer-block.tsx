@@ -26,7 +26,8 @@ import type {
   GridCellParams,
   GridRowId,
 } from '@mui/x-data-grid';
-import { GridToolbarContainer, useGridApiRef, GridFooter } from '@mui/x-data-grid';
+import { GridToolbarContainer, useGridApiRef, GridFooter, GridEditInputCell } from '@mui/x-data-grid';
+import type { GridRenderEditCellParams } from '@mui/x-data-grid';
 import { useGetSheetDataQuery, useUpdateSheetCellMutation } from '@/store/apis/sheet-data-api';
 import type { UpdateSheetCellParams, SheetDataResponse } from '@/store/apis/sheet-data-api';
 
@@ -70,6 +71,20 @@ function formatCellValue(key: string, value: unknown): string | number {
     return value.toLocaleString('en-US');
   }
   return String(value);
+}
+
+// Custom edit cell: when the underlying Excel cell contains a formula
+// (e.g. "=SUM(E10:E11)"), seed the editor with the formula itself so the
+// user can amend it. Committing an "=" value writes the formula back to Excel.
+function FormulaEditCell(props: GridRenderEditCellParams) {
+  const { id, field, api, value } = props;
+  const formula = (props.row as Record<string, unknown>)[`${field}_formula`];
+  useEffect(() => {
+    if (typeof formula === 'string' && formula.length > 0 && formula !== value) {
+      api.setEditCellValue({ id, field, value: formula });
+    }
+  }, [formula, value, api, id, field]);
+  return <GridEditInputCell {...props} />;
 }
 
 // ── Status-bar aggregate functions (Excel-style) ────────────────────────
@@ -379,8 +394,22 @@ export function SheetViewerBlock({ config }: { config: Record<string, unknown> }
         _excelRow: excelRow,
       };
 
-        await updateSheetCell(params).unwrap();
-        return newRow; // Optimistic update succeeds - keep new row in UI
+        const resp = await updateSheetCell(params).unwrap();
+        const data = resp?.data as
+          | { value?: unknown; formula?: string; unevaluable?: boolean }
+          | undefined;
+        const updatedRow = { ...newRow };
+        const formulaStr =
+          typeof data?.formula === 'string' ? data.formula : '';
+        updatedRow[`${changedField}_formula`] = formulaStr;
+        if (data?.value !== undefined && data?.value !== null) {
+          // Server-evaluated result (formula) or the plain value — keep display correct
+          updatedRow[changedField] = data.value;
+        } else if (formulaStr) {
+          // Unevaluable formula: no cached value; valueFormatter shows the formula
+          updatedRow[changedField] = '';
+        }
+        return updatedRow;
       } catch (error) {
         console.error('Failed to update sheet cell:', error);
         // Re-throw to let DataGrid revert the row to old values
@@ -429,18 +458,27 @@ export function SheetViewerBlock({ config }: { config: Record<string, unknown> }
           }
           return raw ?? '';
         },
-        valueFormatter: (value: unknown) => {
+        valueFormatter: (value: unknown, row: GridValidRowModel) => {
           if (typeof value === 'number' && isLikelyFinancial(col, value)) {
             return formatCellValue(col, value);
           }
+          // Unevaluable formulas have no cached value — show the formula text
+          // so the user can see the cell is formula-driven.
+          if ((value === '' || value === null || value === undefined)) {
+            const formula = (row as Record<string, unknown>)[`${col}_formula`];
+            if (typeof formula === 'string' && formula.length > 0) return formula;
+          }
           return value ?? '';
         },
+        // Seed the editor with the cell's formula (if any) so it can be amended.
+        renderEditCell: (params: GridRenderEditCellParams) => <FormulaEditCell {...params} />,
         // Coerce edited strings back to numbers so IDR formatting is preserved
         // after commit (also accepts "620,122K" / "IDR 700K" style input).
         valueParser: (value: unknown) => {
           if (typeof value !== 'string') return value;
           const t = value.trim().replace(/^IDR\s*/i, '');
           if (!t) return '';
+          if (t.startsWith('=')) return t; // Excel formula — pass through untouched
           const m = t.match(/^(-?[\d.,]+)\s*([KMBkmb])?$/);
           if (m) {
             let num = Number(m[1].replace(/,/g, ''));

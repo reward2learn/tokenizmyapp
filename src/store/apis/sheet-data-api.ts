@@ -49,7 +49,16 @@ export const sheetDataApi = createApi({
       providesTags: (result, error, arg) => [{ type: 'SheetData' as const, id: arg.sheet }],
     }),
     updateSheetCell: builder.mutation<
-      ApiEnvelope<{ success: boolean }>,
+      ApiEnvelope<{
+        success: boolean;
+        cell?: string;
+        /** Calculated result (when the edited value was an evaluable formula). */
+        value?: unknown;
+        /** Stored Excel formula (present when the edit started with "="). */
+        formula?: string;
+        /** True when the formula could not be evaluated locally (Excel recalcs on open). */
+        unevaluable?: boolean;
+      }>,
       UpdateSheetCellParams
     >({
       query: (params) => ({
