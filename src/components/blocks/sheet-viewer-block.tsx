@@ -60,12 +60,14 @@ function formatCellValue(key: string, value: unknown): string | number {
   if (value === '' || value === undefined || value === null) return '';
   if (typeof value === 'number') {
     if (isLikelyFinancial(key, value)) {
-      if (value >= 1_000_000_000) return `IDR ${(value / 1_000_000_000).toFixed(2)}B`;
-      if (value >= 1_000_000) return `IDR ${(value / 1_000_000).toLocaleString('id-ID')}`;
-      if (value >= 1_000) return `IDR ${(value / 1_000).toFixed(0)}K`;
-      return value.toLocaleString('id-ID');
+      // Values are full IDR amounts; display in thousands with K suffix
+      // (620,122,268 -> "IDR 620,122K") and billions with B suffix.
+      const abs = Math.abs(value);
+      if (abs >= 1_000_000_000) return `IDR ${(value / 1_000_000_000).toFixed(2)}B`;
+      if (abs >= 1_000) return `IDR ${(value / 1_000).toLocaleString('en-US', { maximumFractionDigits: 0 })}K`;
+      return `IDR ${value.toLocaleString('en-US', { maximumFractionDigits: 0 })}`;
     }
-    return value.toLocaleString('id-ID');
+    return value.toLocaleString('en-US');
   }
   return String(value);
 }
@@ -432,6 +434,26 @@ export function SheetViewerBlock({ config }: { config: Record<string, unknown> }
             return formatCellValue(col, value);
           }
           return value ?? '';
+        },
+        // Coerce edited strings back to numbers so IDR formatting is preserved
+        // after commit (also accepts "620,122K" / "IDR 700K" style input).
+        valueParser: (value: unknown) => {
+          if (typeof value !== 'string') return value;
+          const t = value.trim().replace(/^IDR\s*/i, '');
+          if (!t) return '';
+          const m = t.match(/^(-?[\d.,]+)\s*([KMBkmb])?$/);
+          if (m) {
+            let num = Number(m[1].replace(/,/g, ''));
+            if (m[2]) {
+              const mult: Record<string, number> = { K: 1e3, M: 1e6, B: 1e9 };
+              num *= mult[m[2].toUpperCase()];
+            }
+            return isFinite(num) ? num : t;
+          }
+          const cleaned = t.replace(/[^\d.-]/g, '');
+          if (!cleaned) return t;
+          const n = Number(cleaned);
+          return isFinite(n) ? n : t;
         },
         renderHeader: (params: GridColumnHeaderParams) => {
           // Keep custom renderHeader that shows sort numbers (1, 2, 3) for multi-column sort.
