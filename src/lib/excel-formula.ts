@@ -289,7 +289,11 @@ class Parser {
       // OOXML stores formulas WITHOUT the leading '='; normalize before evaluating
       const f = cell.f.trim().startsWith('=') ? cell.f.trim() : '=' + cell.f.trim();
       const sub = evaluateFormula(this.wb, ws, f, depth + 1, clean);
-      return sub.unevaluable ? undefined : sub.value;
+      // A referenced cell whose formula fails is a real error in Excel too —
+      // propagate it (so IFERROR can catch, and top-level stays unevaluable)
+      // instead of silently treating it as an empty cell.
+      if (sub.unevaluable) throw new Error('referenced cell formula unevaluable: ' + clean);
+      return sub.value;
     }
     return undefined;
   }
@@ -791,7 +795,10 @@ export function evaluateFormula(
     const parser = new Parser(wb, ws, src.slice(1), depth, currentCellAddr);
     const v = parser.parseExpr();
     if (!parser.finished()) return { unevaluable: true };
-    if (v === undefined || v === null) return { unevaluable: true };
+    // Excel: a top-level reference to an empty/missing cell evaluates to 0.
+    // (Real failures — unsupported/erroring referenced formulas — throw in
+    // resolveCell and are caught above, so they still return unevaluable.)
+    if (v === undefined || v === null) return { value: 0, unevaluable: false };
     if (typeof v === 'number' && !isFinite(v)) return { unevaluable: true };
     // Booleans -> 1/0 for numeric Excel cells
     if (typeof v === 'boolean') return { value: v ? 1 : 0, unevaluable: false };
