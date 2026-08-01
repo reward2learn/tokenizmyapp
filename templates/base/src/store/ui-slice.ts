@@ -5,22 +5,29 @@ export type ChartKpi = 'ebitda' | 'revenue' | 'net_income' | 'guests' | 'staff_c
 
 export interface UiState {
   drawerOpen: boolean;
+  /** Right-side AI chat drawer (persistent — pushes content, never overlays). */
+  chatDrawerOpen: boolean;
   pdfExportMode: boolean;
   activeTab: string;
   chartKpi: ChartKpi;
   chartScenario: ForecastScenarioKey;
   selectedMonthLabel: string | null;
   selectedMonthPeriod: string | null;
+  primaryColor?: string;
+  secondaryColor?: string;
 }
 
 const initialState: UiState = {
   drawerOpen: false,
+  chatDrawerOpen: false,
   pdfExportMode: false,
   activeTab: 'z-report',
   chartKpi: 'ebitda',
   chartScenario: 'conservative',
   selectedMonthLabel: null,
   selectedMonthPeriod: null,
+  primaryColor: '#eb3d28',
+  secondaryColor: '#0af9fe',
 };
 
 export const uiSlice = createSlice({
@@ -29,6 +36,12 @@ export const uiSlice = createSlice({
   reducers: {
     setDrawerOpen(state, action: { payload: boolean }) {
       state.drawerOpen = action.payload;
+    },
+    setChatDrawerOpen(state, action: { payload: boolean }) {
+      state.chatDrawerOpen = action.payload;
+    },
+    toggleChatDrawer(state) {
+      state.chatDrawerOpen = !state.chatDrawerOpen;
     },
     setPdfExportMode(state, action: { payload: boolean }) {
       state.pdfExportMode = action.payload;
@@ -49,14 +62,24 @@ export const uiSlice = createSlice({
       state.selectedMonthLabel = action.payload.label;
       state.selectedMonthPeriod = action.payload.period;
     },
+    setThemeColors(
+      state,
+      action: { payload: { primary: string; secondary: string } }
+    ) {
+      state.primaryColor = action.payload.primary;
+      state.secondaryColor = action.payload.secondary;
+    },
   },
 });
 
 export const {
   setDrawerOpen,
+  setChatDrawerOpen,
+  toggleChatDrawer,
   setPdfExportMode,
   setActiveTab,
   setChartKpi,
   setChartScenario,
   setSelectedMonth,
+  setThemeColors,
 } = uiSlice.actions;

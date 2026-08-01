@@ -13,6 +13,7 @@ import DialogTitle from '@mui/material/DialogTitle';
 import FormControl from '@mui/material/FormControl';
 import IconButton from '@mui/material/IconButton';
 import InputLabel from '@mui/material/InputLabel';
+import InputAdornment from '@mui/material/InputAdornment';
 import Menu from '@mui/material/Menu';
 import MenuItem from '@mui/material/MenuItem';
 import Paper from '@mui/material/Paper';
@@ -93,7 +94,8 @@ function formatTranscript(messages: ChatStreamMessage[]): string {
   return lines.join('\n');
 }
 
-export function ChatPanel() {
+export function ChatPanel({ variant = 'page' }: { variant?: 'page' | 'drawer' } = {}) {
+  const isDrawer = variant === 'drawer';
   const dispatch = useAppDispatch();
   const searchParams = useSearchParams();
   const { messages, isStreaming, error, pendingSessionActions } = useAppSelector((s) => s.chatStream);
@@ -499,10 +501,30 @@ export function ChatPanel() {
         </DialogActions>
       </Dialog>
 
-      <Box component="section" sx={{ maxWidth: 980, mx: 'auto', px: 3, py: 2 }}>
-      <Paper elevation={0} sx={{ p: { xs: 2, md: 2.5 }, border: '1px solid', borderColor: 'divider', bgcolor: 'action.hover' }}>
-        <Stack spacing={2}>
-            <Box sx={{ minHeight: 320, maxHeight: 520, overflowY: 'auto', pr: 1 }}>
+      <Box
+        component="section"
+        sx={
+          isDrawer
+            ? { height: '100%', width: '100%', display: 'flex', flexDirection: 'column', minHeight: 0, px: 1.5, py: 1.5 }
+            : { maxWidth: 980, mx: 'auto', px: 3, py: 2 }
+        }
+      >
+      <Paper
+        elevation={0}
+        sx={
+          isDrawer
+            ? { flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden', p: { xs: 1.5, sm: 2 }, border: '1px solid', borderColor: 'divider', bgcolor: 'action.hover' }
+            : { p: { xs: 2, md: 2.5 }, border: '1px solid', borderColor: 'divider', bgcolor: 'action.hover' }
+        }
+      >
+        <Stack spacing={2} sx={isDrawer ? { flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', width: '100%' } : undefined}>
+            <Box
+              sx={
+                isDrawer
+                  ? { flex: 1, minHeight: 0, overflowY: 'auto', pr: 1 }
+                  : { minHeight: 320, maxHeight: 520, overflowY: 'auto', pr: 1 }
+              }
+            >
               {messages.length ? messages.map((msg, index) => (
                 <Box
                   key={`${msg.role}-${index}`}
@@ -742,24 +764,51 @@ export function ChatPanel() {
               value={input}
               onChange={(event) => setInput(event.target.value)}
               onKeyDown={(event) => {
-                if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) {
+                // Enter sends (Shift+Enter inserts a newline); Cmd/Ctrl+Enter still works.
+                if (event.key === 'Enter' && !event.shiftKey) {
+                  event.preventDefault();
                   void handleSend();
                 }
               }}
               multiline
-              minRows={3}
+              minRows={isDrawer ? 2 : 3}
               fullWidth
               helperText={
                 voiceMode
                   ? 'Voice mode: speak naturally — your message sends automatically after 2 seconds of silence.'
                   : undefined
               }
+              slotProps={{
+                input: {
+                  // Send action lives inside the prompt field, aligned bottom-right
+                  // (multiline adornments center by default — flex-end pins it).
+                  endAdornment: (
+                    <InputAdornment position="end" sx={{ alignSelf: 'flex-end', mb: 0.5 }}>
+                      <Tooltip title={isStreaming ? 'Streaming…' : 'Send'}>
+                        <span>
+                          <IconButton
+                            color="primary"
+                            onClick={() => void handleSend()}
+                            disabled={isStreaming || !input.trim()}
+                            aria-label="Send"
+                            size="small"
+                          >
+                            <SendIcon />
+                          </IconButton>
+                        </span>
+                      </Tooltip>
+                    </InputAdornment>
+                  ),
+                },
+              }}
             />
 
             {/* ── Collapsible tools section ─────────────────── */}
             <Accordion
+              defaultExpanded={!isDrawer}
               elevation={0}
               sx={{
+                flexShrink: 0,
                 border: '1px solid',
                 borderColor: 'divider',
                 bgcolor: 'transparent',
@@ -773,19 +822,6 @@ export function ChatPanel() {
               </AccordionSummary>
               <AccordionDetails sx={{ pt: 0, pb: 1 }}>
             <Stack direction="row" spacing={0.5} sx={{ alignItems: 'center', flexWrap: 'wrap' }}>
-              <Tooltip title={isStreaming ? 'Streaming…' : 'Send'}>
-                <span>
-                  <IconButton
-                    color="primary"
-                    onClick={() => void handleSend()}
-                    disabled={isStreaming || !input.trim()}
-                    aria-label="Send"
-                    sx={ICON_BUTTON_SX}
-                  >
-                    <SendIcon />
-                  </IconButton>
-                </span>
-              </Tooltip>
               {sttSupported ? (
                 <Tooltip title={voiceMode ? 'Stop voice chat' : 'Voice chat'}>
                   <IconButton

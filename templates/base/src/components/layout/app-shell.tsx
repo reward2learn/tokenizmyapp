@@ -18,10 +18,14 @@ import ListItemButton from '@mui/material/ListItemButton';
 import ListItemIcon from '@mui/material/ListItemIcon';
 import ListItemText from '@mui/material/ListItemText';
 import TextField from '@mui/material/TextField';
+import Tooltip from '@mui/material/Tooltip';
 import Toolbar from '@mui/material/Toolbar';
 import Typography from '@mui/material/Typography';
 import Button from '@mui/material/Button';
+import dynamic from 'next/dynamic';
 import MenuIcon from '@mui/icons-material/Menu';
+import ChatIcon from '@mui/icons-material/Chat';
+import CloseIcon from '@mui/icons-material/Close';
 import NavigateNextIcon from '@mui/icons-material/NavigateNext';
 import SearchOutlined from '@mui/icons-material/SearchOutlined';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
@@ -31,7 +35,7 @@ import type { ReactNode } from 'react';
 import { SavedConversationsMenu } from '@/components/chat/saved-conversations-menu';
 import { getReviewPartDisplayTitle, listNavPages, resolvePage, resolveReviewPart } from '@/lib/page-catalog';
 import { useAppDispatch, useAppSelector } from '@/store/hooks';
-import { setDrawerOpen } from '@/store/ui-slice';
+import { setChatDrawerOpen, setDrawerOpen, toggleChatDrawer } from '@/store/ui-slice';
 import { useListPagesQuery } from '@/store/apis/content-api';
 import { useGetBrandConfigQuery } from '@shared/store/apis/brand-config-api';
 import { useGetNavigationQuery } from '@/store/apis/navigation-api';
@@ -39,6 +43,14 @@ import { NavIcon } from '@/components/shared/nav-icon';
 import { getClientTenantConfig } from '@shared/lib/config/tenant';
 
 const DRAWER_WIDTH = 280;
+/** Right-side AI chat drawer — persistent (pushes the main container, no overlay). */
+const CHAT_DRAWER_WIDTH = { xs: 320, sm: 400 };
+
+// Lazy-load the chat panel so the shell stays light; it renders in the drawer.
+const ChatDrawerPanel = dynamic(
+  () => import('@/components/chat/chat-panel').then((m) => ({ default: m.ChatPanel })),
+  { ssr: false },
+);
 
 const linkSx = { textDecoration: 'none', color: 'inherit', display: 'inline-flex', width: '100%' };
 
@@ -62,6 +74,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   const pathname = usePathname();
   const dispatch = useAppDispatch();
   const drawerOpen = useAppSelector((s) => s.ui.drawerOpen);
+  const chatDrawerOpen = useAppSelector((s) => s.ui.chatDrawerOpen);
   const { tier, user, groups } = useAppSelector((s) => s.auth);
   useListPagesQuery();
 
@@ -105,7 +118,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   const toggleDrawer = () => dispatch(setDrawerOpen(!drawerOpen));
 
   const isActive = (href: string) =>
-    pathname === href || (href !== '/dashboard' && pathname.startsWith(href));
+    pathname === href || (href !== '/' && href !== '/dashboard' && pathname.startsWith(href));
 
   /** Resolve breadcrumb trail from the current pathname. */
   const getBreadcrumbs = useCallback((p: string) => {
@@ -262,7 +275,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', minHeight: '100dvh' }}>
       <AppBar position="sticky" elevation={0} color="transparent">
-        <Toolbar sx={{ minHeight: 52 }}>
+        <Toolbar sx={{ minHeight: 52, pt: 'env(safe-area-inset-top, 0px)' }}>
           {/* Hamburger toggle — left aligned */}
           <IconButton
             aria-label="Open navigation"
@@ -317,6 +330,7 @@ export function AppShell({ children }: { children: ReactNode }) {
                       sx={{
                         color: 'text.disabled',
                         '&:hover': { color: 'text.primary' },
+                        '&:focus-visible': { color: 'text.primary' },
                         whiteSpace: 'nowrap',
                       }}
                     >
@@ -333,6 +347,16 @@ export function AppShell({ children }: { children: ReactNode }) {
 
           {/* Right-aligned controls */}
           <Box sx={{ display: 'flex', alignItems: 'center' }}>
+            <Tooltip title={chatDrawerOpen ? 'Close AI chat' : 'Open AI chat'}>
+              <IconButton
+                aria-label={chatDrawerOpen ? 'Close AI chat drawer' : 'Open AI chat drawer'}
+                aria-pressed={chatDrawerOpen}
+                onClick={() => dispatch(toggleChatDrawer())}
+                sx={{ color: chatDrawerOpen ? 'primary.main' : 'text.secondary', mr: 0.5 }}
+              >
+                <ChatIcon />
+              </IconButton>
+            </Tooltip>
             <SavedConversationsMenu />
           </Box>
         </Toolbar>
@@ -344,7 +368,7 @@ export function AppShell({ children }: { children: ReactNode }) {
         onClose={closeDrawer}
         slotProps={{ paper: { sx: { width: DRAWER_WIDTH, maxWidth: '80vw' } } }}
       >
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, p: 2.5, pb: 2 }}>
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, p: { xs: 2, md: 2.5 }, pb: { xs: 1.5, md: 2 } }}>
           <Avatar
             src={user?.picture ?? undefined}
             sx={{ width: 36, height: 36, bgcolor: 'rgba(235, 61, 40, 0.15)', color: 'primary.main' }}
@@ -381,7 +405,7 @@ export function AppShell({ children }: { children: ReactNode }) {
             sx={{
               '& .MuiOutlinedInput-root': {
                 borderRadius: 2,
-                bgcolor: 'rgba(255,255,255,0.04)',
+                bgcolor: 'action.hover',
               },
             }}
           />
@@ -390,7 +414,7 @@ export function AppShell({ children }: { children: ReactNode }) {
           {renderNavItems(filteredNavItems, pathname, closeDrawer, isActive, linkSx, 0)}
         </List>
         <Divider />
-        <Box sx={{ p: 2, display: 'flex', flexDirection: 'column', gap: 1.5 }}>
+        <Box sx={{ p: 2, display: 'flex', flexDirection: 'column', gap: 1.5, pb: 'calc(8px + env(safe-area-inset-bottom, 0px))' }}>
           {tier === 'public' ? (
             <Button
               component="a"
@@ -408,8 +432,6 @@ export function AppShell({ children }: { children: ReactNode }) {
               color="inherit"
               fullWidth
               onClick={() => {
-                // Clear PIN user preference so user must re-select on next sign-in.
-                try { localStorage.removeItem('lastPinUser'); } catch {}
                 window.location.href = '/api/auth?action=logout';
               }}
             >
@@ -431,8 +453,70 @@ export function AppShell({ children }: { children: ReactNode }) {
         </Box>
       </Drawer>
 
-      <Box component="div" sx={{ flex: 1 }}>
-        {children}
+      <Box sx={{ display: 'flex', flex: 1, minHeight: 0, width: '100%' }}>
+        {/* Main content — shrinks when the chat drawer opens (push, never overlay) */}
+        <Box
+          component="div"
+          sx={{
+            flex: 1,
+            minWidth: 0,
+            // On /ops-chat the page already renders the chat — hide it while the
+            // drawer is open so the conversation is not duplicated.
+            display: chatDrawerOpen && pathname === '/ops-chat' ? 'none' : 'block',
+          }}
+        >
+          {children}
+        </Box>
+
+        {/* Right-side AI chat drawer — persistent width transition that pushes
+            the main container instead of overlaying it. Mounted always so the
+            conversation + draft input survive open/close. */}
+        <Box
+          component="aside"
+          aria-label="AI chat drawer"
+          sx={{
+            width: chatDrawerOpen ? CHAT_DRAWER_WIDTH : 0,
+            flexShrink: 0,
+            overflow: 'hidden',
+            display: 'flex',
+            flexDirection: 'column',
+            borderLeft: '1px solid',
+            borderColor: 'divider',
+            bgcolor: 'background.default',
+            visibility: chatDrawerOpen ? 'visible' : 'hidden',
+            transition: 'width 220ms cubic-bezier(0.4, 0, 0.2, 1)',
+          }}
+        >
+          <Box
+            sx={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 1,
+              px: 1.5,
+              py: 1,
+              flexShrink: 0,
+              borderBottom: '1px solid',
+              borderColor: 'divider',
+              bgcolor: 'background.paper',
+            }}
+          >
+            <Typography variant="subtitle2" sx={{ fontWeight: 700, flex: 1, minWidth: 0 }}>
+              AI Chat
+            </Typography>
+            <Tooltip title="Close AI chat">
+              <IconButton
+                size="small"
+                aria-label="Close AI chat drawer"
+                onClick={() => dispatch(setChatDrawerOpen(false))}
+              >
+                <CloseIcon fontSize="small" />
+              </IconButton>
+            </Tooltip>
+          </Box>
+          <Box sx={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+            <ChatDrawerPanel variant="drawer" />
+          </Box>
+        </Box>
       </Box>
     </Box>
   );

@@ -43,6 +43,7 @@ import { useGetSheetDataQuery, useUpdateSheetCellMutation } from '@/store/apis/s
 import type { UpdateSheetCellParams, SheetDataResponse } from '@/store/apis/sheet-data-api';
 import { useAppDispatch, useAppSelector } from '@/store/hooks';
 import { sendStreamingMessage } from '@/store/chat-stream-slice';
+import { setChatDrawerOpen } from '@/store/ui-slice';
 import {
   setFormulaMode,
   toggleCell,
@@ -887,6 +888,8 @@ export function SheetViewerBlock({ config }: { config: Record<string, unknown> }
     }
     const message = `Here is the data I selected from the spreadsheet. Please analyze it:\n\n${prompt}`;
     void dispatch(sendStreamingMessage({ message, history: chatMessages }));
+    // Surface the chat so the user sees the data land in the conversation.
+    dispatch(setChatDrawerOpen(true));
     showCopyToast(
       `Sent ${selectedCells.length} cell${selectedCells.length !== 1 ? 's' : ''} to AI chat`
     );

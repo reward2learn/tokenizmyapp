@@ -5,6 +5,8 @@ export type ChartKpi = 'ebitda' | 'revenue' | 'net_income' | 'guests' | 'staff_c
 
 export interface UiState {
   drawerOpen: boolean;
+  /** Right-side AI chat drawer (persistent — pushes content, never overlays). */
+  chatDrawerOpen: boolean;
   pdfExportMode: boolean;
   activeTab: string;
   chartKpi: ChartKpi;
@@ -17,6 +19,7 @@ export interface UiState {
 
 const initialState: UiState = {
   drawerOpen: false,
+  chatDrawerOpen: false,
   pdfExportMode: false,
   activeTab: 'z-report',
   chartKpi: 'ebitda',
@@ -33,6 +36,12 @@ export const uiSlice = createSlice({
   reducers: {
     setDrawerOpen(state, action: { payload: boolean }) {
       state.drawerOpen = action.payload;
+    },
+    setChatDrawerOpen(state, action: { payload: boolean }) {
+      state.chatDrawerOpen = action.payload;
+    },
+    toggleChatDrawer(state) {
+      state.chatDrawerOpen = !state.chatDrawerOpen;
     },
     setPdfExportMode(state, action: { payload: boolean }) {
       state.pdfExportMode = action.payload;
@@ -65,6 +74,8 @@ export const uiSlice = createSlice({
 
 export const {
   setDrawerOpen,
+  setChatDrawerOpen,
+  toggleChatDrawer,
   setPdfExportMode,
   setActiveTab,
   setChartKpi,
