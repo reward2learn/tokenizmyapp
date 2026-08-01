@@ -109,13 +109,23 @@ function FormulaEditCell(
   const [fnAnchor, setFnAnchor] = useState<null | HTMLElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const fnBtnRef = useRef<HTMLButtonElement>(null);
+  // Guards the one-time seed below so user edits are never reverted, and holds
+  // the latest formula text for append/insert (avoids stale-render closures).
+  const seededRef = useRef(false);
+  const latestRef = useRef(typeof value === 'string' ? value : '');
+  latestRef.current = typeof value === 'string' ? value : '';
 
-  // Seed the editor with the cell's formula (if any) when editing starts
+  // Seed the editor with the cell's formula (if any) exactly once when editing
+  // starts. Re-running on every value change would clobber what the user is
+  // typing/picking — the formula flow must never revert mid-edit.
   useEffect(() => {
+    if (seededRef.current) return;
+    seededRef.current = true;
     if (typeof formula === 'string' && formula.length > 0 && formula !== value) {
       api.setEditCellValue({ id, field, value: formula });
     }
-  }, [formula, value, api, id, field]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [api, id, field]);
 
   const isFormulaMode = typeof value === 'string' && value.startsWith('=');
 
@@ -128,13 +138,17 @@ function FormulaEditCell(
 
   const insertFunction = (fn: string) => {
     const el = inputRef.current;
-    const cur = typeof value === 'string' ? value : '';
+    const cur = latestRef.current;
     const start = el?.selectionStart ?? cur.length;
     const end = el?.selectionEnd ?? start;
     const text = `${fn}(`;
     const next = cur.slice(0, start) + text + cur.slice(end);
+    latestRef.current = next;
     api.setEditCellValue({ id, field, value: next, debounceMs: 0 });
     setFnAnchor(null);
+    // Excel-style point mode: after choosing a function, cell clicks append
+    // references immediately (no need to press the pick button first).
+    setPicker(true);
     requestAnimationFrame(() => {
       el?.focus();
       const pos = start + text.length;
@@ -143,7 +157,7 @@ function FormulaEditCell(
   };
 
   const append = (ref: string, isRangeEnd: boolean) => {
-    const cur = typeof value === 'string' ? value : '';
+    const cur = latestRef.current;
     let next: string;
     if (isRangeEnd) {
       next = cur + ':' + ref;
@@ -151,7 +165,17 @@ function FormulaEditCell(
       const last = cur[cur.length - 1];
       next = cur + (last === undefined || '(,+-*/^:'.includes(last) ? '' : ',') + ref;
     }
+    latestRef.current = next;
     api.setEditCellValue({ id, field, value: next, debounceMs: 0 });
+  };
+
+  // Excel-style auto-completion on commit: close any open parentheses so the
+  // formula is syntactically valid (and thus evaluable) when Enter is pressed.
+  const commitValue = (): string => {
+    const cur = latestRef.current;
+    const opens = (cur.match(/\(/g) || []).length;
+    const closes = (cur.match(/\)/g) || []).length;
+    return opens > closes ? cur + ')'.repeat(opens - closes) : cur;
   };
 
   // Expose picker state to the grid-level click handler
@@ -183,6 +207,10 @@ function FormulaEditCell(
         onKeyDown={(e) => {
           if (e.key === 'Enter') {
             e.stopPropagation();
+            // Auto-close open parens, then commit — processRowUpdate sends the
+            // formula to the server, which computes and returns the value.
+            const finalValue = commitValue();
+            api.setEditCellValue({ id, field, value: finalValue, debounceMs: 0 });
             api.stopCellEditMode({ id, field });
           } else if (e.key === 'Escape') {
             e.stopPropagation();
