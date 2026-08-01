@@ -37,6 +37,23 @@ export interface TenantUserView {
   tenantSlug: string;
 }
 
+export interface ScrapeTenantResult {
+  scraped: {
+    businessName?: string;
+    description?: string;
+    logoBase64?: string | null;
+    brandColors?: { primary: string | null; secondary: string | null; allColors: string[] };
+    images?: Array<{ url: string; alt: string }>;
+    socialLinks?: Record<string, string>;
+    address?: string | null;
+    emails?: string[];
+    phoneNumbers?: string[];
+    textContent?: string;
+  };
+  recommendedTemplate?: string;
+  generatedPrompt?: string;
+}
+
 export const tenantApi = createApi({
   reducerPath: 'tenantApi',
   baseQuery,
@@ -215,6 +232,16 @@ export const tenantApi = createApi({
         { type: 'Tenants', id: `domain-${slug}` },
       ],
     }),
+
+    /** POST /api/admin/tenants/scrape — AI scrape of a business URL for the
+     *  create-tenant wizard. Read-like POST: no cache invalidation. */
+    scrapeTenant: builder.mutation<ApiEnvelope<ScrapeTenantResult>, { url: string }>({
+      query: (body) => ({
+        url: 'admin/tenants/scrape',
+        method: 'POST',
+        body,
+      }),
+    }),
   }),
 });
 
@@ -234,4 +261,5 @@ export const {
   useSetTenantDomainMutation,
   useUploadTenantFaviconMutation,
   useRemoveTenantFaviconMutation,
+  useScrapeTenantMutation,
 } = tenantApi;

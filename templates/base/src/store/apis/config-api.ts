@@ -4,9 +4,34 @@ import type { ApiEnvelope } from '@/store/api-types';
 import type { ReseedResponse } from '@/app/api/config/reseed/route';
 import type { ReprocessResponse } from '@/app/api/config/reprocess/route';
 
+export interface WorkflowAcceptedResponse {
+  ok: boolean;
+  runId: string;
+  status: 'accepted';
+  counts: Record<string, number>;
+  filesUsed: Record<string, 'upload' | 'disk'>;
+  uploaded: string[];
+  warnings: string[];
+}
+
+export interface WorkflowStatusResponse {
+  status: 'running' | 'completed' | 'failed' | 'not_found';
+  runId: string;
+  result?: Record<string, unknown>;
+  error?: string;
+}
+
 export interface OpenAiKeyStatus {
   configured: boolean;
   source: 'db' | 'env' | null;
+}
+
+export interface VercelTokenStatus {
+  status: 'configured' | 'expired' | 'not_configured';
+  tokenInfo: string | null;
+  clientIdConfigured: boolean;
+  clientSecretConfigured: boolean;
+  oauthUrl: string | null;
 }
 
 export interface ChatSettings {
@@ -38,7 +63,7 @@ export interface SeedDetailsResponse {
 export const configApi = createApi({
   reducerPath: 'configApi',
   baseQuery,
-  tagTypes: ['OpenAiKey', 'ChatSettings', 'SeedDetails'],
+  tagTypes: ['OpenAiKey', 'ChatSettings', 'SeedDetails', 'VercelToken'],
   endpoints: (builder) => ({
     reseedFromSources: builder.mutation<ApiEnvelope<ReseedResponse>, FormData>({
       query: (body) => ({
@@ -97,6 +122,16 @@ export const configApi = createApi({
         body,
       }),
     }),
+    /** GET /api/config/vercel-token — Vercel OAuth token configuration status */
+    getVercelTokenStatus: builder.query<ApiEnvelope<VercelTokenStatus>, void>({
+      query: () => 'config/vercel-token',
+      providesTags: ['VercelToken'],
+    }),
+        /** GET /api/config/reseed/status?runId= — poll workflow completion */
+    getReseedWorkflowStatus: builder.query<WorkflowStatusResponse, string>({
+      query: (runId) => `config/reseed/status?runId=${runId}`,
+      keepUnusedDataFor: 5,
+    }),
   }),
 });
 
@@ -110,4 +145,6 @@ export const {
   useUpdateChatSettingsMutation,
   useGetSeedDetailsQuery,
   useImportDataMutation,
+  useLazyGetReseedWorkflowStatusQuery,
+  useGetVercelTokenStatusQuery,
 } = configApi;

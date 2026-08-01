@@ -37,6 +37,7 @@ import {
 } from '@/domain/tenant/template-catalog';
 import {
   useCreateTenantMutation,
+  useScrapeTenantMutation,
 } from '@/store/apis/tenant-api';
 
 const STEPS = ['Business Info', 'Template', 'AI Description', 'Branding', 'Review'];
@@ -94,6 +95,7 @@ export function TenantWizard() {
   const [scraping, setScraping] = useState(false);
   const [scrapeError, setScrapeError] = useState<string | null>(null);
   const [createTenant, { isLoading, isError, error, isSuccess, data }] = useCreateTenantMutation();
+  const [scrapeTenant] = useScrapeTenantMutation();
 
   const handleOpen = () => { setOpen(true); setStep(0); setState(INITIAL_STATE); setScraped(null); setScrapeError(null); };
   const handleClose = () => { if (!isLoading) { setOpen(false); setStep(0); } };
@@ -124,12 +126,7 @@ export function TenantWizard() {
     setScraping(true);
     setScrapeError(null);
     try {
-      const res = await fetch('/api/admin/tenants/scrape', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ url: state.scrapeUrl.trim() }),
-      });
-      const result = await res.json();
+      const result = await scrapeTenant({ url: state.scrapeUrl.trim() }).unwrap();
       if (result.success && result.data) {
         const s = result.data.scraped;
         const scrapedData: ScrapedData = {
@@ -202,7 +199,8 @@ export function TenantWizard() {
         setScrapeError(result.error || 'Scraping failed');
       }
     } catch (err) {
-      setScrapeError(err instanceof Error ? err.message : 'Unknown error');
+      const envelope = (err as { data?: { error?: string } })?.data;
+      setScrapeError(envelope?.error || (err instanceof Error ? err.message : 'Scraping failed'));
     }
     setScraping(false);
   };

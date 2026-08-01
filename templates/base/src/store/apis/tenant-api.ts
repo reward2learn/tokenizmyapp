@@ -11,18 +11,53 @@ export interface TenantEntry {
   vercelProjectId: string | null;
   appUrl: string | null;
   dbUrl: string | null;
+  apiKey: string | null;
   primaryColor: string;
   secondaryColor: string;
+  faviconData: string | null;
+  faviconMimeType: string | null;
   metadata: Record<string, unknown>;
   createdBy: string | null;
   createdAt: string;
   updatedAt: string;
 }
 
+export interface TenantUserView {
+  id: string;
+  sub: string;
+  email: string | null;
+  name: string | null;
+  tier: string;
+  roleCode: string | null;
+  isActive: boolean;
+  groups: string[];
+  permissions: string[];
+  lastSeenAt: string | null;
+  createdAt: string;
+  tenantSlug: string;
+}
+
+export interface ScrapeTenantResult {
+  scraped: {
+    businessName?: string;
+    description?: string;
+    logoBase64?: string | null;
+    brandColors?: { primary: string | null; secondary: string | null; allColors: string[] };
+    images?: Array<{ url: string; alt: string }>;
+    socialLinks?: Record<string, string>;
+    address?: string | null;
+    emails?: string[];
+    phoneNumbers?: string[];
+    textContent?: string;
+  };
+  recommendedTemplate?: string;
+  generatedPrompt?: string;
+}
+
 export const tenantApi = createApi({
   reducerPath: 'tenantApi',
   baseQuery,
-  tagTypes: ['Tenants'],
+  tagTypes: ['Tenants', 'TenantUsers'],
   endpoints: (builder) => ({
     listTenants: builder.query<ApiEnvelope<{ tenants: TenantEntry[] }>, { status?: string } | void>({
       query: (params) => {
@@ -66,6 +101,7 @@ export const tenantApi = createApi({
       appUrl?: string | null;
       vercelProjectId?: string | null;
       dbUrl?: string | null;
+      apiKey?: string | null;
       metadata?: Record<string, unknown>;
     }>({
       query: ({ slug, ...body }) => ({
@@ -83,6 +119,129 @@ export const tenantApi = createApi({
       }),
       invalidatesTags: ['Tenants'],
     }),
+
+    // ── Tenant-scoped Users ─────────────────────────
+
+    listTenantUsers: builder.query<ApiEnvelope<{ users: TenantUserView[] }>, string>({
+      query: (slug) => `admin/tenants/${slug}/users`,
+      providesTags: (_result, _error, slug) => [{ type: 'TenantUsers', id: slug }],
+    }),
+
+    upsertTenantUser: builder.mutation<
+      ApiEnvelope<{ id: string; created: boolean }>,
+      {
+        slug: string;
+        sub: string;
+        email?: string | null;
+        name?: string | null;
+        tier?: string;
+        roleCode?: string | null;
+        groupCodes?: string[];
+        pin?: string;
+        isActive?: boolean;
+      }
+    >({
+      query: ({ slug, ...body }) => ({
+        url: `admin/tenants/${slug}/users`,
+        method: 'POST',
+        body,
+      }),
+      invalidatesTags: (_result, _error, { slug }) => [{ type: 'TenantUsers', id: slug }],
+    }),
+
+    deleteTenantUser: builder.mutation<ApiEnvelope<{ id: string; deleted: boolean }>, { slug: string; id: string }>({
+      query: ({ slug, id }) => ({
+        url: `admin/tenants/${slug}/users?id=${id}`,
+        method: 'DELETE',
+      }),
+      invalidatesTags: (_result, _error, { slug }) => [{ type: 'TenantUsers', id: slug }],
+    }),
+
+    // ── Tenant Seed & Migrate ──────────────────────────
+
+    seedTenant: builder.mutation<ApiEnvelope<{ seeded: boolean; pages?: number; navItems?: number; groups?: number; settings?: boolean }>, string>({
+      query: (slug) => ({
+        url: `admin/tenants/${slug}/seed`,
+        method: 'POST',
+      }),
+      invalidatesTags: ['Tenants'],
+    }),
+
+    migrateTenant: builder.mutation<ApiEnvelope<{ migrated: boolean; results?: Record<string, string> }>, string>({
+      query: (slug) => ({
+        url: `admin/tenants/${slug}/migrate`,
+        method: 'POST',
+      }),
+      invalidatesTags: ['Tenants'],
+    }),
+
+    deployTenant: builder.mutation<ApiEnvelope<{ deployed: boolean; projectId: string; appUrl: string; envCount: number }>, string>({
+      query: (slug) => ({
+        url: `admin/tenants/${slug}/deploy`,
+        method: 'POST',
+      }),
+      invalidatesTags: ['Tenants'],
+    }),
+
+    // ── Custom Domain ─────────────────────────────────
+
+    getTenantDomains: builder.query<
+      ApiEnvelope<{ domains: { name: string; verified: boolean; createdAt: string }[]; projectId: string | null; appUrl: string | null }>,
+      string
+    >({
+      query: (slug) => `admin/tenants/${slug}/domain`,
+      providesTags: (_result, _error, slug) => [{ type: 'Tenants', id: `domain-${slug}` }],
+    }),
+
+    // ── Favicon (base64) ─────────────────────────────
+
+    uploadTenantFavicon: builder.mutation<ApiEnvelope<{ message: string }>, { slug: string; data: string; mimeType: string }>({
+      query: ({ slug, ...body }) => ({
+        url: `admin/tenants/${slug}/favicon`,
+        method: 'POST',
+        body,
+      }),
+      invalidatesTags: (_result, _error, { slug }) => [
+        { type: 'Tenants', id: slug },
+        { type: 'Tenants' },
+      ],
+    }),
+
+    removeTenantFavicon: builder.mutation<ApiEnvelope<{ message: string }>, string>({
+      query: (slug) => ({
+        url: `admin/tenants/${slug}/favicon`,
+        method: 'DELETE',
+      }),
+      invalidatesTags: (_result, _error, slug) => [
+        { type: 'Tenants', id: slug },
+        { type: 'Tenants' },
+      ],
+    }),
+
+    setTenantDomain: builder.mutation<
+      ApiEnvelope<{ domain: string; verified: boolean; projectId: string; domains: { name: string; verified: boolean; createdAt: string }[]; appUrl: string | null }>,
+      { slug: string; domain: string; updateAppUrl?: boolean }
+    >({
+      query: ({ slug, ...body }) => ({
+        url: `admin/tenants/${slug}/domain`,
+        method: 'POST',
+        body,
+      }),
+      invalidatesTags: (_result, _error, { slug }) => [
+        { type: 'Tenants', id: slug },
+        { type: 'Tenants', id: `domain-${slug}` },
+      ],
+    }),
+
+    /** POST /api/admin/tenants/scrape — AI scrape of a business URL for the
+     *  create-tenant wizard. Read-like POST: no cache invalidation. */
+    scrapeTenant: builder.mutation<ApiEnvelope<ScrapeTenantResult>, { url: string }>({
+      query: (body) => ({
+        url: 'admin/tenants/scrape',
+        method: 'POST',
+        body,
+      }),
+    }),
   }),
 });
 
@@ -92,4 +251,15 @@ export const {
   useCreateTenantMutation,
   useUpdateTenantMutation,
   useDeleteTenantMutation,
+  useListTenantUsersQuery,
+  useUpsertTenantUserMutation,
+  useDeleteTenantUserMutation,
+  useSeedTenantMutation,
+  useMigrateTenantMutation,
+  useDeployTenantMutation,
+  useGetTenantDomainsQuery,
+  useSetTenantDomainMutation,
+  useUploadTenantFaviconMutation,
+  useRemoveTenantFaviconMutation,
+  useScrapeTenantMutation,
 } = tenantApi;

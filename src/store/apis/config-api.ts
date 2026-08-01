@@ -26,6 +26,14 @@ export interface OpenAiKeyStatus {
   source: 'db' | 'env' | null;
 }
 
+export interface VercelTokenStatus {
+  status: 'configured' | 'expired' | 'not_configured';
+  tokenInfo: string | null;
+  clientIdConfigured: boolean;
+  clientSecretConfigured: boolean;
+  oauthUrl: string | null;
+}
+
 export interface ChatSettings {
   webSearchEnabled: boolean;
   updatedAt: string;
@@ -55,7 +63,7 @@ export interface SeedDetailsResponse {
 export const configApi = createApi({
   reducerPath: 'configApi',
   baseQuery,
-  tagTypes: ['OpenAiKey', 'ChatSettings', 'SeedDetails'],
+  tagTypes: ['OpenAiKey', 'ChatSettings', 'SeedDetails', 'VercelToken'],
   endpoints: (builder) => ({
     reseedFromSources: builder.mutation<ApiEnvelope<ReseedResponse>, FormData>({
       query: (body) => ({
@@ -114,7 +122,12 @@ export const configApi = createApi({
         body,
       }),
     }),
-    /** GET /api/config/reseed/status?runId= — poll workflow completion */
+    /** GET /api/config/vercel-token — Vercel OAuth token configuration status */
+    getVercelTokenStatus: builder.query<ApiEnvelope<VercelTokenStatus>, void>({
+      query: () => 'config/vercel-token',
+      providesTags: ['VercelToken'],
+    }),
+        /** GET /api/config/reseed/status?runId= — poll workflow completion */
     getReseedWorkflowStatus: builder.query<WorkflowStatusResponse, string>({
       query: (runId) => `config/reseed/status?runId=${runId}`,
       keepUnusedDataFor: 5,
@@ -133,4 +146,5 @@ export const {
   useGetSeedDetailsQuery,
   useImportDataMutation,
   useLazyGetReseedWorkflowStatusQuery,
+  useGetVercelTokenStatusQuery,
 } = configApi;

@@ -1,30 +1,20 @@
 'use client';
 
-import { useState, useEffect } from 'react';
 import Button from '@mui/material/Button';
 import Chip from '@mui/material/Chip';
 import Tooltip from '@mui/material/Tooltip';
 import Box from '@mui/material/Box';
-import Link from '@mui/material/Link';
 import OpenInNewIcon from '@mui/icons-material/OpenInNew';
+import { useGetVercelTokenStatusQuery } from '@/store/apis/config-api';
 
 export function VercelConnectButton() {
-  const [status, setStatus] = useState<'loading' | 'configured' | 'expired' | 'not_configured'>('loading');
-  const [oauthUrl, setOauthUrl] = useState<string | null>(null);
-
-  useEffect(() => {
-    fetch('/api/config/vercel-token')
-      .then((res) => res.json())
-      .then((data) => {
-        if (data.success && data.data) {
-          setStatus(data.data.status || 'not_configured');
-          setOauthUrl(data.data.oauthUrl || null);
-        } else {
-          setStatus('not_configured');
-        }
-      })
-      .catch(() => setStatus('not_configured'));
-  }, []);
+  const { data, isLoading, isError } = useGetVercelTokenStatusQuery();
+  const status: 'loading' | 'configured' | 'expired' | 'not_configured' = isLoading
+    ? 'loading'
+    : isError || !data?.success
+      ? 'not_configured'
+      : data.data.status ?? 'not_configured';
+  const oauthUrl = data?.success ? data.data.oauthUrl : null;
 
   if (status === 'loading') {
     return (
