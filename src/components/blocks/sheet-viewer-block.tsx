@@ -740,6 +740,7 @@ export function SheetViewerBlock({ config }: { config: Record<string, unknown> }
               toolbar: CustomToolbar,
             }}
             editMode="cell"
+            tabNavigation="content" // Tab moves to next cell (Shift+Tab previous), wraps rows
             sx={pinnedSx}
           />
 
