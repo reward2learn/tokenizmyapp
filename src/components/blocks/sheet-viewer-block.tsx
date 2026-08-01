@@ -25,7 +25,7 @@ import type {
   GridCellParams,
   GridRowId,
 } from '@mui/x-data-grid';
-import { GridToolbarContainer } from '@mui/x-data-grid';
+import { GridToolbarContainer, useGridApiRef } from '@mui/x-data-grid';
 import { useGetSheetDataQuery, useUpdateSheetCellMutation } from '@/store/apis/sheet-data-api';
 import type { UpdateSheetCellParams, SheetDataResponse } from '@/store/apis/sheet-data-api';
 
@@ -71,6 +71,8 @@ function formatCellValue(key: string, value: unknown): string | number {
 
 export function SheetViewerBlock({ config }: { config: Record<string, unknown> }) {
   const { sheet, title } = config as SheetViewerConfig;
+  // apiRef gives access to the DataGrid's CURRENT display order (post-sort/post-filter)
+  const apiRef = useGridApiRef();
   const [paginationModel, setPaginationModel] = useState({ page: 0, pageSize: PER_PAGE });
   const [sortModel, setSortModel] = useState<GridSortModel>([]);
   const [pinnedColumns, setPinnedColumns] = useState<string[]>([]);
@@ -489,10 +491,15 @@ export function SheetViewerBlock({ config }: { config: Record<string, unknown> }
         const newSet = new Set(prev);
         if (isShift && lastClickedCellRef.current) {
           const anchor = lastClickedCellRef.current;
-          // Current page rows in display order (_rowIndex is sequential)
-          const rowOrder = rows
-            .map((r: any) => r._rowIndex ?? r.id)
-            .sort((a: any, b: any) => Number(a) - Number(b));
+          // Use the DataGrid's CURRENT display order (post-sort/post-filter) so the
+          // Shift-range matches what the user visually sees. Fall back to _rowIndex
+          // numeric order if the api ref is not ready yet.
+          const sortedIds = apiRef.current ? (apiRef.current.getSortedRowIds() as any[]) : null;
+          const rowOrder: any[] = sortedIds && sortedIds.length > 0
+            ? sortedIds
+            : rows
+                .map((r: any) => r._rowIndex ?? r.id)
+                .sort((a: any, b: any) => Number(a) - Number(b));
           const colOrder = columns.map((c) => c.field);
 
           const anchorRowIdx = rowOrder.indexOf(anchor.rowId);
@@ -537,7 +544,7 @@ export function SheetViewerBlock({ config }: { config: Record<string, unknown> }
 
       lastClickedCellRef.current = { rowId, field };
     },
-    [rows, columns, selectedCells, getCellKey]
+    [rows, columns, selectedCells, getCellKey, apiRef]
   );
 
   // Copy selected cells as TSV sub-grid (preserves structure, raw values, headers for selected columns only)
@@ -707,6 +714,7 @@ export function SheetViewerBlock({ config }: { config: Record<string, unknown> }
           <DataGrid
             rows={rows}
             columns={columns}
+            apiRef={apiRef}
             getRowId={(row) => row._rowIndex}
             loading={isLoading}
             rowCount={data.totalRows}
