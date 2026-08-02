@@ -20,14 +20,18 @@ import MenuItem from '@mui/material/MenuItem';
 import Paper from '@mui/material/Paper';
 import Select from '@mui/material/Select';
 import Stack from '@mui/material/Stack';
+import Tab from '@mui/material/Tab';
 import Table from '@mui/material/Table';
 import TableBody from '@mui/material/TableBody';
 import TableCell from '@mui/material/TableCell';
 import TableHead from '@mui/material/TableHead';
 import TableRow from '@mui/material/TableRow';
+import Tabs from '@mui/material/Tabs';
 import TextField from '@mui/material/TextField';
 import Tooltip from '@mui/material/Tooltip';
 import Typography from '@mui/material/Typography';
+import useMediaQuery from '@mui/material/useMediaQuery';
+import { useTheme } from '@mui/material/styles';
 import InfoOutlinedIcon from '@mui/icons-material/InfoOutlined';
 import { PlatformAdminGate } from '@/components/auth/platform-admin-gate';
 import { SignInPanelGate } from '@/components/auth/sign-in-panel';
@@ -1018,6 +1022,8 @@ function GroupManager() {
 
 export default function AdminPage() {
   const [tab, setTab] = useState(0);
+  const theme = useTheme();
+  const isMobile = useMediaQuery(theme.breakpoints.down('md'));
   const isTokenizmyapp = getClientTenantConfig().slug === 'tokenizmyapp';
   const adminTabs = isTokenizmyapp
     ? ['Tenants', 'Tenant Info', 'Navigation', 'Brand Config', 'Security Groups', 'Accounts', 'Roles', 'AI Chat']
@@ -1032,21 +1038,36 @@ export default function AdminPage() {
           {/* <Typography variant="h4" sx={{ fontWeight: 800 }}>
             Platform Admin
           </Typography> */}
-          <FormControl size="small" sx={{ minWidth: 260, position: 'sticky', top: 66, zIndex: 1000, backgroundColor: 'background.default', py: 1 }}>
-            <InputLabel id="admin-section-select-label">Section</InputLabel>
-            <Select
-              labelId="admin-section-select-label"
-              label="Section"
+          {isMobile ? (
+            <FormControl size="small" sx={{ minWidth: 260, position: 'sticky', top: 66, zIndex: 1000, backgroundColor: 'background.default', py: 1 }}>
+              <InputLabel id="admin-section-select-label">Section</InputLabel>
+              <Select
+                labelId="admin-section-select-label"
+                label="Section"
+                value={Math.min(tab, adminTabs.length - 1)}
+                onChange={(e) => setTab(Number(e.target.value))}
+              >
+                {adminTabs.map((label, i) => (
+                  <MenuItem key={label} value={i}>
+                    {label}
+                  </MenuItem>
+                ))}
+              </Select>
+            </FormControl>
+          ) : (
+            <Tabs
               value={Math.min(tab, adminTabs.length - 1)}
-              onChange={(e) => setTab(Number(e.target.value))}
+              onChange={(_, v) => setTab(v)}
+              variant="scrollable"
+              scrollButtons="auto"
+              allowScrollButtonsMobile
+              sx={{ position: 'sticky', top: 66, zIndex: 1000, backgroundColor: 'background.default', py: 1, borderBottom: 1, borderColor: 'divider' }}
             >
-              {adminTabs.map((label, i) => (
-                <MenuItem key={label} value={i}>
-                  {label}
-                </MenuItem>
+              {adminTabs.map((label) => (
+                <Tab key={label} label={label} />
               ))}
-            </Select>
-          </FormControl>
+            </Tabs>
+          )}
           {isTokenizmyapp && tab === 0 ? <TenantDashboard /> : null}
           {tab === (isTokenizmyapp ? 1 : 0) ? <TenantInfoTab /> : null}
           {tab === (isTokenizmyapp ? 2 : 1) ? <NavigationManager /> : null}
