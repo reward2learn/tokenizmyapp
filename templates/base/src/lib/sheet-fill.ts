@@ -20,6 +20,11 @@ export interface FillTargetCell {
   field: string;
   value: unknown;
   formulaMode: boolean;
+  /**
+   * Explicit Excel row (1-based) for cells that have no grid row object yet
+   * (paste auto-extends beyond the loaded page into new workbook rows).
+   */
+  excelRow?: number;
 }
 
 /** Inputs for buildFillCells. */
@@ -270,23 +275,30 @@ export function buildPasteCells(args: {
   colOrder: string[];
   rowsById: Map<GridRowId, Record<string, unknown>>;
   formulaMode: boolean;
-}): { cells: FillTargetCell[]; skipped: number } {
-  const { grid, anchorRowIdx, anchorColIdx, rowOrder, colOrder, rowsById, formulaMode } = args;
+  /**
+   * 1-based Excel row of the anchor cell — lets paste extend past the loaded
+   * page into new workbook rows (display order == Excel row order when the
+   * sheet is unsorted, the default state).
+   */
+  anchorExcelRow?: number;
+}): { cells: FillTargetCell[]; skipped: number; newRows: number } {
+  const { grid, anchorRowIdx, anchorColIdx, rowOrder, colOrder, rowsById, formulaMode, anchorExcelRow } = args;
   const cells: FillTargetCell[] = [];
   let skipped = 0;
+  let newRows = 0;
 
   for (let r = 0; r < grid.length; r++) {
     const rowIdx = anchorRowIdx + r;
-    if (rowIdx >= rowOrder.length) {
-      skipped += grid[r].length;
-      continue;
-    }
-    const rowId = rowOrder[rowIdx];
-    const row = rowsById.get(rowId);
-    if (!row) {
-      skipped += grid[r].length;
-      continue;
-    }
+    const rowId = rowIdx < rowOrder.length ? rowOrder[rowIdx] : undefined;
+    const row = rowId != null ? rowsById.get(rowId) : undefined;
+
+    // Auto-extend: rows beyond the loaded page are written to the workbook
+    // as new rows — the Excel row follows the anchor's row by the display
+    // offset (exact when the sheet is unsorted, the default state).
+    const excelRow = rowId != null && row
+      ? Number((row as Record<string, unknown>)._excelRow) || 1
+      : (anchorExcelRow ?? 1) + r;
+
     for (let c = 0; c < grid[r].length; c++) {
       const colIdx = anchorColIdx + c;
       if (colIdx >= colOrder.length) {
@@ -296,13 +308,25 @@ export function buildPasteCells(args: {
       const raw = grid[r][c];
       const field = colOrder[colIdx];
       const isFormula = formulaMode && raw.startsWith('=');
-      cells.push({
-        rowId,
-        field,
-        value: isFormula ? raw : textToCellValue(raw),
-        formulaMode: isFormula,
-      });
+      if (rowId == null || !row) {
+        // New workbook row (beyond the loaded page).
+        newRows += 1;
+        cells.push({
+          rowId: (rowId ?? excelRow) as GridRowId,
+          field,
+          value: isFormula ? raw : textToCellValue(raw),
+          formulaMode: isFormula,
+          excelRow,
+        });
+      } else {
+        cells.push({
+          rowId,
+          field,
+          value: isFormula ? raw : textToCellValue(raw),
+          formulaMode: isFormula,
+        });
+      }
     }
   }
-  return { cells, skipped };
+  return { cells, skipped, newRows };
 }

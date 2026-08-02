@@ -38,6 +38,7 @@ import ChatIcon from '@mui/icons-material/Chat';
 import UndoIcon from '@mui/icons-material/Undo';
 import RedoIcon from '@mui/icons-material/Redo';
 import ContentCopyIcon from '@mui/icons-material/ContentCopy';
+import DeleteIcon from '@mui/icons-material/Delete';
 import Button from '@mui/material/Button';
 import Chip from '@mui/material/Chip';
 import type {
@@ -1444,7 +1445,9 @@ export function SheetViewerBlock({ config }: { config: Record<string, unknown> }
       const backward: UpdateSheetCellParams[] = [];
       for (const c of cells) {
         const r = readRow(c.rowId);
-        const excelRow = Number((r as any)?._excelRow) || Number(c.rowId) || 1;
+        // Auto-extended paste rows carry their computed Excel row explicitly
+        // (they have no grid row object yet); everything else reads _excelRow.
+        const excelRow = c.excelRow ?? (Number((r as any)?._excelRow) || Number(c.rowId) || 1);
         const cellRef = typeof (r as any)?.[`${c.field}_cell`] === 'string' ? (r as any)[`${c.field}_cell`] : undefined;
         const oldFormula =
           typeof (r as any)?.[`${c.field}_formula`] === 'string' ? (r as any)[`${c.field}_formula`] : undefined;
@@ -1512,6 +1515,35 @@ export function SheetViewerBlock({ config }: { config: Record<string, unknown> }
     [buildRangeParams, updateSheetCells, sheet, dispatch, getRowOrder, getColOrder, showCopyToast],
   );
 
+  // ── Clear selection contents (Delete key / context menu) ─────────────
+  const clearSelectedCells = useCallback(
+    (message = 'Cleared') => {
+      if (effectiveSelectionKeys.size === 0) return;
+      const rowOrder = getRowOrder();
+      const colOrder = getColOrder();
+      const cells: FillTargetCell[] = [];
+      let minR = Infinity;
+      let maxR = -Infinity;
+      let minC = Infinity;
+      let maxC = -Infinity;
+      for (const key of effectiveSelectionKeys) {
+        const [rId, f] = key.split('|');
+        if (f === '__check__') continue;
+        const ri = rowOrder.indexOf(rId as GridRowId);
+        const ci = colOrder.indexOf(f);
+        if (ri === -1 || ci === -1) continue;
+        cells.push({ rowId: rId as GridRowId, field: f, value: '', formulaMode: false });
+        minR = Math.min(minR, ri);
+        maxR = Math.max(maxR, ri);
+        minC = Math.min(minC, ci);
+        maxC = Math.max(maxC, ci);
+      }
+      if (cells.length === 0) return;
+      void applyRangeWrite(cells, { r0: minR, c0: minC, r1: maxR, c1: maxC }, message);
+    },
+    [effectiveSelectionKeys, getRowOrder, getColOrder, applyRangeWrite],
+  );
+
   // ── Fill handle (selection-box corner drag) ─────────────────────────
   // The handle is rendered ONLY for contiguous rectangular cell selections —
   // exactly the state Excel draws a fill handle for.
@@ -1545,6 +1577,8 @@ export function SheetViewerBlock({ config }: { config: Record<string, unknown> }
 
   // Position of the selection box corner handle, relative to the grid wrapper.
   const [fillRect, setFillRect] = useState<{ top: number; left: number; width: number; height: number } | null>(null);
+  /** Live preview of the range the current fill drag will write. */
+  const [fillPreview, setFillPreview] = useState<{ top: number; left: number; width: number; height: number } | null>(null);
   const gridWrapRef = useRef<HTMLDivElement | null>(null);
 
   const updateFillHandlePosition = useCallback(() => {
@@ -1591,7 +1625,7 @@ export function SheetViewerBlock({ config }: { config: Record<string, unknown> }
   }, [fillSource]);
 
   const handleFillPointerMove = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
-    if (!fillDragRef.current) return;
+    if (!fillDragRef.current || !fillSource || !gridWrapRef.current) return;
     const el = document.elementFromPoint(e.clientX, e.clientY);
     const cellEl = el?.closest?.('.MuiDataGrid-cell') as HTMLElement | null;
     if (!cellEl) return;
@@ -1603,12 +1637,37 @@ export function SheetViewerBlock({ config }: { config: Record<string, unknown> }
     const rowId = rowOrder[Number(rowIndex)];
     if (rowId == null) return;
     fillTargetRef.current = { rowId, field };
-  }, [getRowOrder]);
+
+    // Preview: union of the source block and the current drag target, drawn
+    // from the corner cells' DOM rects (mirrors the fill math exactly).
+    const colOrder = getColOrder();
+    const tR = rowOrder.indexOf(rowId);
+    const tC = colOrder.indexOf(field);
+    if (tR === -1 || tC === -1) return;
+    const r0 = Math.min(fillSource.r0, tR);
+    const r1 = Math.max(fillSource.r1, tR);
+    const c0 = Math.min(fillSource.c0, tC);
+    const c1 = Math.max(fillSource.c1, tC);
+    const api = apiRef.current;
+    const a = api?.getCellElement(rowOrder[r0], colOrder[c0]);
+    const b = api?.getCellElement(rowOrder[r1], colOrder[c1]);
+    if (!a || !b) return;
+    const ra = a.getBoundingClientRect();
+    const rb = b.getBoundingClientRect();
+    const wrapRect = gridWrapRef.current.getBoundingClientRect();
+    setFillPreview({
+      top: Math.min(ra.top, rb.top) - wrapRect.top,
+      left: Math.min(ra.left, rb.left) - wrapRect.left,
+      width: Math.abs(rb.right - ra.left),
+      height: Math.abs(rb.bottom - ra.top),
+    });
+  }, [fillSource, getRowOrder, getColOrder, apiRef]);
 
   const handleFillPointerUp = useCallback(
     (e: React.PointerEvent<HTMLDivElement>) => {
       const drag = fillDragRef.current;
       fillDragRef.current = null;
+      setFillPreview(null);
       if (!drag) return;
       const target = fillTargetRef.current;
       fillTargetRef.current = null;
@@ -1661,7 +1720,8 @@ export function SheetViewerBlock({ config }: { config: Record<string, unknown> }
       if (aR === -1 || aC === -1) return;
       const grid = parseTsv(text);
       const rowsById = new Map(rows.map((r: any) => [r._rowIndex ?? r.id, r]));
-      const { cells, skipped } = buildPasteCells({
+      const anchorRow = rowsById.get(anchor.rowId) as Record<string, unknown> | undefined;
+      const { cells, skipped, newRows } = buildPasteCells({
         grid,
         anchorRowIdx: aR,
         anchorColIdx: aC,
@@ -1669,6 +1729,7 @@ export function SheetViewerBlock({ config }: { config: Record<string, unknown> }
         colOrder,
         rowsById,
         formulaMode,
+        anchorExcelRow: Number((anchorRow as any)?._excelRow) || undefined,
       });
       if (cells.length === 0) {
         showCopyToast(skipped > 0 ? 'Paste is outside the table bounds' : 'Nothing to paste');
@@ -1677,7 +1738,9 @@ export function SheetViewerBlock({ config }: { config: Record<string, unknown> }
       // Select the whole pasted rect (anchor → last pasted cell), Excel-style.
       const lastR = Math.min(aR + grid.length - 1, rowOrder.length - 1);
       const lastC = Math.min(aC + grid[0].length - 1, colOrder.length - 1);
-      void applyRangeWrite(cells, { r0: aR, c0: aC, r1: lastR, c1: lastC }, skipped > 0 ? `Pasted (${skipped} outside table)` : 'Pasted');
+      const extra = newRows > 0 ? ` + ${newRows} new row${newRows !== 1 ? 's' : ''}` : '';
+      const note = skipped > 0 ? ` (${skipped} outside table)` : '';
+      void applyRangeWrite(cells, { r0: aR, c0: aC, r1: lastR, c1: lastC }, `Pasted${extra}${note}`);
     },
     [lastClickedCell, getRowOrder, getColOrder, rows, formulaMode, applyRangeWrite, showCopyToast],
   );
@@ -1982,6 +2045,10 @@ export function SheetViewerBlock({ config }: { config: Record<string, unknown> }
     setCtxMenu(null);
     void copySelectedCells();
   }, [copySelectedCells]);
+  const handleContextClear = useCallback(() => {
+    setCtxMenu(null);
+    clearSelectedCells();
+  }, [clearSelectedCells]);
   const handleContextToggleColumn = useCallback(() => {
     if (ctxMenu?.column) dispatch(toggleColumn(ctxMenu.column));
     setCtxMenu(null);
@@ -1992,6 +2059,13 @@ export function SheetViewerBlock({ config }: { config: Record<string, unknown> }
     (params: GridCellParams, event: KeyboardEvent<HTMLElement>) => {
       if (event.key === 'Escape') {
         dispatch(clearCellSelection());
+        return;
+      }
+
+      // Excel Delete: clear the contents of every selected cell (one undo step).
+      if (event.key === 'Delete') {
+        event.preventDefault();
+        clearSelectedCells();
         return;
       }
 
@@ -2011,7 +2085,7 @@ export function SheetViewerBlock({ config }: { config: Record<string, unknown> }
         }
       }
     },
-    [dispatch, effectiveSelectionKeys.size, selectedCells, rowSelectionModel, handleCopySelection, copySelectedCells]
+    [dispatch, effectiveSelectionKeys.size, selectedCells, rowSelectionModel, handleCopySelection, copySelectedCells, clearSelectedCells]
   );
 
   const CustomToolbar = () => (
@@ -2244,6 +2318,25 @@ export function SheetViewerBlock({ config }: { config: Record<string, unknown> }
               sx={pinnedSx}
             />
 
+            {/* Fill drag preview: shows exactly which range will be written
+                while the handle is being dragged (cleared on release). */}
+            {fillPreview && (
+              <Box
+                sx={{
+                  position: 'absolute',
+                  top: fillPreview.top,
+                  left: fillPreview.left,
+                  width: fillPreview.width,
+                  height: fillPreview.height,
+                  zIndex: 30,
+                  pointerEvents: 'none',
+                  border: '2px dashed rgba(25,118,210,.7)',
+                  bgcolor: 'rgba(25,118,210,.12)',
+                  borderRadius: '2px',
+                }}
+              />
+            )}
+
             {/* Excel-style fill handle: bottom-right corner of the selected
                 block. Drag to fill adjacent cells (copy / numeric series /
                 formula refs shift). Hidden while editing or for non-contiguous
@@ -2301,6 +2394,9 @@ export function SheetViewerBlock({ config }: { config: Record<string, unknown> }
             </MenuItem>
             <MenuItem dense onClick={handleContextCopy} disabled={effectiveSelectionKeys.size === 0}>
               <ContentCopyIcon fontSize="small" sx={{ mr: 1 }} /> Copy selected cells
+            </MenuItem>
+            <MenuItem dense onClick={handleContextClear} disabled={effectiveSelectionKeys.size === 0}>
+              <DeleteIcon fontSize="small" sx={{ mr: 1 }} /> Clear contents (Del)
             </MenuItem>
             {ctxMenu?.target === 'column' && (
               <MenuItem dense onClick={handleContextToggleColumn}>

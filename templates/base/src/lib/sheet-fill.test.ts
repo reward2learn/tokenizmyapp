@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildFillCells, parseTsv, shiftFormulaRefs, textToCellValue } from '@/lib/sheet-fill';
+import { buildFillCells, buildPasteCells, parseTsv, shiftFormulaRefs, textToCellValue } from '@/lib/sheet-fill';
 
 const ROWS = [1, 2, 3, 4, 5, 6]; // _rowIndex ids
 const COLS = ['A', 'B', 'C', 'D'];
@@ -155,5 +155,84 @@ describe('parseTsv + textToCellValue', () => {
     expect(textToCellValue('1,000')).toBe('1,000');
     expect(textToCellValue('abc')).toBe('abc');
     expect(textToCellValue('')).toBe('');
+  });
+});
+
+// ── buildPasteCells (paste auto-extend) ────────────────────────────
+describe('buildPasteCells', () => {
+  const rowOrder = [1, 2, 3]; // page has 3 rows
+  const colOrder = ['A', 'B', 'C'];
+  const rowsById = new Map<number, Record<string, unknown>>([
+    [1, { _rowIndex: 1, _excelRow: 4, A: 1 }],
+    [2, { _rowIndex: 2, _excelRow: 5, A: 2 }],
+    [3, { _rowIndex: 3, _excelRow: 6, A: 3 }],
+  ]);
+
+  it('writes within the page using the row excel refs', () => {
+    const { cells, skipped, newRows } = buildPasteCells({
+      grid: [['x', 'y']],
+      anchorRowIdx: 1,
+      anchorColIdx: 1,
+      rowOrder,
+      colOrder,
+      rowsById,
+      formulaMode: false,
+      anchorExcelRow: 5,
+    });
+    expect(skipped).toBe(0);
+    expect(newRows).toBe(0);
+    expect(cells).toHaveLength(2);
+    expect(cells[0]).toMatchObject({ rowId: 2, field: 'B', value: 'x' });
+  });
+
+  it('auto-extends beyond the page into new workbook rows', () => {
+    const { cells, skipped, newRows } = buildPasteCells({
+      grid: [['a'], ['b'], ['c']],
+      anchorRowIdx: 2, // anchor = last visible row (rowId 3, excel row 6)
+      anchorColIdx: 0,
+      rowOrder,
+      colOrder,
+      rowsById,
+      formulaMode: false,
+      anchorExcelRow: 6,
+    });
+    // r=0 → row 3 (in page), r=1 → new row 7, r=2 → new row 8
+    expect(cells).toHaveLength(3);
+    expect(cells[0]).toMatchObject({ rowId: 3, field: 'A', value: 'a' });
+    expect(cells[0].excelRow).toBeUndefined(); // existing row uses its own ref
+    expect(cells[1]).toMatchObject({ field: 'A', value: 'b', excelRow: 7 });
+    expect(cells[2]).toMatchObject({ field: 'A', value: 'c', excelRow: 8 });
+    expect(newRows).toBe(2);
+    expect(skipped).toBe(0);
+  });
+
+  it('numbers stay numeric and formulas keep formulaMode on new rows', () => {
+    const { cells, newRows } = buildPasteCells({
+      grid: [['42'], ['=A7*2']],
+      anchorRowIdx: 2,
+      anchorColIdx: 0,
+      rowOrder,
+      colOrder,
+      rowsById,
+      formulaMode: true,
+      anchorExcelRow: 6,
+    });
+    expect(newRows).toBe(1);
+    expect(cells[0]).toMatchObject({ value: 42, formulaMode: false });
+    expect(cells[1]).toMatchObject({ value: '=A7*2', formulaMode: true, excelRow: 7 });
+  });
+
+  it('still skips cells beyond the column count', () => {
+    const { cells, skipped } = buildPasteCells({
+      grid: [['a', 'b', 'c', 'd']],
+      anchorRowIdx: 0,
+      anchorColIdx: 1, // B → only B, C fit
+      rowOrder,
+      colOrder,
+      rowsById,
+      formulaMode: false,
+    });
+    expect(cells.map((c) => c.field)).toEqual(['B', 'C']);
+    expect(skipped).toBe(2);
   });
 });
