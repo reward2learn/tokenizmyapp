@@ -1077,6 +1077,23 @@ export function SheetViewerBlock({ config }: { config: Record<string, unknown> }
       );
     });
 
+    // Excel-style alignment: numeric columns right-align, text columns
+    // left-align. A column counts as numeric when the majority of its
+    // non-empty values on the current page are JS numbers (dates arrive as
+    // Excel serial numbers, so they right-align too — like Excel).
+    const numericFields = new Set<string>();
+    orderedColumnFields.forEach((col) => {
+      let numeric = 0;
+      let other = 0;
+      for (const row of sd.rows) {
+        const v = row[col];
+        if (v === null || v === undefined || v === '') continue;
+        if (typeof v === 'number') numeric += 1;
+        else other += 1;
+      }
+      if (numeric > 0 && numeric >= other) numericFields.add(col);
+    });
+
     const gutterCol: GridColDef = {
       field: ROW_NUMBER_COL,
       headerName: '',
@@ -1119,6 +1136,8 @@ export function SheetViewerBlock({ config }: { config: Record<string, unknown> }
         return {
           field: col,
           headerName: col,
+          // Numeric columns right-align, text columns left-align (Excel-style).
+          align: numericFields.has(col) ? ('right' as const) : ('left' as const),
           // Saved/live (persisted) widths apply to EVERY column — including
           // freeze-pane (pinned) columns — so a resized pinned column keeps
           // its width across reloads. Unsaved columns flex to fill space.

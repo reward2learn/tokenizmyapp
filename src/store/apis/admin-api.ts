@@ -10,7 +10,7 @@ import type { AdminGroupView } from '@/app/api/admin/groups/route';
 export const adminApi = createApi({
   reducerPath: 'adminApi',
   baseQuery,
-  tagTypes: ['RoleConfig', 'AdminConversations', 'AdminUsers', 'AdminGroups', 'SeedData', 'AiContent', 'BrandConfig', 'Navigation'],
+  tagTypes: ['RoleConfig', 'AdminConversations', 'AdminUsers', 'AdminGroups', 'SeedData', 'AiContent', 'BrandConfig', 'Navigation', 'AppPack'],
   endpoints: (builder) => ({
     listRoleConfigs: builder.query<ApiEnvelope<{ roles: RoleConfigView[] }>, void>({
       query: () => 'admin/roles',
@@ -206,6 +206,45 @@ export const adminApi = createApi({
       }),
       invalidatesTags: ['Navigation'],
     }),
+
+    /** POST /api/admin/app-pack/generate — start app pack generation */
+    generateAppPack: builder.mutation<ApiEnvelope<{ runId: string }>, { prompt: string; mock: boolean; tenantSlug: string }>({
+      query: (body) => ({
+        url: 'admin/app-pack/generate',
+        method: 'POST',
+        body,
+      }),
+      invalidatesTags: ['AppPack'],
+    }),
+    /** GET /api/admin/app-pack/generate/status — get generation status */
+    getAppPackStatus: builder.query<ApiEnvelope<{
+      status: string;
+      runId: string;
+      error?: string;
+      result?: {
+        packId: string;
+        name: string;
+        mock: boolean;
+        ceoPurpose: string;
+        ceoKpis: string[];
+        apps: Array<{
+          appId: string;
+          appName: string;
+          department: string;
+          w3cStandard: string;
+          models: number;
+          useCases: number;
+          pages: number;
+          knowledgeSnippets: number;
+          uxStages: number;
+        }>;
+        counts: { apps: number; pages: number; sections: number; nav: number; snippets: number; groups: number };
+        zmodel: string;
+      };
+    }>, string>({
+      query: (runId) => `admin/app-pack/generate/status?runId=${encodeURIComponent(runId)}`,
+      providesTags: ['AppPack'],
+    }),
     /** POST /api/admin/populate-sheet-pages — sync sheet pages into navigation */
     populateSheetPages: builder.mutation<ApiEnvelope<{ created: number; parentId: string; totalSheets: number }>, { parentId?: string; parentTitle?: string }>({
       query: (body) => ({
@@ -243,4 +282,6 @@ export const {
   useUpdateNavigationItemsMutation,
   useDeleteNavigationItemsMutation,
   usePopulateSheetPagesMutation,
+  useGenerateAppPackMutation,
+  useGetAppPackStatusQuery,
 } = adminApi;

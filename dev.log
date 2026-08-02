@@ -1,0 +1,89 @@
+$ next dev
+▲ Next.js 16.2.11 (Turbopack)
+- Local:         http://localhost:3000
+- Network:       http://192.168.89.225:3000
+- Environments: .env.local
+✓ Ready in 235ms
+workflows build complete (26 steps, 2 workflows, time 26ms)
+⚠ Warning: Next.js inferred your workspace root, but it may not be correct.
+ We detected multiple lockfiles and selected the directory of /Users/iliashapiro/RedRuby-FPA/bun.lock as the root directory.
+ To silence this warning, set `turbopack.root` in your Next.js config, or consider removing one of the lockfiles if it's not needed.
+   See https://nextjs.org/docs/app/api-reference/config/next-config-js/turbopack#root-directory for more information.
+ Detected additional lockfiles: 
+   * /Users/iliashapiro/RedRuby-FPA/tokenizmyapp/package-lock.json
+
+
+ POST /api/admin/app-pack/generate 401 in 312ms (next.js: 220ms, proxy.ts: 83ms, application-code: 9ms)
+[auth/verify-pin] ensureSecurityTables failed (continuing): Error [PrismaClientKnownRequestError]: 
+Invalid `prisma.$executeRawUnsafe()` invocation:
+
+
+Raw query failed. Code: `23502`. Message: `Failing row contains (null, admin, reward2learn@gmail.com, Platform Admin, google, platform-admin, t, 2026-08-02 11:06:40.841, 2026-08-02 11:06:40.841, 2026-08-02 11:06:40.841, null).`
+    at ri.handleRequestError (src/generated/prisma/runtime/library.js:124:7459)
+    at ri.handleAndLogRequestError (src/generated/prisma/runtime/library.js:124:6784)
+    at ri.request (src/generated/prisma/runtime/library.js:124:6491)
+    at async l (src/generated/prisma/runtime/library.js:133:9812)
+    at async (src/lib/db-migrate.ts:295:5)
+    at async withRetry (src/lib/db-migrate.ts:81:14)
+    at async ensureSecurityTables (src/lib/db-migrate.ts:294:3)
+    at async handleVerifyPin (src/app/api/auth/route.ts:328:7)
+  122 | ...
+  123 | ...
+> 124 | ...t u=s?{modelName:s,...r.meta}:r.meta;throw new z(l,{code:r.code,clientVersion:this.cli...
+      |                                               ^
+  125 | ...
+  126 | ...
+  127 | ... {
+  code: 'P2010',
+  meta: {
+    code: '23502',
+    message: 'Failing row contains (null, admin, reward2learn@gmail.com, Platform Admin, google, platform-admin, t, 2026-08-02 11:06:40.841, 2026-08-02 11:06:40.841, 2026-08-02 11:06:40.841, null).'
+  },
+  clientVersion: '6.12.0'
+}
+ POST /api/auth?action=verify-pin 200 in 60s (next.js: 290ms, proxy.ts: 3ms, application-code: 60s)
+[auth/resolveSessionGroups] ensureSecurityTables failed: PrismaClientKnownRequestError: 
+Invalid `prisma.$executeRawUnsafe()` invocation:
+
+
+Raw query failed. Code: `23502`. Message: `Failing row contains (null, admin, reward2learn@gmail.com, Platform Admin, google, platform-admin, t, 2026-08-02 11:07:23.524, 2026-08-02 11:07:23.524, 2026-08-02 11:07:23.524, null).`
+    at ri.handleRequestError (/Users/iliashapiro/RedRuby-FPA/tokenizmyapp/.next/dev/server/chunks/[root-of-the-server]__10om0jw._.js:7372:19)
+    at ri.handleAndLogRequestError (/Users/iliashapiro/RedRuby-FPA/tokenizmyapp/.next/dev/server/chunks/[root-of-the-server]__10om0jw._.js:7335:18)
+    at ri.request (/Users/iliashapiro/RedRuby-FPA/tokenizmyapp/.next/dev/server/chunks/[root-of-the-server]__10om0jw._.js:7316:18)
+    at async l (/Users/iliashapiro/RedRuby-FPA/tokenizmyapp/.next/dev/server/chunks/[root-of-the-server]__10om0jw._.js:7997:25)
+    at async /Users/iliashapiro/RedRuby-FPA/tokenizmyapp/.next/dev/server/chunks/[root-of-the-server]__10om0jw._.js:15521:9
+    at async withRetry (/Users/iliashapiro/RedRuby-FPA/tokenizmyapp/.next/dev/server/chunks/[root-of-the-server]__10om0jw._.js:15332:20)
+    at async ensureSecurityTables (/Users/iliashapiro/RedRuby-FPA/tokenizmyapp/.next/dev/server/chunks/[root-of-the-server]__10om0jw._.js:15520:5)
+    at async resolveSessionGroups (/Users/iliashapiro/RedRuby-FPA/tokenizmyapp/.next/dev/server/chunks/[root-of-the-server]__10om0jw._.js:15899:9)
+    at async handleVerifyPin (/Users/iliashapiro/RedRuby-FPA/tokenizmyapp/.next/dev/server/chunks/[root-of-the-server]__10om0jw._.js:16089:30)
+    at async AppRouteRouteModule.do (/Users/iliashapiro/RedRuby-FPA/tokenizmyapp/node_modules/next/dist/compiled/next-server/app-route-turbo.runtime.dev.js:5:40255)
+    at async AppRouteRouteModule.handle (/Users/iliashapiro/RedRuby-FPA/tokenizmyapp/node_modules/next/dist/compiled/next-server/app-route-turbo.runtime.dev.js:5:47535)
+    at async responseGenerator (/Users/iliashapiro/RedRuby-FPA/tokenizmyapp/.next/dev/server/chunks/065r_next_1x7_d1x._.js:17935:38)
+    at async AppRouteRouteModule.handleResponse (/Users/iliashapiro/RedRuby-FPA/tokenizmyapp/node_modules/next/dist/compiled/next-server/app-route-turbo.runtime.dev.js:1:229143)
+    at async handleResponse (/Users/iliashapiro/RedRuby-FPA/tokenizmyapp/.next/dev/server/chunks/065r_next_1x7_d1x._.js:17998:32)
+    at async Module.handler (/Users/iliashapiro/RedRuby-FPA/tokenizmyapp/.next/dev/server/chunks/065r_next_1x7_d1x._.js:18052:13)
+    at async DevServer.renderToResponseWithComponentsImpl (/Users/iliashapiro/RedRuby-FPA/tokenizmyapp/node_modules/next/dist/server/base-server.js:1462:9)
+    at async DevServer.renderPageComponent (/Users/iliashapiro/RedRuby-FPA/tokenizmyapp/node_modules/next/dist/server/base-server.js:1514:24)
+    at async DevServer.renderToResponseImpl (/Users/iliashapiro/RedRuby-FPA/tokenizmyapp/node_modules/next/dist/server/base-server.js:1564:32)
+    at async DevServer.pipeImpl (/Users/iliashapiro/RedRuby-FPA/tokenizmyapp/node_modules/next/dist/server/base-server.js:1044:25)
+    at async NextNodeServer.handleCatchallRenderRequest (/Users/iliashapiro/RedRuby-FPA/tokenizmyapp/node_modules/next/dist/server/next-server.js:338:17)
+    at async DevServer.handleRequestImpl (/Users/iliashapiro/RedRuby-FPA/tokenizmyapp/node_modules/next/dist/server/base-server.js:935:17)
+    at async /Users/iliashapiro/RedRuby-FPA/tokenizmyapp/node_modules/next/dist/server/dev/next-dev-server.js:394:20
+    at async Span.traceAsyncFn (/Users/iliashapiro/RedRuby-FPA/tokenizmyapp/node_modules/next/dist/trace/trace.js:164:20)
+    at async DevServer.handleRequest (/Users/iliashapiro/RedRuby-FPA/tokenizmyapp/node_modules/next/dist/server/dev/next-dev-server.js:390:24)
+    at async invokeRender (/Users/iliashapiro/RedRuby-FPA/tokenizmyapp/node_modules/next/dist/server/lib/router-server.js:266:21)
+    at async handleRequest (/Users/iliashapiro/RedRuby-FPA/tokenizmyapp/node_modules/next/dist/server/lib/router-server.js:465:24)
+    at async requestHandlerImpl (/Users/iliashapiro/RedRuby-FPA/tokenizmyapp/node_modules/next/dist/server/lib/router-server.js:514:13)
+    at async Server.requestListener (/Users/iliashapiro/RedRuby-FPA/tokenizmyapp/node_modules/next/dist/server/lib/start-server.js:225:13)
+[auth/resolveSessionGroups] upsertUserAccount succeeded: {"id":"41423542-308b-4531-a54a-e40de937eb4d","sub":"admin","name":"Admin","tier":"pin"}
+[auth/verify-pin] Error: ENCRYPTION_KEY not set
+    at getJwtSecret (src/lib/auth/jwt.ts:36:19)
+    at signSession (src/lib/auth/jwt.ts:52:11)
+    at handleVerifyPin (src/app/api/auth/route.ts:434:36)
+  34 | function getJwtSecret(): Uint8Array {
+  35 |   const key = process.env.ENCRYPTION_KEY;
+> 36 |   if (!key) throw new Error('ENCRYPTION_KEY not set');
+     |                   ^
+  37 |   // Match legacy auth-lib.js: first 32 chars of hex string as UTF-8 key material
+  38 |   return new TextEncoder().encode(key.slice(0, 32));
+  39 | }

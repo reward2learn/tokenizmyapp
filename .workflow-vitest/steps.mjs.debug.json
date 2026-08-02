@@ -1,9 +1,11 @@
 {
   "stepFiles": [
     "/Users/iliashapiro/RedRuby-FPA/tokenizmyapp/node_modules/workflow/dist/stdlib.js",
+    "/Users/iliashapiro/RedRuby-FPA/tokenizmyapp/workflows/app-pack-generate/steps.ts",
     "/Users/iliashapiro/RedRuby-FPA/tokenizmyapp/workflows/workbook-ingest/steps.ts"
   ],
   "workflowFiles": [
+    "/Users/iliashapiro/RedRuby-FPA/tokenizmyapp/workflows/app-pack-generate/index.ts",
     "/Users/iliashapiro/RedRuby-FPA/tokenizmyapp/workflows/workbook-ingest/index.ts"
   ],
   "serdeOnlyFiles": [

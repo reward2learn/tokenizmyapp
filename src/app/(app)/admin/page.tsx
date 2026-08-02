@@ -39,6 +39,7 @@ import { BrandConfigTab } from '@/components/ops-admin/brand-config-tab';
 import { NavigationManager } from '@/components/ops-admin/navigation-manager';
 import { TenantInfoTab } from '@/components/ops-admin/tenant-info-tab';
 import { TenantDashboard } from '@/components/ops-admin/tenant-dashboard';
+import { AppPackTab } from '@/components/ops-admin/app-pack-tab';
 import { getClientTenantConfig } from '@shared/lib/config/tenant';
 import {
   useListRoleConfigsQuery,
@@ -1026,8 +1027,8 @@ export default function AdminPage() {
   const isMobile = useMediaQuery(theme.breakpoints.down('md'));
   const isTokenizmyapp = getClientTenantConfig().slug === 'tokenizmyapp';
   const adminTabs = isTokenizmyapp
-    ? ['Tenants', 'Tenant Info', 'Navigation', 'Brand Config', 'Security Groups', 'Accounts', 'Roles', 'AI Chat']
-    : ['Tenant Info', 'Navigation', 'Brand Config', 'Security Groups', 'Accounts', 'Roles', 'AI Chat'];
+    ? ['Tenants', 'Tenant Info', 'Navigation', 'Brand Config', 'Security Groups', 'Accounts', 'Roles', 'AI Chat', 'AI App Pack']
+    : ['Tenant Info', 'Navigation', 'Brand Config', 'Security Groups', 'Accounts', 'Roles', 'AI Chat', 'AI App Pack'];
 
   return (
     <PlatformAdminGate
@@ -1076,6 +1077,7 @@ export default function AdminPage() {
           {tab === (isTokenizmyapp ? 5 : 4) ? <UserManager /> : null}
           {tab === (isTokenizmyapp ? 6 : 5) ? <RoleManager /> : null}
           {tab === (isTokenizmyapp ? 7 : 6) ? <ConversationManager /> : null}
+          {tab === (isTokenizmyapp ? 8 : 7) ? <AppPackTab /> : null}
         </Stack>
       </Box>
     </PlatformAdminGate>
