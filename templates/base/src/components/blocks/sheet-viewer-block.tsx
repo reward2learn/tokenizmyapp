@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useState, useRef, type KeyboardEvent } from 'react';
+import { createPortal } from 'react-dom';
 import dynamic from 'next/dynamic';
 import Box from '@mui/material/Box';
 import CircularProgress from '@mui/material/CircularProgress';
@@ -24,10 +25,13 @@ import SettingsIcon from '@mui/icons-material/Settings';
 import MoreHorizIcon from '@mui/icons-material/MoreHoriz';
 import FunctionsIcon from '@mui/icons-material/Functions';
 import AdsClickIcon from '@mui/icons-material/AdsClick';
+import CheckIcon from '@mui/icons-material/Check';
+import CloseIcon from '@mui/icons-material/Close';
 import RefreshIcon from '@mui/icons-material/Refresh';
 import TouchAppIcon from '@mui/icons-material/TouchApp';
 import ChatIcon from '@mui/icons-material/Chat';
 import Button from '@mui/material/Button';
+import Chip from '@mui/material/Chip';
 import type {
   GridColDef,
   GridValidRowModel,
@@ -112,19 +116,72 @@ export interface FormulaPickerHandle {
   active: boolean;
   /** Appends a cell reference (e.g. "D6") to the formula being edited. */
   append: (ref: string, isRangeEnd: boolean) => void;
+  /** Re-anchors the floating formula popup after grid scroll / window resize. */
+  reposition?: () => void;
+}
+
+// ── Formula structure helpers (shared by the editor + pill popup) ─────────────────────────────────
+const FN_IDENT_RE = /^[A-Za-z][A-Za-z0-9_.]*$/;
+
+interface FormulaParts {
+  /** Function name ('' when the formula isn't a simple FN(...) form). */
+  fn: string;
+  /** Top-level comma-separated arguments inside the parens. */
+  args: string[];
+  /** Text after '=' when the formula isn't a simple FN(...) form. */
+  tail: string;
 }
 
 /**
- * Custom edit cell — the in-cell Excel formula builder.
+ * Splits an in-progress formula ("=SUM(V46,") into its visible parts: the
+ * function name and its top-level arguments. Free-form expressions without
+ * a leading function ("=V46*2") are kept whole in `tail` so the pill popup
+ * never loses user-typed text.
+ */
+function parseFormulaParts(value: string): FormulaParts {
+  const text = value.startsWith('=') ? value.slice(1) : value;
+  const openIdx = text.indexOf('(');
+  if (openIdx === -1) return { fn: '', args: [], tail: text };
+  const head = text.slice(0, openIdx).trim();
+  if (!FN_IDENT_RE.test(head)) return { fn: '', args: [], tail: text };
+  const args: string[] = [];
+  let depth = 0;
+  let cur = '';
+  for (const ch of text.slice(openIdx + 1)) {
+    if (ch === '(') {
+      depth++;
+    } else if (ch === ')') {
+      if (depth === 0) break;
+      depth--;
+    } else if (ch === ',' && depth === 0) {
+      args.push(cur.trim());
+      cur = '';
+      continue;
+    }
+    cur += ch;
+  }
+  if (cur.trim() !== '') args.push(cur.trim());
+  if (args[args.length - 1] === '') args.pop(); // "=SUM(V46," -> one arg
+  return { fn: head, args, tail: text };
+}
+
+function buildFormulaText(fn: string, args: string[]): string {
+  return `=${fn}(${args.join(',')})`;
+}
+
+/**
+ * Custom edit cell — the Excel formula builder with a part-by-part popup.
  *
  * When the edited value starts with "=" (existing formula cell or the user
- * just typed "="), the editor becomes a mini formula bar:
- *   - "ƒ" opens a dropdown of Excel functions grouped by category; picking one
- *     inserts "FUNCTION(" at the cursor (✓ marks functions the server can
- *     calculate immediately).
- *   - The "pick cells" button enters picking mode: clicking grid cells appends
- *     their Excel references (e.g. "D6"), Shift+click appends a range
- *     (":D9"). Enter commits, Escape cancels.
+ * just typed "="), the in-cell editor keeps a compact text field for typing
+ * plus a floating popup that lays out each part of the formula as pills:
+ *   - "=" prefix + the function pill (opens the grouped ƒ dropdown; ✓
+ *     marks functions the server can calculate immediately),
+ *   - one pill per argument ("V46", "V46:V54") — click to make it the
+ *     active slot, ✕ deletes it, "+" adds another,
+ *   - a pick-cells toggle: while active, clicking grid cells fills the
+ *     active argument (plain click = set/append, Shift+click = extend into
+ *     a range), then ✓ applies the formula (Enter) / ✕ cancels (Escape).
  * Non-formula edits keep the default MUI cell editor.
  */
 function FormulaEditCell(
@@ -135,6 +192,10 @@ function FormulaEditCell(
   const formula = row[`${field}_formula`];
   const [picker, setPicker] = useState(false);
   const [fnAnchor, setFnAnchor] = useState<null | HTMLElement>(null);
+  // Which argument pill receives the next picked cell reference.
+  const [activeArg, setActiveArg] = useState<number | null>(null);
+  // Fixed position of the floating formula popup (anchored to the cell).
+  const [popupPos, setPopupPos] = useState<{ top: number; left: number } | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const fnBtnRef = useRef<HTMLButtonElement>(null);
   // Guards the one-time seed below so user edits are never reverted, and holds
@@ -156,6 +217,10 @@ function FormulaEditCell(
   }, [api, id, field]);
 
   const isFormulaMode = typeof value === 'string' && value.startsWith('=');
+  const parts = useMemo(
+    () => (isFormulaMode ? parseFormulaParts(value) : { fn: '', args: [], tail: '' }),
+    [value, isFormulaMode],
+  );
 
   // Auto-open the function list right after the user types "="
   useEffect(() => {
@@ -164,37 +229,74 @@ function FormulaEditCell(
     }
   }, [isFormulaMode, value]);
 
-  const insertFunction = (fn: string) => {
-    const el = inputRef.current;
-    const cur = latestRef.current;
-    const start = el?.selectionStart ?? cur.length;
-    const end = el?.selectionEnd ?? start;
-    const text = `${fn}(`;
-    const next = cur.slice(0, start) + text + cur.slice(end);
-    latestRef.current = next;
-    api.setEditCellValue({ id, field, value: next, debounceMs: 0 });
+  const applyValue = useCallback(
+    (next: string) => {
+      latestRef.current = next;
+      api.setEditCellValue({ id, field, value: next, debounceMs: 0 });
+    },
+    [api, id, field],
+  );
+
+  const setFunction = (fn: string) => {
+    const cur = parseFormulaParts(latestRef.current);
+    // Keep existing arguments when switching functions; start with one empty
+    // slot when there are none so the user can immediately pick cells.
+    const args = cur.fn ? (cur.args.length > 0 ? cur.args : ['']) : [''];
+    applyValue(buildFormulaText(fn, args));
     setFnAnchor(null);
-    // Excel-style point mode: after choosing a function, cell clicks append
-    // references immediately (no need to press the pick button first).
+    setActiveArg(0);
     setPicker(true);
-    requestAnimationFrame(() => {
-      el?.focus();
-      const pos = start + text.length;
-      el?.setSelectionRange(pos, pos);
+  };
+
+  const append = useCallback(
+    (ref: string, isRangeEnd: boolean) => {
+      const cur = parseFormulaParts(latestRef.current);
+      if (!cur.fn) {
+        // Free-form expression: plain click replaces it, Shift+click extends a range.
+        const tail = cur.tail;
+        applyValue(isRangeEnd ? `=${tail ? `${tail}:` : ''}${ref}` : `=${ref}`);
+        return;
+      }
+      const args = [...cur.args];
+      if (args.length === 0) args.push('');
+      const target = activeArg !== null && activeArg < args.length ? activeArg : args.length - 1;
+      if (isRangeEnd) {
+        // Extend the active slot into / within a range ("V46" -> "V46:V54").
+        const slot = args[target] ?? '';
+        const colon = slot.indexOf(':');
+        args[target] = colon !== -1 ? `${slot.slice(0, colon)}:${ref}` : `${slot}:${ref}`;
+      } else if (activeArg !== null && activeArg < args.length) {
+        args[activeArg] = ref; // replace the active slot
+      } else {
+        args.push(ref); // append a new argument (Excel point-mode)
+      }
+      applyValue(buildFormulaText(cur.fn, args));
+    },
+    [activeArg, applyValue],
+  );
+
+  const addArg = () => {
+    const cur = parseFormulaParts(latestRef.current);
+    if (!cur.fn) return;
+    const args = [...cur.args, ''];
+    applyValue(buildFormulaText(cur.fn, args));
+    setActiveArg(args.length - 1);
+    setPicker(true);
+  };
+
+  const removeArg = (idx: number) => {
+    const cur = parseFormulaParts(latestRef.current);
+    if (!cur.fn) return;
+    applyValue(buildFormulaText(cur.fn, cur.args.filter((_, i) => i !== idx)));
+    setActiveArg((a) => {
+      if (a === null || a === idx) return null;
+      return a > idx ? a - 1 : a;
     });
   };
 
-  const append = (ref: string, isRangeEnd: boolean) => {
-    const cur = latestRef.current;
-    let next: string;
-    if (isRangeEnd) {
-      next = cur + ':' + ref;
-    } else {
-      const last = cur[cur.length - 1];
-      next = cur + (last === undefined || '(,+-*/^:'.includes(last) ? '' : ',') + ref;
-    }
-    latestRef.current = next;
-    api.setEditCellValue({ id, field, value: next, debounceMs: 0 });
+  const activateArg = (idx: number) => {
+    setActiveArg(idx);
+    setPicker(true);
   };
 
   // Excel-style auto-completion on commit: close any open parentheses so the
@@ -206,13 +308,55 @@ function FormulaEditCell(
     return opens > closes ? cur + ')'.repeat(opens - closes) : cur;
   };
 
-  // Expose picker state to the grid-level click handler
+  const commitEdit = () => {
+    const cur = parseFormulaParts(latestRef.current);
+    // Rebuild from the pills when editing a FN(...) form (normalizes trailing
+    // commas); otherwise just auto-close unclosed parens.
+    const finalValue = cur.fn ? buildFormulaText(cur.fn, cur.args) : commitValue();
+    applyValue(finalValue);
+    api.stopCellEditMode({ id, field });
+  };
+
+  const cancelEdit = () => {
+    api.stopCellEditMode({ id, field, ignoreModifications: true });
+  };
+
+  // ── Floating popup positioning (anchored to the edited cell) ────────────────────────────
+  const computePopupPos = useCallback((): { top: number; left: number } | null => {
+    const el = api.getCellElement(id, field);
+    if (!el) return null;
+    const rect = el.getBoundingClientRect();
+    const barHeight = 64; // approximate popup height + gap
+    let top = rect.bottom + 6;
+    if (top + barHeight > window.innerHeight) top = Math.max(4, rect.top - barHeight);
+    return { top, left: rect.left };
+  }, [api, id, field]);
+
   useEffect(() => {
-    pickerRef.current = { active: picker, append };
+    if (!isFormulaMode) {
+      setPopupPos(null);
+      return;
+    }
+    setPopupPos(computePopupPos());
+  }, [isFormulaMode, computePopupPos]);
+
+  // Keep the popup glued to the cell when the window resizes.
+  useEffect(() => {
+    if (!isFormulaMode) return;
+    const onResize = () => setPopupPos(computePopupPos());
+    window.addEventListener('resize', onResize);
+    return () => window.removeEventListener('resize', onResize);
+  }, [isFormulaMode, computePopupPos]);
+
+  const reposition = useCallback(() => setPopupPos(computePopupPos()), [computePopupPos]);
+
+  // Expose picker state + popup repositioning to the grid-level handlers.
+  useEffect(() => {
+    pickerRef.current = { active: picker, append, reposition };
     return () => {
       if (pickerRef.current) pickerRef.current = null;
     };
-  }, [picker, append, pickerRef]);
+  }, [picker, append, reposition, pickerRef]);
 
   if (!isFormulaMode) {
     const { pickerRef: _pickerRef, ...rest } = props;
@@ -220,72 +364,144 @@ function FormulaEditCell(
   }
 
   return (
-    <Box
-      data-formula-editor
-      sx={{ display: 'flex', alignItems: 'center', gap: 0.25, width: '100%', minWidth: 260 }}
-    >
-      <TextField
-        inputRef={inputRef}
-        autoFocus
-        fullWidth
-        size="small"
-        variant="standard"
-        value={value}
-        onChange={(e) => api.setEditCellValue({ id, field, value: e.target.value, debounceMs: 0 })}
-        onKeyDown={(e) => {
-          if (e.key === 'Enter') {
-            e.stopPropagation();
-            // Auto-close open parens, then commit — processRowUpdate sends the
-            // formula to the server, which computes and returns the value.
-            const finalValue = commitValue();
-            api.setEditCellValue({ id, field, value: finalValue, debounceMs: 0 });
-            api.stopCellEditMode({ id, field });
-          } else if (e.key === 'Escape') {
-            e.stopPropagation();
-            api.stopCellEditMode({ id, field, ignoreModifications: true });
-          }
-        }}
-        onFocus={(e) => e.target.select()}
-        placeholder="=FUNCTION(cell refs…)"
-        slotProps={{ input: { sx: { fontSize: '0.8125rem', py: 0 } } }}
-      />
-      <Tooltip title="Insert Excel function">
-        <IconButton ref={fnBtnRef} size="small" onClick={(e) => setFnAnchor(e.currentTarget)}>
-          <FunctionsIcon fontSize="small" />
-        </IconButton>
-      </Tooltip>
-      <Tooltip
-        title={
-          picker
-            ? 'Picking cells: click to add a reference, Shift+click for a range. Enter to finish.'
-            : 'Pick cells from the sheet to insert into the formula'
-        }
+    <>
+      <Box
+        data-formula-editor
+        sx={{ display: 'flex', alignItems: 'center', gap: 0.25, width: '100%', minWidth: 260 }}
       >
-        <IconButton size="small" color={picker ? 'primary' : 'default'} onClick={() => setPicker((p) => !p)}>
-          <AdsClickIcon fontSize="small" />
-        </IconButton>
-      </Tooltip>
-      <Menu anchorEl={fnAnchor} open={Boolean(fnAnchor)} onClose={() => setFnAnchor(null)}>
-        {FORMULA_FUNCTIONS.map((g) => [
-          <ListSubheader key={g.group} sx={{ bgcolor: 'background.paper', lineHeight: '28px' }}>
-            {g.group}
-          </ListSubheader>,
-          ...g.fns.map((fn) => (
-            <MenuItem key={fn} dense onClick={() => insertFunction(fn)} sx={{ justifyContent: 'space-between', gap: 3 }}>
-              {fn}
-              {EVALUABLE_FORMULAS.has(fn) && (
-                <Typography variant="caption" color="text.secondary">✓ instant</Typography>
-              )}
-            </MenuItem>
-          )),
-        ])}
-      </Menu>
-      {picker && (
-        <Typography variant="caption" color="primary" sx={{ whiteSpace: 'nowrap' }}>
-          click cells…
-        </Typography>
-      )}
-    </Box>
+        <TextField
+          inputRef={inputRef}
+          autoFocus
+          fullWidth
+          size="small"
+          variant="standard"
+          value={value}
+          onChange={(e) => applyValue(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') {
+              e.stopPropagation();
+              commitEdit();
+            } else if (e.key === 'Escape') {
+              e.stopPropagation();
+              cancelEdit();
+            }
+          }}
+          onFocus={(e) => e.target.select()}
+          placeholder="=FUNCTION(cell refs…)"
+          slotProps={{ input: { sx: { fontSize: '0.8125rem', py: 0 } } }}
+        />
+        <Tooltip title="Insert Excel function">
+          <IconButton ref={fnBtnRef} size="small" onClick={(e) => setFnAnchor(e.currentTarget)}>
+            <FunctionsIcon fontSize="small" />
+          </IconButton>
+        </Tooltip>
+        <Menu anchorEl={fnAnchor} open={Boolean(fnAnchor)} onClose={() => setFnAnchor(null)}>
+          {FORMULA_FUNCTIONS.map((g) => [
+            <ListSubheader key={g.group} sx={{ bgcolor: 'background.paper', lineHeight: '28px' }}>
+              {g.group}
+            </ListSubheader>,
+            ...g.fns.map((fn) => (
+              <MenuItem key={fn} dense onClick={() => setFunction(fn)} sx={{ justifyContent: 'space-between', gap: 3 }}>
+                {fn}
+                {EVALUABLE_FORMULAS.has(fn) && (
+                  <Typography variant="caption" color="text.secondary">✓ instant</Typography>
+                )}
+              </MenuItem>
+            )),
+          ])}
+        </Menu>
+      </Box>
+
+      {popupPos &&
+        createPortal(
+          <Box
+            data-formula-builder
+            sx={{
+              position: 'fixed',
+              top: popupPos.top,
+              left: popupPos.left,
+              zIndex: 1400,
+              display: 'flex',
+              alignItems: 'center',
+              gap: 0.5,
+              flexWrap: 'wrap',
+              maxWidth: 'min(760px, calc(100vw - 12px))',
+              bgcolor: 'background.paper',
+              border: '1px solid',
+              borderColor: 'divider',
+              borderRadius: 2,
+              boxShadow: 6,
+              px: 1,
+              py: 0.5,
+            }}
+          >
+            <Typography variant="caption" sx={{ fontWeight: 700, color: 'text.secondary' }}>
+              =
+            </Typography>
+            {parts.fn ? (
+              <>
+                <Chip
+                  size="small"
+                  label={parts.fn}
+                  color="primary"
+                  onClick={(e) => setFnAnchor(e.currentTarget)}
+                  sx={{ fontWeight: 600 }}
+                />
+                {parts.args.map((arg, idx) => (
+                  <Chip
+                    key={idx}
+                    size="small"
+                    label={arg === '' ? `range ${idx + 1}` : arg}
+                    color={activeArg === idx ? 'primary' : 'default'}
+                    variant={activeArg === idx ? 'filled' : 'outlined'}
+                    onClick={() => activateArg(idx)}
+                    onDelete={() => removeArg(idx)}
+                    sx={{ fontFamily: 'monospace' }}
+                  />
+                ))}
+                <Chip
+                  size="small"
+                  label="+"
+                  variant="outlined"
+                  onClick={addArg}
+                  sx={{ minWidth: 30, fontWeight: 700 }}
+                />
+              </>
+            ) : (
+              <Chip
+                size="small"
+                label={parts.tail === '' ? 'expression' : parts.tail}
+                variant="outlined"
+                color={activeArg === 0 ? 'primary' : 'default'}
+                onClick={() => activateArg(0)}
+                sx={{ fontFamily: 'monospace' }}
+              />
+            )}
+            <Tooltip
+              title={
+                picker
+                  ? 'Picking cells: click a cell to add it (Shift+click = range).'
+                  : 'Pick cells from the sheet'
+              }
+            >
+              <IconButton size="small" color={picker ? 'primary' : 'default'} onClick={() => setPicker((p) => !p)}>
+                <AdsClickIcon fontSize="small" />
+              </IconButton>
+            </Tooltip>
+            <Tooltip title="Apply formula (Enter)">
+              <IconButton size="small" color="success" onClick={commitEdit}>
+                <CheckIcon fontSize="small" />
+              </IconButton>
+            </Tooltip>
+            <Tooltip title="Cancel (Esc)">
+              <IconButton size="small" onClick={cancelEdit}>
+                <CloseIcon fontSize="small" />
+              </IconButton>
+            </Tooltip>
+          </Box>,
+          document.body,
+        )}
+    </>
   );
 }
 
@@ -1355,6 +1571,9 @@ export function SheetViewerBlock({ config }: { config: Record<string, unknown> }
             onPointerUp={handleGridPointerUp}
             onPointerCancel={handleGridPointerUp}
             onMouseDownCapture={handleGridMouseDownCapture}
+            // Grid-internal scrolling doesn't reposition portaled popups, so
+            // re-anchor the floating formula builder on every scroll.
+            onScrollCapture={() => formulaPickerRef.current?.reposition?.()}
           >
             <DataGrid
               rows={rows}
