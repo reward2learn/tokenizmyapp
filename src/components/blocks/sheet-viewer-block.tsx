@@ -35,6 +35,9 @@ import CloseIcon from '@mui/icons-material/Close';
 import RefreshIcon from '@mui/icons-material/Refresh';
 import TouchAppIcon from '@mui/icons-material/TouchApp';
 import ChatIcon from '@mui/icons-material/Chat';
+import UndoIcon from '@mui/icons-material/Undo';
+import RedoIcon from '@mui/icons-material/Redo';
+import ContentCopyIcon from '@mui/icons-material/ContentCopy';
 import Button from '@mui/material/Button';
 import Chip from '@mui/material/Chip';
 import type {
@@ -54,9 +57,11 @@ import type { UpdateSheetCellParams, SheetDataResponse } from '@/store/apis/shee
 import { useAppDispatch, useAppSelector } from '@/store/hooks';
 import { sendStreamingMessage } from '@/store/chat-stream-slice';
 import { setChatDrawerOpen } from '@/store/ui-slice';
+import { pushSheetChange, requestUndo, requestRedo, selectCanUndo, selectCanRedo } from '@/store/undo-redo-slice';
 import { buildCellsPrompt, type PromptRow } from '@/lib/sheet-prompt';
 import {
   setFormulaMode,
+  selectSingleCell,
   toggleCell,
   shiftSelectRange,
   dragStart,
@@ -850,6 +855,21 @@ export function SheetViewerBlock({ config }: { config: Record<string, unknown> }
     if (ok) setCustomColumnDialog(null);
   }, [customColumnDialog, customColumnName, createColumnAt]);
 
+  // Global undo/redo shortcuts. While a cell editor or text field has
+  // focus (input/textarea), the native editor undo takes precedence.
+  useEffect(() => {
+    const onKey = (e: globalThis.KeyboardEvent) => {
+      if (!(e.ctrlKey || e.metaKey) || e.key.toLowerCase() !== 'z') return;
+      const target = e.target as HTMLElement | null;
+      if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable)) return;
+      e.preventDefault();
+      if (e.shiftKey) dispatch(requestRedo());
+      else dispatch(requestUndo());
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [dispatch]);
+
   const handleSortModelChange = useCallback((newSortModel: GridSortModel) => {
     // Fallback for any external sort model changes (e.g. column menu). For header clicks,
     // we use custom onColumnHeaderClick to support multi-sort in Community edition.
@@ -984,6 +1004,29 @@ export function SheetViewerBlock({ config }: { config: Record<string, unknown> }
       };
 
         const resp = await updateSheetCell(params).unwrap();
+        // Record the change for undo/redo: backward restores the pre-edit
+        // state (formula cells are restored as formulas via formulaMode),
+        // forward restores the exact edit that was just applied.
+        const oldFormula =
+          typeof oldRow[`${changedField}_formula`] === 'string'
+            ? (oldRow[`${changedField}_formula`] as string)
+            : undefined;
+        const backwardParams: UpdateSheetCellParams = {
+          sheet: sheetName,
+          rowIndex: excelRow,
+          column: changedField,
+          value: oldFormula ?? oldRow[changedField],
+          _excelCell: oldRow[`${changedField}_cell`] || undefined,
+          _excelRow: excelRow,
+          formulaMode: oldFormula ? true : formulaMode,
+        };
+        dispatch(
+          pushSheetChange({
+            backward: backwardParams,
+            forward: params,
+            at: new Date().toISOString(),
+          }),
+        );
         // Reload the sheet after a successful update so dependent cells
         // (recalculated formulas, cross-cell values) reflect the change.
         void refetch();
@@ -1009,7 +1052,7 @@ export function SheetViewerBlock({ config }: { config: Record<string, unknown> }
         throw error;
       }
     },
-    [updateSheetCell, sheet, formulaMode],
+    [updateSheetCell, sheet, formulaMode, dispatch],
   );
 
   const columns: GridColDef[] = useMemo(() => {
@@ -1172,6 +1215,16 @@ export function SheetViewerBlock({ config }: { config: Record<string, unknown> }
 
   // Compute Excel-style aggregates over the currently selected cells
   const selectedColumns = useAppSelector(selectSelectedColumns);
+  const canUndo = useAppSelector(selectCanUndo);
+  const canRedo = useAppSelector(selectCanRedo);
+
+  // ── Right-click context menu (cells, row/column headers) ──
+  const [ctxMenu, setCtxMenu] = useState<{
+    mouseX: number;
+    mouseY: number;
+    target: 'cell' | 'row' | 'column' | 'none';
+    column?: string;
+  } | null>(null);
 
   // Effective selection = cell selection ∪ whole-row selection (checkboxes) ∪
   // whole-column selection — page scope, so the status-bar aggregates and the
@@ -1520,6 +1573,65 @@ export function SheetViewerBlock({ config }: { config: Record<string, unknown> }
     if (formulaPickerRef.current?.active) e.preventDefault();
   }, []);
 
+  // Right-click anywhere on the grid: build the context menu target.
+  // - cell: right-click selects the cell (Excel behavior) → use in chat/copy
+  // - row (checkbox column): ensures the row is in rowSelectionModel → chat
+  // - column header: adds a "Select all cells in column" entry
+  const handleGridContextMenu = useCallback(
+    (e: React.MouseEvent<HTMLDivElement>) => {
+      e.preventDefault();
+      const target = e.target as HTMLElement | null;
+      if (!target) return;
+      const cellEl = target.closest('.MuiDataGrid-cell');
+      const headerEl = target.closest('.MuiDataGrid-columnHeader');
+
+      let kind: 'cell' | 'row' | 'column' | 'none' = 'none';
+      let column: string | undefined;
+
+      if (headerEl && !cellEl) {
+        kind = 'column';
+        column = headerEl.getAttribute('data-field') ?? undefined;
+      } else if (cellEl) {
+        const field = cellEl.getAttribute('data-field');
+        if (field === '__check__') {
+          kind = 'row';
+        } else {
+          kind = 'cell';
+          column = field ?? undefined;
+          // Excel-like: right-click selects the cell under the cursor.
+          const rowEl = cellEl.closest('.MuiDataGrid-row');
+          const rowIndex = rowEl?.getAttribute('data-rowindex');
+          if (rowIndex != null && column) {
+            const rowOrder = getRowOrder();
+            const rowId = rowOrder[Number(rowIndex)];
+            if (rowId != null && !selectedCellSet.has(getCellKey(rowId, column))) {
+              dispatch(selectSingleCell({ rowId, field: column }));
+            }
+          }
+        }
+      }
+
+      // Row context: ensure the row is selected so "use in chat" includes it.
+      if (kind === 'row') {
+        const rowEl = target.closest('.MuiDataGrid-row');
+        const rowIndex = rowEl?.getAttribute('data-rowindex');
+        if (rowIndex != null) {
+          const rowOrder = getRowOrder();
+          const rowId = rowOrder[Number(rowIndex)];
+          if (rowId != null && !rowSelectionModel.ids.has(rowId as GridRowId)) {
+            const ids = new Set(rowSelectionModel.ids);
+            ids.add(rowId as GridRowId);
+            setRowSelectionModel({ type: 'include', ids });
+          }
+        }
+      }
+
+      setCtxMenu({ mouseX: e.clientX, mouseY: e.clientY, target: kind, column });
+    },
+    [getRowOrder, getCellKey, selectedCellSet, dispatch, rowSelectionModel],
+  );
+
+  // ── Context menu actions ──
   const handlePaginationModelChange = useCallback(
     (m: { page: number; pageSize: number }) => {
       setPaginationModel(m);
@@ -1593,6 +1705,27 @@ export function SheetViewerBlock({ config }: { config: Record<string, unknown> }
       return false;
     }
   }, [effectiveSelectionKeys, rows, columns, payload, showCopyToast]);
+
+  const handleContextUndo = useCallback(() => {
+    setCtxMenu(null);
+    dispatch(requestUndo());
+  }, [dispatch]);
+  const handleContextRedo = useCallback(() => {
+    setCtxMenu(null);
+    dispatch(requestRedo());
+  }, [dispatch]);
+  const handleContextUseInChat = useCallback(() => {
+    setCtxMenu(null);
+    handleSendSelectionToChat();
+  }, [handleSendSelectionToChat]);
+  const handleContextCopy = useCallback(() => {
+    setCtxMenu(null);
+    void copySelectedCells();
+  }, [copySelectedCells]);
+  const handleContextToggleColumn = useCallback(() => {
+    if (ctxMenu?.column) dispatch(toggleColumn(ctxMenu.column));
+    setCtxMenu(null);
+  }, [ctxMenu, dispatch]);
 
   // onCellKeyDown handler to capture Ctrl+C (and Cmd+C on Mac) globally on the grid
   const handleCellKeyDown = useCallback(
@@ -1688,6 +1821,20 @@ export function SheetViewerBlock({ config }: { config: Record<string, unknown> }
           </Button>
         </Tooltip>
       ) : null}
+      <Tooltip title="Undo (Ctrl+Z)">
+        <span>
+          <IconButton size="small" disabled={!canUndo} onClick={() => dispatch(requestUndo())}>
+            <UndoIcon />
+          </IconButton>
+        </span>
+      </Tooltip>
+      <Tooltip title="Redo (Ctrl+Shift+Z)">
+        <span>
+          <IconButton size="small" disabled={!canRedo} onClick={() => dispatch(requestRedo())}>
+            <RedoIcon />
+          </IconButton>
+        </span>
+      </Tooltip>
       <Tooltip title="Reload sheet data">
         <IconButton onClick={() => void refetch()} size="small">
           <RefreshIcon />
@@ -1791,6 +1938,7 @@ export function SheetViewerBlock({ config }: { config: Record<string, unknown> }
             onPointerUp={handleGridPointerUp}
             onPointerCancel={handleGridPointerUp}
             onMouseDownCapture={handleGridMouseDownCapture}
+            onContextMenu={handleGridContextMenu}
             // Grid-internal scrolling doesn't reposition portaled popups, so
             // re-anchor the floating formula builder on every scroll.
             onScrollCapture={() => formulaPickerRef.current?.reposition?.()}
@@ -1831,6 +1979,44 @@ export function SheetViewerBlock({ config }: { config: Record<string, unknown> }
               sx={pinnedSx}
             />
           </Box>
+
+          {/* Grid context menu: undo/redo + selection actions.
+              Right-click targets: cell → select it (Excel behavior) and enable
+              "Use in chat" / "Copy"; row checkbox → include row in selection;
+              column header → additionally select all cells in that column. */}
+          <Menu
+            open={Boolean(ctxMenu)}
+            onClose={() => setCtxMenu(null)}
+            anchorReference="anchorPosition"
+            anchorPosition={
+              ctxMenu ? { top: ctxMenu.mouseY, left: ctxMenu.mouseX } : undefined
+            }
+          >
+            <MenuItem dense onClick={handleContextUndo} disabled={!canUndo}>
+              <UndoIcon fontSize="small" sx={{ mr: 1 }} /> Undo
+            </MenuItem>
+            <MenuItem dense onClick={handleContextRedo} disabled={!canRedo}>
+              <RedoIcon fontSize="small" sx={{ mr: 1 }} /> Redo
+            </MenuItem>
+            <Divider />
+            <MenuItem
+              dense
+              onClick={handleContextUseInChat}
+              disabled={effectiveSelectionKeys.size === 0}
+            >
+              <ChatIcon fontSize="small" sx={{ mr: 1 }} /> Use in chat
+            </MenuItem>
+            <MenuItem dense onClick={handleContextCopy} disabled={effectiveSelectionKeys.size === 0}>
+              <ContentCopyIcon fontSize="small" sx={{ mr: 1 }} /> Copy selected cells
+            </MenuItem>
+            {ctxMenu?.target === 'column' && (
+              <MenuItem dense onClick={handleContextToggleColumn}>
+                {ctxMenu.column && selectedColumns.includes(ctxMenu.column)
+                  ? `Deselect column ${ctxMenu.column}`
+                  : `Select all cells in ${ctxMenu.column ?? 'column'}`}
+              </MenuItem>
+            )}
+          </Menu>
 
           {/* Per-column header menu: insert custom column before/after, select column cells */}
           <Menu
