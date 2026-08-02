@@ -23,6 +23,33 @@ export const adminApi = createApi({
       }),
       invalidatesTags: ['RoleConfig'],
     }),
+
+    createRole: builder.mutation<ApiEnvelope<RoleConfigView>, { code: string; name: string; isPlatformAdmin?: boolean }>({
+      query: (body) => ({
+        url: 'admin/roles',
+        method: 'PUT',
+        body,
+      }),
+      invalidatesTags: ['RoleConfig'],
+    }),
+
+    updateRole: builder.mutation<ApiEnvelope<RoleConfigView>, { code: string; name?: string; isPlatformAdmin?: boolean }>({
+      query: (body) => ({
+        url: 'admin/roles',
+        method: 'PATCH',
+        body,
+      }),
+      invalidatesTags: ['RoleConfig'],
+    }),
+
+    deleteRole: builder.mutation<ApiEnvelope<{ deleted: boolean }>, string>({
+      query: (code) => ({
+        url: `admin/roles?code=${encodeURIComponent(code)}`,
+        method: 'DELETE',
+      }),
+      invalidatesTags: ['RoleConfig'],
+    }),
+
     listAdminConversations: builder.query<
       ApiEnvelope<{ conversations: AdminConversationView[] }>,
       { archived?: boolean; owner?: string; limit?: number } | void
@@ -181,6 +208,9 @@ export const adminApi = createApi({
 export const {
   useListRoleConfigsQuery,
   useSetRolePinMutation,
+  useCreateRoleMutation,
+  useUpdateRoleMutation,
+  useDeleteRoleMutation,
   useListAdminConversationsQuery,
   useArchiveAdminConversationMutation,
   useListAdminUsersQuery,

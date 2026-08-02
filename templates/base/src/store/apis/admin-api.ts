@@ -23,6 +23,33 @@ export const adminApi = createApi({
       }),
       invalidatesTags: ['RoleConfig'],
     }),
+
+    createRole: builder.mutation<ApiEnvelope<RoleConfigView>, { code: string; name: string; isPlatformAdmin?: boolean }>({
+      query: (body) => ({
+        url: 'admin/roles',
+        method: 'PUT',
+        body,
+      }),
+      invalidatesTags: ['RoleConfig'],
+    }),
+
+    updateRole: builder.mutation<ApiEnvelope<RoleConfigView>, { code: string; name?: string; isPlatformAdmin?: boolean }>({
+      query: (body) => ({
+        url: 'admin/roles',
+        method: 'PATCH',
+        body,
+      }),
+      invalidatesTags: ['RoleConfig'],
+    }),
+
+    deleteRole: builder.mutation<ApiEnvelope<{ deleted: boolean }>, string>({
+      query: (code) => ({
+        url: `admin/roles?code=${encodeURIComponent(code)}`,
+        method: 'DELETE',
+      }),
+      invalidatesTags: ['RoleConfig'],
+    }),
+
     listAdminConversations: builder.query<
       ApiEnvelope<{ conversations: AdminConversationView[] }>,
       { archived?: boolean; owner?: string; limit?: number } | void
@@ -166,12 +193,24 @@ export const adminApi = createApi({
       }),
       invalidatesTags: ['Navigation'],
     }),
+    /** POST /api/admin/populate-sheet-pages — sync sheet pages into navigation */
+    populateSheetPages: builder.mutation<ApiEnvelope<{ created: number; parentId: string; totalSheets: number }>, { parentId?: string; parentTitle?: string }>({
+      query: (body) => ({
+        url: 'admin/populate-sheet-pages',
+        method: 'POST',
+        body,
+      }),
+      invalidatesTags: ['Navigation', 'SeedData'],
+    }),
   }),
 });
 
 export const {
   useListRoleConfigsQuery,
   useSetRolePinMutation,
+  useCreateRoleMutation,
+  useUpdateRoleMutation,
+  useDeleteRoleMutation,
   useListAdminConversationsQuery,
   useArchiveAdminConversationMutation,
   useListAdminUsersQuery,
@@ -189,4 +228,5 @@ export const {
   useCreateNavigationItemMutation,
   useUpdateNavigationItemsMutation,
   useDeleteNavigationItemsMutation,
+  usePopulateSheetPagesMutation,
 } = adminApi;

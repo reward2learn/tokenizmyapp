@@ -47,6 +47,45 @@ export interface DeployStatusResponse {
   readyAt?: number;
 }
 
+export interface GoogleOAuthProvisionResult {
+  clientId: string;
+  clientSecret?: string;
+  projectId?: string;
+  clientSecretJson?: string;
+  strategy?: string;
+  success?: boolean;
+}
+
+export interface NeonProvisionResult {
+  success: boolean;
+  slug?: string;
+  branchId?: string;
+  databaseName?: string;
+  databaseUrl?: string;
+  pooledUrl?: string;
+  directUrl?: string;
+  formatted?: string;
+  envVars?: Record<string, string>;
+  connectionStrings?: Record<string, string>;
+  message?: string;
+}
+
+export interface RenameTenantResult {
+  success: boolean;
+  tenant: { slug: string };
+  previousSlug?: string;
+  newSlug?: string;
+}
+
+export interface AiFindingsResult {
+  findings: Array<{
+    type: string;
+    message: string;
+    severity: 'info' | 'warning' | 'error';
+    details?: Record<string, unknown>;
+  }>;
+}
+
 export interface ScrapeTenantResult {
   scraped: {
     businessName?: string;
@@ -67,7 +106,7 @@ export interface ScrapeTenantResult {
 export const tenantApi = createApi({
   reducerPath: 'tenantApi',
   baseQuery,
-  tagTypes: ['Tenants', 'TenantUsers'],
+  tagTypes: ['Tenants', 'TenantUsers', 'AiFindings'],
   endpoints: (builder) => ({
     listTenants: builder.query<ApiEnvelope<{ tenants: TenantEntry[] }>, { status?: string } | void>({
       query: (params) => {
@@ -185,10 +224,14 @@ export const tenantApi = createApi({
       invalidatesTags: ['Tenants'],
     }),
 
-    deployTenant: builder.mutation<ApiEnvelope<{ deployed: boolean; projectId: string; appUrl: string; envCount: number }>, string>({
-      query: (slug) => ({
+    deployTenant: builder.mutation<
+      ApiEnvelope<{ deployed: boolean; projectId: string; appUrl: string; envCount: number }>,
+      { slug: string; payload?: Record<string, unknown> }
+    >({
+      query: ({ slug, payload }) => ({
         url: `admin/tenants/${slug}/deploy`,
         method: 'POST',
+        body: payload,
       }),
       invalidatesTags: ['Tenants'],
     }),
@@ -244,7 +287,18 @@ export const tenantApi = createApi({
     }),
 
     setTenantDomain: builder.mutation<
-      ApiEnvelope<{ domain: string; verified: boolean; projectId: string; domains: { name: string; verified: boolean; createdAt: string }[]; appUrl: string | null }>,
+      ApiEnvelope<{
+        domain: string;
+        verified: boolean;
+        projectId: string;
+        domains: { name: string; verified: boolean; createdAt: string }[];
+        appUrl: string | null;
+        renamed?: boolean;
+        projectName?: string;
+        autoVercelUrl?: string | null;
+        note?: string;
+        projectInfo?: { name: string; id: string; updatedAt: string } | null;
+      }>,
       { slug: string; domain: string; updateAppUrl?: boolean }
     >({
       query: ({ slug, ...body }) => ({
@@ -298,6 +352,77 @@ export const tenantApi = createApi({
         return result;
       },
     }),
+
+    // ── Provisioning & Admin Operations ───────────────────────
+
+    provisionGoogleOAuth: builder.mutation<ApiEnvelope<GoogleOAuthProvisionResult>, { slug: string; email?: string; redirectUris?: string[] }>({
+      query: ({ slug, ...body }) => ({
+        url: `admin/tenants/${slug}/provision/google-oauth`,
+        method: 'POST',
+        body,
+      }),
+      invalidatesTags: (_result, _error, { slug }) => [{ type: 'Tenants', id: slug }],
+    }),
+
+    provisionNeon: builder.mutation<ApiEnvelope<NeonProvisionResult>, { slug: string }>({
+      query: ({ slug }) => ({
+        url: `admin/tenants/${slug}/provision/neon`,
+        method: 'POST',
+      }),
+      invalidatesTags: (_result, _error, { slug }) => [{ type: 'Tenants', id: slug }],
+    }),
+
+    testNeonConnection: builder.mutation<ApiEnvelope<{ success: boolean; message?: string }>, { slug: string; dbUrl?: string }>({
+      query: ({ slug, dbUrl }) => ({
+        url: `admin/tenants/${slug}/provision/neon/test`,
+        method: 'POST',
+        body: dbUrl ? { dbUrl } : undefined,
+      }),
+    }),
+
+    checkRedirects: builder.mutation<
+      ApiEnvelope<{
+        success: boolean;
+        message?: string;
+        issues?: string[];
+        results?: { uri: string; status: number | string }[];
+      }>,
+      { slug: string }
+    >({
+      query: ({ slug }) => ({
+        url: `admin/tenants/${slug}/provision/check-redirects`,
+        method: 'POST',
+      }),
+    }),
+
+    renameTenant: builder.mutation<ApiEnvelope<RenameTenantResult>, { currentSlug: string; newSlug: string }>({
+      query: (body) => ({
+        url: `admin/tenants/${body.currentSlug}/rename`,
+        method: 'POST',
+        body: { newSlug: body.newSlug },
+      }),
+      invalidatesTags: (_result, _error, { currentSlug }) => [
+        { type: 'Tenants', id: currentSlug },
+        'Tenants',
+      ],
+    }),
+
+    /** POST /api/webhooks/vercel — reachability test for the Vercel webhook
+     *  endpoint. The route ACKs with a plain-text 200 body, so the response is
+     *  read as text instead of JSON. */
+    testVercelWebhook: builder.mutation<string, void>({
+      query: () => ({
+        url: 'webhooks/vercel',
+        method: 'POST',
+        body: '{}',
+        responseHandler: (response: Response) => response.text(),
+      }),
+    }),
+
+    getAiFindings: builder.query<ApiEnvelope<AiFindingsResult>, void>({
+      query: () => 'chat/ai-findings?limit=1',
+      providesTags: ['AiFindings'],
+    }),
   }),
 });
 
@@ -322,4 +447,13 @@ export const {
   useRemoveTenantFaviconMutation,
   useScrapeTenantMutation,
   useTriggerDeployHookMutation,
+  useTestVercelWebhookMutation,
+  useProvisionGoogleOAuthMutation,
+  useProvisionNeonMutation,
+  useTestNeonConnectionMutation,
+  useCheckRedirectsMutation,
+  useRenameTenantMutation,
+  useGetAiFindingsQuery,
+  useLazyGetTenantQuery,
+  useLazyGetAiFindingsQuery,
 } = tenantApi;

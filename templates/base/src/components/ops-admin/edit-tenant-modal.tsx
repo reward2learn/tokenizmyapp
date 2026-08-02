@@ -76,7 +76,32 @@ import { DEFAULT_PLATFORM_ADMIN_EMAIL } from '@/domain/security/persons';
 import { TemplateSelector } from '@/components/ops-admin/tenant-wizard';
 import { useAppDispatch } from '@/store/hooks';
 import { setThemeColors } from '@/store/ui-slice';
-import { useUpdateTenantMutation, useUploadTenantFaviconMutation, useRemoveTenantFaviconMutation, type TenantEntry } from '@/store/apis/tenant-api';
+import { 
+  useUpdateTenantMutation, 
+  useUploadTenantFaviconMutation, 
+  useRemoveTenantFaviconMutation,
+  useProvisionGoogleOAuthMutation,
+  useProvisionNeonMutation,
+  useTestNeonConnectionMutation,
+  useCheckRedirectsMutation,
+  useRenameTenantMutation,
+  useDeployTenantMutation,
+  useSetTenantDomainMutation,
+  useTriggerDeployHookMutation,
+  useTestVercelWebhookMutation,
+  useLazyGetTenantQuery,
+  useLazyGetDeployStatusQuery,
+  useLazyGetTenantDomainsQuery,
+  useLazyGetAiFindingsQuery,
+  type TenantEntry 
+} from '@/store/apis/tenant-api';
+import {
+  useListRoleConfigsQuery,
+  useCreateRoleMutation,
+  useUpdateRoleMutation,
+  useDeleteRoleMutation,
+  useSetRolePinMutation,
+} from '@/store/apis/admin-api';
 
 // ── Types ──────────────────────────────────────────────────────
 
@@ -84,7 +109,6 @@ export interface EditTenantModalProps {
   open: boolean;
   tenant: TenantEntry | null;
   onClose: () => void;
-  onRefetch: () => void;
   onSnackbar: (msg: { message: string; severity: 'success' | 'error' }) => void;
 }
 
@@ -229,7 +253,7 @@ function initEnvPairs(tenant: TenantEntry | null): { key: string; value: string 
   return Object.entries(savedEnv).map(([key, value]) => ({ key, value }));
 }
 
-export function EditTenantModal({ open, tenant, onClose, onRefetch, onSnackbar }: EditTenantModalProps) {
+export function EditTenantModal({ open, tenant, onClose, onSnackbar }: EditTenantModalProps) {
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down('md'));
   const dispatch = useAppDispatch();
@@ -268,9 +292,6 @@ export function EditTenantModal({ open, tenant, onClose, onRefetch, onSnackbar }
   const [newEnvValue, setNewEnvValue] = useState('');
 
   // ── Functional Roles ───────────────────────────────────────
-  const [rolesList, setRolesList] = useState<Array<{ code: string; name: string; isPlatformAdmin: boolean; pinConfigured: boolean }>>([]);
-  const [rolesLoading, setRolesLoading] = useState(false);
-  const [rolesError, setRolesError] = useState<string | null>(null);
   const [settingPinRole, setSettingPinRole] = useState<string | null>(null);
   const [settingPinValue, setSettingPinValue] = useState<Record<string, string>>({});
   const [savingPinRole, setSavingPinRole] = useState<string | null>(null);
@@ -285,6 +306,28 @@ export function EditTenantModal({ open, tenant, onClose, onRefetch, onSnackbar }
   const [updateTenant] = useUpdateTenantMutation();
   const [uploadFavicon, { isLoading: uploadingFavicon }] = useUploadTenantFaviconMutation();
   const [removeFavicon] = useRemoveTenantFaviconMutation();
+
+  // Role management hooks
+  const { data: rolesData, isLoading: rolesLoadingFromApi } = useListRoleConfigsQuery();
+  const [createRole] = useCreateRoleMutation();
+  const [updateRole] = useUpdateRoleMutation();
+  const [deleteRole] = useDeleteRoleMutation();
+  const [setRolePin] = useSetRolePinMutation();
+
+  // ── RTK Query hooks (migrations: provisioning, deploy, domain, checks) ──
+  const [provisionGoogleOAuth] = useProvisionGoogleOAuthMutation();
+  const [provisionNeon] = useProvisionNeonMutation();
+  const [testNeonConnection] = useTestNeonConnectionMutation();
+  const [checkRedirects] = useCheckRedirectsMutation();
+  const [renameTenant] = useRenameTenantMutation();
+  const [deployTenant] = useDeployTenantMutation();
+  const [setTenantDomain] = useSetTenantDomainMutation();
+  const [triggerDeployHook] = useTriggerDeployHookMutation();
+  const [testVercelWebhook] = useTestVercelWebhookMutation();
+  const [getTenant] = useLazyGetTenantQuery();
+  const [getDeployStatus] = useLazyGetDeployStatusQuery();
+  const [getTenantDomains] = useLazyGetTenantDomainsQuery();
+  const [getAiFindings] = useLazyGetAiFindingsQuery();
 
   // ── Deploy state ───────────────────────────────────────────
   const [deployingSlug, setDeployingSlug] = useState<string | null>(null);
@@ -341,49 +384,28 @@ export function EditTenantModal({ open, tenant, onClose, onRefetch, onSnackbar }
   // ── Initialize from tenant on open ────────────────────────
 
 
-  // ── Fetch roles when modal opens ───────────────────────────
-  const fetchRoles = useCallback(async () => {
-    if (!tenant) return;
-    setRolesLoading(true);
-    setRolesError(null);
-    try {
-      const res = await fetch('/api/admin/roles');
-      const data = await res.json();
-      if (data.success && data.data?.roles) {
-        setRolesList(data.data.roles);
-      } else {
-        setRolesError(data.error || 'Failed to load roles');
-      }
-    } catch {
-      setRolesError('Failed to connect to roles API');
-    } finally {
-      setRolesLoading(false);
-    }
-  }, [tenant]);
+  // Roles are now loaded via RTK Query — no manual fetch needed
+  const rolesList = rolesData?.data?.roles || [];
+  const rolesError = rolesData?.error || null;
 
   const handleSetRolePin = useCallback(async (code: string, pin: string) => {
     setSavingPinRole(code);
     try {
-      const res = await fetch('/api/admin/roles', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ code, pin }),
-      });
-      const data = await res.json();
-      if (data.success) {
-        await fetchRoles();
+      const result = await setRolePin({ code, pin }).unwrap();
+      if (result.success) {
         onSnackbar({ message: 'PIN set for role ' + code, severity: 'success' });
       } else {
-        onSnackbar({ message: data.error || 'Failed to set PIN', severity: 'error' });
+        onSnackbar({ message: result.error || 'Failed to set PIN', severity: 'error' });
       }
-    } catch {
-      onSnackbar({ message: 'Failed to set PIN', severity: 'error' });
+    } catch (err: any) {
+      const msg = err?.data?.error || err?.error || 'Failed to set PIN';
+      onSnackbar({ message: msg, severity: 'error' });
     } finally {
       setSavingPinRole(null);
       setSettingPinRole(null);
       setSettingPinValue((prev) => ({ ...prev, [code]: '' }));
     }
-  }, [fetchRoles, onSnackbar]);
+  }, [setRolePin, onSnackbar]);
 
   // ── Role CRUD handlers ─────────────────────────────────────
   const openCreateRole = useCallback(() => {
@@ -406,55 +428,46 @@ export function EditTenantModal({ open, tenant, onClose, onRefetch, onSnackbar }
     if (!roleFormName.trim()) return;
     setRoleSaving(true);
     try {
-      const res = await fetch('/api/admin/roles', {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          code: roleFormCode || roleFormName.toLowerCase().replace(/[^a-z0-9-]/g, '-'),
-          name: roleFormName.trim(),
-          isPlatformAdmin: roleFormIsPlatformAdmin,
-
-        }),
-      });
-      const data = await res.json();
-      if (data.success) {
-        await fetchRoles();
+      const payload = {
+        code: roleFormCode || roleFormName.toLowerCase().replace(/[^a-z0-9-]/g, '-'),
+        name: roleFormName.trim(),
+        isPlatformAdmin: roleFormIsPlatformAdmin,
+      };
+      const result = roleDialogMode === 'create' 
+        ? await createRole(payload).unwrap()
+        : await updateRole(payload).unwrap();
+      
+      if (result.success) {
         setRoleDialogOpen(false);
         onSnackbar({ message: 'Role ' + (roleDialogMode === 'create' ? 'created' : 'updated'), severity: 'success' });
       } else {
-        onSnackbar({ message: data.error || 'Failed to save role', severity: 'error' });
+        onSnackbar({ message: result.error || 'Failed to save role', severity: 'error' });
       }
     } catch {
       onSnackbar({ message: 'Failed to save role', severity: 'error' });
     } finally {
       setRoleSaving(false);
     }
-  }, [roleFormCode, roleFormName, roleFormIsPlatformAdmin, roleDialogMode, fetchRoles, onSnackbar]);
+  }, [roleFormCode, roleFormName, roleFormIsPlatformAdmin, roleDialogMode, createRole, updateRole, onSnackbar]);
 
   const handleRoleDelete = useCallback(async (code: string) => {
     setRoleSaving(true);
     try {
-      const res = await fetch('/api/admin/roles?code=' + encodeURIComponent(code), { method: 'DELETE' });
-      const data = await res.json();
-      if (data.success) {
-        await fetchRoles();
+      const result = await deleteRole(code).unwrap();
+      if (result.success) {
         setRoleDeleteConfirm(null);
         onSnackbar({ message: 'Role deleted: ' + code, severity: 'success' });
       } else {
-        onSnackbar({ message: data.error || 'Failed to delete role', severity: 'error' });
+        onSnackbar({ message: result.error || 'Failed to delete role', severity: 'error' });
       }
-    } catch {
-      onSnackbar({ message: 'Failed to delete role', severity: 'error' });
+    } catch (err: any) {
+      onSnackbar({ message: err?.data?.error || err?.error || 'Failed to delete role', severity: 'error' });
     } finally {
       setRoleSaving(false);
     }
-  }, [fetchRoles, onSnackbar]);
+  }, [deleteRole, onSnackbar]);
 
-  useEffect(() => {
-    if (tenant) {
-      void fetchRoles();
-    }
-  }, [tenant, fetchRoles]);
+
 
   // ── Handlers: Template ─────────────────────────────────────
   const handleTemplateSelect = (id: string) => {
@@ -547,19 +560,15 @@ export function EditTenantModal({ open, tenant, onClose, onRefetch, onSnackbar }
     setProvisionOAuthError(null);
     setProvisionOAuthResult(null);
     try {
-      const res = await fetch(`/api/admin/tenants/${tenant.slug}/provision/google-oauth`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          email: googleOAuth.gcpAccountEmail || undefined,
-          redirectUris: googleOAuth.redirectUris,
-        }),
-      });
-      const data = await res.json();
-      if (res.ok && data.success) {
-        setProvisionOAuthResult(data);
-        // Auto-fill returned credentials — route wraps in jsonOk so data.data has the fields
-        const dd = data.data || {};
+      const result = await provisionGoogleOAuth({
+        slug: tenant.slug,
+        email: googleOAuth.gcpAccountEmail || undefined,
+        redirectUris: googleOAuth.redirectUris,
+      }).unwrap();
+      if (result.success) {
+        setProvisionOAuthResult(result as unknown as Record<string, unknown>);
+        // Auto-fill returned credentials — route wraps in jsonOk so result.data has the fields
+        const dd = result.data || {};
         if (dd.clientId) handleOAuthChange('clientId', dd.clientId);
         if (dd.clientSecret) handleOAuthChange('clientSecret', dd.clientSecret);
         if (dd.projectId) handleOAuthChange('projectId', dd.projectId);
@@ -574,16 +583,16 @@ export function EditTenantModal({ open, tenant, onClose, onRefetch, onSnackbar }
           onSnackbar({ message: `✅ GCP project + OAuth credentials created for ${tenant.slug}`, severity: 'success' });
         }
       } else {
-        throw new Error(data.error || 'Google OAuth provisioning failed');
+        throw new Error(result.error || 'Google OAuth provisioning failed');
       }
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : 'Provisioning error';
+    } catch (err: any) {
+      const msg = err?.data?.error || (err instanceof Error ? err.message : 'Provisioning error');
       setProvisionOAuthError(msg);
       onSnackbar({ message: `❌ OAuth provisioning failed: ${msg}`, severity: 'error' });
     } finally {
       setProvisioningOAuth(false);
     }
-  }, [tenant, displayName, googleOAuth.redirectUris, googleOAuth.gcpAccountEmail, onSnackbar]);
+  }, [tenant, displayName, googleOAuth.redirectUris, googleOAuth.gcpAccountEmail, provisionGoogleOAuth, handleOAuthChange, onSnackbar]);
 
   // ── Provision: Neon Database ──────────────────────────────
   const handleProvisionDb = useCallback(async () => {
@@ -592,16 +601,11 @@ export function EditTenantModal({ open, tenant, onClose, onRefetch, onSnackbar }
     setProvisionDbError(null);
     setProvisionDbResult(null);
     try {
-      const res = await fetch(`/api/admin/tenants/${tenant.slug}/provision/neon`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ slug: tenant.slug }),
-      });
-      const data = await res.json();
-      if (res.ok && data.success) {
-        setProvisionDbResult(data);
+      const result = await provisionNeon({ slug: tenant.slug }).unwrap();
+      if (result.success) {
+        setProvisionDbResult(result as unknown as Record<string, unknown>);
         // Auto-fill returned connection strings
-        const dd = data.data || {};
+        const dd = result.data || {};
         const pooledUrl = dd.pooledUrl || dd.connectionStrings?.DATABASE_URL || dd.connectionStrings?.POSTGRES_URL || '';
         const directUrl = dd.directUrl || dd.connectionStrings?.DATABASE_URL_UNPOOLED || dd.connectionStrings?.POSTGRES_URL_NON_POOLING || '';
         if (pooledUrl) {
@@ -615,16 +619,16 @@ export function EditTenantModal({ open, tenant, onClose, onRefetch, onSnackbar }
           onSnackbar({ message: `✅ Neon database provisioned for ${tenant.slug}`, severity: 'success' });
         }
       } else {
-        throw new Error(data.error || 'Neon provisioning failed');
+        throw new Error(result.error || 'Neon provisioning failed');
       }
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : 'Provisioning error';
+    } catch (err: any) {
+      const msg = err?.data?.error || (err instanceof Error ? err.message : 'Provisioning error');
       setProvisionDbError(msg);
       onSnackbar({ message: `❌ Database provisioning failed: ${msg}`, severity: 'error' });
     } finally {
       setProvisioningDb(false);
     }
-  }, [tenant, onSnackbar]);
+  }, [tenant, provisionNeon, onSnackbar]);
 
   // ── Test database connection ────────────────────────────
   const handleTestConnection = useCallback(async () => {
@@ -640,27 +644,21 @@ export function EditTenantModal({ open, tenant, onClose, onRefetch, onSnackbar }
       const hostname = url.hostname;
       const isPooled = hostname.includes('-pooler');
 
-      // Try to resolve hostname and check port availability
-      const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 5000);
-
       try {
-        const testRes = await fetch(`/api/admin/tenants/${tenant?.slug}/provision/neon/test`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ dbUrl: dbConfig.dbUrl }),
-          signal: controller.signal,
-        });
-        const testData = await testRes.json();
-        clearTimeout(timeout);
-        if (testData.success) {
+        // 5s timeout so a hanging server never blocks the UI
+        const testResult = await Promise.race([
+          testNeonConnection({ slug: tenant?.slug ?? '', dbUrl: dbConfig.dbUrl }).unwrap(),
+          new Promise<never>((_, reject) =>
+            setTimeout(() => reject(new Error('timeout')), 5000),
+          ),
+        ]);
+        if (testResult.success) {
           setConnectionTestResult('✅ Connection successful — database is reachable');
         } else {
-          setConnectionTestResult(`❌ Connection failed: ${testData.error || 'Unknown error'}`);
+          setConnectionTestResult(`❌ Connection failed: ${testResult.error || 'Unknown error'}`);
         }
-      } catch (fetchErr) {
-        clearTimeout(timeout);
-        // Fallback: basic URL validation
+      } catch (fetchErr: any) {
+        // Fallback: basic URL validation (also on timeout / network error)
         setConnectionTestResult(
           `✅ URL format valid: ${url.protocol}//${url.hostname}/${url.pathname.split('/').pop()}
 ` +
@@ -674,7 +672,7 @@ export function EditTenantModal({ open, tenant, onClose, onRefetch, onSnackbar }
     } finally {
       setTestingConnection(false);
     }
-  }, [dbConfig.dbUrl, tenant]);
+  }, [dbConfig.dbUrl, tenant, testNeonConnection]);
 
   // ── Build deploy payload ──────────────────────────────────
   const buildDeployPayload = useCallback(() => {
@@ -777,24 +775,18 @@ export function EditTenantModal({ open, tenant, onClose, onRefetch, onSnackbar }
         },
       };
 
-      const res = await fetch(`/api/admin/tenants/${tenant.slug}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-      });
-      const data = await res.json();
-      if (!res.ok || !data.success) {
-        throw new Error(data.error || 'Save failed');
+      const result = await updateTenant({ ...payload }).unwrap();
+      if (!result.success) {
+        throw new Error(result.error || 'Save failed');
       }
       onSnackbar({ message: `✅ ${tenant.displayName} saved successfully`, severity: 'success' });
-      onRefetch();
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : 'Save failed';
+    } catch (err: any) {
+      const msg = err?.data?.error || (err instanceof Error ? err.message : 'Save failed');
       onSnackbar({ message: `❌ Save failed: ${msg}`, severity: 'error' });
     } finally {
       setSaving(false);
     }
-  }, [tenant, displayName, editTemplate, editPrimaryColor, editSecondaryColor, license, googleOAuth, dbConfig, envPairs, onSnackbar, onRefetch]);
+  }, [tenant, displayName, editTemplate, editPrimaryColor, editSecondaryColor, license, googleOAuth, dbConfig, envPairs, updateTenant, onSnackbar]);
 
   // ── Flight Check run ───────────────────────────────────────
   const runFlightCheck = useCallback(async () => {
@@ -815,15 +807,12 @@ export function EditTenantModal({ open, tenant, onClose, onRefetch, onSnackbar }
     let freshStatus = tenant.status;
     let freshVercelProjectId = tenant.vercelProjectId;
     try {
-      const freshRes = await fetch('/api/admin/tenants/' + slug);
-      if (freshRes.ok) {
-        const freshData = await freshRes.json();
-        if (freshData.success && freshData.data?.tenant) {
-          const t = freshData.data.tenant;
-          freshConfig = ((t.metadata as Record<string, unknown>)?.config ?? {}) as Record<string, unknown>;
-          freshStatus = t.status;
-          freshVercelProjectId = t.vercelProjectId;
-        }
+      const freshResult = await getTenant(slug).unwrap();
+      if (freshResult.success && freshResult.data?.tenant) {
+        const t = freshResult.data.tenant;
+        freshConfig = ((t.metadata as Record<string, unknown>)?.config ?? {}) as Record<string, unknown>;
+        freshStatus = t.status;
+        freshVercelProjectId = t.vercelProjectId;
       }
     } catch { /* use stale data */ }
 
@@ -915,13 +904,12 @@ export function EditTenantModal({ open, tenant, onClose, onRefetch, onSnackbar }
 
     // Deployment status - live check via API
     try {
-      const statusRes = await fetch('/api/admin/tenants/' + tenant.slug + '/deploy/status');
-      const statusData = await statusRes.json();
-      if (statusData.success) {
-        const deployState = statusData.data?.state || 'unknown';
+      const statusResult = await getDeployStatus(tenant.slug).unwrap();
+      if (statusResult.success) {
+        const deployState = statusResult.data?.state || 'unknown';
         addResult('Deployment Status', deployState === 'READY' ? 'pass' : deployState === 'ERROR' ? 'fail' : 'warn', 'State: ' + deployState);
       } else {
-        addResult('Deployment Status', 'warn', 'Could not check: ' + (statusData.error || 'unknown'));
+        addResult('Deployment Status', 'warn', 'Could not check: ' + (statusResult.error || 'unknown'));
       }
     } catch {
       addResult('Deployment Status', 'warn', 'API call failed');
@@ -931,7 +919,7 @@ export function EditTenantModal({ open, tenant, onClose, onRefetch, onSnackbar }
       setFlightChecks(results);
       setFlightRunning(false);
     }
-  }, [tenant, flightRunId]);
+  }, [tenant, flightRunId, getTenant, getDeployStatus]);
 
   // ── Export tenant config ────────────────────────────────
   const handleExport = useCallback(() => {
@@ -1062,15 +1050,9 @@ export function EditTenantModal({ open, tenant, onClose, onRefetch, onSnackbar }
 
     try {
       const payload = buildDeployPayload();
-      const deployRes = await fetch(`/api/admin/tenants/${tenant.slug}/deploy`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-      });
-
-      const deployData = await deployRes.json();
-      if (!deployRes.ok || !deployData.success) {
-        throw new Error(deployData.error || 'Deploy API failed');
+      const deployResult = await deployTenant({ slug: tenant.slug, payload }).unwrap();
+      if (!deployResult.success) {
+        throw new Error(deployResult.error || 'Deploy API failed');
       }
 
       dispatch(setThemeColors({ primary: editPrimaryColor, secondary: editSecondaryColor }));
@@ -1078,18 +1060,17 @@ export function EditTenantModal({ open, tenant, onClose, onRefetch, onSnackbar }
         message: `🚀 ${tenant.displayName} deployment started — building in background. Status will update to live when ready.`,
         severity: 'success',
       });
-      onRefetch();
       // Close modal immediately — deployment continues in background
       setDeployingSlug(null);
       setActiveStep(0);
       onClose();
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : 'Deploy failed';
+    } catch (err: any) {
+      const msg = err?.data?.error || (err instanceof Error ? err.message : 'Deploy failed');
       onSnackbar({ message: `❌ Deploy failed: ${msg}`, severity: 'error' });
     } finally {
       setDeployingSlug(null);
     }
-  }, [tenant, buildDeployPayload, editTemplate, editPrimaryColor, editSecondaryColor, dispatch, onSnackbar, onRefetch, onClose, deployingSlug]);
+  }, [tenant, buildDeployPayload, editTemplate, editPrimaryColor, editSecondaryColor, deployTenant, dispatch, onSnackbar, onClose, deployingSlug]);
 
   // ── Deploy with Git handler ──────────────────────────────
   const handleDeployWithGit = useCallback(async () => {
@@ -1104,8 +1085,8 @@ export function EditTenantModal({ open, tenant, onClose, onRefetch, onSnackbar }
 
       if (deployHookUrl) {
         // Use the deploy hook URL directly — it has its own auth baked in
-        const hookRes = await fetch(deployHookUrl, { method: 'POST' });
-        const hookData = await hookRes.json() as { job?: { id?: string; state?: string } };
+        const hookResult = await triggerDeployHook(deployHookUrl).unwrap();
+        const hookData = hookResult as { job?: { id?: string; state?: string } };
         if (!hookData?.job?.id) {
           throw new Error(hookData && typeof hookData === 'object' && 'error' in hookData
             ? String((hookData as Record<string, unknown>).error)
@@ -1118,15 +1099,9 @@ export function EditTenantModal({ open, tenant, onClose, onRefetch, onSnackbar }
       } else {
         // Fallback: call the deploy API route (requires valid VERCEL_TOKEN env var)
         const payload = buildDeployPayload();
-        const deployRes = await fetch(`/api/admin/tenants/${tenant.slug}/deploy`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ ...payload, gitSource: true }),
-        });
-
-        const deployData = await deployRes.json();
-        if (!deployRes.ok || !deployData.success) {
-          throw new Error(deployData.error || 'Deploy API failed');
+        const deployResult = await deployTenant({ slug: tenant.slug, payload: { ...payload, gitSource: true } }).unwrap();
+        if (!deployResult.success) {
+          throw new Error(deployResult.error || 'Deploy API failed');
         }
 
         onSnackbar({
@@ -1136,16 +1111,15 @@ export function EditTenantModal({ open, tenant, onClose, onRefetch, onSnackbar }
       }
 
       dispatch(setThemeColors({ primary: editPrimaryColor, secondary: editSecondaryColor }));
-      onRefetch();
       setDeployingSlug(null);
       setActiveStep(0);
       onClose();
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : 'Deploy failed';
+    } catch (err: any) {
+      const msg = err?.data?.error || (err instanceof Error ? err.message : 'Deploy failed');
       onSnackbar({ message: `❌ Git deploy failed: ${msg}`, severity: 'error' });
       setDeployingSlug(null);
     }
-  }, [tenant, buildDeployPayload, deployHookUrl, editTemplate, editPrimaryColor, editSecondaryColor, dispatch, onSnackbar, onRefetch, onClose, deployingSlug, handleSave]);
+  }, [tenant, buildDeployPayload, deployHookUrl, editTemplate, editPrimaryColor, editSecondaryColor, triggerDeployHook, deployTenant, dispatch, onSnackbar, onClose, deployingSlug, handleSave]);
 
   // ── Close / Reset ─────────────────────────────────────────
   const handleClose = () => {
@@ -1373,26 +1347,20 @@ export function EditTenantModal({ open, tenant, onClose, onRefetch, onSnackbar }
       setSlugError(null);
       setSlugResult(null);
       try {
-        const res = await fetch(`/api/admin/tenants/${currentSlug}/rename`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ newSlug }),
-        });
-        const data = await res.json();
-        if (data.success) {
-          setSlugResult(`✅ Slug renamed to "${data.data.tenant.slug}". The page will reload to use the new slug.`);
+        const result = await renameTenant({ currentSlug, newSlug }).unwrap();
+        if (result.success) {
+          setSlugResult(`✅ Slug renamed to "${result.data.tenant.slug}". The page will reload to use the new slug.`);
           // Update tenant reference for downstream steps
           setNewSlug('');
-          // Trigger a full refetch after a short delay so the modal re-renders with new slug URL
+          // Close after a short delay so the user sees the confirmation
           setTimeout(() => {
-            if (onRefetch) onRefetch();
             handleClose();
           }, 1500);
         } else {
-          setSlugError(data.error || 'Failed to rename slug');
+          setSlugError(result.error || 'Failed to rename slug');
         }
-      } catch {
-        setSlugError('Failed to connect to rename API');
+      } catch (err: any) {
+        setSlugError(err?.data?.error || 'Failed to connect to rename API');
       } finally {
         setRenamingSlug(false);
       }
@@ -2059,7 +2027,7 @@ export function EditTenantModal({ open, tenant, onClose, onRefetch, onSnackbar }
         </Button>
       </Stack>
 
-      {rolesLoading ? (
+      {rolesLoadingFromApi ? (
         <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}><CircularProgress /></Box>
       ) : rolesError ? (
         <Alert severity="error">{rolesError}</Alert>
@@ -2178,28 +2146,28 @@ export function EditTenantModal({ open, tenant, onClose, onRefetch, onSnackbar }
       setProjectInfo(null);
       setVercelUrl(null);
       try {
-        const res = await fetch(`/api/admin/tenants/${tenant.slug}/domain`);
-        const data = await res.json();
-        if (data.success) {
-          setDomainList(data.data?.domains || []);
-          setProjectInfo(data.data?.projectInfo || null);
-          setVercelUrl(data.data?.autoVercelUrl || null);
+        const result = await getTenantDomains(tenant.slug).unwrap();
+        if (result.success) {
+          const dd = result.data || {};
+          setDomainList(dd.domains || []);
+          setProjectInfo(dd.projectInfo || null);
+          setVercelUrl(dd.autoVercelUrl || null);
 
-                    const apiWarnings = data.data?.warnings || [];
-          if (!data.data?.domains?.length && !data.data?.projectInfo) {
+          const apiWarnings = dd.warnings || [];
+          if (!dd.domains?.length && !dd.projectInfo) {
             if (apiWarnings.length > 0) {
               setDomainResult('⚠️ ' + apiWarnings.join('; '));
             } else {
               setDomainResult('No domains configured on Vercel yet.');
             }
           } else {
-            const verified = (data.data?.domains || []).filter((d: { verified: boolean }) => d.verified).length;
+            const verified = (dd.domains || []).filter((d: { verified: boolean }) => d.verified).length;
             const parts: string[] = [];
-            if (data.data?.domains?.length) {
-              parts.push(`${data.data.domains.length} domain(s) — ${verified} verified`);
+            if (dd.domains?.length) {
+              parts.push(`${dd.domains.length} domain(s) — ${verified} verified`);
             }
-            if (data.data?.projectInfo) {
-              parts.push(`Project: ${data.data.projectInfo.name}`);
+            if (dd.projectInfo) {
+              parts.push(`Project: ${dd.projectInfo.name}`);
             }
             if (apiWarnings.length > 0) {
               parts.push(`⚠️ ${apiWarnings.length} warning(s)`);
@@ -2207,7 +2175,7 @@ export function EditTenantModal({ open, tenant, onClose, onRefetch, onSnackbar }
             setDomainResult(parts.join(' | ') || 'Fetched domain info.');
           }
         } else {
-          setDomainError(data.error || 'Failed to fetch domains');
+          setDomainError(result.error || 'Failed to fetch domains');
         }
       } catch {
         setDomainError('Failed to connect to domain API');
@@ -2226,32 +2194,28 @@ export function EditTenantModal({ open, tenant, onClose, onRefetch, onSnackbar }
       setDomainError(null);
       setDomainResult(null);
       try {
-        const res = await fetch(`/api/admin/tenants/${tenant.slug}/domain`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ domain: customDomain.trim(), updateAppUrl: true }),
-        });
-        const data = await res.json();
-        if (data.success) {
-          setDomainList(data.data?.domains || []);
-          setProjectInfo(data.data?.projectInfo || null);
-          setVercelUrl(data.data?.autoVercelUrl || null);
+        const result = await setTenantDomain({ slug: tenant.slug, domain: customDomain.trim(), updateAppUrl: true }).unwrap();
+        if (result.success) {
+          const dd = result.data || {};
+          setDomainList(dd.domains || []);
+          setProjectInfo(dd.projectInfo || null);
+          setVercelUrl(dd.autoVercelUrl || null);
 
-          if (data.data?.renamed) {
+          if (dd.renamed) {
             setDomainResult(
-              `✅ Project renamed to "${data.data.projectName}". Auto-generated URL: ${data.data.autoVercelUrl || 'https://' + customDomain.trim().replace(/\.vercel\.app$/i, '') + '.vercel.app'}`,
+              `✅ Project renamed to "${dd.projectName}". Auto-generated URL: ${dd.autoVercelUrl || 'https://' + customDomain.trim().replace(/\.vercel\.app$/i, '') + '.vercel.app'}`,
             );
           } else {
             setDomainResult(
-              `Domain "${customDomain.trim()}" added — ${data.data?.verified ? '✅ verified' : '⚠️ pending verification'}`,
+              `Domain "${customDomain.trim()}" added — ${dd.verified ? '✅ verified' : '⚠️ pending verification'}`,
             );
           }
           setCustomDomain('');
         } else {
-          setDomainError(data.error || 'Failed to set domain');
+          setDomainError(result.error || 'Failed to set domain');
         }
-      } catch {
-        setDomainError('Failed to set domain');
+      } catch (err: any) {
+        setDomainError(err?.data?.error || 'Failed to set domain');
       } finally {
         setDomainSetting(false);
       }
@@ -2671,8 +2635,8 @@ export function EditTenantModal({ open, tenant, onClose, onRefetch, onSnackbar }
               label: 'Vercel Webhook',
               desc: 'Test webhook endpoint reachability',
               action: async function() {
-                const res = await fetch('/api/webhooks/vercel', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
-                return 'Webhook responded: ' + res.status;
+                const body = await testVercelWebhook().unwrap();
+                return 'Webhook responded: ' + (body || '200');
               },
             },
             {
@@ -2682,8 +2646,7 @@ export function EditTenantModal({ open, tenant, onClose, onRefetch, onSnackbar }
               action: async function() {
                 const hookUrl = String((((tenant.metadata as Record<string, unknown>)?.config as Record<string, unknown>)?.hooks as Record<string, unknown>)?.deployHookUrl as string || '');
                 if (!hookUrl) throw new Error('No deploy hook URL configured');
-                const res = await fetch(hookUrl, { method: 'POST' });
-                const data = await res.json();
+                const data = await triggerDeployHook(hookUrl).unwrap() as { job?: { id?: string } };
                 return 'Deploy triggered: job=' + (data.job?.id || 'unknown');
               },
             },
@@ -2693,9 +2656,8 @@ export function EditTenantModal({ open, tenant, onClose, onRefetch, onSnackbar }
               desc: 'Test Neon database connection',
               action: async function() {
                 if (!tenant) return 'No tenant selected';
-                const res = await fetch('/api/admin/tenants/' + tenant.slug + '/provision/neon/test', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
-                const data = await res.json();
-                const msg = data.success ? 'Neon connection OK' : data.error || 'unknown';
+                const result = await testNeonConnection({ slug: tenant.slug }).unwrap();
+                const msg = result.success ? 'Neon connection OK' : result.error || 'unknown';
                 return 'Neon test: ' + msg;
               },
             },
@@ -2706,10 +2668,9 @@ export function EditTenantModal({ open, tenant, onClose, onRefetch, onSnackbar }
               action: async function() {
                 if (!tenant) return 'No tenant selected';
                 try {
-                  const res = await fetch('/api/admin/tenants/' + tenant.slug + '/provision/check-redirects', { method: 'POST' });
-                  const data = await res.json();
-                  if (!data.success || !data.data?.results) return 'Check failed';
-                  return data.data.results.map((r: { uri: string; status: number | string }) => r.uri + '=' + r.status).join(', ');
+                  const result = await checkRedirects({ slug: tenant.slug }).unwrap();
+                  if (!result.success || !result.data?.results) return 'Check failed';
+                  return result.data.results.map((r: { uri: string; status: number | string }) => r.uri + '=' + r.status).join(', ');
                 } catch {
                   return 'Check failed';
                 }
@@ -2720,12 +2681,12 @@ export function EditTenantModal({ open, tenant, onClose, onRefetch, onSnackbar }
               label: 'OpenAI Chat',
               desc: 'Test OpenAI API with a simple prompt',
               action: async function() {
-                const res = await fetch('/api/chat/ai-findings?limit=1');
-                if (!res.ok) {
-                  const data = await res.json().catch(function() { return {}; });
-                  throw new Error(data.error || 'Chat API returned ' + res.status);
+                try {
+                  await getAiFindings().unwrap();
+                  return 'Chat API responded with 200';
+                } catch (err: any) {
+                  throw new Error(err?.data?.error || 'Chat API returned ' + (err?.status ?? 'error'));
                 }
-                return 'Chat API responded with ' + res.status;
               },
             },
           ].map(function(test) {

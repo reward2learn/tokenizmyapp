@@ -189,7 +189,7 @@ export function TenantDashboard() {
   const handleDeploy = async (slug: string) => {
     handleMenuClose();
     try {
-      const result = await deployToVercel(slug).unwrap();
+      const result = await deployToVercel({ slug }).unwrap();
       if (result.success) {
         setSnackbar({
           message: `Deployed to Vercel — project created, ${result.data.envCount} env vars synced`,
@@ -681,7 +681,7 @@ export function TenantDashboard() {
           open={Boolean(editor)}
           onClose={() => { setEditor(null); refetch(); }}
           tenant={editor}
-          onRefetch={refetch}
+          
           onSnackbar={(msg) => setSnackbar(msg)}
         />
       )}

@@ -299,7 +299,7 @@ export function TenantEditor({ open, onClose, tenant }: TenantEditorProps) {
       // Save first, then deploy
       await handleSaveInternal();
       // Deploy will push all config env vars to Vercel
-      const result = await deployTenant(tenant.slug).unwrap();
+      const result = await deployTenant({ slug: tenant.slug }).unwrap();
       if (result.success) {
         setSuccessMessage(`Deployed to Vercel — ${result.data.envCount} env vars synced`);
       }
