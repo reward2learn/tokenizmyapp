@@ -1,13 +1,27 @@
 import { NextResponse } from 'next/server';
-import { createBaseClient, type DbClient } from '@/lib/db';
+import { createBaseClient, createRawClient, type DbClient } from '@/lib/db';
 import { requireWriteAuth } from '@/lib/auth/guards';
 import { sessionIsPlatformAdmin } from '@/lib/auth/jwt';
 import { jsonError, jsonOk } from '@/lib/api/response';
-import { ensureSecurityTables } from '@/lib/db-migrate';
 import { resolveCapabilitiesForSub } from '@/domain/security/security-service';
 import { setSecret, deleteSecret } from '@/lib/secrets';
 
 export const maxDuration = 30;
+
+type UserAccountRow = {
+  id: string;
+  sub: string;
+  email: string | null;
+  name: string | null;
+  tier: string;
+  role_code: string | null;
+  is_active: boolean;
+  last_seen_at: Date | null;
+  created_at: Date;
+};
+
+type GroupCodeRow = { code: string };
+type SubRow = { sub: string };
 
 export interface AdminUserView {
   id: string;
@@ -19,6 +33,8 @@ export interface AdminUserView {
   isActive: boolean;
   groups: string[];
   permissions: string[];
+  /** Task ids assigned directly to this user account (task_user_assignments). */
+  taskIds: string[];
   lastSeenAt: string | null;
   createdAt: string;
 }
@@ -28,33 +44,23 @@ export async function GET(request: Request): Promise<NextResponse> {
   if (!guard.ok) return guard.response;
   if (!sessionIsPlatformAdmin(guard.session)) return jsonError('Platform admin only', 403);
 
-  let db;
+  // Use raw Prisma client (tables created by prisma db push during build)
+  let db: DbClient;
   try {
-    db = createBaseClient();
-    // Ensure tables exist but don't backfill known accounts here — that
-    // would re-create users that an admin has deliberately deleted.
-    await ensureSecurityTables(db);
+    db = createRawClient() as unknown as DbClient;
+    // Quick connectivity test
+    await (db as any).$queryRawUnsafe('SELECT 1 as ok');
   } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    console.error('[admin/users] ensureSecurityTables error:', msg);
-    return jsonError('Database unavailable: ' + msg.slice(0, 200), 503);
+    console.error('[admin/users] GET createRawClient error:', err instanceof Error ? err.message : String(err));
+    return jsonError('Database unavailable', 503);
   }
 
   try {
-    const rows = await db.$queryRawUnsafe<{
-      id: string;
-      sub: string;
-      email: string | null;
-      name: string | null;
-      tier: string;
-      role_code: string | null;
-      is_active: boolean;
-      last_seen_at: Date | null;
-      created_at: Date;
-    }[]>(`SELECT id, sub, email, name, tier, role_code, is_active, last_seen_at, created_at
-         FROM user_accounts
-         ORDER BY created_at DESC
-         LIMIT 200;`);
+    const rows = await (db as any).$queryRawUnsafe(
+      `SELECT id, sub, email, name, tier, role_code, is_active, last_seen_at, created_at
+       FROM user_accounts
+       ORDER BY created_at DESC
+       LIMIT 200;`) as UserAccountRow[];
 
     const users: AdminUserView[] = await Promise.all(
       rows.map(async (r) => ({
@@ -67,6 +73,7 @@ export async function GET(request: Request): Promise<NextResponse> {
         isActive: r.is_active,
         groups: await resolveGroups(db, r.id),
         permissions: await resolveCapabilities(db, r.sub),
+        taskIds: await resolveAssignedTaskIds(db, r.id),
         lastSeenAt: r.last_seen_at ? r.last_seen_at.toISOString() : null,
         createdAt: r.created_at.toISOString(),
       })),
@@ -75,20 +82,19 @@ export async function GET(request: Request): Promise<NextResponse> {
     console.log('[admin/users] GET returning', users.length, 'users');
     return jsonOk({ users });
   } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    console.error('[admin/users] GET error:', msg);
-    return jsonError('Failed to load users: ' + msg.slice(0, 200), 500);
+    console.error('[admin/users] GET error:', err);
+    return jsonError('Failed to load users', 500);
   }
 }
 
 async function resolveGroups(db: DbClient, userId: string): Promise<string[]> {
   try {
-    const rows = await db.$queryRawUnsafe<{ code: string }[]>(
+    const rows = await (db as any).$queryRawUnsafe(
       `SELECT sg.code FROM security_groups sg
        JOIN user_groups ug ON ug.group_id = sg.id
        WHERE ug.user_id = $1;`,
       userId,
-    );
+    ) as GroupCodeRow[];
     return (rows ?? []).map((r) => r.code);
   } catch {
     return [];
@@ -98,6 +104,22 @@ async function resolveGroups(db: DbClient, userId: string): Promise<string[]> {
 async function resolveCapabilities(db: DbClient, sub: string): Promise<string[]> {
   try {
     return await resolveCapabilitiesForSub(db, sub);
+  } catch {
+    return [];
+  }
+}
+
+type TaskIdRow = { task_id: string };
+
+async function resolveAssignedTaskIds(db: DbClient, userId: string): Promise<string[]> {
+  try {
+    const rows = await (db as any).$queryRawUnsafe(
+      `SELECT task_id FROM task_user_assignments
+       WHERE user_account_id = $1 AND assigned = true
+       ORDER BY task_id;`,
+      userId,
+    ) as TaskIdRow[];
+    return (rows ?? []).map((r) => r.task_id);
   } catch {
     return [];
   }
@@ -126,19 +148,18 @@ export async function POST(request: Request): Promise<NextResponse> {
 
   if (!id || typeof id !== 'string') return jsonError('id is required', 400);
 
-  let db;
+  // Use raw Prisma client (tables created by prisma db push during build)
+  let db: DbClient;
   try {
-    db = createBaseClient();
-    await ensureSecurityTables(db);
+    db = createRawClient() as unknown as DbClient;
   } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    console.error('[admin/users] ensureSecurityTables error:', msg);
-    return jsonError('Database unavailable: ' + msg.slice(0, 200), 503);
+    console.error('[admin/users] POST createRawClient error:', err instanceof Error ? err.message : String(err));
+    return jsonError('Database unavailable', 503);
   }
 
   try {
     if (typeof isActive === 'boolean' || roleCode !== undefined || email !== undefined) {
-      await db.$executeRawUnsafe(
+      await (db as any).$executeRawUnsafe(
         `UPDATE user_accounts
          SET is_active = COALESCE($1, is_active),
              role_code = COALESCE($2, role_code),
@@ -153,9 +174,9 @@ export async function POST(request: Request): Promise<NextResponse> {
     }
 
     if (Array.isArray(groupCodes)) {
-      await db.$executeRawUnsafe(`DELETE FROM user_groups WHERE user_id = $1;`, id);
+      await (db as any).$executeRawUnsafe(`DELETE FROM user_groups WHERE user_id = $1;`, id);
       for (const code of groupCodes) {
-        await db.$executeRawUnsafe(
+        await (db as any).$executeRawUnsafe(
           `INSERT INTO user_groups (id, user_id, group_id)
            SELECT gen_random_uuid()::TEXT, $1, sg.id FROM security_groups sg WHERE sg.code = $2
            ON CONFLICT (user_id, group_id) DO NOTHING;`,
@@ -167,10 +188,10 @@ export async function POST(request: Request): Promise<NextResponse> {
 
     // Set PIN for this user (stored as USER_PIN_<sub> in secrets table).
     if (pin && pin.trim().length >= 3) {
-      const user = await db.$queryRawUnsafe<{ sub: string }[]>(
+      const user = await (db as any).$queryRawUnsafe(
         `SELECT sub FROM user_accounts WHERE id = $1;`,
         id,
-      );
+      ) as SubRow[];
       const sub = user[0]?.sub;
       if (sub) {
         await setSecret(`USER_PIN_${sub}`, pin.trim());
@@ -179,7 +200,7 @@ export async function POST(request: Request): Promise<NextResponse> {
 
     return jsonOk({ id, updated: true });
   } catch (err) {
-    console.error('[admin/users] POST error:', err);
+    console.error('[admin/users] POST error:', err instanceof Error ? (err.message + ' ' + (err as any).stack?.slice(0, 200)) : String(err));
     return jsonError('Failed to update user', 500);
   }
 }
@@ -202,12 +223,12 @@ export async function DELETE(request: Request): Promise<NextResponse> {
 
   try {
     // Fetch the sub before deleting so we can remove their PIN secret.
-    const user = await db.$queryRawUnsafe<{ sub: string }[]>(
+    const user = await (db as any).$queryRawUnsafe(
       `SELECT sub FROM user_accounts WHERE id = $1;`,
       id,
-    );
+    ) as SubRow[];
     // Cascade deletes user_groups rows automatically.
-    await db.$executeRawUnsafe(`DELETE FROM user_accounts WHERE id = $1;`, id);
+    await (db as any).$executeRawUnsafe(`DELETE FROM user_accounts WHERE id = $1;`, id);
     // Also delete the PIN secret so the user cannot re-authenticate via PIN.
     if (user[0]?.sub) {
       await deleteSecret(`USER_PIN_${user[0].sub}`).catch(() => {});

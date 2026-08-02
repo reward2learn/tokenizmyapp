@@ -217,6 +217,14 @@ const CONTENT_TABLE_STATEMENTS = [
     UNIQUE (task_id, role_id)
   )`,
   `CREATE INDEX IF NOT EXISTS task_assignments_role_id_idx ON task_assignments(role_id)`,
+  `CREATE TABLE IF NOT EXISTS task_user_assignments (
+    id TEXT PRIMARY KEY,
+    task_id TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+    user_account_id TEXT NOT NULL REFERENCES user_accounts(id) ON DELETE CASCADE,
+    assigned BOOLEAN NOT NULL DEFAULT true,
+    UNIQUE (task_id, user_account_id)
+  )`,
+  `CREATE INDEX IF NOT EXISTS task_user_assignments_user_account_id_idx ON task_user_assignments(user_account_id)`,
 ];
 
 function loadEnvLocal(): void {
@@ -542,7 +550,7 @@ export async function ensureTaskTables(prisma: {
   for (const sql of CONTENT_ENUM_STATEMENTS) {
     await prisma.$executeRawUnsafe(sql);
   }
-  for (const sql of CONTENT_TABLE_STATEMENTS.slice(-4)) {
+  for (const sql of CONTENT_TABLE_STATEMENTS.slice(-6)) {
     await prisma.$executeRawUnsafe(sql);
   }
 }

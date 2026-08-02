@@ -10,7 +10,7 @@ import {
 } from '@/generated/prisma';
 import { getFullCatalog, PAGE_CATALOG, REVIEW_PART_CATALOG } from '@/lib/page-catalog';
 import type { DbClient } from '@/lib/db';
-import { legacyTaskCodeForSub, PERSONS } from '@/domain/security/persons';
+import { FUNCTIONAL_ROLES } from '@/domain/security/functional-roles';
 import { parseBusinessReviewParts } from '@/lib/parse-business-review';
 import {
   parseFinancialProjectionsFromBuffer,
@@ -46,6 +46,8 @@ import {
   generateAnalysisMarkdown,
   generateSheetMarkdown,
 } from '@/domain/excel/workbook-analyzer';
+import { read } from 'xlsx';
+import { buildWorkbookFormulaMap } from '@/lib/workbook-formulas';
 import { setDynamicPages, setDynamicReviewParts } from '@/lib/page-catalog';
 import type { ReviewPartDefinition } from '@/lib/page-catalog';
 
@@ -215,6 +217,14 @@ const CONTENT_TABLE_STATEMENTS = [
     UNIQUE (task_id, role_id)
   )`,
   `CREATE INDEX IF NOT EXISTS task_assignments_role_id_idx ON task_assignments(role_id)`,
+  `CREATE TABLE IF NOT EXISTS task_user_assignments (
+    id TEXT PRIMARY KEY,
+    task_id TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+    user_account_id TEXT NOT NULL REFERENCES user_accounts(id) ON DELETE CASCADE,
+    assigned BOOLEAN NOT NULL DEFAULT true,
+    UNIQUE (task_id, user_account_id)
+  )`,
+  `CREATE INDEX IF NOT EXISTS task_user_assignments_user_account_id_idx ON task_user_assignments(user_account_id)`,
 ];
 
 function loadEnvLocal(): void {
@@ -350,33 +360,81 @@ function buildActionItems(): { priority: ActionPriority; label: string; sortOrde
 
 /**
  * Known roles for the exit-viability task tracking system.
- * Derived from PERSONS — the shared source of truth for operational identities.
+ * Derived from FUNCTIONAL_ROLES — the role catalog.
  * Roles are a display-name catalog (code + name only): the person-to-role link
- * lives in the PERSONS registry, NOT on the role row (no email field).
+ * lives in the FUNCTIONAL_ROLES catalog.
  * `code` matches the "Name:" prefix used in PRIORITY_ACTIONS labels (with
  * secondary lowercase match in parseTaskLabel for case-insensitive lookup).
  * Preserves the original capitalized codes so existing task labels continue to work.
  */
 const KNOWN_ROLES: { code: string; name: string; isPlatformAdmin?: boolean }[] =
-  PERSONS.map((p) => ({
-    // Use the original capitalized code for task-label backward compat.
-    // Map the new persons schema to the legacy KNOWN_ROLES shape.
-    code: legacyTaskCodeForSub(p.sub) ?? p.sub,
-    name: p.isPlatformAdmin ? p.name : `${p.name} (${p.roleName})`,
-    isPlatformAdmin: p.isPlatformAdmin,
+  FUNCTIONAL_ROLES.map((fr) => ({
+    code: fr.code,
+    name: fr.isPlatformAdmin ? 'Platform Admin' : fr.name,
+    isPlatformAdmin: fr.isPlatformAdmin ?? false,
   }));
 
 /** Resolve a known role by email (case-insensitive). Used by Google sign-in. */
-export function resolveRoleForEmail(email: string | undefined): {
-  code: string;
-  name: string;
-  isPlatformAdmin: boolean;
-} | null {
+/**
+ * Resolve a known role by email from the roles DB table.
+ * Replaces the old PERSONS-registry lookup with a live DB query.
+ */
+export async function resolveRoleForEmail(
+  email: string | undefined,
+  db: { $queryRawUnsafe: (sql: string, ...params: unknown[]) => Promise<unknown[]> },
+): Promise<{ code: string; name: string; isPlatformAdmin: boolean } | null> {
   if (!email) return null;
-  const match = PERSONS.find((p) => p.email && p.email.toLowerCase() === email.toLowerCase());
-  if (!match) return null;
-  return { code: match.roleCode, name: match.name, isPlatformAdmin: match.isPlatformAdmin ?? false };
+  const lowerEmail = email.toLowerCase();
+
+  // First check user_accounts (preferred source after first sign-in)
+  const accountRows = await db.$queryRawUnsafe(
+    `SELECT 
+       r.code, 
+       COALESCE(ua.name, r.name) as name,
+       COALESCE(r.is_platform_admin, false) as is_platform_admin
+     FROM user_accounts ua
+     LEFT JOIN roles r ON r.code = ua.role_code
+     WHERE LOWER(ua.email) = $1
+     LIMIT 1`,
+    lowerEmail,
+  ) as { code: string; name: string; is_platform_admin: boolean }[];
+
+  if (accountRows?.[0]) {
+    return { 
+      code: accountRows[0].code, 
+      name: accountRows[0].name, 
+      isPlatformAdmin: accountRows[0].is_platform_admin ?? false 
+    };
+  }
+
+  // Fallback: check app_config for dedicated admin email (seeded during tenant provisioning)
+  try {
+    const configRows = await db.$queryRawUnsafe(
+      `SELECT 
+         (data->>'adminEmail')::text as admin_email,
+         (data->'googleAuth'->>'dedicatedAdminEmail')::text as dedicated_admin_email
+       FROM app_config 
+       WHERE id = 'main' 
+       LIMIT 1`,
+    ) as { admin_email?: string; dedicated_admin_email?: string }[];
+
+    const config = configRows?.[0];
+    const dedicatedEmail = (config?.dedicated_admin_email || config?.admin_email || '').toLowerCase();
+
+    if (dedicatedEmail === lowerEmail) {
+      return {
+        code: 'platform-admin',
+        name: 'Platform Admin',
+        isPlatformAdmin: true,
+      };
+    }
+  } catch (err) {
+    console.warn('[resolveRoleForEmail] app_config check failed (non-fatal):', err);
+  }
+
+  return null;
 }
+
 
 /**
  * Operational identities the system knows about (PIN roles + platform admins).
@@ -385,11 +443,11 @@ export function resolveRoleForEmail(email: string | undefined): {
  * their lowercased code as sub (matching verify-pin).
  */
 export function listKnownAccounts(): { sub: string; name: string; tier: string; roleCode?: string | null }[] {
-  return PERSONS.map((p) => ({
-    sub: p.sub,
-    name: p.name,
-    tier: 'pin',
-    roleCode: p.roleCode,
+  return FUNCTIONAL_ROLES.map((fr) => ({
+    sub: fr.code,
+    name: fr.isPlatformAdmin ? 'Admin' : fr.name,
+    tier: fr.isPlatformAdmin ? 'pin' : 'pin',
+    roleCode: fr.code,
   }));
 }
 
@@ -492,7 +550,7 @@ export async function ensureTaskTables(prisma: {
   for (const sql of CONTENT_ENUM_STATEMENTS) {
     await prisma.$executeRawUnsafe(sql);
   }
-  for (const sql of CONTENT_TABLE_STATEMENTS.slice(-4)) {
+  for (const sql of CONTENT_TABLE_STATEMENTS.slice(-6)) {
     await prisma.$executeRawUnsafe(sql);
   }
 }
@@ -809,6 +867,31 @@ export async function seedFromSources(options: SeedOptions = {}): Promise<SeedRe
         category: 'cache',
         content: allExcelBuffers[i]!.toString('base64'),
       });
+    }
+
+    // Import-time formula inventory: find every formula cell in the workbook
+    // and map its references to the DB-sheet coordinates (column key + data
+    // row offset) the sheet viewer serves, so formulas can be computed against
+    // the database-saved sheet data. Non-fatal — the workbook itself remains
+    // the primary source when this parse fails.
+    try {
+      const formulaWb = read(allExcelBuffers[0]!, {
+        type: 'buffer',
+        cellFormula: true,
+        cellNF: false,
+        cellStyles: false,
+      });
+      const formulaMap = buildWorkbookFormulaMap(formulaWb);
+      knowledgeSnippets.push({
+        key: 'workbook_formulas',
+        category: 'cache',
+        content: JSON.stringify(formulaMap),
+      });
+    } catch (err) {
+      console.warn(
+        '[seed] Formula map extraction failed (workbook still cached):',
+        err instanceof Error ? err.message : String(err),
+      );
     }
   }
   const actionItems = buildActionItems();

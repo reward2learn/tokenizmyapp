@@ -160,9 +160,9 @@ export function TasksView({ forcedRole }: { forcedRole?: string | null } = {}) {
               onChange={(e) => setSelectedRole(e.target.value || null)}
             >
               <MenuItem value="">All roles (admin)</MenuItem>
-              {['Graham', 'Ama', 'Made', 'Lukas', 'James'].map((code) => (
-                <MenuItem key={code} value={code}>
-                  {code}
+              {(data?.success ? data.data.roles ?? [] : []).map((r) => (
+                <MenuItem key={r.code} value={r.code}>
+                  {r.name}
                 </MenuItem>
               ))}
             </Select>
@@ -239,6 +239,15 @@ export function TasksView({ forcedRole }: { forcedRole?: string | null } = {}) {
                     {task.assignments.map((a) => (
                       <Chip key={a.roleCode} label={a.roleCode} size="small" variant="outlined" />
                     ))}
+                    {(task.userAssignments ?? []).map((u) => (
+                      <Chip
+                        key={u.userId}
+                        label={u.name ?? u.sub}
+                        size="small"
+                        variant="outlined"
+                        color="secondary"
+                      />
+                    ))}
                   </Stack>
                 </Box>
                 {isPlatformAdmin ? (
@@ -297,6 +306,7 @@ export function TasksView({ forcedRole }: { forcedRole?: string | null } = {}) {
       {isPlatformAdmin ? (
         <AdminDashboard
           tasks={tasks}
+          roles={data?.success ? data.data.roles ?? [] : []}
           onRefresh={refetch}
           onSetStatus={(id, status) => void updateStatus({ id, status })}
           isUpdating={isUpdating}
@@ -381,6 +391,15 @@ function TaskDetailModal({
               ) : null}
               {task.assignments.map((a) => (
                 <Chip key={a.roleCode} label={a.roleCode} size="small" variant="outlined" />
+              ))}
+              {(task.userAssignments ?? []).map((u) => (
+                <Chip
+                  key={u.userId}
+                  label={u.name ?? u.sub}
+                  size="small"
+                  variant="outlined"
+                  color="secondary"
+                />
               ))}
             </>
           ) : null}
@@ -485,30 +504,31 @@ function TaskDetailModal({
 
 function AdminDashboard({
   tasks,
+  roles,
   onRefresh,
   onSetStatus,
   isUpdating,
 }: {
   tasks: TaskView[];
+  roles: { code: string; name: string; isPlatformAdmin: boolean }[];
   onRefresh: () => void;
   onSetStatus: (id: string, status: TaskStatusValue) => void;
   isUpdating: boolean;
 }) {
-  const roles = ['Graham', 'Ama', 'Made', 'Lukas', 'James'];
   const [rowMenu, setRowMenu] = useState<{ id: string; el: HTMLElement } | null>(null);
 
   const matrix = useMemo(() => {
     return roles.map((role) => {
       const roleTasks = tasks.filter((t) =>
-        t.assignments.some((a) => a.assigned && a.roleCode === role),
+        t.assignments.some((a) => a.assigned && a.roleCode === role.code),
       );
       const completed = roleTasks.filter((t) => t.status === 'completed').length;
       const inProgress = roleTasks.filter((t) => t.status === 'in_progress').length;
       const pending = roleTasks.filter((t) => t.status === 'pending').length;
       const overdue = roleTasks.filter((t) => isOverdue(t)).length;
-      return { role, total: roleTasks.length, completed, inProgress, pending, overdue };
+      return { role: role.code, total: roleTasks.length, completed, inProgress, pending, overdue };
     });
-  }, [tasks]);
+  }, [tasks, roles]);
 
   const sortedTasks = useMemo(
     () => [...tasks].sort((a, b) => a.sortOrder - b.sortOrder),
@@ -605,6 +625,15 @@ function AdminDashboard({
                 <Stack direction="row" spacing={0.5} sx={{ flexWrap: 'wrap' }} useFlexGap>
                   {task.assignments.map((a) => (
                     <Chip key={a.roleCode} label={a.roleCode} size="small" variant="outlined" />
+                  ))}
+                  {(task.userAssignments ?? []).map((u) => (
+                    <Chip
+                      key={u.userId}
+                      label={u.name ?? u.sub}
+                      size="small"
+                      variant="outlined"
+                      color="secondary"
+                    />
                   ))}
                 </Stack>
               </TableCell>

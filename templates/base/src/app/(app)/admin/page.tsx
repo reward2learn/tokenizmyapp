@@ -11,6 +11,7 @@ import Dialog from '@mui/material/Dialog';
 import DialogActions from '@mui/material/DialogActions';
 import DialogContent from '@mui/material/DialogContent';
 import DialogTitle from '@mui/material/DialogTitle';
+import Divider from '@mui/material/Divider';
 import FormControl from '@mui/material/FormControl';
 import FormControlLabel from '@mui/material/FormControlLabel';
 import IconButton from '@mui/material/IconButton';
@@ -35,6 +36,7 @@ import { SignInPanelGate } from '@/components/auth/sign-in-panel';
 import { BrandConfigTab } from '@/components/ops-admin/brand-config-tab';
 import { NavigationManager } from '@/components/ops-admin/navigation-manager';
 import { TenantInfoTab } from '@/components/ops-admin/tenant-info-tab';
+import { TenantDashboard } from '@/components/ops-admin/tenant-dashboard';
 import { getClientTenantConfig } from '@shared/lib/config/tenant';
 import {
   useListRoleConfigsQuery,
@@ -49,14 +51,18 @@ import {
 } from '@/store/apis/admin-api';
 import type { AdminUserView } from '@/app/api/admin/users/route';
 import type { AdminGroupView } from '@/app/api/admin/groups/route';
+import {
+  useListTasksQuery,
+  useUpdateUserTaskAssignmentMutation,
+} from '@/store/apis/tasks-api';
 import { FUNCTIONAL_ROLES } from '@/domain/security/functional-roles';
 import { PERSONS } from '@/domain/security/persons';
 import { CAPABILITY_AREAS, capability } from '@/domain/security/capabilities';
 
 /** Roles that persist regardless of seeded data state. */
-const PERSISTENT_ROLES: { code: string; name: string; isPlatformAdmin: boolean; email: string | null }[] = [
-  { code: 'platform-admin', name: 'Platform Admin', isPlatformAdmin: true, email: null },
-  { code: 'admin', name: 'Admin', isPlatformAdmin: true, email: null },
+const PERSISTENT_ROLES: { code: string; name: string; isPlatformAdmin: boolean }[] = [
+  { code: 'platform-admin', name: 'Platform Admin', isPlatformAdmin: true },
+  { code: 'admin', name: 'Admin', isPlatformAdmin: true },
 ];
 
 function RoleManager() {
@@ -86,7 +92,7 @@ function RoleManager() {
       </Typography>
       <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
         {hasDbData
-          ? 'Each functional role is assigned to one person. Manage PINs in the User Accounts tab.'
+          ? 'Roles are a display-name catalog (code + name), not tied to a person. People map to roles via the PERSONS registry; PINs are managed in the User Accounts tab.'
           : 'No seeded roles — showing persistent defaults (Platform Admin, Admin). Seed data to restore all functional roles.'}
       </Typography>
       {isError ? (
@@ -98,8 +104,7 @@ function RoleManager() {
         <TableHead>
           <TableRow>
             <TableCell>Role</TableCell>
-            <TableCell>Person</TableCell>
-            <TableCell>Email</TableCell>
+            <TableCell>Code</TableCell>
             <TableCell>PIN</TableCell>
           </TableRow>
         </TableHead>
@@ -107,8 +112,7 @@ function RoleManager() {
           {displayRoles.map((r) => (
             <TableRow key={r.code}>
               <TableCell sx={{ fontWeight: 600 }}>{r.name}</TableCell>
-              <TableCell>{r.code === 'admin' ? 'Admin' : r.code === 'platform-admin' ? 'Platform Admin' : '—'}</TableCell>
-              <TableCell>{r.email ?? '—'}</TableCell>
+              <TableCell sx={{ fontFamily: 'monospace' }}>{r.code}</TableCell>
               <TableCell>
                 {'pinConfigured' in r ? (
                   (r as { pinConfigured: boolean }).pinConfigured ? (
@@ -222,12 +226,17 @@ function UserManager() {
   const { data: groupsData } = useListAdminGroupsQuery();
   // Fetch PIN config status (maps functional role code → pinConfigured).
   const { data: roleConfigData } = useListRoleConfigsQuery();
+  // Task catalog (platform admin scope = all tasks) for per-user assignment.
+  const { data: tasksData } = useListTasksQuery();
+  const [setUserAssignment, { isLoading: isAssigning }] = useUpdateUserTaskAssignmentMutation();
   const [editing, setEditing] = useState<{
     id: string; sub: string; email: string; isActive: boolean; roleCode: string | null;
     groupCodes: string[]; pin: string;
   } | null>(null);
   const [details, setDetails] = useState<AdminUserView | null>(null);
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
+  const [taskEditor, setTaskEditor] = useState<AdminUserView | null>(null);
+  const [taskToAdd, setTaskToAdd] = useState<string>('');
 
   const allGroups = groupsData?.data.groups ?? [];
 
@@ -251,6 +260,26 @@ function UserManager() {
   }
 
   const users = data.data.users ?? [];
+  const allTasks = tasksData?.success ? tasksData.data.tasks : [];
+  const taskPriorityColor: Record<string, 'error' | 'warning' | 'info'> = {
+    P0: 'error', P1: 'warning', P2: 'info',
+  };
+
+  const assignedTasksFor = (u: AdminUserView) => {
+    const ids = new Set(u.taskIds ?? []);
+    return allTasks.filter((t) => ids.has(t.id));
+  };
+
+  const unassignedTasksFor = (u: AdminUserView) => {
+    const ids = new Set(u.taskIds ?? []);
+    return allTasks.filter((t) => !ids.has(t.id));
+  };
+
+  const handleUserTaskAssignment = async (u: AdminUserView, taskId: string, assigned: boolean) => {
+    await setUserAssignment({ taskId, userId: u.id, assigned }).unwrap();
+    setTaskToAdd('');
+    refetch();
+  };
 
   const openEditor = (user: AdminUserView) => {
     setEditing({
@@ -332,6 +361,9 @@ function UserManager() {
                         <InfoOutlinedIcon fontSize="small" />
                       </IconButton>
                     </Tooltip>
+                    <Button size="small" variant="outlined" onClick={() => { setTaskEditor(u); setTaskToAdd(''); }}>
+                      Tasks
+                    </Button>
                     <Button size="small" variant="outlined" onClick={() => openEditor(u)}>
                       Edit
                     </Button>
@@ -381,6 +413,87 @@ function UserManager() {
         </DialogContent>
         <DialogActions>
           <Button size="small" onClick={() => setDetails(null)}>Close</Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Per-user task assignment modal */}
+      <Dialog open={Boolean(taskEditor)} onClose={() => setTaskEditor(null)} maxWidth="sm" fullWidth>
+        <DialogTitle>Tasks — {taskEditor?.name ?? taskEditor?.sub}</DialogTitle>
+        <DialogContent dividers>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
+            Tasks assigned directly to this user appear on their Exit-Viability Tasks page with their priority.
+            Role-based playbook tasks remain visible through the user&apos;s functional role.
+          </Typography>
+          {taskEditor ? (
+            <Stack spacing={1}>
+              {assignedTasksFor(taskEditor).map((t) => (
+                <Stack
+                  key={t.id}
+                  direction="row"
+                  spacing={1}
+                  sx={{ alignItems: 'center', justifyContent: 'space-between' }}
+                >
+                  <Stack direction="row" spacing={1} sx={{ alignItems: 'center', minWidth: 0 }}>
+                    <Chip label={t.priority} size="small" color={taskPriorityColor[t.priority]} />
+                    <Typography variant="body2" sx={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      {t.title}
+                    </Typography>
+                  </Stack>
+                  <Button
+                    size="small"
+                    variant="text"
+                    color="error"
+                    disabled={isAssigning}
+                    onClick={() => void handleUserTaskAssignment(taskEditor, t.id, false)}
+                  >
+                    Remove
+                  </Button>
+                </Stack>
+              ))}
+              {assignedTasksFor(taskEditor).length === 0 ? (
+                <Typography variant="body2" color="text.secondary">
+                  No tasks assigned to this user yet.
+                </Typography>
+              ) : null}
+              <Divider sx={{ my: 1 }} />
+              <Typography variant="subtitle2" sx={{ fontWeight: 700 }}>
+                Add a task
+              </Typography>
+              <Stack direction="row" spacing={1}>
+                <FormControl size="small" sx={{ flex: 1 }}>
+                  <InputLabel id="task-to-add-label">Task</InputLabel>
+                  <Select
+                    labelId="task-to-add-label"
+                    label="Task"
+                    value={taskToAdd}
+                    onChange={(e) => setTaskToAdd(e.target.value)}
+                  >
+                    {unassignedTasksFor(taskEditor).map((t) => (
+                      <MenuItem key={t.id} value={t.id}>
+                        {t.priority} — {t.title}
+                      </MenuItem>
+                    ))}
+                  </Select>
+                </FormControl>
+                <Button
+                  size="small"
+                  variant="contained"
+                  disabled={isAssigning || !taskToAdd}
+                  onClick={() => void handleUserTaskAssignment(taskEditor, taskToAdd, true)}
+                >
+                  Assign
+                </Button>
+              </Stack>
+              {unassignedTasksFor(taskEditor).length === 0 ? (
+                <Typography variant="caption" color="text.secondary">
+                  All tasks are already assigned to this user.
+                </Typography>
+              ) : null}
+            </Stack>
+          ) : null}
+        </DialogContent>
+        <DialogActions>
+          <Button size="small" onClick={() => setTaskEditor(null)}>Close</Button>
         </DialogActions>
       </Dialog>
 
@@ -626,17 +739,19 @@ function GroupManager() {
 
 export default function AdminPage() {
   const [tab, setTab] = useState(0);
+  const isTokenizmyapp = getClientTenantConfig().slug === 'tokenizmyapp';
 
   return (
     <PlatformAdminGate
       fallback={<SignInPanelGate requiredTier="pin" />}
     >
-      <Box sx={{  mx: 'auto', px: 3, py: 3 }}>
+      <Box sx={{   mx: 'auto', px: 3, py: 3 }}>
         <Stack spacing={3}>
           <Typography variant="h4" sx={{ fontWeight: 800 }}>
             Platform Admin
           </Typography>
           <Tabs value={tab} onChange={(_e, v) => setTab(v)} variant="scrollable" scrollButtons="auto">
+            {isTokenizmyapp ? <Tab label="Tenants" /> : null}
             <Tab label="Tenant Info" />
             <Tab label="Navigation" />
             <Tab label="Brand Config" />
@@ -645,13 +760,14 @@ export default function AdminPage() {
             <Tab label="User Roles" />
             <Tab label="User Conversations" />
           </Tabs>
-          {tab === 0 ? <TenantInfoTab /> : null}
-          {tab === 1 ? <NavigationManager /> : null}
-          {tab === 2 ? <BrandConfigTab /> : null}
-          {tab === 3 ? <GroupManager /> : null}
-          {tab === 4 ? <UserManager /> : null}
-          {tab === 5 ? <RoleManager /> : null}
-          {tab === 6 ? <ConversationManager /> : null}
+          {isTokenizmyapp && tab === 0 ? <TenantDashboard /> : null}
+          {tab === (isTokenizmyapp ? 1 : 0) ? <TenantInfoTab /> : null}
+          {tab === (isTokenizmyapp ? 2 : 1) ? <NavigationManager /> : null}
+          {tab === (isTokenizmyapp ? 3 : 2) ? <BrandConfigTab /> : null}
+          {tab === (isTokenizmyapp ? 4 : 3) ? <GroupManager /> : null}
+          {tab === (isTokenizmyapp ? 5 : 4) ? <UserManager /> : null}
+          {tab === (isTokenizmyapp ? 6 : 5) ? <RoleManager /> : null}
+          {tab === (isTokenizmyapp ? 7 : 6) ? <ConversationManager /> : null}
         </Stack>
       </Box>
     </PlatformAdminGate>

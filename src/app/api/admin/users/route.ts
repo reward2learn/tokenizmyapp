@@ -33,6 +33,8 @@ export interface AdminUserView {
   isActive: boolean;
   groups: string[];
   permissions: string[];
+  /** Task ids assigned directly to this user account (task_user_assignments). */
+  taskIds: string[];
   lastSeenAt: string | null;
   createdAt: string;
 }
@@ -71,6 +73,7 @@ export async function GET(request: Request): Promise<NextResponse> {
         isActive: r.is_active,
         groups: await resolveGroups(db, r.id),
         permissions: await resolveCapabilities(db, r.sub),
+        taskIds: await resolveAssignedTaskIds(db, r.id),
         lastSeenAt: r.last_seen_at ? r.last_seen_at.toISOString() : null,
         createdAt: r.created_at.toISOString(),
       })),
@@ -101,6 +104,22 @@ async function resolveGroups(db: DbClient, userId: string): Promise<string[]> {
 async function resolveCapabilities(db: DbClient, sub: string): Promise<string[]> {
   try {
     return await resolveCapabilitiesForSub(db, sub);
+  } catch {
+    return [];
+  }
+}
+
+type TaskIdRow = { task_id: string };
+
+async function resolveAssignedTaskIds(db: DbClient, userId: string): Promise<string[]> {
+  try {
+    const rows = await (db as any).$queryRawUnsafe(
+      `SELECT task_id FROM task_user_assignments
+       WHERE user_account_id = $1 AND assigned = true
+       ORDER BY task_id;`,
+      userId,
+    ) as TaskIdRow[];
+    return (rows ?? []).map((r) => r.task_id);
   } catch {
     return [];
   }

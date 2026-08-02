@@ -11,6 +11,14 @@ export interface CreateTaskInput {
   priority?: 'P0' | 'P1' | 'P2';
   dueDate?: string;
   ownerCodes?: string[];
+  /** Platform-admin only: user_accounts ids assigned directly to this task. */
+  assigneeUserIds?: string[];
+}
+
+export interface UpdateUserTaskAssignmentInput {
+  taskId: string;
+  userId: string;
+  assigned: boolean;
 }
 
 export interface UpdateTaskStatusInput {
@@ -48,6 +56,17 @@ export const tasksApi = createApi({
       }),
       invalidatesTags: ['Task'],
     }),
+    updateUserTaskAssignment: builder.mutation<
+      ApiEnvelope<{ taskId: string; userId: string; assigned: boolean; updated: boolean }>,
+      UpdateUserTaskAssignmentInput
+    >({
+      query: (body) => ({
+        url: 'tasks/user-assignment',
+        method: 'POST',
+        body,
+      }),
+      invalidatesTags: ['Task'],
+    }),
   }),
 });
 
@@ -55,4 +74,5 @@ export const {
   useListTasksQuery,
   useCreateTaskMutation,
   useUpdateTaskStatusMutation,
+  useUpdateUserTaskAssignmentMutation,
 } = tasksApi;
