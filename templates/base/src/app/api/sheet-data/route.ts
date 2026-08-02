@@ -17,6 +17,7 @@ import { read, utils, write } from 'xlsx';
 import { evaluateFormula } from '@/lib/excel-formula';
 import { findHeaderRow, buildColumnKeys } from '@/lib/workbook-mapping';
 import type { WorkbookFormulaMap } from '@/lib/workbook-formulas';
+import { sortSheetRows, type SheetSortBy } from '@/lib/sheet-data-sort';
 import {
   CUSTOM_COLUMNS_SNIPPET_KEY,
   parseCustomColumnsStore,
@@ -51,6 +52,29 @@ export async function GET(request: Request): Promise<NextResponse> {
   // so table loads never trigger formula parsing/operations. When enabled
   // (?formulas=1) formulas are read and attached as `<col>_formula`.
   const formulasEnabled = searchParams.get('formulas') === '1';
+
+  // Server-side sort: JSON array of [column, direction] pairs, e.g.
+  // sortBy=[["Amount","desc"],["Date","asc"]]. Sorting happens on the FULL
+  // filtered row set BEFORE pagination so the returned page is ordered by the
+  // entire column — including rows not loaded into the current page.
+  let sortBy: SheetSortBy = [];
+  try {
+    const raw = searchParams.get('sortBy');
+    if (raw) {
+      const parsed = JSON.parse(raw) as unknown;
+      if (Array.isArray(parsed)) {
+        sortBy = parsed
+          .filter(
+            (e): e is [string, 'asc' | 'desc'] =>
+              Array.isArray(e) && e.length === 2 &&
+              typeof e[0] === 'string' && (e[1] === 'asc' || e[1] === 'desc'),
+          )
+          .slice(0, 3);
+      }
+    }
+  } catch {
+    sortBy = [];
+  }
 
   if (!sheetName) {
     return NextResponse.json({ error: 'Query param "sheet" is required (e.g. ?sheet=PL)' }, { status: 400 });
@@ -149,7 +173,6 @@ export async function GET(request: Request): Promise<NextResponse> {
       const excelRow = headerRow + 1 + idx; // Excel is 1-based
       const rowWithRefs: any = { 
         ...row, 
-        _rowIndex: (page - 1) * perPage + idx + 1,
         _excelRow: excelRow 
       };
 
@@ -212,8 +235,19 @@ export async function GET(request: Request): Promise<NextResponse> {
     const totalRows = rowsWithCellRefs.length;
     const totalPages = Math.ceil(totalRows / perPage);
 
+    // Sort the ENTIRE filtered row set (all pages) before slicing, so the
+    // current page arrives in globally-correct order — the sort query hits the
+    // backend and covers every row of the column, not just the loaded page.
+    const sortedRows = sortSheetRows(rowsWithCellRefs as Array<Record<string, unknown>>, sortBy);
+
     const startIdx = (page - 1) * perPage;
-    const rows = rowsWithCellRefs.slice(startIdx, startIdx + perPage);
+    const rows = sortedRows.slice(startIdx, startIdx + perPage).map((r, i) => ({
+      ...(r as object),
+      // 1-based position in the GLOBALLY sorted order — unique row id for the
+      // grid and stable across pages; _excelRow still points at the original
+      // Excel cell for edits.
+      _rowIndex: startIdx + i + 1,
+    }));
 
     const data = {
       sheet: tabName,

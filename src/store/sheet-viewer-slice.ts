@@ -24,6 +24,8 @@ export interface SheetViewerState {
   formulaMode: boolean;
   /** Selected cells as `${rowId}|${field}` keys. */
   selectedCells: CellKey[];
+  /** Whole-column cell selection (all cells of the column on the current page). */
+  selectedColumns: string[];
   /** Most recently activated cell (anchor for Shift ranges). */
   lastClickedCell: CellRef | null;
   /** True while a drag-to-select gesture is in progress. */
@@ -59,6 +61,7 @@ function readFormulaMode(): boolean {
 const initialState: SheetViewerState = {
   formulaMode: readFormulaMode(),
   selectedCells: [],
+  selectedColumns: [],
   lastClickedCell: null,
   dragActive: false,
   dragAnchor: null,
@@ -117,6 +120,7 @@ export const sheetViewerSlice = createSlice({
     /** Plain click — select exactly one cell. */
     selectSingleCell(state, action: PayloadAction<CellRef>) {
       state.selectedCells = [cellKeyOf(action.payload.rowId, action.payload.field)];
+      state.selectedColumns = [];
       state.lastClickedCell = action.payload;
       state.dragActive = false;
       state.dragAnchor = null;
@@ -128,6 +132,7 @@ export const sheetViewerSlice = createSlice({
       state.selectedCells = has
         ? state.selectedCells.filter((k) => k !== key)
         : [...state.selectedCells, key];
+      state.selectedColumns = [];
       state.lastClickedCell = action.payload;
       state.dragActive = false;
       state.dragAnchor = null;
@@ -141,8 +146,10 @@ export const sheetViewerSlice = createSlice({
       if (!anchor) {
         state.selectedCells = [cellKeyOf(action.payload.current.rowId, action.payload.current.field)];
         state.lastClickedCell = action.payload.current;
+        state.selectedColumns = [];
         return;
       }
+      state.selectedColumns = [];
       state.selectedCells = computeCellRange(anchor, action.payload.current, action.payload.rowOrder, action.payload.colOrder);
       state.lastClickedCell = action.payload.current;
       state.dragActive = false;
@@ -154,6 +161,7 @@ export const sheetViewerSlice = createSlice({
       state.dragAnchor = action.payload;
       state.lastClickedCell = action.payload;
       state.selectedCells = [cellKeyOf(action.payload.rowId, action.payload.field)];
+      state.selectedColumns = [];
     },
     /** Drag moved over a cell — grow the rectangular selection. */
     dragMove(
@@ -171,9 +179,20 @@ export const sheetViewerSlice = createSlice({
     },
     clearCellSelection(state) {
       state.selectedCells = [];
+      state.selectedColumns = [];
       state.lastClickedCell = null;
       state.dragActive = false;
       state.dragAnchor = null;
+    },
+    /** Toggle whole-column cell selection (all cells of the column, page scope). */
+    toggleColumn(state, action: PayloadAction<string>) {
+      const field = action.payload;
+      state.selectedColumns = state.selectedColumns.includes(field)
+        ? state.selectedColumns.filter((f) => f !== field)
+        : [...state.selectedColumns, field];
+    },
+    clearColumnSelection(state) {
+      state.selectedColumns = [];
     },
     setPinnedColumns(state, action: PayloadAction<string[]>) {
       state.pinnedColumns = action.payload;
@@ -233,6 +252,8 @@ export const {
   setExtraStats,
   toggleExtraStat,
   setTouchSelectMode,
+  toggleColumn,
+  clearColumnSelection,
 } = sheetViewerSlice.actions;
 
 /** Persist formula mode for the session whenever the store value changes. */
@@ -253,6 +274,7 @@ export const sheetViewerListenerMiddleware = sheetViewerListener.middleware;
 export const selectFormulaMode = (s: { sheetViewer: SheetViewerState }) => s.sheetViewer.formulaMode;
 export const selectDragActive = (s: { sheetViewer: SheetViewerState }) => s.sheetViewer.dragActive;
 export const selectSelectedCells = (s: { sheetViewer: SheetViewerState }) => s.sheetViewer.selectedCells;
+export const selectSelectedColumns = (s: { sheetViewer: SheetViewerState }) => s.sheetViewer.selectedColumns;
 export const selectPinnedColumns = (s: { sheetViewer: SheetViewerState }) => s.sheetViewer.pinnedColumns;
 export const selectExtraStats = (s: { sheetViewer: SheetViewerState }) => s.sheetViewer.extraStats;
 export const selectTouchSelectMode = (s: { sheetViewer: SheetViewerState }) => s.sheetViewer.touchSelectMode;

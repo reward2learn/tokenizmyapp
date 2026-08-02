@@ -18,6 +18,11 @@ import Tooltip from '@mui/material/Tooltip';
 import Snackbar from '@mui/material/Snackbar';
 import Switch from '@mui/material/Switch';
 import TextField from '@mui/material/TextField';
+import Dialog from '@mui/material/Dialog';
+import DialogTitle from '@mui/material/DialogTitle';
+import DialogContent from '@mui/material/DialogContent';
+import DialogActions from '@mui/material/DialogActions';
+import Slider from '@mui/material/Slider';
 import Menu from '@mui/material/Menu';
 import MenuItem from '@mui/material/MenuItem';
 import ListSubheader from '@mui/material/ListSubheader';
@@ -43,8 +48,8 @@ import type {
   GridRowId,
 } from '@mui/x-data-grid';
 import { GridToolbarContainer, useGridApiRef, GridFooter, GridEditInputCell } from '@mui/x-data-grid';
-import type { GridRenderEditCellParams } from '@mui/x-data-grid';
-import { useGetSheetDataQuery, useUpdateSheetCellMutation, useGetCustomColumnsQuery, useCreateCustomColumnMutation, useDeleteCustomColumnMutation } from '@/store/apis/sheet-data-api';
+import type { GridRenderEditCellParams, GridColumnResizeParams } from '@mui/x-data-grid';
+import { useGetSheetDataQuery, useUpdateSheetCellMutation, useGetCustomColumnsQuery, useCreateCustomColumnMutation, useDeleteCustomColumnMutation, useGetSheetViewerConfigQuery, useSaveSheetViewerConfigMutation } from '@/store/apis/sheet-data-api';
 import type { UpdateSheetCellParams, SheetDataResponse } from '@/store/apis/sheet-data-api';
 import { useAppDispatch, useAppSelector } from '@/store/hooks';
 import { sendStreamingMessage } from '@/store/chat-stream-slice';
@@ -66,7 +71,9 @@ import {
   selectPinnedColumns,
   selectExtraStats,
   selectTouchSelectMode,
+  selectSelectedColumns,
   setTouchSelectMode,
+  toggleColumn,
 } from '@/store/sheet-viewer-slice';
 
 const DataGrid = dynamic(
@@ -688,8 +695,16 @@ export function SheetViewerBlock({ config }: { config: Record<string, unknown> }
   const [snackbarOpen, setSnackbarOpen] = useState(false);
   const [snackbarMessage, setSnackbarMessage] = useState('');
 
+  // Server-side sorting: the sort model is serialized into the query so the
+  // backend sorts the ENTIRE column set before pagination (rows beyond the
+  // loaded page included); the grid's own re-sort of the returned page is
+  // idempotent (rows already arrive in globally-correct order).
+  const sortByArg = useMemo(
+    () => JSON.stringify(sortModel.map((srt) => [srt.field, srt.sort] as [string, 'asc' | 'desc'])),
+    [sortModel],
+  );
   const { data: payload, isLoading, error: queryError, refetch } = useGetSheetDataQuery(
-    { sheet: sheet ?? '', page: paginationModel.page + 1, perPage: PER_PAGE, formulas: formulaMode ? 1 : 0 },
+    { sheet: sheet ?? '', page: paginationModel.page + 1, perPage: PER_PAGE, formulas: formulaMode ? 1 : 0, sortBy: sortByArg },
     { skip: !sheet },
   );
 
@@ -740,6 +755,100 @@ export function SheetViewerBlock({ config }: { config: Record<string, unknown> }
     },
     [sheet, deleteCustomColumn],
   );
+
+  // Shared create (used by both the settings form and the header-menu dialog).
+  const createColumnAt = useCallback(
+    async (name: string, position: number | undefined): Promise<boolean> => {
+      if (!sheet || !name.trim()) return false;
+      try {
+        await createCustomColumn({ sheet, name: name.trim(), position }).unwrap();
+        setSnackbarMessage(`Custom column "${name.trim()}" added`);
+        setSnackbarOpen(true);
+        return true;
+      } catch (err: unknown) {
+        const e = err as { data?: { error?: string } };
+        setSnackbarMessage(e?.data?.error ?? 'Failed to add custom column');
+        setSnackbarOpen(true);
+        return false;
+      }
+    },
+    [sheet, createCustomColumn],
+  );
+
+  // ── Table configuration (column widths + row height, persisted per sheet) ──
+  const { data: configPayload } = useGetSheetViewerConfigQuery(
+    { sheet: sheet ?? '' },
+    { skip: !sheet },
+  );
+  const [saveSheetViewerConfig] = useSaveSheetViewerConfigMutation();
+  const viewerConfig = configPayload?.data;
+  const savedWidths = viewerConfig?.columnWidths ?? {};
+  // Local override while the slider is being dragged; falls back to saved.
+  const [rowHeightLocal, setRowHeightLocal] = useState<number | null>(null);
+  const rowHeight = rowHeightLocal ?? viewerConfig?.rowHeight ?? 52;
+
+  const widthSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const handleColumnWidthChange = useCallback(
+    (params: GridColumnResizeParams) => {
+      if (!sheet) return;
+      if (widthSaveTimer.current) clearTimeout(widthSaveTimer.current);
+      widthSaveTimer.current = setTimeout(() => {
+        void saveSheetViewerConfig({ sheet, columnWidths: { [params.colDef.field]: params.width } });
+      }, 600);
+    },
+    [sheet, saveSheetViewerConfig],
+  );
+
+  const handleRowHeightChange = useCallback((_e: unknown, v: number | number[]) => {
+    setRowHeightLocal(Array.isArray(v) ? v[0] : v);
+  }, []);
+  const handleRowHeightCommit = useCallback(
+    (_e: unknown, v: number | number[]) => {
+      const h = Array.isArray(v) ? v[0] : v;
+      setRowHeightLocal(h);
+      if (sheet) void saveSheetViewerConfig({ sheet, rowHeight: h });
+    },
+    [sheet, saveSheetViewerConfig],
+  );
+
+  // ── Per-column header menu (three-dot) ──
+  const [colMenuAnchor, setColMenuAnchor] = useState<HTMLElement | null>(null);
+  const [colMenuField, setColMenuField] = useState<string | null>(null);
+  const [customColumnDialog, setCustomColumnDialog] = useState<{ position: number } | null>(null);
+  const [customColumnName, setCustomColumnName] = useState('');
+  const customNames = useMemo(() => new Set(customColumns.map((c) => c.name)), [customColumns]);
+
+  // Insert a custom column BEFORE/AFTER the clicked column. Position is the
+  // index among the workbook's ORIGINAL visible columns (custom columns are
+  // display overlays and never shift workbook column indices).
+  const handleInsertCustomColumn = useCallback(
+    (side: 'before' | 'after') => {
+      const merged = payload?.data?.columns ?? [];
+      const i = merged.indexOf(colMenuField ?? '');
+      if (i < 0) return;
+      let position = 0;
+      for (let j = 0; j < i; j++) {
+        if (!customNames.has(merged[j])) position++;
+      }
+      if (side === 'after' && !customNames.has(merged[i])) position++;
+      setColMenuAnchor(null);
+      setCustomColumnName('');
+      setCustomColumnDialog({ position });
+    },
+    [payload, colMenuField, customNames],
+  );
+
+  const handleColumnSelectCells = useCallback(() => {
+    if (!colMenuField) return;
+    dispatch(toggleColumn(colMenuField));
+    setColMenuAnchor(null);
+  }, [colMenuField, dispatch]);
+
+  const handleCreateCustomColumnFromDialog = useCallback(async () => {
+    if (!customColumnDialog) return;
+    const ok = await createColumnAt(customColumnName, customColumnDialog.position);
+    if (ok) setCustomColumnDialog(null);
+  }, [customColumnDialog, customColumnName, createColumnAt]);
 
   const handleSortModelChange = useCallback((newSortModel: GridSortModel) => {
     // Fallback for any external sort model changes (e.g. column menu). For header clicks,
@@ -924,10 +1033,12 @@ export function SheetViewerBlock({ config }: { config: Record<string, unknown> }
       return {
         field: col,
         headerName: col,
-        // Pinned columns get fixed width for better sticky behavior
-        flex: isPinned ? 0 : 1,
+        // Pinned columns get fixed width for better sticky behavior.
+        // Saved (persisted) widths apply to non-pinned columns; unsaved
+        // columns flex to fill the remaining space.
+        flex: isPinned ? 0 : savedWidths[col] ? 0 : 1,
         minWidth: isPinned ? 140 : 100,
-        width: isPinned ? 160 : undefined,
+        width: isPinned ? 160 : savedWidths[col] ?? undefined,
         sortable: true,
         sortDirection,
         filterable: true,
@@ -991,12 +1102,14 @@ export function SheetViewerBlock({ config }: { config: Record<string, unknown> }
           return isFinite(n) ? n : t;
         },
         renderHeader: (params: GridColumnHeaderParams) => {
-          // Keep custom renderHeader that shows sort numbers (1, 2, 3) for multi-column sort.
-          // The badge appears next to column name based on position in sortModel.
+          // Custom renderHeader: multi-sort badges (1, 2, 3) plus the per-column
+          // three-dot menu (insert custom column before/after, select column).
           const index = sortIndex >= 0 ? sortIndex + 1 : null;
           return (
             <Box sx={{ display: 'flex', alignItems: 'center', width: '100%' }}>
-              {params.colDef.headerName}
+              <Box sx={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                {params.colDef.headerName}
+              </Box>
               {index !== null && (
                 <Box
                   component="span"
@@ -1012,25 +1125,38 @@ export function SheetViewerBlock({ config }: { config: Record<string, unknown> }
                     lineHeight: 1,
                     minWidth: 18,
                     textAlign: 'center',
+                    flexShrink: 0,
                   }}
                 >
                   {index}
                 </Box>
               )}
+              <IconButton
+                size="small"
+                aria-label={`Options for column ${col}`}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setColMenuField(col);
+                  setColMenuAnchor(e.currentTarget);
+                }}
+                sx={{ p: 0.25, ml: 0.5, flexShrink: 0 }}
+              >
+                <MoreHorizIcon fontSize="small" />
+              </IconButton>
             </Box>
           );
         },
       };
     });
-  }, [payload, pinnedColumns, sortModel, formulaMode]);
+  }, [payload, pinnedColumns, sortModel, formulaMode, savedWidths]);
 
   const rows = useMemo(() => {
     const sd = payload?.data as SheetDataResponse | undefined;
     if (!sd) return [];
-    return sd.rows.map((row, idx) => ({
-      ...row,
-      _rowIndex: (sd.page - 1) * sd.perPage + idx + 1,
-    }));
+    // Backend sets _rowIndex to the row's position in the GLOBALLY sorted
+    // order (page 1 → 1..perPage, page 2 → perPage+1.., ...) — a unique grid
+    // row id. _excelRow still points at the original Excel cell for edits.
+    return sd.rows.map((row) => ({ ...row }));
   }, [payload]);
 
   // Current display order (post-sort/post-filter) for range math — mirrors what
@@ -1045,11 +1171,36 @@ export function SheetViewerBlock({ config }: { config: Record<string, unknown> }
   const getColOrder = useCallback((): string[] => columns.map((c) => c.field), [columns]);
 
   // Compute Excel-style aggregates over the currently selected cells
+  const selectedColumns = useAppSelector(selectSelectedColumns);
+
+  // Effective selection = cell selection ∪ whole-row selection (checkboxes) ∪
+  // whole-column selection — page scope, so the status-bar aggregates and the
+  // AI-chat prompt work for rows and columns the same way they do for cells.
+  const effectiveSelectionKeys = useMemo(() => {
+    const keys = new Set<string>(selectedCells);
+    const fields = columns.map((c) => c.field);
+    if (selectedColumns.length > 0) {
+      rows.forEach((r: any) => {
+        const rid = r._rowIndex ?? r.id;
+        selectedColumns.forEach((f) => keys.add(`${rid}|${f}`));
+      });
+    }
+    if (rowSelectionModel.ids.size > 0) {
+      rows.forEach((r: any) => {
+        const rid = r._rowIndex ?? r.id;
+        if (rowSelectionModel.ids.has(rid as GridRowId)) {
+          fields.forEach((f) => keys.add(`${rid}|${f}`));
+        }
+      });
+    }
+    return keys;
+  }, [selectedCells, selectedColumns, rowSelectionModel, rows, columns]);
+
   const cellStats = useMemo(() => {
-    if (selectedCellSet.size < 2) return null; // only for multi-cell selections
+    if (effectiveSelectionKeys.size < 2) return null; // only for multi-cell selections
     const rowById = new Map(rows.map((r: any) => [r._rowIndex, r]));
     const all: unknown[] = [];
-    selectedCellSet.forEach((key) => {
+    effectiveSelectionKeys.forEach((key) => {
       const sep = key.lastIndexOf('|');
       const rId = key.slice(0, sep);
       const field = key.slice(sep + 1);
@@ -1063,7 +1214,7 @@ export function SheetViewerBlock({ config }: { config: Record<string, unknown> }
       .filter((v) => typeof v === 'number' && isFinite(v));
     const fns = [...STAT_DEFAULTS, ...extraStats];
     return fns.map((fn) => ({ label: fn, value: formatStatValue(computeCellStat(fn, nums, all)) }));
-  }, [selectedCellSet, rows, extraStats]);
+  }, [effectiveSelectionKeys, rows, extraStats]);
 
   // Dynamic sticky styles for user-selected pinned columns (Community edition workaround)
   // NOTE: True column pinning with auto-width handling, resize support, and scroll sync
@@ -1131,14 +1282,14 @@ export function SheetViewerBlock({ config }: { config: Record<string, unknown> }
   // "Attach from page" (src/lib/sheet-prompt.ts).
   const buildSelectionPrompt = useCallback((): string => {
     const sd = payload?.data;
-    if (!sd || rows.length === 0 || selectedCells.length === 0) return '';
+    if (!sd || rows.length === 0 || effectiveSelectionKeys.size === 0) return '';
     return buildCellsPrompt({
       sheet: sd.sheet,
       rows: rows as PromptRow[],
       colOrder: columns.map((c) => c.field),
-      selectedKeys: selectedCells,
+      selectedKeys: Array.from(effectiveSelectionKeys),
     });
-  }, [payload, rows, selectedCells, columns]);
+  }, [payload, rows, effectiveSelectionKeys, columns]);
 
   const handleSendSelectionToChat = useCallback(() => {
     const prompt = buildSelectionPrompt();
@@ -1151,10 +1302,10 @@ export function SheetViewerBlock({ config }: { config: Record<string, unknown> }
     // Surface the chat so the user sees the data land in the conversation.
     dispatch(setChatDrawerOpen(true));
     showCopyToast(
-      `Sent ${selectedCells.length} cell${selectedCells.length !== 1 ? 's' : ''} to AI chat`
+      `Sent ${effectiveSelectionKeys.size} cell${effectiveSelectionKeys.size !== 1 ? 's' : ''} to AI chat`
     );
     handleSettingsClose();
-  }, [buildSelectionPrompt, dispatch, chatMessages, selectedCells.length, showCopyToast, handleSettingsClose]);
+  }, [buildSelectionPrompt, dispatch, chatMessages, effectiveSelectionKeys.size, showCopyToast, handleSettingsClose]);
 
   // Enhanced multi-row copy functionality (MUI X v9 compatible with new GridRowSelectionModel {type, ids: Set}):
   // - When Ctrl/Cmd+C pressed, copies BOTH column headers AND row data as TSV
@@ -1381,7 +1532,7 @@ export function SheetViewerBlock({ config }: { config: Record<string, unknown> }
   // Copy selected cells as TSV sub-grid (preserves structure, raw values, headers for selected columns only)
   // Falls back to row copy if no cells selected. Called preferentially on Ctrl+C.
   const copySelectedCells = useCallback(async () => {
-    if (selectedCellSet.size === 0) return false;
+    if (effectiveSelectionKeys.size === 0) return false;
 
     const sd = payload?.data;
     if (!sd || rows.length === 0) {
@@ -1391,7 +1542,7 @@ export function SheetViewerBlock({ config }: { config: Record<string, unknown> }
 
     const selectedRowIds = new Set<string>();
     const selectedFieldsSet = new Set<string>();
-    selectedCellSet.forEach((k) => {
+    effectiveSelectionKeys.forEach((k) => {
       const [rId, f] = k.split('|');
       selectedRowIds.add(rId);
       selectedFieldsSet.add(f);
@@ -1432,7 +1583,7 @@ export function SheetViewerBlock({ config }: { config: Record<string, unknown> }
     try {
       await navigator.clipboard.writeText(tsvContent);
       showCopyToast(
-        `Copied ${selectedCellSet.size} cell${selectedCellSet.size !== 1 ? 's' : ''} ` +
+        `Copied ${effectiveSelectionKeys.size} cell${effectiveSelectionKeys.size !== 1 ? 's' : ''} ` +
           `(${tsvRows.length}×${colOrder.length}) to clipboard`
       );
       return true;
@@ -1441,7 +1592,7 @@ export function SheetViewerBlock({ config }: { config: Record<string, unknown> }
       showCopyToast('Failed to copy cells to clipboard');
       return false;
     }
-  }, [selectedCellSet, rows, columns, payload, showCopyToast]);
+  }, [effectiveSelectionKeys, rows, columns, payload, showCopyToast]);
 
   // onCellKeyDown handler to capture Ctrl+C (and Cmd+C on Mac) globally on the grid
   const handleCellKeyDown = useCallback(
@@ -1453,8 +1604,8 @@ export function SheetViewerBlock({ config }: { config: Record<string, unknown> }
 
       if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'c') {
         event.preventDefault();
-        // Prioritize cell selection (Ctrl for multi, Shift for range); fallback to row copy if none
-        if (selectedCells.length > 0) {
+        // Prioritize effective selection (cells / rows / columns); fallback to row copy
+        if (effectiveSelectionKeys.size > 0) {
           copySelectedCells(); // fire-and-forget (handles its own toast + clipboard)
         } else if (rowSelectionModel.ids.size === 0) {
           const singleModel: GridRowSelectionModel = {
@@ -1467,7 +1618,7 @@ export function SheetViewerBlock({ config }: { config: Record<string, unknown> }
         }
       }
     },
-    [dispatch, selectedCells, rowSelectionModel, handleCopySelection, copySelectedCells]
+    [dispatch, effectiveSelectionKeys.size, selectedCells, rowSelectionModel, handleCopySelection, copySelectedCells]
   );
 
   const CustomToolbar = () => (
@@ -1487,6 +1638,23 @@ export function SheetViewerBlock({ config }: { config: Record<string, unknown> }
           }}
         >
           {rowSelectionModel.ids.size} row{rowSelectionModel.ids.size !== 1 ? 's' : ''} selected
+        </Typography>
+      )}
+      {selectedColumns.length > 0 && (
+        <Typography
+          variant="body2"
+          sx={{
+            color: 'warning.main',
+            fontWeight: 600,
+            px: 2,
+            py: 0.5,
+            bgcolor: 'warning.50',
+            borderRadius: 1,
+            border: '1px solid',
+            borderColor: 'warning.100',
+          }}
+        >
+          {selectedColumns.length} column{selectedColumns.length !== 1 ? 's' : ''} selected
         </Typography>
       )}
       {selectedCells.length > 0 && (
@@ -1580,8 +1748,8 @@ export function SheetViewerBlock({ config }: { config: Record<string, unknown> }
 
   const getCellClassName = useCallback((params: GridCellParams) => {
     const key = getCellKey(params.id, params.field);
-    return selectedCellSet.has(key) ? 'selected-cell' : '';
-  }, [selectedCellSet, getCellKey]);
+    return effectiveSelectionKeys.has(key) ? 'selected-cell' : '';
+  }, [effectiveSelectionKeys, getCellKey]);
 
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', height: 'calc(100dvh - 66px)', minHeight: 400, width: '100%' }}>
@@ -1652,6 +1820,8 @@ export function SheetViewerBlock({ config }: { config: Record<string, unknown> }
               // Normal click replaces sort; Shift+click adds/toggles/removes from multi-model.
               processRowUpdate={processRowUpdate}
               onCellKeyDown={handleCellKeyDown}
+              rowHeight={rowHeight}
+              onColumnWidthChange={handleColumnWidthChange}
               slots={{
                 toolbar: CustomToolbar,
                 footer: CustomFooter,
@@ -1661,6 +1831,65 @@ export function SheetViewerBlock({ config }: { config: Record<string, unknown> }
               sx={pinnedSx}
             />
           </Box>
+
+          {/* Per-column header menu: insert custom column before/after, select column cells */}
+          <Menu
+            anchorEl={colMenuAnchor}
+            open={Boolean(colMenuAnchor)}
+            onClose={() => setColMenuAnchor(null)}
+          >
+            <MenuItem dense onClick={() => handleInsertCustomColumn('before')}>
+              Add custom column before
+            </MenuItem>
+            <MenuItem dense onClick={() => handleInsertCustomColumn('after')}>
+              Add custom column after
+            </MenuItem>
+            <Divider />
+            <MenuItem dense onClick={handleColumnSelectCells}>
+              {colMenuField && selectedColumns.includes(colMenuField)
+                ? 'Clear column selection'
+                : 'Select all cells in column'}
+            </MenuItem>
+          </Menu>
+
+          {/* Inline dialog for naming a custom column inserted from the header menu */}
+          <Dialog
+            open={Boolean(customColumnDialog)}
+            onClose={() => setCustomColumnDialog(null)}
+            maxWidth="xs"
+            fullWidth
+          >
+            <DialogTitle>Add custom column</DialogTitle>
+            <DialogContent>
+              <TextField
+                autoFocus
+                fullWidth
+                size="small"
+                label="Column name"
+                value={customColumnName}
+                onChange={(e) => setCustomColumnName(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') void handleCreateCustomColumnFromDialog();
+                }}
+              />
+              <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1 }}>
+                Custom columns overlay the sheet — formulas and cell input keep their exact Excel positions.
+              </Typography>
+            </DialogContent>
+            <DialogActions>
+              <Button size="small" onClick={() => setCustomColumnDialog(null)}>
+                Cancel
+              </Button>
+              <Button
+                size="small"
+                variant="contained"
+                disabled={!customColumnName.trim()}
+                onClick={() => void handleCreateCustomColumnFromDialog()}
+              >
+                Add
+              </Button>
+            </DialogActions>
+          </Dialog>
 
           {/* Settings Popover for selectable freeze columns */}
           <Popover
@@ -1693,7 +1922,7 @@ export function SheetViewerBlock({ config }: { config: Record<string, unknown> }
                   variant="outlined"
                   size="small"
                   startIcon={<ChatIcon fontSize="small" />}
-                  disabled={selectedCells.length === 0}
+                  disabled={effectiveSelectionKeys.size === 0}
                   onClick={handleSendSelectionToChat}
                   sx={{ mx: 2 }}
                 >
@@ -1701,10 +1930,33 @@ export function SheetViewerBlock({ config }: { config: Record<string, unknown> }
                 </Button>
               </ListItem>
               <Typography variant="caption" sx={{ px: 3, pb: 1, display: 'block', color: 'text.secondary' }}>
-                {selectedCells.length > 0
-                  ? `Will send ${selectedCells.length} selected cell${selectedCells.length !== 1 ? 's' : ''} as data for the AI prompt.`
-                  : 'Select cells (Ctrl/Shift click or drag) to enable.'}
+                {effectiveSelectionKeys.size > 0
+                  ? `Will send ${effectiveSelectionKeys.size} selected cell${effectiveSelectionKeys.size !== 1 ? 's' : ''} (cells, rows & columns) as data for the AI prompt.`
+                  : 'Select cells (Ctrl/Shift click or drag), whole rows (checkboxes) or whole columns (header menu) to enable.'}
               </Typography>
+              <Divider sx={{ mb: 1 }} />
+              <ListItem>
+                <Typography variant="subtitle2" sx={{ px: 2, py: 1 }}>
+                  Row Height
+                </Typography>
+              </ListItem>
+              <ListItem dense>
+                <Slider
+                  size="small"
+                  min={36}
+                  max={96}
+                  step={2}
+                  value={rowHeight}
+                  onChange={handleRowHeightChange}
+                  onChangeCommitted={handleRowHeightCommit}
+                  sx={{ mx: 2 }}
+                />
+              </ListItem>
+              <ListItem dense>
+                <Typography variant="caption" sx={{ px: 2, display: 'block', color: 'text.secondary' }}>
+                  {rowHeight} px — saved automatically per sheet
+                </Typography>
+              </ListItem>
               <Divider sx={{ mb: 1 }} />
               <ListItem>
                 <Typography variant="subtitle2" sx={{ px: 2, py: 1 }}>

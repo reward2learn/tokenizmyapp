@@ -8,6 +8,9 @@ export interface SheetDataParams {
   perPage?: number;
   /** 1 = formula mode (GET parses & returns cell formulas). Default 0 (off). */
   formulas?: number;
+  /** Server-side sort: JSON string of [column, dir][] — sorts the ENTIRE
+   *  column set before pagination (rows beyond the loaded page included). */
+  sortBy?: string;
 }
 
 export interface SheetDataResponse {
@@ -72,10 +75,22 @@ export interface CustomColumnDeleteParams {
   sheet: string;
 }
 
+// ── Sheet viewer table configuration (column widths + row height) ──
+export interface SheetViewerConfig {
+  columnWidths: Record<string, number>;
+  rowHeight: number;
+}
+
+export interface SaveSheetViewerConfigParams {
+  sheet: string;
+  columnWidths?: Record<string, number>;
+  rowHeight?: number;
+}
+
 export const sheetDataApi = createApi({
   reducerPath: 'sheetDataApi',
   baseQuery,
-  tagTypes: ['SheetData'],
+  tagTypes: ['SheetData', 'SheetConfig'],
   endpoints: (builder) => ({
     getSheetData: builder.query<ApiEnvelope<SheetDataResponse>, SheetDataParams>({
       query: (params) => ({
@@ -85,9 +100,27 @@ export const sheetDataApi = createApi({
           page: params.page ?? 1,
           perPage: params.perPage ?? 200,
           formulas: params.formulas ?? 0,
+          ...(params.sortBy ? { sortBy: params.sortBy } : {}),
         },
       }),
       providesTags: (result, error, arg) => [{ type: 'SheetData' as const, id: arg.sheet }],
+    }),
+    getSheetViewerConfig: builder.query<ApiEnvelope<SheetViewerConfig>, { sheet: string }>({
+      query: (params) => ({
+        url: 'sheet-data/config',
+        params: { sheet: params.sheet },
+      }),
+      providesTags: (result, error, arg) => [{ type: 'SheetConfig' as const, id: arg.sheet }],
+    }),
+    saveSheetViewerConfig: builder.mutation<ApiEnvelope<SheetViewerConfig>, SaveSheetViewerConfigParams>({
+      query: (params) => ({
+        url: 'sheet-data/config',
+        method: 'POST',
+        body: params,
+      }),
+      invalidatesTags: (result, error, arg) => [
+        { type: 'SheetConfig' as const, id: arg.sheet },
+      ],
     }),
     updateSheetCell: builder.mutation<
       ApiEnvelope<{
@@ -170,4 +203,6 @@ export const {
   useCreateCustomColumnMutation,
   useUpdateCustomColumnMutation,
   useDeleteCustomColumnMutation,
+  useGetSheetViewerConfigQuery,
+  useSaveSheetViewerConfigMutation,
 } = sheetDataApi;
