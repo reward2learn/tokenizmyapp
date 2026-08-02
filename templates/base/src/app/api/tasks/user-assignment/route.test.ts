@@ -6,23 +6,31 @@ const TEST_KEY = 'a'.repeat(64);
 function makeDb(overrides: Record<string, unknown> = {}) {
   const tasks = [{ id: 't-1' }];
   const users = [{ id: 'u-ama' }];
-  const executed: { sql: string; params: unknown[] }[] = [];
+  const upserts: { create: Record<string, unknown> }[] = [];
+  const deletes: { where: Record<string, unknown> }[] = [];
   return {
     task: {
       findUnique: vi.fn(async ({ where }: { where: { id: string } }) =>
         tasks.find((t) => t.id === where.id) ?? null,
       ),
     },
-    $queryRawUnsafe: vi.fn(async (sql: string, ...params: unknown[]) => {
-      if (sql.includes('FROM user_accounts')) {
-        return params[0] === 'u-ama' ? users : [];
-      }
-      return [];
-    }),
-    $executeRawUnsafe: vi.fn(async (sql: string, ...params: unknown[]) => {
-      executed.push({ sql, params });
-    }),
-    __executed: executed,
+    userAccount: {
+      findFirst: vi.fn(async ({ where }: { where: { id: string } }) =>
+        users.find((u) => u.id === where.id) ?? null,
+      ),
+    },
+    taskUserAssignment: {
+      upsert: vi.fn(async ({ create }: { create: Record<string, unknown> }) => {
+        upserts.push({ create });
+        return { id: 'tua-1', ...create };
+      }),
+      deleteMany: vi.fn(async ({ where }: { where: Record<string, unknown> }) => {
+        deletes.push({ where });
+        return { count: 1 };
+      }),
+    },
+    __upserts: upserts,
+    __deletes: deletes,
     ...overrides,
   };
 }
@@ -120,10 +128,9 @@ describe('/api/tasks/user-assignment', () => {
     expect(res.status).toBe(200);
     const json = (await res.json()) as { data: { taskId: string; userId: string; assigned: boolean; updated: boolean } };
     expect(json.data).toEqual({ taskId: 't-1', userId: 'u-ama', assigned: true, updated: true });
-    const db = vi.mocked(createClient).mock.results[0].value as { __executed: { sql: string }[] };
-    const insert = db.__executed.find((e) => e.sql.includes('INSERT INTO task_user_assignments'));
-    expect(insert).toBeDefined();
-    expect(insert!.sql).toContain('ON CONFLICT (task_id, user_account_id) DO UPDATE SET assigned = true');
+    const db = vi.mocked(createClient).mock.results[0].value as { __upserts: { create: Record<string, unknown> }[] };
+    expect(db.__upserts).toHaveLength(1);
+    expect(db.__upserts[0].create).toEqual({ taskId: 't-1', userId: 'u-ama', assigned: true });
   });
 
   it('unassigns by deleting the row', async () => {
@@ -131,9 +138,8 @@ describe('/api/tasks/user-assignment', () => {
     vi.mocked(requireWriteAuth).mockResolvedValue({ ok: true, session: adminSession() } as never);
     const res = await POST(request({ taskId: 't-1', userId: 'u-ama', assigned: false }));
     expect(res.status).toBe(200);
-    const db = vi.mocked(createClient).mock.results[0].value as { __executed: { sql: string }[] };
-    const del = db.__executed.find((e) => e.sql.includes('DELETE FROM task_user_assignments'));
-    expect(del).toBeDefined();
-    expect(del!.sql).toContain('WHERE task_id = $1 AND user_account_id = $2');
+    const db = vi.mocked(createClient).mock.results[0].value as { __deletes: { where: Record<string, unknown> }[] };
+    expect(db.__deletes).toHaveLength(1);
+    expect(db.__deletes[0].where).toEqual({ taskId: 't-1', userId: 'u-ama' });
   });
 });

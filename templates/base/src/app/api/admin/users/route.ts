@@ -109,17 +109,15 @@ async function resolveCapabilities(db: DbClient, sub: string): Promise<string[]>
   }
 }
 
-type TaskIdRow = { task_id: string };
 
 async function resolveAssignedTaskIds(db: DbClient, userId: string): Promise<string[]> {
   try {
-    const rows = await (db as any).$queryRawUnsafe(
-      `SELECT task_id FROM task_user_assignments
-       WHERE user_account_id = $1 AND assigned = true
-       ORDER BY task_id;`,
-      userId,
-    ) as TaskIdRow[];
-    return (rows ?? []).map((r) => r.task_id);
+    const rows = await (db as any).taskUserAssignment.findMany({
+      where: { userId, assigned: true },
+      select: { taskId: true },
+      orderBy: { taskId: 'asc' },
+    });
+    return (rows ?? []).map((r: { taskId: string }) => r.taskId);
   } catch {
     return [];
   }

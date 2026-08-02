@@ -198,6 +198,13 @@ exports.Prisma.TaskAssignmentScalarFieldEnum = {
   assigned: 'assigned'
 };
 
+exports.Prisma.TaskUserAssignmentScalarFieldEnum = {
+  id: 'id',
+  taskId: 'taskId',
+  userId: 'userId',
+  assigned: 'assigned'
+};
+
 exports.Prisma.KnowledgeSnippetScalarFieldEnum = {
   id: 'id',
   key: 'key',
@@ -803,6 +810,7 @@ exports.Prisma.ModelName = {
   UserGroup: 'UserGroup',
   Task: 'Task',
   TaskAssignment: 'TaskAssignment',
+  TaskUserAssignment: 'TaskUserAssignment',
   KnowledgeSnippet: 'KnowledgeSnippet',
   NavigationItem: 'NavigationItem',
   Secret: 'Secret',

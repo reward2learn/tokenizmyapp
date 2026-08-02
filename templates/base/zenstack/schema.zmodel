@@ -128,6 +128,7 @@ model UserAccount {
   createdAt   DateTime      @default(now()) @map("created_at")
   updatedAt   DateTime      @updatedAt @map("updated_at")
   groups      UserGroup[]
+  taskAssignments TaskUserAssignment[]
 
   @@allow('read', auth().tier == pin || auth().tier == google)
   @@allow('update', auth().tier == pin || auth().tier == google)
@@ -178,6 +179,7 @@ model Task {
   dueDate     DateTime?        @map("due_date")
   sortOrder   Int              @default(0) @map("sort_order")
   assignments TaskAssignment[]
+  userAssignments TaskUserAssignment[]
   createdAt   DateTime         @default(now()) @map("created_at")
   updatedAt   DateTime         @updatedAt @map("updated_at")
 
@@ -202,6 +204,24 @@ model TaskAssignment {
   @@allow('read', true)
   @@allow('create,update,delete', auth().tier == pin || auth().tier == google)
   @@map("task_assignments")
+}
+
+/// Per-user task assignment: links a task to a specific user_accounts row so
+/// signed-in users see admin-assigned tasks even without a role match.
+model TaskUserAssignment {
+  id       String      @id @default(cuid())
+  task     Task        @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  taskId   String      @map("task_id")
+  user     UserAccount @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId   String      @map("user_account_id")
+  /// When true the user sees this on their personal task checklist.
+  assigned Boolean     @default(true)
+
+  @@unique([taskId, userId])
+  @@index([userId])
+  @@allow('read', true)
+  @@allow('create,update,delete', auth().tier == pin || auth().tier == google)
+  @@map("task_user_assignments")
 }
 
 model KnowledgeSnippet {

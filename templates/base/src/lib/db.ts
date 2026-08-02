@@ -1,5 +1,5 @@
 /**
- * ZenStack DB client — policy-aware Prisma via enhance().
+ * ZenStack / Prisma DB client for tokenizmyapp factory.
  * Do not use dotenv/config here; POSTGRES_URL must be set by the host (Vercel / vercel dev).
  */
 import { PrismaClient } from '@/generated/prisma';
@@ -31,7 +31,7 @@ function getPostgresUrl(): string {
   return url;
 }
 
-function getBasePrisma(): PrismaClient {
+export function getBasePrisma(): PrismaClient {
   if (!globalForPrisma.__redrubyPrisma) {
     globalForPrisma.__redrubyPrisma = new PrismaClient({
       datasources: { db: { url: getPostgresUrl() } },
@@ -52,12 +52,12 @@ export function createClient(session: DbSession = { tier: 'public' }) {
   });
 }
 
-/**
- * Internal client for bootstrap/migration and security-account operations.
- * Uses a public-tier enhanced client; raw queries ($queryRawUnsafe /
- * $executeRawUnsafe) bypass ZenStack policy filtering, so DDL, account upserts,
- * and admin reads always succeed regardless of the caller's session.
- */
+/** Policy-aware client for bootstrap/migration & admin ops. */
 export function createBaseClient(): DbClient {
   return createClient({ tier: 'public' });
+}
+
+/** Raw Prisma client without ZenStack enhancement — for bootstrap operations. */
+export function createRawClient() {
+  return getBasePrisma();
 }

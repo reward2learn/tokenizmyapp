@@ -4,6 +4,7 @@ import type { ApiEnvelope } from '@/store/api-types';
 import type { RoleConfigView } from '@/app/api/admin/roles/route';
 import type { AdminConversationView } from '@/app/api/admin/conversations/route';
 import type { AdminUserView } from '@/app/api/admin/users/route';
+import type { BatchUserInput, BatchUserResult } from '@/app/api/admin/users/batch/route';
 import type { AdminGroupView } from '@/app/api/admin/groups/route';
 
 export const adminApi = createApi({
@@ -98,6 +99,18 @@ export const adminApi = createApi({
         method: 'DELETE',
       }),
       invalidatesTags: ['AdminUsers'],
+    }),
+    /** POST /api/admin/users/batch — create/update users one-at-a-time or from a CSV upload */
+    createAdminUsers: builder.mutation<
+      ApiEnvelope<{ results: BatchUserResult[]; created: number; updated: number; skipped: number }>,
+      { users: BatchUserInput[] }
+    >({
+      query: (body) => ({
+        url: 'admin/users/batch',
+        method: 'POST',
+        body,
+      }),
+      invalidatesTags: ['AdminUsers', 'RoleConfig'],
     }),
     listAdminGroups: builder.query<ApiEnvelope<{ groups: AdminGroupView[]; defaults: string[] }>, void>({
       query: () => 'admin/groups',
@@ -216,6 +229,7 @@ export const {
   useListAdminUsersQuery,
   useUpdateAdminUserMutation,
   useDeleteAdminUserMutation,
+  useCreateAdminUsersMutation,
   useListAdminGroupsQuery,
   useCreateAdminGroupMutation,
   useUpdateAdminGroupMutation,

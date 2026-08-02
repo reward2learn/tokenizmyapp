@@ -91,21 +91,22 @@ model Role {
 
 /// A signed-in user account (keyed by the auth provider subject / sub).
 model UserAccount {
-  id         String      @id() @default(cuid())
-  sub        String      @unique() @map("sub")
-  email      String?     @map("email")
-  name       String?     @map("name")
-  tier       String      @default("google") @map("tier")
-  roleCode   String?     @map("role_code")
-  isActive   Boolean     @default(true) @map("is_active")
-  lastSeenAt DateTime?   @map("last_seen_at")
-  metadata   Json        @default("{}")
-  avatarUrl  String?     @map("avatar_url")
-  bio        String?     @db.Text()
-  phone      String?
-  createdAt  DateTime    @default(now()) @map("created_at")
-  updatedAt  DateTime    @updatedAt() @map("updated_at")
-  groups     UserGroup[]
+  id              String               @id() @default(cuid())
+  sub             String               @unique() @map("sub")
+  email           String?              @map("email")
+  name            String?              @map("name")
+  tier            String               @default("google") @map("tier")
+  roleCode        String?              @map("role_code")
+  isActive        Boolean              @default(true) @map("is_active")
+  lastSeenAt      DateTime?            @map("last_seen_at")
+  metadata        Json                 @default("{}")
+  avatarUrl       String?              @map("avatar_url")
+  bio             String?              @db.Text()
+  phone           String?
+  createdAt       DateTime             @default(now()) @map("created_at")
+  updatedAt       DateTime             @updatedAt() @map("updated_at")
+  groups          UserGroup[]
+  taskAssignments TaskUserAssignment[]
 
   @@map("user_accounts")
 }
@@ -142,18 +143,19 @@ model UserGroup {
 
 /// A tracked action item derived from the MVP Business Review priority actions.
 model Task {
-  id          String           @id() @default(cuid())
-  title       String
+  id              String               @id() @default(cuid())
+  title           String
   /// Free-text detail / acceptance note.
-  description String?          @db.Text()
-  priority    ActionPriority   @default(P0)
-  status      TaskStatus       @default(pending)
+  description     String?              @db.Text()
+  priority        ActionPriority       @default(P0)
+  status          TaskStatus           @default(pending)
   /// ISO date (YYYY-MM-DD) by which the task should be done.
-  dueDate     DateTime?        @map("due_date")
-  sortOrder   Int              @default(0) @map("sort_order")
-  assignments TaskAssignment[]
-  createdAt   DateTime         @default(now()) @map("created_at")
-  updatedAt   DateTime         @updatedAt() @map("updated_at")
+  dueDate         DateTime?            @map("due_date")
+  sortOrder       Int                  @default(0) @map("sort_order")
+  assignments     TaskAssignment[]
+  userAssignments TaskUserAssignment[]
+  createdAt       DateTime             @default(now()) @map("created_at")
+  updatedAt       DateTime             @updatedAt() @map("updated_at")
 
   @@index([status])
   @@map("tasks")
@@ -172,6 +174,22 @@ model TaskAssignment {
   @@unique([taskId, roleId])
   @@index([roleId])
   @@map("task_assignments")
+}
+
+/// Per-user task assignment: links a task to a specific user_accounts row so
+/// signed-in users see admin-assigned tasks even without a role match.
+model TaskUserAssignment {
+  id       String      @id() @default(cuid())
+  task     Task        @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  taskId   String      @map("task_id")
+  user     UserAccount @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId   String      @map("user_account_id")
+  /// When true the user sees this on their personal task checklist.
+  assigned Boolean     @default(true)
+
+  @@unique([taskId, userId])
+  @@index([userId])
+  @@map("task_user_assignments")
 }
 
 model KnowledgeSnippet {
@@ -241,6 +259,7 @@ model AppSetting {
   brandSecondaryColor String   @default("#0af9fe") @map("brand_secondary_color")
   updatedAt           DateTime @updatedAt() @map("updated_at")
 
+  @@index([tenantSlug], name: "idx_app_settings_tenant_slug")
   @@map("app_settings")
 }
 

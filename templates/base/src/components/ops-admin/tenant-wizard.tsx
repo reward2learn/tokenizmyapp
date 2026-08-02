@@ -23,6 +23,8 @@ import Stepper from '@mui/material/Stepper';
 import TextField from '@mui/material/TextField';
 import Typography from '@mui/material/Typography';
 import Divider from '@mui/material/Divider';
+import useMediaQuery from '@mui/material/useMediaQuery';
+import { useTheme } from '@mui/material/styles';
 import Avatar from '@mui/material/Avatar';
 import AddIcon from '@mui/icons-material/Add';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
@@ -87,6 +89,9 @@ export const PIPELINE_STEPS = [
 ];
 
 export function TenantWizard() {
+  const theme = useTheme();
+  // Mobile: vertical stepper layout; non-mobile keeps the current horizontal layout.
+  const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
   const [open, setOpen] = useState(false);
   const [step, setStep] = useState(0);
   const [state, setState] = useState<WizardState>(INITIAL_STATE);
@@ -272,11 +277,19 @@ export function TenantWizard() {
           New Tenant App — AI-Powered Generation
         </DialogTitle>
         <DialogContent dividers>
-          <Stepper activeStep={step} sx={{ mb: 4 }}>
-            {STEPS.map((label) => (
-              <Step key={label}><StepLabel>{label}</StepLabel></Step>
-            ))}
-          </Stepper>
+          {isMobile ? (
+            <Stepper activeStep={step} orientation="vertical" sx={{ mb: 2, '& .MuiStepConnector-root': { ml: 1.5 } }}>
+              {STEPS.map((label) => (
+                <Step key={label}><StepLabel>{label}</StepLabel></Step>
+              ))}
+            </Stepper>
+          ) : (
+            <Stepper activeStep={step} sx={{ mb: 4 }}>
+              {STEPS.map((label) => (
+                <Step key={label}><StepLabel>{label}</StepLabel></Step>
+              ))}
+            </Stepper>
+          )}
 
           {/* Step 0: Business Info + AI Scrape */}
           {step === 0 ? (

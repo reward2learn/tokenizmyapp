@@ -55,34 +55,24 @@ export async function POST(request: Request): Promise<NextResponse> {
       return jsonError('Task not found', 404);
     }
 
-    const userRows = (await (db as unknown as {
-      $queryRawUnsafe: (sql: string, ...params: unknown[]) => Promise<unknown[]>;
-    }).$queryRawUnsafe(
-      `SELECT id FROM user_accounts WHERE id = $1 LIMIT 1`,
-      userId,
-    )) as { id: string }[];
-    if (!userRows?.[0]) {
+    const userAccount = await db.userAccount.findFirst({
+      where: { id: userId },
+      select: { id: true },
+    });
+    if (!userAccount) {
       return jsonError('User account not found', 404);
     }
 
     if (assigned) {
-      await (db as unknown as {
-        $executeRawUnsafe: (sql: string, ...params: unknown[]) => Promise<unknown>;
-      }).$executeRawUnsafe(
-        `INSERT INTO task_user_assignments (id, task_id, user_account_id, assigned)
-         SELECT gen_random_uuid()::TEXT, $1, $2, true
-         ON CONFLICT (task_id, user_account_id) DO UPDATE SET assigned = true`,
-        taskId,
-        userId,
-      );
+      await db.taskUserAssignment.upsert({
+        where: { taskId_userId: { taskId, userId } },
+        create: { taskId, userId, assigned: true },
+        update: { assigned: true },
+      });
     } else {
-      await (db as unknown as {
-        $executeRawUnsafe: (sql: string, ...params: unknown[]) => Promise<unknown>;
-      }).$executeRawUnsafe(
-        `DELETE FROM task_user_assignments WHERE task_id = $1 AND user_account_id = $2`,
-        taskId,
-        userId,
-      );
+      await db.taskUserAssignment.deleteMany({
+        where: { taskId, userId },
+      });
     }
 
     return jsonOk({ taskId, userId, assigned, updated: true });
