@@ -67,6 +67,7 @@ import {
   selectSingleCell,
   toggleCell,
   shiftSelectRange,
+  shiftSelectColumns,
   dragStart,
   dragMove,
   dragEnd,
@@ -104,6 +105,19 @@ interface SheetViewerConfig {
 
 const PER_PAGE = 100;
 
+/** Excel-style row-number gutter column (always sticky-left). */
+const ROW_NUMBER_COL = '__rowNumber__';
+const ROW_NUMBER_COL_WIDTH = 56;
+/** Pinned (frozen) column default width when no saved width exists. */
+const DEFAULT_PINNED_WIDTH = 160;
+
+/** Extract the Excel column letters from an A1 cell ref ("C6" → "C", "AMQ5" → "AMQ"). */
+function colLetterFromRef(ref: string | undefined): string {
+  if (typeof ref !== 'string') return '';
+  const m = ref.match(/^([A-Z]+)\d+$/);
+  return m ? m[1] : '';
+}
+
 function isLikelyFinancial(key: string, value: unknown): boolean {
   if (typeof value === 'number' && Math.abs(value) > 1000) return true;
   const k = key.toLowerCase();
@@ -133,6 +147,9 @@ export interface FormulaPickerHandle {
   append: (ref: string, isRangeEnd: boolean) => void;
   /** Re-anchors the floating formula popup after grid scroll / window resize. */
   reposition?: () => void;
+  /** Re-focuses the formula text field after a cell was picked (the grid
+   *  moves focus to the clicked cell — this restores keyboard input). */
+  focus?: () => void;
 }
 
 // ── Formula structure helpers (shared by the editor + pill popup) ─────────────────────────────────
@@ -365,13 +382,23 @@ function FormulaEditCell(
 
   const reposition = useCallback(() => setPopupPos(computePopupPos()), [computePopupPos]);
 
+  // Re-focus the formula text field after a grid cell was picked. MUI X moves
+  // its focus state to the clicked cell (and stops the edit session on
+  // cellFocusOut unless the grid-level onCellEditStop guard prevents it) — a
+  // macrotask lets the grid's own focus handling settle before we restore input.
+  const focusInput = useCallback(() => {
+    setTimeout(() => {
+      inputRef.current?.focus();
+    }, 0);
+  }, []);
+
   // Expose picker state + popup repositioning to the grid-level handlers.
   useEffect(() => {
-    pickerRef.current = { active: picker, append, reposition };
+    pickerRef.current = { active: picker, append, reposition, focus: focusInput };
     return () => {
       if (pickerRef.current) pickerRef.current = null;
     };
-  }, [picker, append, reposition, pickerRef]);
+  }, [picker, append, reposition, focusInput, pickerRef]);
 
   if (!isFormulaMode) {
     const { pickerRef: _pickerRef, ...rest } = props;
@@ -690,6 +717,10 @@ export function SheetViewerBlock({ config }: { config: Record<string, unknown> }
   });
   // Formula-builder cell-picking handle (set by the active FormulaEditCell)
   const formulaPickerRef = useRef<FormulaPickerHandle | null>(null);
+  // While the formula builder is in picking mode, the cell currently under the
+  // pointer — drives the Excel-style row/column reference highlight so the user
+  // can read the exact reference ("C6") they are about to add to the formula.
+  const [pickingHover, setPickingHover] = useState<{ rowId: GridRowId; field: string } | null>(null);
   // Mobile long-press tracking: a stationary 400ms press on a cell arms
   // touch-selection mode (gesture-local transient, cleaned up on release).
   const touchPressRef = useRef<{
@@ -717,6 +748,12 @@ export function SheetViewerBlock({ config }: { config: Record<string, unknown> }
   );
 
   const [updateSheetCell] = useUpdateSheetCellMutation();
+  // Whole-column selection (header shift-select + header-menu toggle) — the
+  // target set for batch column resizing. Declared early: the columns memo
+  // below reads it to tint selected headers.
+  const selectedColumns = useAppSelector(selectSelectedColumns);
+  const canUndo = useAppSelector(selectCanUndo);
+  const canRedo = useAppSelector(selectCanRedo);
 
   // ── Custom columns (overlay) ──────────────────────────────────────
   const { data: customsData } = useGetCustomColumnsQuery(
@@ -791,6 +828,12 @@ export function SheetViewerBlock({ config }: { config: Record<string, unknown> }
   const [saveSheetViewerConfig] = useSaveSheetViewerConfigMutation();
   const viewerConfig = configPayload?.data;
   const savedWidths = viewerConfig?.columnWidths ?? {};
+  // Live width overrides — updated on EVERY resize so pinned sticky offsets and
+  // batch-resized columns track the rendered widths immediately (the debounced
+  // server save below only persists them; it never drives the UI mid-drag).
+  const [liveWidths, setLiveWidths] = useState<Record<string, number>>({});
+  // Effective width source: live (in-session) overrides win over saved widths.
+  const effWidths = useMemo(() => ({ ...savedWidths, ...liveWidths }), [savedWidths, liveWidths]);
   // Local override while the slider is being dragged; falls back to saved.
   const [rowHeightLocal, setRowHeightLocal] = useState<number | null>(null);
   const rowHeight = rowHeightLocal ?? viewerConfig?.rowHeight ?? 52;
@@ -799,12 +842,33 @@ export function SheetViewerBlock({ config }: { config: Record<string, unknown> }
   const handleColumnWidthChange = useCallback(
     (params: GridColumnResizeParams) => {
       if (!sheet) return;
+      const resizedField = params.colDef.field;
+      const resizedWidth = params.width;
+      // Batch resize: when 2+ columns are selected and the resized column is
+      // one of them, apply the new width to every selected column (Excel-like).
+      const isBatch =
+        selectedColumns.length > 1 && selectedColumns.includes(resizedField);
+      const affected = isBatch ? [...selectedColumns] : [resizedField];
+
+      // 1) Apply live immediately (drives pinned sticky offsets + re-layout).
+      setLiveWidths((prev) => {
+        const next = { ...prev };
+        affected.forEach((f) => {
+          next[f] = resizedWidth;
+        });
+        return next;
+      });
+      // 2) Persist (debounced) — the config API merges per-column widths.
       if (widthSaveTimer.current) clearTimeout(widthSaveTimer.current);
       widthSaveTimer.current = setTimeout(() => {
-        void saveSheetViewerConfig({ sheet, columnWidths: { [params.colDef.field]: params.width } });
+        const widths: Record<string, number> = {};
+        affected.forEach((f) => {
+          widths[f] = resizedWidth;
+        });
+        void saveSheetViewerConfig({ sheet, columnWidths: widths });
       }, 600);
     },
-    [sheet, saveSheetViewerConfig],
+    [sheet, saveSheetViewerConfig, selectedColumns],
   );
 
   const handleRowHeightChange = useCallback((_e: unknown, v: number | number[]) => {
@@ -882,81 +946,6 @@ export function SheetViewerBlock({ config }: { config: Record<string, unknown> }
     dispatch(clearCellSelection());
     console.log("[SheetViewerBlock] Sort model updated (external):", limitedModel);
   }, [dispatch]);
-
-  /**
-   * Custom multi-column sort handler for MUI X Community edition.
-   * - Normal click: replaces sortModel with this column only (cycles asc → desc → none)
-   * - Shift+Click: adds to multi-sort (append as lowest priority, asc), or toggles direction/remove if already present
-   * - Max 3 columns
-   * - Uses event.defaultMuiPrevented to bypass default single-column sort behavior
-   * - Console logs added for Shift key debugging
-   */
-  const handleColumnHeaderClick = useCallback((
-    params: GridColumnHeaderParams,
-    event: React.MouseEvent<HTMLElement>
-  ) => {
-    const field = params.field;
-    console.log(`[SheetViewerBlock] Column header clicked - field: "${field}", shiftKey: ${event.shiftKey}, currentSortModel:`, sortModel);
-
-    if (field === '__check__' || field === 'actions') {
-      return;
-    }
-
-    // Prevent default MUI sort behavior so we can fully control multi-sort
-    (event as any).defaultMuiPrevented = true;
-
-    const currentModel = [...sortModel];
-    const existingIdx = currentModel.findIndex((s) => s.field === field);
-    let newModel: GridSortModel = [];
-
-    if (!event.shiftKey) {
-      // Normal click: replace entire sort model with this column (asc → desc → none cycle)
-      const currentDir = currentModel.find((s) => s.field === field)?.sort;
-      let nextDir: 'asc' | 'desc' | null = null;
-
-      if (currentDir === 'asc') {
-        nextDir = 'desc';
-      } else if (currentDir === 'desc') {
-        nextDir = null;
-      } else {
-        nextDir = 'asc';
-      }
-
-      if (nextDir) {
-        newModel = [{ field, sort: nextDir }];
-      } else {
-        newModel = [];
-      }
-      console.log(`[SheetViewerBlock] Normal click on "${field}": set to ${nextDir || 'unsorted'}, model:`, newModel);
-    } else {
-      // Shift+Click: manage multi-sort (add/remove/toggle up to 3 columns)
-      if (existingIdx !== -1) {
-        // Already present: cycle asc -> desc -> remove (preserves priority order for others)
-        const currentDir = currentModel[existingIdx].sort;
-        if (currentDir === 'asc') {
-          currentModel[existingIdx] = { field, sort: 'desc' };
-          newModel = currentModel;
-          console.log(`[SheetViewerBlock] Shift+click: toggled "${field}" to desc (position ${existingIdx + 1})`);
-        } else {
-          // desc -> remove from model
-          newModel = currentModel.filter((s) => s.field !== field);
-          console.log(`[SheetViewerBlock] Shift+click: removed "${field}" from multi-sort`);
-        }
-      } else {
-        // Not present: add at end with asc (if under limit)
-        if (currentModel.length >= 3) {
-          console.log('[SheetViewerBlock] Max 3 sort columns reached - cannot add more');
-          newModel = currentModel;
-        } else {
-          newModel = [...currentModel, { field, sort: 'asc' }];
-          console.log(`[SheetViewerBlock] Shift+click: added "${field}" as sort #${newModel.length}`);
-        }
-      }
-    }
-
-    setSortModel(newModel);
-    dispatch(clearCellSelection());
-  }, [sortModel, dispatch]);
 
   const handleSettingsClick = useCallback((event: React.MouseEvent<HTMLElement>) => {
     setSettingsAnchor(event.currentTarget);
@@ -1069,132 +1058,202 @@ export function SheetViewerBlock({ config }: { config: Record<string, unknown> }
       ...sd.columns.filter((c) => !pinnedColumns.includes(c)),
     ];
 
-    return orderedColumnFields.map((col) => {
-      const isPinned = pinnedSet.has(col);
-      const sortIndex = sortModel.findIndex((s) => s.field === col);
-      // Update column sortDirection based on current sortModel so DataGrid shows correct arrows
-      // and header state. sortIndex is used both for column metadata and badge display (1, 2, 3).
-      const sortDirection = sortIndex >= 0 ? sortModel[sortIndex].sort : null;
-
-      return {
-        field: col,
-        headerName: col,
-        // Pinned columns get fixed width for better sticky behavior.
-        // Saved (persisted) widths apply to non-pinned columns; unsaved
-        // columns flex to fill the remaining space.
-        flex: isPinned ? 0 : savedWidths[col] ? 0 : 1,
-        minWidth: isPinned ? 140 : 100,
-        width: isPinned ? 160 : savedWidths[col] ?? undefined,
-        sortable: true,
-        sortDirection,
-        filterable: true,
-        resizable: true,
-        // Freeze-pane (pinned) columns are read-only — only non-frozen columns
-        // can be edited so the sticky identifier columns are never modified.
-        editable: !isPinned,
-        // Note: pinnedColumns prop requires MUI X Pro. We use CSS sticky workaround below.
-        sortIndex, // for reference (also used by custom renderHeader)
-        valueGetter: (_value: unknown, row: GridValidRowModel) => {
-          const raw = row[col];
-          if (isLikelyFinancial(col, raw) && typeof raw === 'number') {
-            return raw; // keep numeric for sorting/filtering
-          }
-          return raw ?? '';
-        },
-        valueFormatter: (value: unknown, row: GridValidRowModel) => {
-          if (typeof value === 'number' && isLikelyFinancial(col, value)) {
-            return formatCellValue(col, value);
-          }
-          // Formula cells keep displaying their computed values; the formula
-          // text only appears while the cell is being edited. The one
-          // exception is a genuinely unevaluable formula (the API sets
-          // `_unevaluable: true` — no value exists), where the text is shown
-          // so the user can see the cell is formula-driven.
-          if (formulaMode && (value === '' || value === null || value === undefined)) {
-            const formula = (row as Record<string, unknown>)[`${col}_formula`];
-            const unevaluable = (row as Record<string, unknown>)[`${col}_unevaluable`];
-            if (typeof formula === 'string' && formula.length > 0 && unevaluable === true) {
-              return formula;
-            }
-          }
-          return value ?? '';
-        },
-        // Formula builder editor only when formula mode is enabled; otherwise
-        // the default MUI cell editor (plain text/values) is used.
-        renderEditCell: formulaMode
-          ? (params: GridRenderEditCellParams) => (
-              <FormulaEditCell {...params} pickerRef={formulaPickerRef} />
-            )
+    // Excel column letters ("A", "B", ... "C") derived from the authoritative
+    // A1 cell refs the backend attaches to every row (includes hidden-column
+    // offsets and virtual custom-column letters, e.g. "AMQ5").
+    const firstRow = sd.rows[0] as Record<string, unknown> | undefined;
+    const colLetters: Record<string, string> = {};
+    orderedColumnFields.forEach((col) => {
+      colLetters[col] = colLetterFromRef(
+        typeof firstRow?.[`${col}_cell`] === 'string'
+          ? (firstRow[`${col}_cell`] as string)
           : undefined,
-        // Coerce edited strings back to numbers so IDR formatting is preserved
-        // after commit (also accepts "620,122K" / "IDR 700K" style input).
-        valueParser: (value: unknown) => {
-          if (typeof value !== 'string') return value;
-          const t = value.trim().replace(/^IDR\s*/i, '');
-          if (!t) return '';
-          if (formulaMode && t.startsWith('=')) return t; // Excel formula — pass through untouched (formula mode only)
-          const m = t.match(/^(-?[\d.,]+)\s*([KMBkmb])?$/);
-          if (m) {
-            let num = Number(m[1].replace(/,/g, ''));
-            if (m[2]) {
-              const mult: Record<string, number> = { K: 1e3, M: 1e6, B: 1e9 };
-              num *= mult[m[2].toUpperCase()];
-            }
-            return isFinite(num) ? num : t;
-          }
-          const cleaned = t.replace(/[^\d.-]/g, '');
-          if (!cleaned) return t;
-          const n = Number(cleaned);
-          return isFinite(n) ? n : t;
-        },
-        renderHeader: (params: GridColumnHeaderParams) => {
-          // Custom renderHeader: multi-sort badges (1, 2, 3) plus the per-column
-          // three-dot menu (insert custom column before/after, select column).
-          const index = sortIndex >= 0 ? sortIndex + 1 : null;
-          return (
-            <Box sx={{ display: 'flex', alignItems: 'center', width: '100%' }}>
-              <Box sx={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                {params.colDef.headerName}
-              </Box>
-              {index !== null && (
-                <Box
-                  component="span"
-                  sx={{
-                    ml: 1,
-                    bgcolor: 'primary.main',
-                    color: 'primary.contrastText',
-                    fontSize: '0.7rem',
-                    fontWeight: 700,
-                    px: 1,
-                    py: 0.25,
-                    borderRadius: '12px',
-                    lineHeight: 1,
-                    minWidth: 18,
-                    textAlign: 'center',
-                    flexShrink: 0,
-                  }}
-                >
-                  {index}
-                </Box>
-              )}
-              <IconButton
-                size="small"
-                aria-label={`Options for column ${col}`}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setColMenuField(col);
-                  setColMenuAnchor(e.currentTarget);
-                }}
-                sx={{ p: 0.25, ml: 0.5, flexShrink: 0 }}
-              >
-                <MoreHorizIcon fontSize="small" />
-              </IconButton>
-            </Box>
-          );
-        },
-      };
+      );
     });
-  }, [payload, pinnedColumns, sortModel, formulaMode, savedWidths]);
+
+    const gutterCol: GridColDef = {
+      field: ROW_NUMBER_COL,
+      headerName: '',
+      width: effWidths[ROW_NUMBER_COL] ?? ROW_NUMBER_COL_WIDTH,
+      minWidth: ROW_NUMBER_COL_WIDTH,
+      flex: 0,
+      sortable: false,
+      filterable: false,
+      editable: false,
+      resizable: true,
+      disableColumnMenu: true,
+      align: 'center',
+      headerAlign: 'center',
+      // Excel-style row-number gutter: shows the REAL Excel row (header rows
+      // shift the numbers, so page-sequential _rowIndex would be misleading).
+      renderCell: (params) => {
+        const row = params.row as Record<string, unknown>;
+        const excelRow = Number(row._excelRow) || Number(row._rowIndex) || '';
+        return (
+          <Typography
+            variant="caption"
+            sx={{ color: 'text.secondary', fontWeight: 600, fontSize: '0.7rem', userSelect: 'none' }}
+          >
+            {excelRow}
+          </Typography>
+        );
+      },
+    };
+
+    return [
+      gutterCol,
+      ...orderedColumnFields.map((col) => {
+        const isPinned = pinnedSet.has(col);
+        const sortIndex = sortModel.findIndex((s) => s.field === col);
+        // Update column sortDirection based on current sortModel so DataGrid shows correct arrows
+        // and header state. sortIndex is used both for column metadata and badge display (1, 2, 3).
+        const sortDirection = sortIndex >= 0 ? sortModel[sortIndex].sort : null;
+        const letter = colLetters[col];
+
+        return {
+          field: col,
+          headerName: col,
+          // Saved/live (persisted) widths apply to EVERY column — including
+          // freeze-pane (pinned) columns — so a resized pinned column keeps
+          // its width across reloads. Unsaved columns flex to fill space.
+          flex: effWidths[col] ? 0 : isPinned ? 0 : 1,
+          minWidth: isPinned ? 140 : 100,
+          width: effWidths[col] ?? (isPinned ? DEFAULT_PINNED_WIDTH : undefined),
+          sortable: true,
+          sortDirection,
+          filterable: true,
+          resizable: true,
+          // Freeze-pane (pinned) columns are read-only — only non-frozen columns
+          // can be edited so the sticky identifier columns are never modified.
+          editable: !isPinned,
+          // Note: pinnedColumns prop requires MUI X Pro. We use CSS sticky workaround below.
+          sortIndex, // for reference (also used by custom renderHeader)
+          valueGetter: (_value: unknown, row: GridValidRowModel) => {
+            const raw = row[col];
+            if (isLikelyFinancial(col, raw) && typeof raw === 'number') {
+              return raw; // keep numeric for sorting/filtering
+            }
+            return raw ?? '';
+          },
+          valueFormatter: (value: unknown, row: GridValidRowModel) => {
+            if (typeof value === 'number' && isLikelyFinancial(col, value)) {
+              return formatCellValue(col, value);
+            }
+            // Formula cells keep displaying their computed values; the formula
+            // text only appears while the cell is being edited. The one
+            // exception is a genuinely unevaluable formula (the API sets
+            // `_unevaluable: true` — no value exists), where the text is shown
+            // so the user can see the cell is formula-driven.
+            if (formulaMode && (value === '' || value === null || value === undefined)) {
+              const formula = (row as Record<string, unknown>)[`${col}_formula`];
+              const unevaluable = (row as Record<string, unknown>)[`${col}_unevaluable`];
+              if (typeof formula === 'string' && formula.length > 0 && unevaluable === true) {
+                return formula;
+              }
+            }
+            return value ?? '';
+          },
+          // Formula builder editor only when formula mode is enabled; otherwise
+          // the default MUI cell editor (plain text/values) is used.
+          renderEditCell: formulaMode
+            ? (params: GridRenderEditCellParams) => (
+                <FormulaEditCell {...params} pickerRef={formulaPickerRef} />
+              )
+            : undefined,
+          // Coerce edited strings back to numbers so IDR formatting is preserved
+          // after commit (also accepts "620,122K" / "IDR 700K" style input).
+          valueParser: (value: unknown) => {
+            if (typeof value !== 'string') return value;
+            const t = value.trim().replace(/^IDR\s*/i, '');
+            if (!t) return '';
+            if (formulaMode && t.startsWith('=')) return t; // Excel formula — pass through untouched (formula mode only)
+            const m = t.match(/^(-?[\d.,]+)\s*([KMBkmb])?$/);
+            if (m) {
+              let num = Number(m[1].replace(/,/g, ''));
+              if (m[2]) {
+                const mult: Record<string, number> = { K: 1e3, M: 1e6, B: 1e9 };
+                num *= mult[m[2].toUpperCase()];
+              }
+              return isFinite(num) ? num : t;
+            }
+            const cleaned = t.replace(/[^\d.-]/g, '');
+            if (!cleaned) return t;
+            const n = Number(cleaned);
+            return isFinite(n) ? n : t;
+          },
+          renderHeader: (params: GridColumnHeaderParams) => {
+            // Custom renderHeader: Excel column-letter reference badge +
+            // multi-sort badges (1, 2, 3) plus the per-column three-dot menu
+            // (insert custom column before/after, select column).
+            const index = sortIndex >= 0 ? sortIndex + 1 : null;
+            const isColSelected = selectedColumns.includes(col);
+            return (
+              <Box sx={{ display: 'flex', alignItems: 'center', width: '100%', gap: 0.5 }}>
+                {letter && (
+                  <Box
+                    component="span"
+                    title={`Column ${letter}`}
+                    sx={{
+                      fontFamily: 'monospace',
+                      fontSize: '0.68rem',
+                      fontWeight: 700,
+                      lineHeight: 1,
+                      px: 0.5,
+                      py: 0.35,
+                      borderRadius: 0.75,
+                      color: formulaMode ? 'primary.main' : 'text.secondary',
+                      bgcolor: isColSelected ? 'primary.50' : 'action.hover',
+                      border: isColSelected ? '1px solid' : '1px solid transparent',
+                      borderColor: isColSelected ? 'primary.main' : undefined,
+                      flexShrink: 0,
+                    }}
+                  >
+                    {letter}
+                  </Box>
+                )}
+                <Box sx={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  {params.colDef.headerName}
+                </Box>
+                {index !== null && (
+                  <Box
+                    component="span"
+                    sx={{
+                      ml: 0.5,
+                      bgcolor: 'primary.main',
+                      color: 'primary.contrastText',
+                      fontSize: '0.7rem',
+                      fontWeight: 700,
+                      px: 1,
+                      py: 0.25,
+                      borderRadius: '12px',
+                      lineHeight: 1,
+                      minWidth: 18,
+                      textAlign: 'center',
+                      flexShrink: 0,
+                    }}
+                  >
+                    {index}
+                  </Box>
+                )}
+                <IconButton
+                  size="small"
+                  aria-label={`Options for column ${col}`}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setColMenuField(col);
+                    setColMenuAnchor(e.currentTarget);
+                  }}
+                  sx={{ p: 0.25, ml: 0.25, flexShrink: 0 }}
+                >
+                  <MoreHorizIcon fontSize="small" />
+                </IconButton>
+              </Box>
+            );
+          },
+        };
+      }),
+    ];
+  }, [payload, pinnedColumns, sortModel, formulaMode, effWidths, selectedColumns]);
 
   const rows = useMemo(() => {
     const sd = payload?.data as SheetDataResponse | undefined;
@@ -1214,12 +1273,97 @@ export function SheetViewerBlock({ config }: { config: Record<string, unknown> }
       : rows.map((r: any) => r._rowIndex ?? r.id);
   }, [apiRef, rows]);
 
-  const getColOrder = useCallback((): string[] => columns.map((c) => c.field), [columns]);
+  // Data-column order only — the Excel-style row-number gutter is a display
+  // column and must never participate in cell/range math.
+  const getColOrder = useCallback(
+    (): string[] => columns.filter((c) => c.field !== ROW_NUMBER_COL).map((c) => c.field),
+    [columns],
+  );
 
-  // Compute Excel-style aggregates over the currently selected cells
-  const selectedColumns = useAppSelector(selectSelectedColumns);
-  const canUndo = useAppSelector(selectCanUndo);
-  const canRedo = useAppSelector(selectCanRedo);
+  /**
+   * Custom column-header click handler for MUI X Community edition.
+   * - Normal click: replaces sortModel with this column only (cycles asc → desc → none)
+   * - Shift+Click: selects the contiguous column range from the last selected
+   *   column (header shift-select) — the batch-resize target set. Resizing any
+   *   selected column then applies the width to ALL selected columns.
+   * - Alt+Click: multi-sort (add/remove/toggle up to 3 columns; was Shift+click
+   *   before header shift-select took over the Shift modifier)
+   * - Uses event.defaultMuiPrevented to bypass default single-column sort behavior
+   */
+  const handleColumnHeaderClick = useCallback((
+    params: GridColumnHeaderParams,
+    event: React.MouseEvent<HTMLElement>
+  ) => {
+    const field = params.field;
+    console.log(`[SheetViewerBlock] Column header clicked - field: "${field}", shiftKey: ${event.shiftKey}, altKey: ${event.altKey}`);
+
+    if (field === '__check__' || field === 'actions' || field === ROW_NUMBER_COL) {
+      return;
+    }
+
+    // Prevent default MUI sort behavior so we fully control the click semantics
+    (event as any).defaultMuiPrevented = true;
+
+    // ── Shift+click: header shift-select (batch resize target set) ──────
+    if (event.shiftKey) {
+      const colOrder = getColOrder();
+      dispatch(shiftSelectColumns({ current: field, colOrder }));
+      console.log('[SheetViewerBlock] Shift+click: selected column range ending at', field);
+      return;
+    }
+
+    const currentModel = [...sortModel];
+    const existingIdx = currentModel.findIndex((s) => s.field === field);
+    let newModel: GridSortModel = [];
+
+    if (!event.altKey) {
+      // Normal click: replace entire sort model with this column (asc → desc → none cycle)
+      const currentDir = currentModel.find((s) => s.field === field)?.sort;
+      let nextDir: 'asc' | 'desc' | null = null;
+
+      if (currentDir === 'asc') {
+        nextDir = 'desc';
+      } else if (currentDir === 'desc') {
+        nextDir = null;
+      } else {
+        nextDir = 'asc';
+      }
+
+      if (nextDir) {
+        newModel = [{ field, sort: nextDir }];
+      } else {
+        newModel = [];
+      }
+      console.log(`[SheetViewerBlock] Normal click on "${field}": set to ${nextDir || 'unsorted'}, model:`, newModel);
+    } else {
+      // Alt+Click: manage multi-sort (add/remove/toggle up to 3 columns)
+      if (existingIdx !== -1) {
+        // Already present: cycle asc -> desc -> remove (preserves priority order for others)
+        const currentDir = currentModel[existingIdx].sort;
+        if (currentDir === 'asc') {
+          currentModel[existingIdx] = { field, sort: 'desc' };
+          newModel = currentModel;
+          console.log(`[SheetViewerBlock] Alt+click: toggled "${field}" to desc (position ${existingIdx + 1})`);
+        } else {
+          // desc -> remove from model
+          newModel = currentModel.filter((s) => s.field !== field);
+          console.log(`[SheetViewerBlock] Alt+click: removed "${field}" from multi-sort`);
+        }
+      } else {
+        // Not present: add at end with asc (if under limit)
+        if (currentModel.length >= 3) {
+          console.log('[SheetViewerBlock] Max 3 sort columns reached - cannot add more');
+          newModel = currentModel;
+        } else {
+          newModel = [...currentModel, { field, sort: 'asc' }];
+          console.log(`[SheetViewerBlock] Alt+click: added "${field}" as sort #${newModel.length}`);
+        }
+      }
+    }
+
+    setSortModel(newModel);
+    dispatch(clearCellSelection());
+  }, [sortModel, dispatch, getColOrder]);
 
   // ── Right-click context menu (cells, row/column headers) ──
   const [ctxMenu, setCtxMenu] = useState<{
@@ -1234,7 +1378,7 @@ export function SheetViewerBlock({ config }: { config: Record<string, unknown> }
   // AI-chat prompt work for rows and columns the same way they do for cells.
   const effectiveSelectionKeys = useMemo(() => {
     const keys = new Set<string>(selectedCells);
-    const fields = columns.map((c) => c.field);
+    const fields = columns.map((c) => c.field).filter((f) => f !== ROW_NUMBER_COL);
     if (selectedColumns.length > 0) {
       rows.forEach((r: any) => {
         const rid = r._rowIndex ?? r.id;
@@ -1275,7 +1419,9 @@ export function SheetViewerBlock({ config }: { config: Record<string, unknown> }
   // Dynamic sticky styles for user-selected pinned columns (Community edition workaround)
   // NOTE: True column pinning with auto-width handling, resize support, and scroll sync
   // requires MUI X Data Grid Pro. This CSS approach has limitations:
-  // - Fixed approximate widths; does not auto-adjust on column resize
+  // - Left offsets track the CURRENT rendered column widths (live resize
+  //   updates keep them in sync while dragging), so frozen columns no longer
+  //   drift when their widths change.
   // - May have z-index/overlap issues with filters or other features
   // - Reordering pinned columns via state controls left position order
   const pinnedSx = useMemo(() => {
@@ -1300,8 +1446,34 @@ export function SheetViewerBlock({ config }: { config: Record<string, unknown> }
       },
     };
 
-    let currentLeft = 0;
-    const pinnedWidth = 160; // Matches the fixed width we set for pinned cols
+    // Excel-style row-number gutter — always sticky at the far left.
+    const gutterHeaderSelector = `& .MuiDataGrid-columnHeader[data-field="${ROW_NUMBER_COL}"]`;
+    const gutterCellSelector = `& .MuiDataGrid-cell[data-field="${ROW_NUMBER_COL}"]`;
+    sx[gutterHeaderSelector] = {
+      position: 'sticky',
+      left: 0,
+      zIndex: 5,
+      bgcolor: 'background.paper',
+      boxShadow: '2px 0 6px -2px rgba(0, 0, 0, 0.15)',
+    };
+    sx[gutterCellSelector] = {
+      position: 'sticky',
+      left: 0,
+      zIndex: 4,
+      bgcolor: 'background.paper',
+    };
+
+    // Header shift-selected columns (batch-resize target set) get a visible
+    // tint so the user sees exactly which columns a resize will affect.
+    selectedColumns.forEach((field) => {
+      sx[`& .MuiDataGrid-columnHeader[data-field="${field}"]`] = {
+        bgcolor: 'primary.50 !important',
+      };
+    });
+
+    // Freeze-pane columns stick with LEFT offsets equal to the CURRENT widths
+    // of every column to their left (gutter + earlier pinned columns).
+    let currentLeft = effWidths[ROW_NUMBER_COL] ?? ROW_NUMBER_COL_WIDTH;
     pinnedColumns.forEach((field, idx) => {
       const selectorHeader = `& .MuiDataGrid-columnHeader[data-field="${field}"]`;
       const selectorCell = `& .MuiDataGrid-cell[data-field="${field}"]`;
@@ -1321,11 +1493,36 @@ export function SheetViewerBlock({ config }: { config: Record<string, unknown> }
         bgcolor: 'background.paper',
       };
 
-      currentLeft += pinnedWidth;
+      currentLeft += effWidths[field] ?? DEFAULT_PINNED_WIDTH;
     });
 
     return sx;
-  }, [pinnedColumns]);
+  }, [pinnedColumns, effWidths, selectedColumns]);
+
+  // Excel-style row/column reference highlight while picking cells into a
+  // formula: the hovered cell's column header (letter badge) and row-number
+  // gutter cell light up so the user can read the exact reference ("C6") they
+  // are about to add. Applied to the wrapper Box (NOT the DataGrid sx) so the
+  // grid's memoized props stay stable — no per-mousemove grid re-renders.
+  const pickingHoverSx = useMemo(() => {
+    if (!pickingHover) return null;
+    const sx: Record<string, Record<string, string | number>> = {};
+    if (pickingHover.field !== ROW_NUMBER_COL) {
+      sx[`& .MuiDataGrid-columnHeader[data-field="${pickingHover.field}"]`] = {
+        bgcolor: 'primary.100 !important',
+      };
+    }
+    const rowOrder = getRowOrder();
+    const rowIndex = rowOrder.indexOf(pickingHover.rowId);
+    if (rowIndex >= 0) {
+      sx[`& .MuiDataGrid-cell[data-field="${ROW_NUMBER_COL}"][data-rowindex="${rowIndex}"]`] = {
+        bgcolor: 'primary.100 !important',
+        color: 'primary.main !important',
+        fontWeight: 700,
+      };
+    }
+    return sx;
+  }, [pickingHover, getRowOrder]);
 
   // Show toast notification for copy action
   const showCopyToast = useCallback((message: string) => {
@@ -1342,10 +1539,10 @@ export function SheetViewerBlock({ config }: { config: Record<string, unknown> }
     return buildCellsPrompt({
       sheet: sd.sheet,
       rows: rows as PromptRow[],
-      colOrder: columns.map((c) => c.field),
+      colOrder: getColOrder(),
       selectedKeys: Array.from(effectiveSelectionKeys),
     });
-  }, [payload, rows, effectiveSelectionKeys, columns]);
+  }, [payload, rows, effectiveSelectionKeys, getColOrder]);
 
   const handleSendSelectionToChat = useCallback(() => {
     const prompt = buildSelectionPrompt();
@@ -1384,7 +1581,9 @@ export function SheetViewerBlock({ config }: { config: Record<string, unknown> }
       }
 
       // Use column order from current columns (respects pinned column reordering)
-      const colFields = columns.map((c) => c.field);
+      const colFields = columns
+        .map((c) => c.field)
+        .filter((f) => f !== ROW_NUMBER_COL); // exclude the row-number gutter
       const headers = [
         'Row #',
         ...colFields.map((f) => {
@@ -1761,6 +1960,9 @@ export function SheetViewerBlock({ config }: { config: Record<string, unknown> }
       const cellRef = (params.row as Record<string, unknown>)[`${params.field}_cell`];
       if (typeof cellRef === 'string' && cellRef.length > 0) {
         picker.append(cellRef, event.shiftKey);
+        // The grid moves focus to the clicked cell on mouseup — put the caret
+        // back into the formula editor so typing continues into the formula.
+        picker.focus?.();
       }
     },
     [],
@@ -1795,7 +1997,7 @@ export function SheetViewerBlock({ config }: { config: Record<string, unknown> }
       if (e.button !== 0) return; // left button only
       const cell = resolveCellFromEvent(e);
       if (!cell) return;
-      if (cell.field === '__check__') return; // row checkbox column
+      if (cell.field === '__check__' || cell.field === ROW_NUMBER_COL) return; // row checkbox / row-number gutter column
       if (formulaPickerRef.current?.active) return; // picking mode → onCellClick handles it
       const target = e.target as HTMLElement | null;
       if (target?.closest('[data-formula-editor]')) return; // inside the formula editor
@@ -1861,6 +2063,14 @@ export function SheetViewerBlock({ config }: { config: Record<string, unknown> }
           }
         }
       }
+      // Formula picking: track the hovered cell so the row/column reference
+      // indicators (row-number gutter + column letter) highlight where the
+      // next picked reference will point. No drag/selection in picking mode.
+      if (formulaPickerRef.current?.active) {
+        const cell = resolveCellFromEvent(e);
+        setPickingHover(cell);
+        return;
+      }
       if (!dragActive) return;
       const cell = resolveCellFromEvent(e);
       if (!cell) return;
@@ -1882,6 +2092,7 @@ export function SheetViewerBlock({ config }: { config: Record<string, unknown> }
         dispatch(setTouchSelectMode(true));
       }
       press.fired = false;
+      setPickingHover(null);
       dispatch(dragEnd());
     },
     [dispatch],
@@ -1912,11 +2123,15 @@ export function SheetViewerBlock({ config }: { config: Record<string, unknown> }
       let column: string | undefined;
 
       if (headerEl && !cellEl) {
+        const hField = headerEl.getAttribute('data-field') ?? undefined;
+        if (hField === ROW_NUMBER_COL || hField === '__check__') {
+          return; // row-number gutter / checkbox header — no column context menu
+        }
         kind = 'column';
-        column = headerEl.getAttribute('data-field') ?? undefined;
+        column = hField;
       } else if (cellEl) {
         const field = cellEl.getAttribute('data-field');
-        if (field === '__check__') {
+        if (field === '__check__' || field === ROW_NUMBER_COL) {
           kind = 'row';
         } else {
           kind = 'cell';
@@ -2122,6 +2337,7 @@ export function SheetViewerBlock({ config }: { config: Record<string, unknown> }
           }}
         >
           {selectedColumns.length} column{selectedColumns.length !== 1 ? 's' : ''} selected
+          {selectedColumns.length > 1 ? ' — resize any selected column to apply to all' : ' (Shift+click headers to batch-select)'}
         </Typography>
       )}
       {selectedCells.length > 0 && (
@@ -2266,6 +2482,8 @@ export function SheetViewerBlock({ config }: { config: Record<string, unknown> }
               // the long-press cell-selection gesture.
               WebkitTouchCallout: 'none',
               '& .MuiDataGrid-cell': { WebkitTouchCallout: 'none', userSelect: 'none' },
+              // Excel-style row/column reference highlight while picking.
+              ...(pickingHoverSx ?? {}),
             }}
             onPointerDown={handleGridPointerDown}
             onPointerMove={handleGridPointerMove}
@@ -2307,6 +2525,17 @@ export function SheetViewerBlock({ config }: { config: Record<string, unknown> }
               // Normal click replaces sort; Shift+click adds/toggles/removes from multi-model.
               processRowUpdate={processRowUpdate}
               onCellKeyDown={handleCellKeyDown}
+              // While the formula builder is in cell-picking mode, clicking a
+              // grid cell must never end the edit session: MUI X publishes
+              // `cellFocusOut` on any cell click (its focus management moves to
+              // the clicked cell), which would otherwise stop editing and kill
+              // the picker after the FIRST picked reference. defaultMuiPrevented
+              // runs first (priority listener) and skips the default stop.
+              onCellEditStop={(params, event) => {
+                if (formulaPickerRef.current?.active && params.reason === 'cellFocusOut') {
+                  event.defaultMuiPrevented = true;
+                }
+              }}
               rowHeight={rowHeight}
               onColumnWidthChange={handleColumnWidthChange}
               slots={{

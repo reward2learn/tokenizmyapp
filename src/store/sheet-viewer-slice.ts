@@ -28,6 +28,8 @@ export interface SheetViewerState {
   selectedColumns: string[];
   /** Most recently activated cell (anchor for Shift ranges). */
   lastClickedCell: CellRef | null;
+  /** Most recently activated column (anchor for Shift-selected header ranges). */
+  lastColumnAnchor: string | null;
   /** True while a drag-to-select gesture is in progress. */
   dragActive: boolean;
   /** Cell where the current drag started. */
@@ -63,6 +65,7 @@ const initialState: SheetViewerState = {
   selectedCells: [],
   selectedColumns: [],
   lastClickedCell: null,
+  lastColumnAnchor: null,
   dragActive: false,
   dragAnchor: null,
   pinnedColumns: [],
@@ -122,6 +125,7 @@ export const sheetViewerSlice = createSlice({
       state.selectedCells = [cellKeyOf(action.payload.rowId, action.payload.field)];
       state.selectedColumns = [];
       state.lastClickedCell = action.payload;
+      state.lastColumnAnchor = null;
       state.dragActive = false;
       state.dragAnchor = null;
     },
@@ -134,6 +138,7 @@ export const sheetViewerSlice = createSlice({
         : [...state.selectedCells, key];
       state.selectedColumns = [];
       state.lastClickedCell = action.payload;
+      state.lastColumnAnchor = null;
       state.dragActive = false;
       state.dragAnchor = null;
     },
@@ -147,9 +152,11 @@ export const sheetViewerSlice = createSlice({
         state.selectedCells = [cellKeyOf(action.payload.current.rowId, action.payload.current.field)];
         state.lastClickedCell = action.payload.current;
         state.selectedColumns = [];
+        state.lastColumnAnchor = null;
         return;
       }
       state.selectedColumns = [];
+      state.lastColumnAnchor = null;
       state.selectedCells = computeCellRange(anchor, action.payload.current, action.payload.rowOrder, action.payload.colOrder);
       state.lastClickedCell = action.payload.current;
       state.dragActive = false;
@@ -162,6 +169,7 @@ export const sheetViewerSlice = createSlice({
       state.lastClickedCell = action.payload;
       state.selectedCells = [cellKeyOf(action.payload.rowId, action.payload.field)];
       state.selectedColumns = [];
+      state.lastColumnAnchor = null;
     },
     /** Drag moved over a cell — grow the rectangular selection. */
     dragMove(
@@ -185,6 +193,7 @@ export const sheetViewerSlice = createSlice({
       state.selectedCells = action.payload.keys;
       state.selectedColumns = [];
       state.lastClickedCell = action.payload.anchor;
+      state.lastColumnAnchor = null;
       state.dragActive = false;
       state.dragAnchor = null;
     },
@@ -192,15 +201,44 @@ export const sheetViewerSlice = createSlice({
       state.selectedCells = [];
       state.selectedColumns = [];
       state.lastClickedCell = null;
+      state.lastColumnAnchor = null;
+      state.dragActive = false;
+      state.dragAnchor = null;
+    },
+    /**
+     * Shift+click on a column header — select the contiguous column range
+     * from the last selected column (anchor) to the clicked one. Used as the
+     * target set for batch column resizing.
+     */
+    shiftSelectColumns(state, action: PayloadAction<{ current: string; colOrder: string[] }>) {
+      const { current, colOrder } = action.payload;
+      const anchor = state.lastColumnAnchor ?? current;
+      const a = colOrder.indexOf(anchor);
+      const c = colOrder.indexOf(current);
+      let fields: string[];
+      if (a === -1 || c === -1) {
+        fields = [current];
+      } else {
+        const lo = Math.min(a, c);
+        const hi = Math.max(a, c);
+        fields = colOrder.slice(lo, hi + 1);
+      }
+      state.selectedColumns = fields;
+      state.selectedCells = [];
+      state.lastClickedCell = null;
+      state.lastColumnAnchor = current;
       state.dragActive = false;
       state.dragAnchor = null;
     },
     /** Toggle whole-column cell selection (all cells of the column, page scope). */
     toggleColumn(state, action: PayloadAction<string>) {
       const field = action.payload;
-      state.selectedColumns = state.selectedColumns.includes(field)
+      const has = state.selectedColumns.includes(field);
+      state.selectedColumns = has
         ? state.selectedColumns.filter((f) => f !== field)
         : [...state.selectedColumns, field];
+      // The toggled column becomes the anchor for the next Shift+click range.
+      state.lastColumnAnchor = has && state.lastColumnAnchor === field ? null : field;
     },
     clearColumnSelection(state) {
       state.selectedColumns = [];
@@ -265,6 +303,7 @@ export const {
   toggleExtraStat,
   setTouchSelectMode,
   toggleColumn,
+  shiftSelectColumns,
   clearColumnSelection,
 } = sheetViewerSlice.actions;
 
