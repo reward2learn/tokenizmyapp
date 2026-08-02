@@ -5,23 +5,23 @@ import { sheetDataApi, type UpdateSheetCellParams } from '@/store/apis/sheet-dat
 /**
  * Sheet-viewer undo/redo history.
  *
- * Every successful cell edit (workbook cell OR custom-column cell) records a
- * SheetUndoEntry with the exact update-cell params needed to restore the
- * PRE-EDIT state (`backward` — used by Undo) and the POST-EDIT state
- * (`forward` — used by Redo). Both directions re-route through the same
- * /api/sheet-data/update-cell endpoint the grid uses, so undo/redo is
- * automatically correct for formula cells (formula strings + formulaMode),
- * custom columns, and cells edited on any page.
+ * Every successful cell edit (workbook cell OR custom-column cell) records an
+ * entry with the exact update-cell params needed to restore the PRE-EDIT
+ * state (`backward` — used by Undo) and the POST-EDIT state (`forward` — used
+ * by Redo). Both directions re-route through the same /api/sheet-data
+ * endpoints the grid uses, so undo/redo is automatically correct for formula
+ * cells (formula strings + formulaMode), custom columns, and cells edited on
+ * any page.
  *
- * Applying an undo/redo is performed by a listener middleware (the same
- * pattern as the sheet-viewer formula-mode persistence): components just
- * dispatch `requestUndo()` / `requestRedo()` (context menu, Ctrl+Z /
- * Ctrl+Shift+Z, toolbar buttons) and the store drives the mutation.
+ * Range edits (fill handle, paste) record ONE SheetUndoBatchEntry for the
+ * whole range — a single Ctrl+Z undoes the entire paste/fill, exactly like
+ * Excel. `applying` is set while an undo/redo mutation is in flight so the
+ * resulting refetch-driven re-render never re-records history.
  *
- * History is capped at 200 entries; a fresh edit clears the redo branch
- * (standard editor semantics).
+ * History is capped at 200 entries; a fresh edit clears the redo branch.
  */
 
+/** Single-cell undo/redo entry (in-place grid edits). */
 export interface SheetUndoEntry {
   /** Params that restore the cell to its state BEFORE the edit. */
   backward: UpdateSheetCellParams;
@@ -30,9 +30,23 @@ export interface SheetUndoEntry {
   at: string;
 }
 
+/** One backward/forward pair within a range edit. */
+export interface SheetUndoCell {
+  backward: UpdateSheetCellParams;
+  forward: UpdateSheetCellParams;
+}
+
+/** Range undo/redo entry (fill handle, paste) — one atomic undo step. */
+export interface SheetUndoBatchEntry {
+  cells: SheetUndoCell[];
+  at: string;
+}
+
+export type UndoEntry = SheetUndoEntry | SheetUndoBatchEntry;
+
 export interface UndoRedoState {
-  undoStack: SheetUndoEntry[];
-  redoStack: SheetUndoEntry[];
+  undoStack: UndoEntry[];
+  redoStack: UndoEntry[];
   /** True while an undo/redo mutation is in flight (guards double triggers). */
   applying: boolean;
 }
@@ -45,22 +59,31 @@ const initialState: UndoRedoState = {
   applying: false,
 };
 
+/** No-op guard shared by single and batch entries (strict value + mode). */
+function isNoOpCell(cell: SheetUndoCell): boolean {
+  return (
+    cell.backward.value === cell.forward.value &&
+    cell.backward.formulaMode === cell.forward.formulaMode
+  );
+}
+
 export const undoRedoSlice = createSlice({
   name: 'undoRedo',
   initialState,
   reducers: {
-    /** Record a completed cell edit. Clears the redo branch. */
-    pushSheetChange(state, action: PayloadAction<SheetUndoEntry>) {
+    /** Record a completed cell edit (single) or range edit (batch). Clears the redo branch. */
+    pushSheetChange(state, action: PayloadAction<UndoEntry>) {
       if (state.applying) return; // changes triggered by undo/redo don't re-record
       const entry = action.payload;
-      // No-op guard: value AND formula mode unchanged → nothing to undo.
-      if (
-        entry.backward.value === entry.forward.value &&
-        entry.backward.formulaMode === entry.forward.formulaMode
-      ) {
-        return;
+      if ('cells' in entry) {
+        // Range edit: drop per-cell no-ops; if nothing remains, nothing to undo.
+        const cells = entry.cells.filter((c) => !isNoOpCell(c));
+        if (cells.length === 0) return;
+        state.undoStack = [...state.undoStack, { ...entry, cells }].slice(-MAX_HISTORY);
+      } else {
+        if (isNoOpCell(entry)) return;
+        state.undoStack = [...state.undoStack, entry].slice(-MAX_HISTORY);
       }
-      state.undoStack = [...state.undoStack, entry].slice(-MAX_HISTORY);
       state.redoStack = [];
     },
     /** Move the top undo entry to the redo stack (after the undo mutation succeeded). */
@@ -110,16 +133,13 @@ export const selectCanRedo = (s: { undoRedo: UndoRedoState }) => s.undoRedo.redo
 // ── Listener middleware: performs the actual undo/redo cell mutations ──
 export const undoRedoListener = createListenerMiddleware();
 
-async function applyEntry(
+/** Dispatch one mutation (single cell) and report success. */
+async function applySingle(
   listenerApi: {
-    dispatch: (action: unknown) => {
-      unwrap: () => Promise<unknown>;
-    };
-    getState: () => { undoRedo: UndoRedoState };
+    dispatch: (action: unknown) => { unwrap: () => Promise<unknown> };
   },
   params: UpdateSheetCellParams,
 ): Promise<boolean> {
-  listenerApi.dispatch(setApplying(true) as never);
   try {
     await listenerApi.dispatch(
       sheetDataApi.endpoints.updateSheetCell.initiate(params) as never,
@@ -127,9 +147,35 @@ async function applyEntry(
     return true;
   } catch {
     return false; // failed undo/redo — entry stays in place
-  } finally {
-    listenerApi.dispatch(setApplying(false) as never);
   }
+}
+
+/** Apply an undo/redo entry (single cell or whole range) via the API. */
+async function applyEntry(
+  listenerApi: {
+    dispatch: (action: unknown) => { unwrap: () => Promise<unknown> };
+  },
+  entry: UndoEntry,
+  direction: 'backward' | 'forward',
+): Promise<boolean> {
+  if ('cells' in entry) {
+    // Range edit: replay every cell through the batch endpoint (single
+    // round trip). Failures are tolerated — redo retries them; cells that
+    // already equal the target state are no-ops server-side anyway.
+    try {
+      const resp = await listenerApi.dispatch(
+        sheetDataApi.endpoints.updateSheetCells.initiate({
+          sheet: entry.cells[0]?.backward.sheet ?? entry.cells[0]?.forward.sheet ?? '',
+          cells: entry.cells.map((c) => c[direction]),
+        }) as never,
+      ).unwrap();
+      const data = (resp as { data?: { failed?: number } })?.data;
+      return data ? data.failed === 0 : false;
+    } catch {
+      return false;
+    }
+  }
+  return applySingle(listenerApi, entry[direction]);
 }
 
 undoRedoListener.startListening({
@@ -138,8 +184,13 @@ undoRedoListener.startListening({
     const { undoStack, applying } = (listenerApi.getState() as { undoRedo: UndoRedoState }).undoRedo;
     if (applying || undoStack.length === 0) return;
     const entry = undoStack[undoStack.length - 1];
-    const ok = await applyEntry(listenerApi as never, entry.backward);
-    if (ok) listenerApi.dispatch(popUndoPushRedo());
+    listenerApi.dispatch(setApplying(true) as never);
+    try {
+      const ok = await applyEntry(listenerApi as never, entry, 'backward');
+      if (ok) listenerApi.dispatch(popUndoPushRedo());
+    } finally {
+      listenerApi.dispatch(setApplying(false) as never);
+    }
   },
 });
 
@@ -149,8 +200,13 @@ undoRedoListener.startListening({
     const { redoStack, applying } = (listenerApi.getState() as { undoRedo: UndoRedoState }).undoRedo;
     if (applying || redoStack.length === 0) return;
     const entry = redoStack[redoStack.length - 1];
-    const ok = await applyEntry(listenerApi as never, entry.forward);
-    if (ok) listenerApi.dispatch(popRedoPushUndo());
+    listenerApi.dispatch(setApplying(true) as never);
+    try {
+      const ok = await applyEntry(listenerApi as never, entry, 'forward');
+      if (ok) listenerApi.dispatch(popRedoPushUndo());
+    } finally {
+      listenerApi.dispatch(setApplying(false) as never);
+    }
   },
 });
 

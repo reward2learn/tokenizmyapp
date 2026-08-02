@@ -122,6 +122,32 @@ export const sheetDataApi = createApi({
         { type: 'SheetConfig' as const, id: arg.sheet },
       ],
     }),
+    updateSheetCells: builder.mutation<
+      ApiEnvelope<{
+        success: boolean;
+        updated: number;
+        failed: number;
+        results: Array<{
+          cell?: string;
+          column: string;
+          value: unknown;
+          formula?: string;
+          unevaluable: boolean;
+          isCustom: boolean;
+          error?: string;
+        }>;
+      }>,
+      { sheet: string; cells: UpdateSheetCellParams[] }
+    >({
+      query: (params) => ({
+        url: 'sheet-data/batch-update-cells',
+        method: 'POST',
+        body: params,
+      }),
+      invalidatesTags: (result, error, arg) => [
+        { type: 'SheetData' as const, id: arg.sheet },
+      ],
+    }),
     updateSheetCell: builder.mutation<
       ApiEnvelope<{
         success: boolean;
@@ -199,6 +225,7 @@ export const sheetDataApi = createApi({
 export const {
   useGetSheetDataQuery,
   useUpdateSheetCellMutation,
+  useUpdateSheetCellsMutation,
   useGetCustomColumnsQuery,
   useCreateCustomColumnMutation,
   useUpdateCustomColumnMutation,

@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { PrismaClient } from '@/generated/prisma';
 import { read, write } from 'xlsx';
-import { applyCellUpdate } from '@/lib/workbook-cell-update';
+import { applyCellUpdate, type CellUpdateParams, type CellUpdateResult } from '@/lib/workbook-cell-update';
 import { CUSTOM_COLUMNS_SNIPPET_KEY, parseCustomColumnsStore } from '@/lib/custom-columns';
 
 export const dynamic = 'force-dynamic';
@@ -12,19 +12,24 @@ function getClient() {
   return new PrismaClient({ datasources: { db: { url } } });
 }
 
+/**
+ * Batch cell writes for range edits (fill handle, paste). Behavior matches
+ * N sequential update-cell calls (custom-column overlay + workbook writes),
+ * but the workbook buffer is read/written ONCE and the overlay store is
+ * upserted ONCE — single round trip, single buffer rewrite.
+ */
 export async function POST(request: Request): Promise<NextResponse> {
   const prisma = getClient();
   try {
     const body = await request.json();
-    const { sheet, rowIndex, column, value, _excelCell, _excelRow, formulaMode } = body;
+    const { sheet, cells } = body as { sheet?: string; cells?: CellUpdateParams[] };
 
     const sheetStr = String(sheet ?? '').trim();
-    const colStr = String(column ?? '').trim();
-
-    console.log('[sheet-data/update-cell] Received:', { sheet: sheetStr, rowIndex, column: colStr, value, _excelCell });
-
-    if (!sheetStr || (!rowIndex && !_excelCell) || !colStr) {
-      return NextResponse.json({ error: 'Missing required fields: sheet, rowIndex/_cell, column' }, { status: 400 });
+    if (!sheetStr || !Array.isArray(cells) || cells.length === 0) {
+      return NextResponse.json({ error: 'Missing required fields: sheet, cells[]' }, { status: 400 });
+    }
+    if (cells.length > 5000) {
+      return NextResponse.json({ error: `Too many cells in one batch (${cells.length} > 5000)` }, { status: 400 });
     }
 
     const cached = await prisma.knowledgeSnippet.findUnique({ where: { key: 'workbook_data' } });
@@ -50,21 +55,25 @@ export async function POST(request: Request): Promise<NextResponse> {
     });
     const customStore = parseCustomColumnsStore(customSnippet?.content ?? null);
 
-    const result = applyCellUpdate(wb, ws, tabName, customStore, {
-      sheet: tabName,
-      rowIndex,
-      column: colStr,
-      value,
-      _excelCell,
-      _excelRow,
-      formulaMode,
-    });
+    const results: Array<CellUpdateResult & { params: CellUpdateParams }> = [];
+    let updated = 0;
+    let failed = 0;
 
-    if (!result.success) {
-      return NextResponse.json({ error: result.error ?? 'Update failed' }, { status: 400 });
+    for (const raw of cells) {
+      const colStr = String(raw.column ?? '').trim();
+      const params: CellUpdateParams = { ...raw, column: colStr, sheet: tabName };
+      if (!colStr || (!raw.rowIndex && !raw._excelCell)) {
+        failed += 1;
+        results.push({ ...failedResult('Missing column or row'), params });
+        continue;
+      }
+      const result = applyCellUpdate(wb, ws, tabName, customStore, params);
+      results.push({ ...result, params });
+      if (result.success) updated += 1;
+      else failed += 1;
     }
 
-    // Persist the custom-column overlay (if any custom cell was written).
+    // Persist the custom-column overlay if any custom cell was written.
     if (customSnippet || customStore.columns.length > 0) {
       await prisma.knowledgeSnippet.upsert({
         where: { key: CUSTOM_COLUMNS_SNIPPET_KEY },
@@ -82,17 +91,27 @@ export async function POST(request: Request): Promise<NextResponse> {
 
     return NextResponse.json({
       success: true,
-      message: `Updated ${tabName}!${result.cell}`,
-      cell: result.cell,
-      value: result.value ?? null,
-      formula: result.formula,
-      unevaluable: result.unevaluable,
+      updated,
+      failed,
+      results: results.map((r) => ({
+        cell: r.cell,
+        column: r.params.column,
+        value: r.value ?? null,
+        formula: r.formula,
+        unevaluable: r.unevaluable,
+        isCustom: r.isCustom,
+        error: r.error,
+      })),
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    console.error('[sheet-data/update-cell] Error:', message);
+    console.error('[sheet-data/batch-update-cells] Error:', message);
     return NextResponse.json({ error: message }, { status: 500 });
   } finally {
     await prisma.$disconnect();
   }
+}
+
+function failedResult(error: string): CellUpdateResult {
+  return { success: false, cell: '', value: null, unevaluable: false, isCustom: false, error };
 }

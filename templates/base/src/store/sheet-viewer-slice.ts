@@ -177,6 +177,17 @@ export const sheetViewerSlice = createSlice({
       state.dragActive = false;
       state.dragAnchor = null;
     },
+    /** Programmatic range selection (fill handle result, paste target). */
+    setSelectedRange(
+      state,
+      action: PayloadAction<{ keys: CellKey[]; anchor: CellRef }>,
+    ) {
+      state.selectedCells = action.payload.keys;
+      state.selectedColumns = [];
+      state.lastClickedCell = action.payload.anchor;
+      state.dragActive = false;
+      state.dragAnchor = null;
+    },
     clearCellSelection(state) {
       state.selectedCells = [];
       state.selectedColumns = [];
@@ -247,6 +258,7 @@ export const {
   dragMove,
   dragEnd,
   clearCellSelection,
+  setSelectedRange,
   setPinnedColumns,
   togglePinnedColumn,
   setExtraStats,

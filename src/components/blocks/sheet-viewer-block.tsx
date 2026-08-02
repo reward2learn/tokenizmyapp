@@ -52,12 +52,14 @@ import type {
 } from '@mui/x-data-grid';
 import { GridToolbarContainer, useGridApiRef, GridFooter, GridEditInputCell } from '@mui/x-data-grid';
 import type { GridRenderEditCellParams, GridColumnResizeParams } from '@mui/x-data-grid';
-import { useGetSheetDataQuery, useUpdateSheetCellMutation, useGetCustomColumnsQuery, useCreateCustomColumnMutation, useDeleteCustomColumnMutation, useGetSheetViewerConfigQuery, useSaveSheetViewerConfigMutation } from '@/store/apis/sheet-data-api';
+import { useGetSheetDataQuery, useUpdateSheetCellMutation, useUpdateSheetCellsMutation, useGetCustomColumnsQuery, useCreateCustomColumnMutation, useDeleteCustomColumnMutation, useGetSheetViewerConfigQuery, useSaveSheetViewerConfigMutation } from '@/store/apis/sheet-data-api';
 import type { UpdateSheetCellParams, SheetDataResponse } from '@/store/apis/sheet-data-api';
+import { buildFillCells, buildPasteCells, parseTsv, type FillTargetCell } from '@/lib/sheet-fill';
 import { useAppDispatch, useAppSelector } from '@/store/hooks';
 import { sendStreamingMessage } from '@/store/chat-stream-slice';
 import { setChatDrawerOpen } from '@/store/ui-slice';
-import { pushSheetChange, requestUndo, requestRedo, selectCanUndo, selectCanRedo } from '@/store/undo-redo-slice';
+import { pushSheetChange, requestUndo, requestRedo, selectCanUndo, selectCanRedo, type SheetUndoBatchEntry } from '@/store/undo-redo-slice';
+import { setSelectedRange } from '@/store/sheet-viewer-slice';
 import { buildCellsPrompt, type PromptRow } from '@/lib/sheet-prompt';
 import {
   setFormulaMode,
@@ -1012,7 +1014,7 @@ export function SheetViewerBlock({ config }: { config: Record<string, unknown> }
             ? (oldRow[`${changedField}_formula`] as string)
             : undefined;
         const backwardParams: UpdateSheetCellParams = {
-          sheet: sheetName,
+          sheet: sheet ?? '',
           rowIndex: excelRow,
           column: changedField,
           value: oldFormula ?? oldRow[changedField],
@@ -1420,6 +1422,264 @@ export function SheetViewerBlock({ config }: { config: Record<string, unknown> }
       }
     },
     [payload, rows, columns, showCopyToast]
+  );
+
+  // ── Multi-cell range editing: fill handle + paste ──────────────────
+  // Excel-style: drag the selection-box corner handle to fill (copy / series /
+  // formula-shift), or Ctrl+V to paste a TSV range from the clipboard. Both go
+  // through the batch update API and record ONE undo entry for the whole range.
+  const lastClickedCell = useAppSelector((s) => s.sheetViewer.lastClickedCell);
+  const [updateSheetCells] = useUpdateSheetCellsMutation();
+
+  // Read a row's live cell + formula by grid row id.
+  const readRow = useCallback(
+    (rowId: GridRowId): Record<string, unknown> | undefined =>
+      rows.find((r: any) => String(r._rowIndex ?? r.id) === String(rowId)) as Record<string, unknown> | undefined,
+    [rows],
+  );
+
+  const buildRangeParams = useCallback(
+    (cells: FillTargetCell[]): { forward: UpdateSheetCellParams[]; backward: UpdateSheetCellParams[] } => {
+      const forward: UpdateSheetCellParams[] = [];
+      const backward: UpdateSheetCellParams[] = [];
+      for (const c of cells) {
+        const r = readRow(c.rowId);
+        const excelRow = Number((r as any)?._excelRow) || Number(c.rowId) || 1;
+        const cellRef = typeof (r as any)?.[`${c.field}_cell`] === 'string' ? (r as any)[`${c.field}_cell`] : undefined;
+        const oldFormula =
+          typeof (r as any)?.[`${c.field}_formula`] === 'string' ? (r as any)[`${c.field}_formula`] : undefined;
+        const base = {
+          sheet: sheet ?? '',
+          rowIndex: excelRow,
+          column: c.field,
+          _excelCell: cellRef,
+          _excelRow: excelRow,
+        };
+        forward.push({ ...base, value: c.value, formulaMode: c.formulaMode });
+        backward.push({
+          ...base,
+          value: oldFormula ?? (r as any)?.[c.field],
+          formulaMode: oldFormula ? true : false,
+        });
+      }
+      return { forward, backward };
+    },
+    [readRow, sheet],
+  );
+
+  // Write a range (fill/paste) via the batch API, record ONE undo entry, and
+  // select the written range so the user sees exactly what changed.
+  const applyRangeWrite = useCallback(
+    async (
+      cells: FillTargetCell[],
+      selRect: { r0: number; c0: number; r1: number; c1: number } | null,
+      message: string,
+    ) => {
+      if (cells.length === 0) return;
+      const { forward, backward } = buildRangeParams(cells);
+      try {
+        const resp = await updateSheetCells({ sheet: sheet ?? '', cells: forward }).unwrap();
+        const data = resp?.data as { failed?: number } | undefined;
+        const failed = data?.failed ?? 0;
+        // One undo entry for the whole range (a single Ctrl+Z reverts the fill/paste).
+        const batch: SheetUndoBatchEntry = {
+          cells: forward.map((f, i) => ({ backward: backward[i], forward: f })),
+          at: new Date().toISOString(),
+        };
+        dispatch(pushSheetChange(batch));
+        // Select the range that was written (Excel leaves the filled range selected).
+        if (selRect) {
+          const rowOrder = getRowOrder();
+          const colOrder = getColOrder();
+          const keys: string[] = [];
+          for (let r = selRect.r0; r <= selRect.r1; r++) {
+            for (let c = selRect.c0; c <= selRect.c1; c++) {
+              if (rowOrder[r] != null && colOrder[c] != null) keys.push(`${rowOrder[r]}|${colOrder[c]}`);
+            }
+          }
+          const anchorRow = rowOrder[selRect.r1];
+          const anchorCol = colOrder[selRect.c1];
+          if (anchorRow != null && anchorCol != null) {
+            dispatch(setSelectedRange({ keys, anchor: { rowId: anchorRow, field: anchorCol } }));
+          }
+        }
+        showCopyToast(failed > 0 ? `${message} (${failed} skipped)` : `${message} · ${cells.length} cell${cells.length !== 1 ? 's' : ''}`);
+      } catch (error) {
+        console.error('Range write failed:', error);
+        showCopyToast('Range write failed — see console');
+      }
+    },
+    [buildRangeParams, updateSheetCells, sheet, dispatch, getRowOrder, getColOrder, showCopyToast],
+  );
+
+  // ── Fill handle (selection-box corner drag) ─────────────────────────
+  // The handle is rendered ONLY for contiguous rectangular cell selections —
+  // exactly the state Excel draws a fill handle for.
+  const fillSource = useMemo(() => {
+    if (effectiveSelectionKeys.size === 0) return null;
+    const rowOrder = getRowOrder();
+    const colOrder = getColOrder();
+    const rowIdxSet = new Set<number>();
+    const colIdxSet = new Set<number>();
+    for (const key of effectiveSelectionKeys) {
+      const [rId, f] = key.split('|');
+      const ri = rowOrder.indexOf(rId as GridRowId);
+      const ci = colOrder.indexOf(f);
+      if (ri === -1 || ci === -1) return null;
+      rowIdxSet.add(ri);
+      colIdxSet.add(ci);
+    }
+    const rs = Array.from(rowIdxSet).sort((a, b) => a - b);
+    const cs = Array.from(colIdxSet).sort((a, b) => a - b);
+    const contiguous = rs.length === rs[rs.length - 1] - rs[0] + 1 && cs.length === cs[cs.length - 1] - cs[0] + 1;
+    if (!contiguous || rs.length * cs.length !== effectiveSelectionKeys.size) return null;
+    return {
+      rows: rs.map((i) => rowOrder[i]),
+      cols: cs.map((i) => colOrder[i]),
+      r0: rs[0],
+      r1: rs[rs.length - 1],
+      c0: cs[0],
+      c1: cs[cs.length - 1],
+    };
+  }, [effectiveSelectionKeys, getRowOrder, getColOrder]);
+
+  // Position of the selection box corner handle, relative to the grid wrapper.
+  const [fillRect, setFillRect] = useState<{ top: number; left: number; width: number; height: number } | null>(null);
+  const gridWrapRef = useRef<HTMLDivElement | null>(null);
+
+  const updateFillHandlePosition = useCallback(() => {
+    if (!fillSource || !gridWrapRef.current) {
+      setFillRect(null);
+      return;
+    }
+    const api = apiRef.current;
+    const wrapRect = gridWrapRef.current.getBoundingClientRect();
+    const corners = [
+      api?.getCellElement(fillSource.rows[0], fillSource.cols[0]),
+      api?.getCellElement(fillSource.rows[fillSource.rows.length - 1], fillSource.cols[fillSource.cols.length - 1]),
+    ].filter(Boolean) as HTMLElement[];
+    if (corners.length < 2) {
+      setFillRect(null); // virtualized off-screen — hide until scrolled into view
+      return;
+    }
+    const a = corners[0].getBoundingClientRect();
+    const b = corners[1].getBoundingClientRect();
+    setFillRect({
+      top: Math.min(a.top, b.top) - wrapRect.top,
+      left: Math.min(a.left, b.left) - wrapRect.left,
+      width: Math.abs(b.right - a.left),
+      height: Math.abs(b.bottom - a.top),
+    });
+  }, [fillSource, apiRef]);
+
+  useEffect(() => {
+    updateFillHandlePosition();
+    window.addEventListener('resize', updateFillHandlePosition);
+    return () => window.removeEventListener('resize', updateFillHandlePosition);
+  }, [updateFillHandlePosition]);
+
+  const fillDragRef = useRef<{ srcRows: GridRowId[]; srcCols: string[] } | null>(null);
+  const fillTargetRef = useRef<{ rowId: GridRowId; field: string } | null>(null);
+
+  const handleFillPointerDown = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
+    if (e.button !== 0 || !fillSource) return;
+    e.preventDefault();
+    e.stopPropagation();
+    (e.target as HTMLElement).setPointerCapture(e.pointerId);
+    fillDragRef.current = { srcRows: fillSource.rows, srcCols: fillSource.cols };
+    fillTargetRef.current = null;
+  }, [fillSource]);
+
+  const handleFillPointerMove = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
+    if (!fillDragRef.current) return;
+    const el = document.elementFromPoint(e.clientX, e.clientY);
+    const cellEl = el?.closest?.('.MuiDataGrid-cell') as HTMLElement | null;
+    if (!cellEl) return;
+    const field = cellEl.getAttribute('data-field');
+    if (!field || field === '__check__') return;
+    const rowIndex = cellEl.closest('.MuiDataGrid-row')?.getAttribute('data-rowindex');
+    if (rowIndex == null) return;
+    const rowOrder = getRowOrder();
+    const rowId = rowOrder[Number(rowIndex)];
+    if (rowId == null) return;
+    fillTargetRef.current = { rowId, field };
+  }, [getRowOrder]);
+
+  const handleFillPointerUp = useCallback(
+    (e: React.PointerEvent<HTMLDivElement>) => {
+      const drag = fillDragRef.current;
+      fillDragRef.current = null;
+      if (!drag) return;
+      const target = fillTargetRef.current;
+      fillTargetRef.current = null;
+      if (!target) return;
+      const rowOrder = getRowOrder();
+      const colOrder = getColOrder();
+      const cells = buildFillCells({
+        sourceRows: drag.srcRows,
+        sourceCols: drag.srcCols,
+        rowOrder,
+        colOrder,
+        target,
+        getValue: (rowId, field) => readRow(rowId)?.[field],
+        getFormula: (rowId, field) => {
+          const f = readRow(rowId)?.[`${field}_formula`];
+          return typeof f === 'string' ? f : undefined;
+        },
+      });
+      const tR = rowOrder.indexOf(target.rowId);
+      const tC = colOrder.indexOf(target.field);
+      const srcR0 = rowOrder.indexOf(drag.srcRows[0]);
+      const srcR1 = rowOrder.indexOf(drag.srcRows[drag.srcRows.length - 1]);
+      const srcC0 = colOrder.indexOf(drag.srcCols[0]);
+      const srcC1 = colOrder.indexOf(drag.srcCols[drag.srcCols.length - 1]);
+      if (tR === -1 || tC === -1 || srcR0 === -1 || srcC0 === -1) return;
+      void applyRangeWrite(
+        cells,
+        { r0: srcR0, c0: srcC0, r1: Math.max(srcR1, tR), c1: Math.max(srcC1, tC) },
+        'Filled',
+      );
+    },
+    [getRowOrder, getColOrder, readRow, applyRangeWrite],
+  );
+
+  // ── Paste (Ctrl+V) — TSV range from the clipboard ───────────────────
+  const handleGridPaste = useCallback(
+    (e: React.ClipboardEvent<HTMLDivElement>) => {
+      const text = e.clipboardData?.getData('text/plain');
+      if (!text || text.trim() === '') return;
+      const anchor = lastClickedCell;
+      if (!anchor) {
+        showCopyToast('Click a cell first to anchor the paste');
+        return;
+      }
+      e.preventDefault();
+      const rowOrder = getRowOrder();
+      const colOrder = getColOrder();
+      const aR = rowOrder.indexOf(anchor.rowId);
+      const aC = colOrder.indexOf(anchor.field);
+      if (aR === -1 || aC === -1) return;
+      const grid = parseTsv(text);
+      const rowsById = new Map(rows.map((r: any) => [r._rowIndex ?? r.id, r]));
+      const { cells, skipped } = buildPasteCells({
+        grid,
+        anchorRowIdx: aR,
+        anchorColIdx: aC,
+        rowOrder,
+        colOrder,
+        rowsById,
+        formulaMode,
+      });
+      if (cells.length === 0) {
+        showCopyToast(skipped > 0 ? 'Paste is outside the table bounds' : 'Nothing to paste');
+        return;
+      }
+      // Select the whole pasted rect (anchor → last pasted cell), Excel-style.
+      const lastR = Math.min(aR + grid.length - 1, rowOrder.length - 1);
+      const lastC = Math.min(aC + grid[0].length - 1, colOrder.length - 1);
+      void applyRangeWrite(cells, { r0: aR, c0: aC, r1: lastR, c1: lastC }, skipped > 0 ? `Pasted (${skipped} outside table)` : 'Pasted');
+    },
+    [lastClickedCell, getRowOrder, getColOrder, rows, formulaMode, applyRangeWrite, showCopyToast],
   );
 
   const getCellKey = useCallback((rowId: GridRowId, field: string): string => {
@@ -1937,11 +2197,16 @@ export function SheetViewerBlock({ config }: { config: Record<string, unknown> }
             onPointerMove={handleGridPointerMove}
             onPointerUp={handleGridPointerUp}
             onPointerCancel={handleGridPointerUp}
+            ref={gridWrapRef}
             onMouseDownCapture={handleGridMouseDownCapture}
             onContextMenu={handleGridContextMenu}
+            onPaste={handleGridPaste}
             // Grid-internal scrolling doesn't reposition portaled popups, so
-            // re-anchor the floating formula builder on every scroll.
-            onScrollCapture={() => formulaPickerRef.current?.reposition?.()}
+            // re-anchor the floating formula builder + fill handle on scroll.
+            onScrollCapture={() => {
+              formulaPickerRef.current?.reposition?.();
+              updateFillHandlePosition();
+            }}
           >
             <DataGrid
               rows={rows}
@@ -1978,6 +2243,34 @@ export function SheetViewerBlock({ config }: { config: Record<string, unknown> }
               tabNavigation="content" // Tab moves to next cell (Shift+Tab previous), wraps rows
               sx={pinnedSx}
             />
+
+            {/* Excel-style fill handle: bottom-right corner of the selected
+                block. Drag to fill adjacent cells (copy / numeric series /
+                formula refs shift). Hidden while editing or for non-contiguous
+                selections — exactly when Excel hides it too. */}
+            {fillRect && fillSource && (
+              <Box
+                onPointerDown={handleFillPointerDown}
+                onPointerMove={handleFillPointerMove}
+                onPointerUp={handleFillPointerUp}
+                onPointerCancel={handleFillPointerUp}
+                sx={{
+                  position: 'absolute',
+                  top: fillRect.top + fillRect.height - 5,
+                  left: fillRect.left + fillRect.width - 5,
+                  width: 10,
+                  height: 10,
+                  zIndex: 40,
+                  cursor: 'crosshair',
+                  border: '2px solid #fff',
+                  borderRadius: '50%',
+                  bgcolor: '#1976d2',
+                  boxShadow: '0 1px 3px rgba(0,0,0,.45)',
+                  touchAction: 'none',
+                  '&:hover': { transform: 'scale(1.2)' },
+                }}
+              />
+            )}
           </Box>
 
           {/* Grid context menu: undo/redo + selection actions.

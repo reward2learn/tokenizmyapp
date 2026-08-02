@@ -70,10 +70,14 @@ describe('undoRedoReducer', () => {
     state = undoRedoReducer(state, popUndoPushRedo());
     expect(state.undoStack).toHaveLength(0);
     expect(state.redoStack).toHaveLength(1);
-    expect(state.redoStack[0].forward.value).toBe('new');
+    if (!('cells' in state.redoStack[0])) {
+      expect(state.redoStack[0].forward.value).toBe('new');
+    }
     state = undoRedoReducer(state, popRedoPushUndo());
     expect(state.undoStack).toHaveLength(1);
-    expect(state.undoStack[0].forward.value).toBe('new');
+    if (!('cells' in state.undoStack[0])) {
+      expect(state.undoStack[0].forward.value).toBe('new');
+    }
     expect(state.redoStack).toHaveLength(0);
   });
 
@@ -82,5 +86,60 @@ describe('undoRedoReducer', () => {
     state = undoRedoReducer(state, clearSheetHistory());
     expect(state.undoStack).toHaveLength(0);
     expect(state.redoStack).toHaveLength(0);
+  });
+});
+
+// ── Batch (range) entries ──────────────────────────────────────────
+const batchEntry = (cells: Array<[unknown, unknown]>) => ({
+  cells: cells.map(([b, f]) => ({ backward: params(b), forward: params(f) })),
+  at: '2026-08-02T00:00:00.000Z',
+});
+
+describe('undoRedoReducer batch (range edits)', () => {
+  it('records a range edit as ONE atomic undo step', () => {
+    const state = undoRedoReducer(undefined, pushSheetChange(batchEntry([
+      ['a1', 'a2'],
+      ['b1', 'b2'],
+      ['c1', 'c2'],
+    ])));
+    expect(state.undoStack).toHaveLength(1);
+    expect(selectCanUndo({ undoRedo: state } as never)).toBe(true);
+  });
+
+  it('drops per-cell no-ops inside a batch and skips fully-noop batches', () => {
+    let state = undoRedoReducer(undefined, pushSheetChange(batchEntry([
+      ['a1', 'a2'],
+      ['same', 'same'], // no-op cell
+    ])));
+    expect(state.undoStack).toHaveLength(1);
+    if (!('cells' in state.undoStack[0])) throw new Error('expected batch');
+    expect(state.undoStack[0].cells).toHaveLength(1);
+
+    const state2 = undoRedoReducer(undefined, pushSheetChange(batchEntry([
+      ['same', 'same'],
+      ['x', 'x'],
+    ])));
+    expect(state2.undoStack).toHaveLength(0);
+  });
+
+  it('undoing a range moves the whole batch to the redo stack, redo restores it', () => {
+    let state = undoRedoReducer(undefined, pushSheetChange(batchEntry([
+      ['a1', 'a2'],
+      ['b1', 'b2'],
+    ])));
+    state = undoRedoReducer(state, popUndoPushRedo());
+    expect(state.undoStack).toHaveLength(0);
+    expect(state.redoStack).toHaveLength(1);
+    if (!('cells' in state.redoStack[0])) throw new Error('expected batch');
+    expect(state.redoStack[0].cells).toHaveLength(2);
+    state = undoRedoReducer(state, popRedoPushUndo());
+    expect(state.undoStack).toHaveLength(1);
+    expect(state.redoStack).toHaveLength(0);
+  });
+
+  it('does not record range edits while applying', () => {
+    let state = undoRedoReducer(undefined, { type: 'undoRedo/setApplying', payload: true });
+    state = undoRedoReducer(state, pushSheetChange(batchEntry([['a', 'b']])));
+    expect(state.undoStack).toHaveLength(0);
   });
 });
