@@ -44,7 +44,7 @@ import type {
 } from '@mui/x-data-grid';
 import { GridToolbarContainer, useGridApiRef, GridFooter, GridEditInputCell } from '@mui/x-data-grid';
 import type { GridRenderEditCellParams } from '@mui/x-data-grid';
-import { useGetSheetDataQuery, useUpdateSheetCellMutation } from '@/store/apis/sheet-data-api';
+import { useGetSheetDataQuery, useUpdateSheetCellMutation, useGetCustomColumnsQuery, useCreateCustomColumnMutation, useDeleteCustomColumnMutation } from '@/store/apis/sheet-data-api';
 import type { UpdateSheetCellParams, SheetDataResponse } from '@/store/apis/sheet-data-api';
 import { useAppDispatch, useAppSelector } from '@/store/hooks';
 import { sendStreamingMessage } from '@/store/chat-stream-slice';
@@ -694,6 +694,52 @@ export function SheetViewerBlock({ config }: { config: Record<string, unknown> }
   );
 
   const [updateSheetCell] = useUpdateSheetCellMutation();
+
+  // ── Custom columns (overlay) ──────────────────────────────────────
+  const { data: customsData } = useGetCustomColumnsQuery(
+    { sheet: sheet ?? '' },
+    { skip: !sheet },
+  );
+  const [createCustomColumn, { isLoading: creatingCustom }] = useCreateCustomColumnMutation();
+  const [deleteCustomColumn] = useDeleteCustomColumnMutation();
+  const customColumns = customsData?.data?.columns ?? [];
+  const [customName, setCustomName] = useState('');
+  const [customPosition, setCustomPosition] = useState('end');
+
+  const handleCreateCustomColumn = useCallback(async () => {
+    if (!sheet || !customName.trim()) return;
+    try {
+      await createCustomColumn({
+        sheet,
+        name: customName.trim(),
+        position: customPosition === 'end' ? undefined : Number(customPosition),
+      }).unwrap();
+      setCustomName('');
+      setCustomPosition('end');
+      setSnackbarMessage(`Custom column "${customName.trim()}" added`);
+      setSnackbarOpen(true);
+    } catch (err: unknown) {
+      const e = err as { data?: { error?: string } };
+      setSnackbarMessage(e?.data?.error ?? 'Failed to add custom column');
+      setSnackbarOpen(true);
+    }
+  }, [sheet, customName, customPosition, createCustomColumn]);
+
+  const handleDeleteCustomColumn = useCallback(
+    async (id: string, name: string) => {
+      if (!sheet) return;
+      try {
+        await deleteCustomColumn({ id, sheet }).unwrap();
+        setSnackbarMessage(`Custom column "${name}" removed`);
+        setSnackbarOpen(true);
+      } catch (err: unknown) {
+        const e = err as { data?: { error?: string } };
+        setSnackbarMessage(e?.data?.error ?? 'Failed to remove custom column');
+        setSnackbarOpen(true);
+      }
+    },
+    [sheet, deleteCustomColumn],
+  );
 
   const handleSortModelChange = useCallback((newSortModel: GridSortModel) => {
     // Fallback for any external sort model changes (e.g. column menu). For header clicks,
@@ -1680,6 +1726,71 @@ export function SheetViewerBlock({ config }: { config: Record<string, unknown> }
                   />
                 </ListItem>
               ))}
+              <Divider sx={{ mb: 1 }} />
+              <ListItem>
+                <Typography variant="subtitle2" sx={{ px: 2, py: 1 }}>
+                  Custom Columns
+                </Typography>
+              </ListItem>
+              {customColumns.length > 0 && (
+                <Box sx={{ px: 2, pb: 1, maxHeight: 140, overflowY: 'auto' }}>
+                  {customColumns.map((cc) => (
+                    <Box key={cc.id} sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 0.5 }}>
+                      <Typography variant="body2" noWrap sx={{ flex: 1, minWidth: 0 }}>
+                        {cc.name}
+                        <Typography component="span" variant="caption" sx={{ color: 'text.secondary' }}>
+                          {' '}· col {cc.position + 1}
+                        </Typography>
+                      </Typography>
+                      <IconButton
+                        size="small"
+                        aria-label={`Delete custom column ${cc.name}`}
+                        onClick={() => handleDeleteCustomColumn(cc.id, cc.name)}
+                      >
+                        <CloseIcon fontSize="small" />
+                      </IconButton>
+                    </Box>
+                  ))}
+                </Box>
+              )}
+              <Box sx={{ px: 2, pb: 1 }}>
+                <TextField
+                  size="small"
+                  fullWidth
+                  placeholder="Column name (e.g. Notes)"
+                  value={customName}
+                  onChange={(e) => setCustomName(e.target.value)}
+                  disabled={creatingCustom}
+                />
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mt: 1 }}>
+                  <TextField
+                    select
+                    size="small"
+                    label="Position"
+                    value={customPosition}
+                    onChange={(e) => setCustomPosition(e.target.value)}
+                    sx={{ minWidth: 130 }}
+                  >
+                    <MenuItem value="end">At end</MenuItem>
+                    {data.columns.map((col: string, idx: number) => (
+                      <MenuItem key={col} value={String(idx)}>
+                        Before &ldquo;{col}&rdquo;
+                      </MenuItem>
+                    ))}
+                  </TextField>
+                  <Button
+                    size="small"
+                    variant="contained"
+                    disabled={!customName.trim() || creatingCustom}
+                    onClick={handleCreateCustomColumn}
+                  >
+                    Add
+                  </Button>
+                </Box>
+              </Box>
+              <Typography variant="caption" sx={{ px: 3, pb: 1, display: 'block', color: 'text.secondary' }}>
+                Custom columns overlay the sheet — formulas and cell input keep their exact Excel positions.
+              </Typography>
             </List>
            </Popover>
 

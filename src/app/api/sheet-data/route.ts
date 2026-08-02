@@ -17,6 +17,16 @@ import { read, utils, write } from 'xlsx';
 import { evaluateFormula } from '@/lib/excel-formula';
 import { findHeaderRow, buildColumnKeys } from '@/lib/workbook-mapping';
 import type { WorkbookFormulaMap } from '@/lib/workbook-formulas';
+import {
+  CUSTOM_COLUMNS_SNIPPET_KEY,
+  parseCustomColumnsStore,
+  resolveSheetColumns,
+  mergeColumnOrder,
+  applyCustomColumnOverlay,
+  evaluateCustomColumnCell,
+  virtualAddress,
+  type CustomColumnsStore,
+} from '@/lib/custom-columns';
 import type { WorkSheet } from 'xlsx';
 
 export const dynamic = 'force-dynamic';
@@ -85,6 +95,21 @@ export async function GET(request: Request): Promise<NextResponse> {
 
     const ws = wb.Sheets[tabName]!;
 
+    // Custom-column overlay store (knowledge_snippets.workbook_custom_columns).
+    // Custom columns are NEVER written into the workbook buffer, so Excel
+    // column indices (and every formula reference) are preserved no matter how
+    // many custom columns are inserted.
+    let customStore: CustomColumnsStore = parseCustomColumnsStore(null);
+    try {
+      const customSnippet = await prisma.knowledgeSnippet.findUnique({
+        where: { key: CUSTOM_COLUMNS_SNIPPET_KEY },
+      });
+      customStore = parseCustomColumnsStore(customSnippet?.content ?? null);
+    } catch {
+      customStore = parseCustomColumnsStore(null);
+    }
+    const customs = resolveSheetColumns(customStore, tabName);
+
     // Detect the correct header row
     const { headerRow, headers } = findHeaderRow(ws);
 
@@ -110,6 +135,12 @@ export async function GET(request: Request): Promise<NextResponse> {
                       columns.every((c) => String(row[c] ?? '') === c);
       return !isHeader;
     });
+
+    // Apply the custom-column overlay AFTER sheet_to_json (so virtual cells can
+    // never leak into the workbook JSON) and BEFORE formula evaluation (so
+    // formulas — workbook or custom — can reference custom-column cells).
+    // In-memory only; workbook_data in the DB is never touched.
+    applyCustomColumnOverlay(wb, customStore, tabName);
 
     // Add original Excel cell references to each row
     // This ensures that after sorting/filtering in the frontend, we can still map back to the correct Excel cell
@@ -158,6 +189,23 @@ export async function GET(request: Request): Promise<NextResponse> {
         }
       });
 
+      // Attach custom-column (overlay) cells for this row. Same 1-based Excel
+      // row as the workbook row; virtual addresses never collide with real
+      // cells, so custom-column formulas resolve to the transient overlay.
+      customs.forEach((ccol) => {
+        const cellKey = String(excelRow);
+        rowWithRefs[`${ccol.name}_cell`] = virtualAddress(ccol, excelRow);
+        const stored = ccol.cells[cellKey];
+        if (formulasEnabled && stored?.formula && stored.formula.trim().length > 0) {
+          rowWithRefs[`${ccol.name}_formula`] = stored.formula.startsWith('=')
+            ? stored.formula
+            : '=' + stored.formula;
+        }
+        const customResult = evaluateCustomColumnCell(wb, ws, ccol, excelRow, formulasEnabled);
+        rowWithRefs[ccol.name] = customResult.value ?? '';
+        rowWithRefs[`${ccol.name}_unevaluable`] = customResult.unevaluable;
+      });
+
       return rowWithRefs;
     });
 
@@ -170,7 +218,9 @@ export async function GET(request: Request): Promise<NextResponse> {
     const data = {
       sheet: tabName,
       headerRow,
-      columns,
+      // Merge custom columns at their display positions; workbook columns keep
+      // their original order/indices (formulas referencing them are unaffected).
+      columns: mergeColumnOrder(columns, customs),
       rows,
       totalRows,
       returnedRows: rows.length,
