@@ -108,6 +108,12 @@ const PER_PAGE = 100;
 /** Excel-style row-number gutter column (always sticky-left). */
 const ROW_NUMBER_COL = '__rowNumber__';
 const ROW_NUMBER_COL_WIDTH = 56;
+/**
+ * Width of MUI's built-in row-selection checkbox column (field `__check__`).
+ * Fixed at 50px in `GRID_CHECKBOX_SELECTION_COL_DEF` and NOT resizable — the
+ * freeze-pane sticky offsets must reserve this space for it.
+ */
+const CHECKBOX_COL_WIDTH = 50;
 /** Pinned (frozen) column default width when no saved width exists. */
 const DEFAULT_PINNED_WIDTH = 160;
 
@@ -1446,20 +1452,46 @@ export function SheetViewerBlock({ config }: { config: Record<string, unknown> }
       },
     };
 
-    // Excel-style row-number gutter — always sticky at the far left.
+    // FREEZE PANE — the far-left block that must never scroll away:
+    // 1) row-selection checkbox column (`__check__`, MUI-injected, 50px)
+    // 2) Excel-style row-number gutter
+    // 3) user-pinned data columns
+    // All three are CSS-sticky with LEFT offsets that reserve the exact width
+    // of every frozen column to their left. MUI's own column virtualization
+    // would otherwise UNMOUNT these columns once their natural x-position
+    // scrolls out of the viewport (they disappear) — the grid therefore runs
+    // with `disableVirtualization` (see DataGrid props).
+    //
+    // Row-selection checkbox column — frozen at the far left.
+    sx['& .MuiDataGrid-columnHeader[data-field="__check__"]'] = {
+      position: 'sticky',
+      left: 0,
+      zIndex: 6,
+      bgcolor: 'background.paper',
+    };
+    sx['& .MuiDataGrid-cell[data-field="__check__"]'] = {
+      position: 'sticky',
+      left: 0,
+      zIndex: 4,
+      bgcolor: 'background.paper',
+    };
+
+    // Excel-style row-number gutter — sticks right after the checkbox column.
     const gutterHeaderSelector = `& .MuiDataGrid-columnHeader[data-field="${ROW_NUMBER_COL}"]`;
     const gutterCellSelector = `& .MuiDataGrid-cell[data-field="${ROW_NUMBER_COL}"]`;
     sx[gutterHeaderSelector] = {
       position: 'sticky',
-      left: 0,
+      left: CHECKBOX_COL_WIDTH,
       zIndex: 5,
       bgcolor: 'background.paper',
-      boxShadow: '2px 0 6px -2px rgba(0, 0, 0, 0.15)',
+      // Separator shadow only when the gutter is the LAST frozen column
+      // (no user-pinned columns); otherwise the last pinned column carries it.
+      boxShadow: pinnedColumns.length === 0 ? '2px 0 6px -2px rgba(0, 0, 0, 0.15)' : 'none',
     };
     sx[gutterCellSelector] = {
       position: 'sticky',
-      left: 0,
-      zIndex: 4,
+      left: CHECKBOX_COL_WIDTH,
+      zIndex: 3,
       bgcolor: 'background.paper',
     };
 
@@ -1472,8 +1504,8 @@ export function SheetViewerBlock({ config }: { config: Record<string, unknown> }
     });
 
     // Freeze-pane columns stick with LEFT offsets equal to the CURRENT widths
-    // of every column to their left (gutter + earlier pinned columns).
-    let currentLeft = effWidths[ROW_NUMBER_COL] ?? ROW_NUMBER_COL_WIDTH;
+    // of every column to their left (checkbox + gutter + earlier pinned columns).
+    let currentLeft = CHECKBOX_COL_WIDTH + (effWidths[ROW_NUMBER_COL] ?? ROW_NUMBER_COL_WIDTH);
     pinnedColumns.forEach((field, idx) => {
       const selectorHeader = `& .MuiDataGrid-columnHeader[data-field="${field}"]`;
       const selectorCell = `& .MuiDataGrid-cell[data-field="${field}"]`;
@@ -2513,6 +2545,14 @@ export function SheetViewerBlock({ config }: { config: Record<string, unknown> }
               pageSizeOptions={[PER_PAGE]}
               disableRowSelectionOnClick
               checkboxSelection
+              // CRITICAL for the freeze pane: MUI virtualizes columns by their
+              // NATURAL x-position, so CSS-sticky frozen columns (checkbox,
+              // row-number gutter, pinned columns) would be unmounted once
+              // scrolled out of their natural viewport range — making the
+              // freeze pane disappear. With virtualization disabled every
+              // column stays mounted and the sticky offsets hold at any
+              // scroll position. (Grid is bounded: PER_PAGE rows × ~35 cols.)
+              disableVirtualization
               rowSelectionModel={rowSelectionModel}
               onRowSelectionModelChange={(newModel) => setRowSelectionModel(newModel)}
               sortModel={sortModel}
