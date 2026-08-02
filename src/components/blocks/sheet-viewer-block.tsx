@@ -839,6 +839,7 @@ export function SheetViewerBlock({ config }: { config: Record<string, unknown> }
         const formulaStr =
           typeof data?.formula === 'string' ? data.formula : '';
         updatedRow[`${changedField}_formula`] = formulaStr;
+        updatedRow[`${changedField}_unevaluable`] = data?.unevaluable ?? false;
         if (data?.value !== undefined && data?.value !== null) {
           // Server-evaluated result (formula) or the plain value — keep display correct
           updatedRow[changedField] = data.value;
@@ -901,12 +902,17 @@ export function SheetViewerBlock({ config }: { config: Record<string, unknown> }
           if (typeof value === 'number' && isLikelyFinancial(col, value)) {
             return formatCellValue(col, value);
           }
-          // Unevaluable formulas have no cached value — show the formula text
+          // Formula cells keep displaying their computed values; the formula
+          // text only appears while the cell is being edited. The one
+          // exception is a genuinely unevaluable formula (the API sets
+          // `_unevaluable: true` — no value exists), where the text is shown
           // so the user can see the cell is formula-driven.
-          // Formula text is only shown when formula mode is enabled.
           if (formulaMode && (value === '' || value === null || value === undefined)) {
             const formula = (row as Record<string, unknown>)[`${col}_formula`];
-            if (typeof formula === 'string' && formula.length > 0) return formula;
+            const unevaluable = (row as Record<string, unknown>)[`${col}_unevaluable`];
+            if (typeof formula === 'string' && formula.length > 0 && unevaluable === true) {
+              return formula;
+            }
           }
           return value ?? '';
         },

@@ -19,6 +19,8 @@ import { writeProgressChunk, closeProgressStream } from './progress';
 import type { WorkbookFileInput } from './types';
 import { withPgClient, executeOne, queryRows } from './db';
 import type { Client } from 'pg';
+import { read } from 'xlsx';
+import { buildWorkbookFormulaMap } from '../../src/lib/workbook-formulas';
 
 /** Detect the file signatures of real spreadsheet files (zip/xlsx, BIFF/xls). */
 function hasSpreadsheetMagic(data: Uint8Array): boolean {
@@ -97,6 +99,41 @@ export async function analyzeSheetsStep(sheets: ExtractedSheet[]): Promise<Analy
   'use step';
 
   return analyzeSheets(sheets);
+}
+
+/**
+ * FORMULA MAP: find every formula cell in the imported workbook and persist
+ * its references mapped to the DB-sheet coordinates (column key + data row
+ * offset) that the sheet viewer serves, so formulas can be computed against
+ * the database-saved sheet data. Idempotent: ON CONFLICT (key) DO UPDATE.
+ */
+export async function saveWorkbookFormulaMapStep(
+  buffers: Uint8Array[],
+  dbUrl: string,
+): Promise<number> {
+  'use step';
+
+  let total = 0;
+  try {
+    const wb = read(buffers[0]!, { type: 'buffer', cellFormula: true });
+    const formulaMap = buildWorkbookFormulaMap(wb);
+    total = Object.values(formulaMap).reduce((n, s) => n + s.formulas.length, 0);
+    await withPgClient(dbUrl, async (db) => {
+      await executeOne(
+        db,
+        `INSERT INTO knowledge_snippets (id, key, category, content)
+         VALUES (gen_random_uuid()::TEXT, $1, 'cache', $2)
+         ON CONFLICT (key) DO UPDATE SET content = EXCLUDED.content;`,
+        ['workbook_formulas', JSON.stringify(formulaMap)],
+      );
+    });
+  } catch (err) {
+    // Non-fatal: the workbook_data snippet remains the source of truth and the
+    // sheet-data API computes formula values on read when this is missing.
+    console.warn('[workbook-ingest] Formula map step skipped:', err instanceof Error ? err.message : String(err));
+    return 0;
+  }
+  return total;
 }
 
 /**

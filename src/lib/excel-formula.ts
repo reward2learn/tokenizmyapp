@@ -778,6 +778,99 @@ function applyFunction(name: string, args: unknown[], thisCellAddr?: string): un
   }
 }
 
+/** A raw cell/range reference found inside a formula string. */
+export interface FormulaRefToken {
+  /** Target sheet (undefined = same sheet as the formula). */
+  sheet?: string;
+  /** Start cell address, "$" stripped (e.g. "V46"). */
+  addr: string;
+  /** Range end cell address when the reference is a range (e.g. "V54"). */
+  end?: string;
+}
+
+/**
+ * Regex fallback for formulas the tokenizer cannot parse (exotic chars).
+ * Handles: A1, $A$1, A1:B5, A:A, Sheet!D7, 'Sheet 1'!D7.
+ */
+function regexRefs(src: string): FormulaRefToken[] {
+  const out: FormulaRefToken[] = [];
+  const re = /(?:(?:'([^']+)'|([A-Za-z_][A-Za-z0-9_.]*))!?)?\$?([A-Za-z]{1,3})(\$?)(\d*)(?::\$?([A-Za-z]{1,3})(\$?)(\d*))?/g;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(src)) !== null) {
+    const [, sheet, sheet2, col, , digits, endCol, , endDigits] = m;
+    const nextCh = src[m.index + m[0].length];
+    // Column-only token (no digits): only meaningful as a range part (A:A).
+    // Also skips identifiers like "SUMIFS(" (matched as "SUM" + "IFS(").
+    if (digits === '') {
+      if (nextCh !== ':') continue;
+    } else if (nextCh === '(') {
+      continue; // function name ending in digits (LOG10(, LOG2(, ...)
+    }
+    const addr = `${col}${digits}`;
+    if (endCol && endDigits !== '') out.push({ sheet: sheet ?? sheet2, addr, end: `${endCol}${endDigits}` });
+    else if (endCol) out.push({ sheet: sheet ?? sheet2, addr, end: `${endCol}` });
+    else out.push({ sheet: sheet ?? sheet2, addr });
+  }
+  return out;
+}
+
+/**
+ * Collect every cell/range reference from a formula string.
+ *
+ * "=SUM(V46:V54)"     -> [{ addr: "V46", end: "V54" }]
+ * "=PL!D7 + PL!D8"    -> [{ sheet: "PL", addr: "D7" }, { sheet: "PL", addr: "D8" }]
+ * "=V46*2"            -> [{ addr: "V46" }]
+ *
+ * Uses the same tokenizer as evaluateFormula so reference detection stays
+ * consistent with evaluation; falls back to a regex pass when the tokenizer
+ * rejects the string (unevaluable formulas still get their refs mapped).
+ */
+export function collectReferences(src: string): FormulaRefToken[] {
+  const text = src.replace(/^=/, '').trim();
+  if (!text) return [];
+  try {
+    const tokens = tokenize(text);
+    const refs: FormulaRefToken[] = [];
+    let pendingSheet: string | undefined;
+    let i = 0;
+    while (i < tokens.length) {
+      const t = tokens[i]!;
+      if (t.type === 'sheet') {
+        pendingSheet = t.value;
+        i++;
+        continue;
+      }
+      if (t.type === 'ref') {
+        const addr = t.value.replace(/\$/g, '');
+        const nxt = tokens[i + 1];
+        // Function-name false positives (LOG10(, LOG2() are tokenized as refs)
+        if (nxt && nxt.type === 'op' && nxt.value === '(') {
+          i += 2;
+          pendingSheet = undefined;
+          continue;
+        }
+        if (nxt && nxt.type === 'op' && nxt.value === ':') {
+          const endTok = tokens[i + 2];
+          if (endTok && endTok.type === 'ref') {
+            refs.push({ sheet: pendingSheet, addr, end: endTok.value.replace(/\$/g, '') });
+            i += 3;
+            pendingSheet = undefined;
+            continue;
+          }
+        }
+        refs.push({ sheet: pendingSheet, addr });
+        i++;
+        pendingSheet = undefined;
+        continue;
+      }
+      i++;
+    }
+    return refs;
+  } catch {
+    return regexRefs(text);
+  }
+}
+
 /**
  * Evaluate an Excel formula string against the workbook.
  * Returns { value } for formulas we can compute, { unevaluable: true } otherwise.

@@ -16,6 +16,7 @@ import {
   loadWorkbookStep,
   extractSheetsStep,
   analyzeSheetsStep,
+  saveWorkbookFormulaMapStep,
   comprehendWorkbookStep,
   selectTemplateStep,
   populateProjectionsStep,
@@ -84,6 +85,16 @@ export async function handleWorkbookIngest(
       currencyGuess: hints.workbook.currencyGuess,
       periodGuess: hints.workbook.periodGuess,
     },
+  });
+
+  // ── 3b. FORMULA MAP (import-time formula inventory, mapped to DB data) ──
+  const formulaCount = await saveWorkbookFormulaMapStep(buffers, dbUrl);
+
+  await emitProgressStep(writable, {
+    step: 'formula-map',
+    message: `Mapped ${formulaCount} formula cell(s) to the saved sheet data.`,
+    pct: 72,
+    detail: { formulaCount },
   });
 
   // ── 4. COMPREHEND (OpenAI, hints-injected prompt) ──────────

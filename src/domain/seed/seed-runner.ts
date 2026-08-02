@@ -46,6 +46,8 @@ import {
   generateAnalysisMarkdown,
   generateSheetMarkdown,
 } from '@/domain/excel/workbook-analyzer';
+import { read } from 'xlsx';
+import { buildWorkbookFormulaMap } from '@/lib/workbook-formulas';
 import { setDynamicPages, setDynamicReviewParts } from '@/lib/page-catalog';
 import type { ReviewPartDefinition } from '@/lib/page-catalog';
 
@@ -857,6 +859,31 @@ export async function seedFromSources(options: SeedOptions = {}): Promise<SeedRe
         category: 'cache',
         content: allExcelBuffers[i]!.toString('base64'),
       });
+    }
+
+    // Import-time formula inventory: find every formula cell in the workbook
+    // and map its references to the DB-sheet coordinates (column key + data
+    // row offset) the sheet viewer serves, so formulas can be computed against
+    // the database-saved sheet data. Non-fatal — the workbook itself remains
+    // the primary source when this parse fails.
+    try {
+      const formulaWb = read(allExcelBuffers[0]!, {
+        type: 'buffer',
+        cellFormula: true,
+        cellNF: false,
+        cellStyles: false,
+      });
+      const formulaMap = buildWorkbookFormulaMap(formulaWb);
+      knowledgeSnippets.push({
+        key: 'workbook_formulas',
+        category: 'cache',
+        content: JSON.stringify(formulaMap),
+      });
+    } catch (err) {
+      console.warn(
+        '[seed] Formula map extraction failed (workbook still cached):',
+        err instanceof Error ? err.message : String(err),
+      );
     }
   }
   const actionItems = buildActionItems();

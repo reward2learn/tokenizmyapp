@@ -15,6 +15,8 @@ import { NextResponse } from 'next/server';
 import { PrismaClient } from '@/generated/prisma';
 import { read, utils, write } from 'xlsx';
 import { evaluateFormula } from '@/lib/excel-formula';
+import { findHeaderRow, buildColumnKeys } from '@/lib/workbook-mapping';
+import type { WorkbookFormulaMap } from '@/lib/workbook-formulas';
 import type { WorkSheet } from 'xlsx';
 
 export const dynamic = 'force-dynamic';
@@ -24,56 +26,6 @@ function getClient() {
   const url = process.env.POSTGRES_URL ?? process.env.DATABASE_URL;
   if (!url) throw new Error('POSTGRES_URL is not set');
   return new PrismaClient({ datasources: { db: { url } } });
-}
-
-// Header row detection (mirrors the logic in workbook-analyzer.ts)
-const HEADER_KEYWORDS = /description|amount|total|date|revenue|account|name|qty|price|cost|sales|income|expense|balance|number|ref|period|transaction|debit|credit|unit|rate|pct|margin|bills|covers|guests|staff|code|type|category|item|product|service|charge|discount|tax|subtotal|net|gross/i;
-const TITLE_KEYWORDS = /^(profit\s*&?\s*loss|balance\s*sheet|trial\s*balance|general\s*ledger|periode|period|month\s*of|input\s*data|auto\s*calc)/i;
-
-function findHeaderRow(ws: WorkSheet): { headerRow: number; headers: string[] } {
-  const rows = utils.sheet_to_json(ws, { header: 1 }) as unknown[][];
-  const maxScan = Math.min(rows.length, 20);
-
-  let bestRow = 0;
-  let bestScore = 0;
-  let bestHeaders: string[] = [];
-
-  for (let i = 0; i < maxScan; i++) {
-    const row = rows[i] ?? [];
-    const nonEmpty = row.filter((c) => c !== '' && c !== undefined && c !== null) as unknown[];
-    const nonEmptyCount = nonEmpty.length;
-    if (nonEmptyCount === 0) continue;
-
-    const firstCell = String(row[0] ?? '').trim();
-    if (nonEmptyCount <= 2 && TITLE_KEYWORDS.test(firstCell)) continue;
-
-    let headerLikeCount = 0;
-    let numericCount = 0;
-    for (const cell of nonEmpty) {
-      const str = String(cell);
-      if (str === '#N/A' || str === '#REF!' || str === '#VALUE!') continue;
-      const num = Number(cell);
-      const isNumeric = typeof cell === 'number' || (typeof cell === 'string' && /^[\d,.\-]+$/.test(str.trim()) && isFinite(num));
-      if (isNumeric && Math.abs(num) > 0) numericCount++;
-      else if (HEADER_KEYWORDS.test(str)) headerLikeCount++;
-    }
-
-    const textRatio = nonEmptyCount > 0 ? (nonEmptyCount - numericCount) / nonEmptyCount : 0;
-    const score = headerLikeCount * 3 + textRatio * 2 + (nonEmptyCount >= 3 ? 1 : 0);
-
-    if (score > bestScore) {
-      bestScore = score;
-      bestRow = i;
-      bestHeaders = row.map((c) => String(c ?? ''));
-    }
-  }
-
-  if (bestScore < 2 && rows.length > 0) {
-    const firstRow = (rows[0] ?? []).map((c) => String(c ?? ''));
-    return { headerRow: 1, headers: firstRow };
-  }
-
-  return { headerRow: bestRow + 1, headers: bestHeaders };
 }
 
 // ── GET handler ─────────────────────────────────────────
@@ -106,6 +58,21 @@ export async function GET(request: Request): Promise<NextResponse> {
     const buf = Buffer.from(cached.content, 'base64');
     const wb = read(buf, { type: 'buffer', cellFormula: formulasEnabled });
 
+    // Import-time formula inventory (knowledge_snippets.workbook_formulas).
+    // Used as a value fallback for formula cells the live evaluator cannot
+    // compute; every reference inside it is mapped to DB-sheet coordinates.
+    let formulaMap: WorkbookFormulaMap | null = null;
+    if (formulasEnabled) {
+      try {
+        const mapSnippet = await prisma.knowledgeSnippet.findUnique({
+          where: { key: 'workbook_formulas' },
+        });
+        if (mapSnippet?.content) formulaMap = JSON.parse(mapSnippet.content) as WorkbookFormulaMap;
+      } catch {
+        formulaMap = null;
+      }
+    }
+
     const tabName = wb.SheetNames?.find((n) => 
       typeof n === "string" && n.toLowerCase() === sheetName.toLowerCase()
     );
@@ -122,15 +89,7 @@ export async function GET(request: Request): Promise<NextResponse> {
     const { headerRow, headers } = findHeaderRow(ws);
 
     // Build clean column keys with deduplication
-    const seen = new Map<string, number>();
-    let emptyColIdx = 0;
-    const columnKeys = headers.map((h) => {
-      const trimmed = (h || '').toString().trim();
-      if (!trimmed) return `__hidden_${emptyColIdx++}`;
-      const count = seen.get(trimmed) ?? 0;
-      seen.set(trimmed, count + 1);
-      return count > 0 ? `${trimmed}_${count}` : trimmed;
-    });
+    const columnKeys = buildColumnKeys(headers);
 
     const columns = columnKeys.filter((k) => !k.startsWith('__hidden_'));
 
@@ -175,10 +134,27 @@ export async function GET(request: Request): Promise<NextResponse> {
           const cell = ws[cellAddress];
           // Excel stores formulas WITHOUT the leading "=" (OOXML); normalize to
           // "=..." so the frontend formula editor/display treats it as a formula.
-          rowWithRefs[`${colKey}_formula`] =
-            cell && typeof cell.f === 'string' && cell.f.trim().length > 0
-              ? (cell.f.startsWith('=') ? cell.f : '=' + cell.f)
-              : '';
+          if (cell && typeof cell.f === 'string' && cell.f.trim().length > 0) {
+            const formula = cell.f.startsWith('=') ? cell.f : '=' + cell.f;
+            rowWithRefs[`${colKey}_formula`] = formula;
+            // Compute the formula's value against the DB-saved sheet data so
+            // formula cells keep showing values (never formula text) unless the
+            // cell is being edited. Falls back to the cached xlsx value, then to
+            // the import-time formula map snapshot.
+            const result = evaluateFormula(wb, ws, formula, 0, cellAddress);
+            rowWithRefs[`${colKey}_unevaluable`] = result.unevaluable;
+            if (!result.unevaluable) {
+              rowWithRefs[colKey] = result.value ?? '';
+            } else {
+              const current = rowWithRefs[colKey];
+              if (current === '' || current === undefined || current === null) {
+                const mapped = formulaMap?.[tabName]?.formulas?.find((f) => f.cell === cellAddress);
+                if (mapped && !mapped.unevaluable && mapped.value !== undefined) {
+                  rowWithRefs[colKey] = mapped.value;
+                }
+              }
+            }
+          }
         }
       });
 
@@ -268,15 +244,7 @@ export async function POST(request: Request): Promise<NextResponse> {
     } else {
       // Fallback: calculate from rowIndex and column (for backward compatibility)
       const { headers: rawHeaders } = findHeaderRow(ws);
-      const seen = new Map<string, number>();
-      let emptyColIdx = 0;
-      const columnKeys = rawHeaders.map((h) => {
-        const trimmed = String(h || '').trim();
-        if (!trimmed) return `__hidden_${emptyColIdx++}`;
-        const count = seen.get(trimmed) ?? 0;
-        seen.set(trimmed, count + 1);
-        return count > 0 ? `${trimmed}_${count}` : trimmed;
-      });
+      const columnKeys = buildColumnKeys(rawHeaders);
 
       const colIndex = columnKeys.findIndex((key, idx) => {
         const rawHeader = String(rawHeaders[idx] ?? '').trim();
