@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Alert from '@mui/material/Alert';
 import Box from '@mui/material/Box';
 import Button from '@mui/material/Button';
@@ -24,10 +24,12 @@ import AddIcon from '@mui/icons-material/Add';
 import DeleteIcon from '@mui/icons-material/Delete';
 import DragIndicatorIcon from '@mui/icons-material/DragIndicator';
 import EditIcon from '@mui/icons-material/Edit';
+import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import FolderIcon from '@mui/icons-material/Folder';
 import InsertDriveFileIcon from '@mui/icons-material/InsertDriveFile';
 import SaveIcon from '@mui/icons-material/Save';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
+import ChevronRightIcon from '@mui/icons-material/ChevronRight';
 import FormControlLabel from '@mui/material/FormControlLabel';
 import ListItemText from '@mui/material/ListItemText';
 import Checkbox from '@mui/material/Checkbox';
@@ -126,6 +128,17 @@ export function NavigationManager() {
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
   const [dragIndex, setDragIndex] = useState<number | null>(null);
   const [dropIndex, setDropIndex] = useState<number | null>(null);
+
+  // ── Collapse / expand (parent items) ─────────────────
+  const [collapsedIds, setCollapsedIds] = useState<Set<string>>(new Set());
+  const toggleCollapsed = (id: string) => {
+    setCollapsedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
 
   // ── Multi-select ──────────────────────────────────────
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
@@ -487,6 +500,18 @@ export function NavigationManager() {
   /** Check whether any item in the list has this item as its parent. */
   const hasChildren = useCallback((itemId: string) => flatItems.some((i) => i.parentId === itemId), [flatItems]);
 
+  /** Rows to render: skip items hidden under a collapsed parent, keeping original flat indices. */
+  const visibleRows = useMemo(() => {
+    const rows: { item: FlatItem & { depth: number }; flatIdx: number }[] = [];
+    const blocked = new Set<string>();
+    for (const [flatIdx, item] of flatItems.entries()) {
+      const parentBlocked = item.parentId ? blocked.has(item.parentId) : false;
+      if (!parentBlocked) rows.push({ item, flatIdx });
+      if (hasChildren(item.id) && collapsedIds.has(item.id)) blocked.add(item.id);
+    }
+    return rows;
+  }, [flatItems, collapsedIds, hasChildren]);
+
   function renderRow(item: FlatItem & { depth: number }, idx: number) {
     const isDrag = dragIndex === idx;
     const isDrop = dropIndex === idx;
@@ -520,6 +545,18 @@ export function NavigationManager() {
           onClick={(e) => e.stopPropagation()}
           sx={{ p: 0.5 }}
         />
+        {hasChildren(item.id) ? (
+          <IconButton
+            size="small"
+            onClick={(e) => { e.stopPropagation(); toggleCollapsed(item.id); }}
+            sx={{ p: 0.5, flexShrink: 0 }}
+            aria-label={collapsedIds.has(item.id) ? `Expand ${item.title}` : `Collapse ${item.title}`}
+          >
+            {collapsedIds.has(item.id) ? <ChevronRightIcon fontSize="small" /> : <ExpandMoreIcon fontSize="small" />}
+          </IconButton>
+        ) : (
+          <Box sx={{ width: 28 }} />
+        )}
         <DragIndicatorIcon fontSize="small" color="disabled" sx={{ cursor: 'grab', flexShrink: 0 }} />
         <Box sx={{ flexShrink: 0, color: 'text.secondary', display: 'flex', alignItems: 'center' }}>
           {item.icon ? (
@@ -574,6 +611,21 @@ export function NavigationManager() {
             Navigation Manager
           </Typography>
           <Stack direction="row" spacing={1}>
+            <Button
+              variant="outlined"
+              size="small"
+              onClick={() => setCollapsedIds(new Set())}
+              disabled={collapsedIds.size === 0}
+            >
+              Expand All
+            </Button>
+            <Button
+              variant="outlined"
+              size="small"
+              onClick={() => setCollapsedIds(new Set(flatItems.filter((i) => hasChildren(i.id)).map((i) => i.id)))}
+            >
+              Collapse All
+            </Button>
             <Button variant="outlined" size="small" color="warning" onClick={handleFindDuplicates}>
               Remove Duplicates
             </Button>
@@ -620,7 +672,7 @@ export function NavigationManager() {
           </Typography>
         ) : (
           <Box sx={{ maxHeight: 600, overflow: 'auto' }}>
-            {flatItems.map((item, idx) => renderRow(item, idx))}
+            {visibleRows.map(({ item, flatIdx }) => renderRow(item, flatIdx))}
           </Box>
         )}
       </Paper>

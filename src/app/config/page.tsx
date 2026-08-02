@@ -5,10 +5,12 @@ import dynamic from 'next/dynamic';
 import { useSearchParams } from 'next/navigation';
 import Box from '@mui/material/Box';
 import Paper from '@mui/material/Paper';
+import FormControl from '@mui/material/FormControl';
+import InputLabel from '@mui/material/InputLabel';
+import MenuItem from '@mui/material/MenuItem';
+import Select from '@mui/material/Select';
 import Stack from '@mui/material/Stack';
 import Chip from '@mui/material/Chip';
-import Tab from '@mui/material/Tab';
-import Tabs from '@mui/material/Tabs';
 import Typography from '@mui/material/Typography';
 import { AuthGate } from '@/components/auth/auth-gate';
 import { SignInPanelGate } from '@/components/auth/sign-in-panel';
@@ -63,6 +65,16 @@ function ConfigPageInner() {
   const initialTab = searchParams.get('tab');
   const [tab, setTab] = useState(initialTab ? Math.min(Math.max(parseInt(initialTab, 10) || 0, 0), 3) : 0);
 
+  // Template-specific sections appear after the four base sections.
+  const templateTabLabel =
+    template.id === 'nightclub-bar' ? 'Nightclub Config'
+    : template.id === 'restaurant' ? 'Restaurant Config'
+    : template.id === 'hotel' ? 'Hotel Config'
+    : null;
+  const configTabs = templateTabLabel
+    ? ['AI Chat', 'Source', 'Data View', 'AI Content Generation', templateTabLabel]
+    : ['AI Chat', 'Source', 'Data View', 'AI Content Generation'];
+
   useEffect(() => {
     const t = searchParams.get('tab');
     if (t) {
@@ -81,15 +93,21 @@ function ConfigPageInner() {
           <Typography variant="caption" color="text.secondary" sx={{ display: 'flex', gap: 1, alignItems: 'center', mt: 1 }}>
             Template: <Chip label={template.label} size="small" variant="outlined" color="info" />
           </Typography>
-          <Tabs value={tab} onChange={(_e, v) => setTab(v)} variant="scrollable" scrollButtons="auto">
-            <Tab label="AI Chat" />
-            <Tab label="Source" />
-            <Tab label="Data View" />
-            <Tab label="AI Content Generation" />
-            {template.id === 'nightclub-bar' ? <Tab label="Nightclub Config" /> : null}
-            {template.id === 'restaurant' ? <Tab label="Restaurant Config" /> : null}
-            {template.id === 'hotel' ? <Tab label="Hotel Config" /> : null}
-          </Tabs>
+          <FormControl size="small" sx={{ minWidth: 240 }}>
+            <InputLabel id="config-section-select-label">Section</InputLabel>
+            <Select
+              labelId="config-section-select-label"
+              label="Section"
+              value={Math.min(tab, configTabs.length - 1)}
+              onChange={(e) => setTab(Number(e.target.value))}
+            >
+              {configTabs.map((label, i) => (
+                <MenuItem key={label} value={i}>
+                  {label}
+                </MenuItem>
+              ))}
+            </Select>
+          </FormControl>
 
           {tab === 0 ? (
             <Stack spacing={3}>

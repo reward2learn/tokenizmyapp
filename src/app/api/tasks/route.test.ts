@@ -43,9 +43,14 @@ function makeDb(overrides: Record<string, unknown> = {}) {
         ...data,
       })),
     },
-    // Raw methods used for task_user_assignments + user_accounts lookups.
-    $queryRawUnsafe: vi.fn(async () => []),
-    $executeRawUnsafe: vi.fn(async () => undefined),
+    userAccount: {
+      findFirst: vi.fn(async () => null),
+      findMany: vi.fn(async () => []),
+    },
+    taskUserAssignment: {
+      findMany: vi.fn(async () => []),
+      upsert: vi.fn(async () => ({ id: 'tua-new', taskId: 't-new', userId: 'u-1', assigned: true })),
+    },
     ...overrides,
   };
 }

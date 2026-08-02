@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import Alert from '@mui/material/Alert';
 import Box from '@mui/material/Box';
 import Button from '@mui/material/Button';
@@ -28,8 +28,6 @@ import TableRow from '@mui/material/TableRow';
 import TextField from '@mui/material/TextField';
 import Tooltip from '@mui/material/Tooltip';
 import Typography from '@mui/material/Typography';
-import Tabs from '@mui/material/Tabs';
-import Tab from '@mui/material/Tab';
 import InfoOutlinedIcon from '@mui/icons-material/InfoOutlined';
 import { PlatformAdminGate } from '@/components/auth/platform-admin-gate';
 import { SignInPanelGate } from '@/components/auth/sign-in-panel';
@@ -45,11 +43,13 @@ import {
   useListAdminUsersQuery,
   useUpdateAdminUserMutation,
   useDeleteAdminUserMutation,
+  useCreateAdminUsersMutation,
   useListAdminGroupsQuery,
   useCreateAdminGroupMutation,
   useUpdateAdminGroupMutation,
 } from '@/store/apis/admin-api';
 import type { AdminUserView } from '@/app/api/admin/users/route';
+import type { BatchUserInput, BatchUserResult } from '@/app/api/admin/users/batch/route';
 import type { AdminGroupView } from '@/app/api/admin/groups/route';
 import {
   useListTasksQuery,
@@ -237,6 +237,17 @@ function UserManager() {
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
   const [taskEditor, setTaskEditor] = useState<AdminUserView | null>(null);
   const [taskToAdd, setTaskToAdd] = useState<string>('');
+  const [createUsers, { isLoading: isCreatingUsers }] = useCreateAdminUsersMutation();
+  // Onboarding state (single add + CSV batch upload).
+  const [addOpen, setAddOpen] = useState(false);
+  const [addForm, setAddForm] = useState<{
+    name: string; email: string; roleCode: string; pin: string; isActive: boolean;
+  }>({ name: '', email: '', roleCode: '', pin: '', isActive: true });
+  const [batchResult, setBatchResult] = useState<{
+    created: number; updated: number; skipped: number; errors: string[];
+  } | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
 
   const allGroups = groupsData?.data.groups ?? [];
 
@@ -281,6 +292,10 @@ function UserManager() {
     refetch();
   };
 
+  // Live view of the user being edited — derived from the latest users list so
+  // taskIds stay in sync after an assignment mutation + refetch.
+  const editorUser = taskEditor ? (users.find((u) => u.id === taskEditor.id) ?? taskEditor) : null;
+
   const openEditor = (user: AdminUserView) => {
     setEditing({
       id: user.id, sub: user.sub, email: user.email ?? '',
@@ -311,15 +326,168 @@ function UserManager() {
     refetch();
   };
 
+  const handleAddUser = async () => {
+    if (!addForm.email.trim()) return;
+    const res = await createUsers({
+      users: [{
+        name: addForm.name.trim() || undefined,
+        email: addForm.email.trim(),
+        roleCode: addForm.roleCode || undefined,
+        pin: addForm.pin.trim() || undefined,
+        isActive: addForm.isActive,
+      }],
+    }).unwrap();
+    setBatchResult({
+      created: res.data.created,
+      updated: res.data.updated,
+      skipped: res.data.skipped,
+      errors: res.data.results
+        .filter((r) => r.status === 'skipped' && r.error)
+        .map((r) => `Row ${r.row} (${r.email}): ${r.error}`),
+    });
+    setAddOpen(false);
+    setAddForm({ name: '', email: '', roleCode: '', pin: '', isActive: true });
+    refetch();
+  };
+
+  const handleDownloadTemplate = () => {
+    const csv = [
+      'name,email,roleCode,pin',
+      'John Doe,john@example.com,operations,1234',
+      'Jane Smith,jane@example.com,finance,5678',
+    ].join('\n');
+    const blob = new Blob([`\uFEFF${csv}`], { type: 'text/csv;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'user-accounts-template.csv';
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  };
+
+  // Minimal CSV parser (handles quoted fields, CRLF, and BOM).
+  const parseCsvRows = (text: string): string[][] => {
+    const rows: string[][] = [];
+    let row: string[] = [];
+    let field = '';
+    let inQuotes = false;
+    const srcTxt = text.replace(/^\uFEFF/, '');
+    for (let i = 0; i < srcTxt.length; i++) {
+      const c = srcTxt[i];
+      if (inQuotes) {
+        if (c === '"') {
+          if (srcTxt[i + 1] === '"') { field += '"'; i++; } else { inQuotes = false; }
+        } else field += c;
+      } else if (c === '"') {
+        inQuotes = true;
+      } else if (c === ',') {
+        row.push(field); field = '';
+      } else if (c === '\n' || c === '\r') {
+        if (c === '\r' && srcTxt[i + 1] === '\n') i++;
+        row.push(field); field = '';
+        if (row.some((f) => f.trim() !== '')) rows.push(row);
+        row = [];
+      } else {
+        field += c;
+      }
+    }
+    if (field !== '' || row.length > 0) {
+      row.push(field);
+      if (row.some((f) => f.trim() !== '')) rows.push(row);
+    }
+    return rows;
+  };
+
+  const handleCsvFile = async (file: File) => {
+    const text = await file.text();
+    const rows = parseCsvRows(text);
+    if (rows.length < 2) {
+      setBatchResult({
+        created: 0, updated: 0, skipped: 0,
+        errors: ['CSV must contain a header row and at least one data row.'],
+      });
+      return;
+    }
+    const headers = rows[0].map((h) => h.trim().toLowerCase());
+    const nameIdx = headers.indexOf('name');
+    const emailIdx = headers.indexOf('email');
+    const roleIdx = headers.indexOf('rolecode');
+    const pinIdx = headers.indexOf('pin');
+    if (emailIdx < 0) {
+      setBatchResult({
+        created: 0, updated: 0, skipped: 0,
+        errors: ['CSV must include an "email" column (expected header: name,email,roleCode,pin).'],
+      });
+      return;
+    }
+    const users: BatchUserInput[] = [];
+    const errors: string[] = [];
+    for (let i = 1; i < rows.length; i++) {
+      const r = rows[i];
+      const email = (r[emailIdx] ?? '').trim();
+      if (!email) { errors.push(`Row ${i + 1}: missing email — skipped.`); continue; }
+      users.push({
+        name: nameIdx >= 0 && (r[nameIdx] ?? '').trim() ? (r[nameIdx] ?? '').trim() : undefined,
+        email,
+        roleCode: roleIdx >= 0 && (r[roleIdx] ?? '').trim() ? (r[roleIdx] ?? '').trim() : undefined,
+        pin: pinIdx >= 0 && (r[pinIdx] ?? '').trim() ? (r[pinIdx] ?? '').trim() : undefined,
+      });
+    }
+    if (users.length === 0) {
+      setBatchResult({
+        created: 0, updated: 0, skipped: 0,
+        errors: errors.length ? errors : ['No valid rows found in the CSV.'],
+      });
+      return;
+    }
+    const res = await createUsers({ users }).unwrap();
+    setBatchResult({
+      created: res.data.created,
+      updated: res.data.updated,
+      skipped: res.data.skipped,
+      errors: [
+        ...errors,
+        ...res.data.results
+          .filter((r) => r.status === 'skipped' && r.error)
+          .map((r) => `Row ${r.row} (${r.email}): ${r.error}`),
+      ],
+    });
+    refetch();
+  };
+
   return (
     <Paper variant="outlined" sx={{ p: 3 }}>
       <Stack direction="row" sx={{ mb: 2, alignItems: 'center', justifyContent: 'space-between' }}>
         <Typography variant="h6" sx={{ fontWeight: 700 }}>
           User Accounts
         </Typography>
-        <Button size="small" variant="text" onClick={() => refetch()}>
-          Refresh
-        </Button>
+        <Stack direction="row" spacing={1}>
+          <Button size="small" variant="contained" onClick={() => setAddOpen(true)}>
+            Add User
+          </Button>
+          <Button size="small" variant="outlined" onClick={handleDownloadTemplate}>
+            Download CSV template
+          </Button>
+          <Button size="small" variant="outlined" onClick={() => fileInputRef.current?.click()}>
+            Upload CSV
+          </Button>
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept=".csv,text/csv"
+            style={{ display: 'none' }}
+            onChange={(e) => {
+              const f = e.target.files?.[0];
+              if (f) void handleCsvFile(f);
+              e.target.value = '';
+            }}
+          />
+          <Button size="small" variant="text" onClick={() => refetch()}>
+            Refresh
+          </Button>
+        </Stack>
       </Stack>
       <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
         Manage user accounts: assign roles, set PINs, and configure group memberships.
@@ -424,9 +592,50 @@ function UserManager() {
             Tasks assigned directly to this user appear on their Exit-Viability Tasks page with their priority.
             Role-based playbook tasks remain visible through the user&apos;s functional role.
           </Typography>
-          {taskEditor ? (
+          {editorUser ? (
             <Stack spacing={1}>
-              {assignedTasksFor(taskEditor).map((t) => (
+              {/* Add a task — first, so assigning is immediate */}
+              <Typography variant="subtitle2" sx={{ fontWeight: 700 }}>
+                Add a task
+              </Typography>
+              <Stack direction="row" spacing={1}>
+                <FormControl size="small" sx={{ flex: 1 }}>
+                  <InputLabel id="task-to-add-label">Task</InputLabel>
+                  <Select
+                    labelId="task-to-add-label"
+                    label="Task"
+                    value={taskToAdd}
+                    onChange={(e) => setTaskToAdd(e.target.value)}
+                  >
+                    {unassignedTasksFor(editorUser).map((t) => (
+                      <MenuItem key={t.id} value={t.id}>
+                        {t.priority} — {t.title}
+                      </MenuItem>
+                    ))}
+                  </Select>
+                </FormControl>
+                <Button
+                  size="small"
+                  variant="contained"
+                  disabled={isAssigning || !taskToAdd}
+                  onClick={() => void handleUserTaskAssignment(editorUser, taskToAdd, true)}
+                >
+                  Assign
+                </Button>
+              </Stack>
+              {unassignedTasksFor(editorUser).length === 0 ? (
+                <Typography variant="caption" color="text.secondary">
+                  All tasks are already assigned to this user.
+                </Typography>
+              ) : null}
+
+              <Divider sx={{ my: 1 }} />
+
+              {/* Assigned task list — refreshed live from the users query */}
+              <Typography variant="subtitle2" sx={{ fontWeight: 700 }}>
+                Assigned tasks ({assignedTasksFor(editorUser).length})
+              </Typography>
+              {assignedTasksFor(editorUser).map((t) => (
                 <Stack
                   key={t.id}
                   direction="row"
@@ -444,49 +653,15 @@ function UserManager() {
                     variant="text"
                     color="error"
                     disabled={isAssigning}
-                    onClick={() => void handleUserTaskAssignment(taskEditor, t.id, false)}
+                    onClick={() => void handleUserTaskAssignment(editorUser, t.id, false)}
                   >
                     Remove
                   </Button>
                 </Stack>
               ))}
-              {assignedTasksFor(taskEditor).length === 0 ? (
+              {assignedTasksFor(editorUser).length === 0 ? (
                 <Typography variant="body2" color="text.secondary">
                   No tasks assigned to this user yet.
-                </Typography>
-              ) : null}
-              <Divider sx={{ my: 1 }} />
-              <Typography variant="subtitle2" sx={{ fontWeight: 700 }}>
-                Add a task
-              </Typography>
-              <Stack direction="row" spacing={1}>
-                <FormControl size="small" sx={{ flex: 1 }}>
-                  <InputLabel id="task-to-add-label">Task</InputLabel>
-                  <Select
-                    labelId="task-to-add-label"
-                    label="Task"
-                    value={taskToAdd}
-                    onChange={(e) => setTaskToAdd(e.target.value)}
-                  >
-                    {unassignedTasksFor(taskEditor).map((t) => (
-                      <MenuItem key={t.id} value={t.id}>
-                        {t.priority} — {t.title}
-                      </MenuItem>
-                    ))}
-                  </Select>
-                </FormControl>
-                <Button
-                  size="small"
-                  variant="contained"
-                  disabled={isAssigning || !taskToAdd}
-                  onClick={() => void handleUserTaskAssignment(taskEditor, taskToAdd, true)}
-                >
-                  Assign
-                </Button>
-              </Stack>
-              {unassignedTasksFor(taskEditor).length === 0 ? (
-                <Typography variant="caption" color="text.secondary">
-                  All tasks are already assigned to this user.
                 </Typography>
               ) : null}
             </Stack>
@@ -579,6 +754,110 @@ function UserManager() {
               <Button size="small" variant="contained" disabled={isUpdating} onClick={() => void handleSave()}>Save</Button>
             </>
           )}
+        </DialogActions>
+      </Dialog>
+
+      {/* Add user (single onboarding) dialog */}
+      <Dialog open={addOpen} onClose={() => setAddOpen(false)} maxWidth="xs" fullWidth>
+        <DialogTitle>Add user</DialogTitle>
+        <DialogContent dividers>
+          <Stack spacing={2} sx={{ mt: 0.5 }}>
+            <Typography variant="body2" color="text.secondary">
+              Onboard a new user into the tenant app. They can sign in with a PIN until they
+              connect a Google account.
+            </Typography>
+            <TextField
+              size="small"
+              label="Name"
+              value={addForm.name}
+              onChange={(e) => setAddForm((prev) => ({ ...prev, name: e.target.value }))}
+            />
+            <TextField
+              size="small"
+              label="Email"
+              type="email"
+              required
+              placeholder="user@example.com"
+              value={addForm.email}
+              onChange={(e) => setAddForm((prev) => ({ ...prev, email: e.target.value }))}
+            />
+            <FormControl fullWidth size="small">
+              <InputLabel id="add-user-role-label">Functional role</InputLabel>
+              <Select
+                labelId="add-user-role-label"
+                label="Functional role"
+                value={addForm.roleCode}
+                onChange={(e) => setAddForm((prev) => ({ ...prev, roleCode: e.target.value }))}
+              >
+                <MenuItem value="">— none —</MenuItem>
+                {FUNCTIONAL_ROLES.map((fr) => (
+                  <MenuItem key={fr.code} value={fr.code}>{fr.name}</MenuItem>
+                ))}
+              </Select>
+            </FormControl>
+            <TextField
+              type="password"
+              size="small"
+              label="PIN (optional)"
+              placeholder="min 3 chars"
+              value={addForm.pin}
+              onChange={(e) => setAddForm((prev) => ({ ...prev, pin: e.target.value }))}
+              slotProps={{ htmlInput: { maxLength: 12 } }}
+            />
+            <FormControlLabel
+              control={
+                <Checkbox
+                  checked={addForm.isActive}
+                  onChange={(e) => setAddForm((prev) => ({ ...prev, isActive: e.target.checked }))}
+                />
+              }
+              label="Active"
+            />
+          </Stack>
+        </DialogContent>
+        <DialogActions>
+          <Button size="small" variant="text" onClick={() => setAddOpen(false)}>Cancel</Button>
+          <Button
+            size="small"
+            variant="contained"
+            disabled={isCreatingUsers || !addForm.email.trim()}
+            onClick={() => void handleAddUser()}
+          >
+            {isCreatingUsers ? 'Creating…' : 'Add user'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Batch upload result dialog */}
+      <Dialog open={Boolean(batchResult)} onClose={() => setBatchResult(null)} maxWidth="sm" fullWidth>
+        <DialogTitle>User onboarding result</DialogTitle>
+        <DialogContent dividers>
+          <Stack spacing={1.5}>
+            {batchResult ? (
+              <>
+                <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap' }} useFlexGap>
+                  <Chip label={`Created: ${batchResult.created}`} size="small" color="success" variant="outlined" />
+                  <Chip label={`Updated: ${batchResult.updated}`} size="small" color="info" variant="outlined" />
+                  <Chip label={`Skipped: ${batchResult.skipped}`} size="small" color={batchResult.skipped > 0 ? 'warning' : 'default'} variant="outlined" />
+                </Stack>
+                {batchResult.errors.length ? (
+                  <Box>
+                    <Typography variant="subtitle2" sx={{ mb: 0.5 }}>Issues</Typography>
+                    <Stack spacing={0.5}>
+                      {batchResult.errors.map((e, idx) => (
+                        <Typography key={idx} variant="body2" color="error">{e}</Typography>
+                      ))}
+                    </Stack>
+                  </Box>
+                ) : (
+                  <Alert severity="success">All users processed successfully.</Alert>
+                )}
+              </>
+            ) : null}
+          </Stack>
+        </DialogContent>
+        <DialogActions>
+          <Button size="small" onClick={() => setBatchResult(null)}>Close</Button>
         </DialogActions>
       </Dialog>
     </Paper>
@@ -740,6 +1019,9 @@ function GroupManager() {
 export default function AdminPage() {
   const [tab, setTab] = useState(0);
   const isTokenizmyapp = getClientTenantConfig().slug === 'tokenizmyapp';
+  const adminTabs = isTokenizmyapp
+    ? ['Tenants', 'Tenant Info', 'Navigation', 'Brand Config', 'Security Groups', 'Accounts', 'Roles', 'AI Chat']
+    : ['Tenant Info', 'Navigation', 'Brand Config', 'Security Groups', 'Accounts', 'Roles', 'AI Chat'];
 
   return (
     <PlatformAdminGate
@@ -747,19 +1029,24 @@ export default function AdminPage() {
     >
       <Box sx={{   mx: 'auto', px: 3, py: 3 }}>
         <Stack spacing={3}>
-          <Typography variant="h4" sx={{ fontWeight: 800 }}>
+          {/* <Typography variant="h4" sx={{ fontWeight: 800 }}>
             Platform Admin
-          </Typography>
-          <Tabs value={tab} onChange={(_e, v) => setTab(v)} variant="scrollable" scrollButtons="auto">
-            {isTokenizmyapp ? <Tab label="Tenants" /> : null}
-            <Tab label="Tenant Info" />
-            <Tab label="Navigation" />
-            <Tab label="Brand Config" />
-            <Tab label="Security Groups" />
-            <Tab label="User Accounts" />
-            <Tab label="User Roles" />
-            <Tab label="User Conversations" />
-          </Tabs>
+          </Typography> */}
+          <FormControl size="small" sx={{ minWidth: 260, position: 'sticky', top: 66, zIndex: 1000, backgroundColor: 'background.default', py: 1 }}>
+            <InputLabel id="admin-section-select-label">Section</InputLabel>
+            <Select
+              labelId="admin-section-select-label"
+              label="Section"
+              value={Math.min(tab, adminTabs.length - 1)}
+              onChange={(e) => setTab(Number(e.target.value))}
+            >
+              {adminTabs.map((label, i) => (
+                <MenuItem key={label} value={i}>
+                  {label}
+                </MenuItem>
+              ))}
+            </Select>
+          </FormControl>
           {isTokenizmyapp && tab === 0 ? <TenantDashboard /> : null}
           {tab === (isTokenizmyapp ? 1 : 0) ? <TenantInfoTab /> : null}
           {tab === (isTokenizmyapp ? 2 : 1) ? <NavigationManager /> : null}

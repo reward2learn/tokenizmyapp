@@ -145,10 +145,11 @@ async function resolveViewerUserId(
 ): Promise<string | null> {
   if (!sub) return null;
   try {
-    const rows = (await (db as unknown as {
-      $queryRawUnsafe: (sql: string, ...params: unknown[]) => Promise<unknown[]>;
-    }).$queryRawUnsafe(`SELECT id FROM user_accounts WHERE sub = $1 LIMIT 1`, sub)) as { id: string }[];
-    return rows?.[0]?.id ?? null;
+    const account = await db.userAccount.findFirst({
+      where: { sub },
+      select: { id: true },
+    });
+    return account?.id ?? null;
   } catch {
     return null;
   }
@@ -166,26 +167,23 @@ async function fetchUserAssignments(
   const map = new Map<string, TaskUserAssignmentView[]>();
   if (taskIds.length === 0) return map;
   try {
-    const rows = (await (db as unknown as {
-      $queryRawUnsafe: (sql: string, ...params: unknown[]) => Promise<unknown[]>;
-    }).$queryRawUnsafe(
-      `SELECT tua.task_id, ua.id AS user_id, ua.sub, ua.name, ua.email
-       FROM task_user_assignments tua
-       JOIN user_accounts ua ON ua.id = tua.user_account_id
-       WHERE tua.assigned = true AND tua.task_id = ANY($1::text[])`,
-      taskIds,
-    )) as { task_id: string; user_id: string; sub: string; name: string | null; email: string | null }[];
-    for (const r of rows ?? []) {
+    const rows = await db.taskUserAssignment.findMany({
+      where: { assigned: true, taskId: { in: taskIds } },
+      include: {
+        user: { select: { id: true, sub: true, name: true, email: true } },
+      },
+    });
+    for (const r of rows) {
       const entry: TaskUserAssignmentView = {
-        userId: r.user_id,
-        sub: r.sub,
-        name: r.name,
-        email: r.email,
-        assigned: true,
+        userId: r.user.id,
+        sub: r.user.sub,
+        name: r.user.name,
+        email: r.user.email,
+        assigned: r.assigned,
       };
-      const list = map.get(r.task_id) ?? [];
+      const list = map.get(r.taskId) ?? [];
       list.push(entry);
-      map.set(r.task_id, list);
+      map.set(r.taskId, list);
     }
   } catch (err) {
     console.warn('[tasks] fetchUserAssignments failed (degrading to role-only):', err instanceof Error ? err.message : String(err));
@@ -333,28 +331,20 @@ export async function POST(request: Request): Promise<NextResponse> {
 
   // User-scoped assignments (platform-admin only intent): link the task to
   // specific user accounts so signed-in users see it without a role match.
-  const validUserIds: string[] = [];
   if (assigneeUserIds && assigneeUserIds.length > 0) {
     try {
-      const userRows = (await (db as unknown as {
-        $queryRawUnsafe: (sql: string, ...params: unknown[]) => Promise<unknown[]>;
-      }).$queryRawUnsafe(
-        `SELECT id FROM user_accounts WHERE id = ANY($1::text[])`,
-        assigneeUserIds,
-      )) as { id: string }[];
-      const existingIds = new Set((userRows ?? []).map((r) => r.id));
+      const existing = await db.userAccount.findMany({
+        where: { id: { in: assigneeUserIds } },
+        select: { id: true },
+      });
+      const existingIds = new Set(existing.map((u) => u.id));
       for (const userId of assigneeUserIds) {
         if (!existingIds.has(userId)) continue;
-        validUserIds.push(userId);
-        await (db as unknown as {
-          $executeRawUnsafe: (sql: string, ...params: unknown[]) => Promise<unknown>;
-        }).$executeRawUnsafe(
-          `INSERT INTO task_user_assignments (id, task_id, user_account_id, assigned)
-           SELECT gen_random_uuid()::TEXT, $1, $2, true
-           ON CONFLICT (task_id, user_account_id) DO UPDATE SET assigned = true`,
-          task.id,
-          userId,
-        );
+        await db.taskUserAssignment.upsert({
+          where: { taskId_userId: { taskId: task.id, userId } },
+          create: { taskId: task.id, userId, assigned: true },
+          update: { assigned: true },
+        });
       }
     } catch (err) {
       console.warn('[tasks] POST user assignment failed:', err instanceof Error ? err.message : String(err));
