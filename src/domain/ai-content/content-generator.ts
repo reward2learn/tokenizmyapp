@@ -70,6 +70,40 @@ export interface SavedResult {
 
 // ── AI Call ─────────────────────────────────────────────
 
+// ── OpenAI error classification ─────────────────────────────
+
+/** Marker embedded in quota-exhausted error messages so callers can map them to HTTP 402. */
+export const OPENAI_QUOTA_MARKER = '[openai-no-credits]';
+
+/**
+ * Build an error for a failed OpenAI call. Quota exhaustion (429 +
+ * insufficient_quota / credit_balance_exhausted) gets an actionable message
+ * with the masked key, so the UI can tell the operator to add credits.
+ */
+function buildOpenAiError(status: number, errBody: string, apiKey: string): Error {
+  let code = '';
+  let type = '';
+  try {
+    const parsed = JSON.parse(errBody) as { error?: { code?: string; type?: string } };
+    code = parsed.error?.code ?? '';
+    type = parsed.error?.type ?? '';
+  } catch {
+    // non-JSON body — keep the raw message
+  }
+  const isQuota =
+    status === 429 &&
+    (code === 'insufficient_quota' || type === 'insufficient_quota' || errBody.includes('credit_balance_exhausted'));
+  if (isQuota) {
+    const maskedKey = apiKey ? `${apiKey.slice(0, 7)}…${apiKey.slice(-4)}` : 'unknown';
+    return new Error(
+      `${OPENAI_QUOTA_MARKER} OpenAI account has no credits remaining (API key ${maskedKey}). ` +
+      'Add credits at https://platform.openai.com/settings/organization/billing, or switch to a key ' +
+      'with credits in Config > OpenAI Key.',
+    );
+  }
+  return new Error(`OpenAI API error (${status}): ${errBody}`);
+}
+
 /**
  * Call OpenAI to generate a single document (business review OR executive summary).
  * Keeps each response within the model's 16384 output-token limit.
@@ -116,7 +150,7 @@ async function callOpenAiForDocument(
 
   if (!response.ok) {
     const errBody = await response.text().catch(() => 'Unknown error');
-    throw new Error(`OpenAI API error (${response.status}): ${errBody}`);
+    throw buildOpenAiError(response.status, errBody, apiKey);
   }
 
   const result = await response.json();
@@ -326,7 +360,6 @@ export async function generateAndSave(
       pct: 65,
     });
 
-    let dashboardData: Record<string, unknown> | null = null;
     try {
       const dashboardPrompt = buildDashboardPrompt(data, additionalContext);
 
@@ -363,7 +396,6 @@ export async function generateAndSave(
           try {
             const parsed = JSON.parse(dashReply);
             if (parsed.actionPhases && parsed.targetRows && parsed.levers) {
-              dashboardData = parsed;
               // Save to knowledge_snippets so the dashboard blocks can read it
               await db.knowledgeSnippet.upsert({
                 where: { key: 'dashboard_data' },

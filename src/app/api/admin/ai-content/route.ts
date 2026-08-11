@@ -34,7 +34,7 @@ import { sessionIsPlatformAdmin } from '@/lib/auth/jwt';
 import { jsonError } from '@/lib/api/response';
 import { extractExcelData, type ExcelData } from '@/domain/excel/excel-extractor';
 import { buildGenerationPrompt, buildDataSummary } from '@/domain/ai-content/prompt-builder';
-import { generateAndSave, type ProgressEvent } from '@/domain/ai-content/content-generator';
+import { generateAndSave, OPENAI_QUOTA_MARKER, type ProgressEvent } from '@/domain/ai-content/content-generator';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 120; // 2 min timeout for OpenAI calls
@@ -71,10 +71,7 @@ function sseStream(run: (emit: (event: ProgressEvent) => void) => Promise<void>)
   // Run the pipeline, pushing SSE events as progress is reported
   void (async () => {
     try {
-      const db = createClient();
-
       await run((event: ProgressEvent) => {
-        // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
         if (!streamController) return;
         const ctrl: ReadableStreamDefaultController<Uint8Array> = streamController;
         try {
@@ -103,6 +100,9 @@ function sseStream(run: (emit: (event: ProgressEvent) => void) => Promise<void>)
               step: 'error',
               message: err instanceof Error ? err.message : String(err),
               pct: 0,
+              code: err instanceof Error && err.message.includes(OPENAI_QUOTA_MARKER)
+                ? 'openai_no_credits'
+                : undefined,
             }),
           ),
         );
@@ -295,9 +295,15 @@ export async function POST(request: Request): Promise<Response> {
     const result = await generateAndSave(db, undefined, source, model, additionalContext, overridePrompt);
 
     if (!result.success) {
+      const isQuota = result.error?.includes(OPENAI_QUOTA_MARKER) ?? false;
       return NextResponse.json(
-        { success: false, error: result.error, prompt: result.prompt },
-        { status: 500 },
+        {
+          success: false,
+          error: result.error,
+          code: isQuota ? 'openai_no_credits' : undefined,
+          prompt: result.prompt,
+        },
+        { status: isQuota ? 402 : 500 },
       );
     }
 
