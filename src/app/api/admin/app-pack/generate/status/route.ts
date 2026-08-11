@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { getRun } from 'workflow/api';
 import { requireWriteAuth } from '@/lib/auth/guards';
-import { jsonError } from '@/lib/api/response';
+import { jsonError, jsonOk } from '@/lib/api/response';
 
 export const maxDuration = 30;
 
@@ -26,14 +26,14 @@ export async function GET(request: Request): Promise<NextResponse> {
   try {
     const exists = await run.exists;
     if (!exists) {
-      return NextResponse.json({ status: 'not_found', runId }, { status: 404 });
+      return jsonError('Run not found', 404);
     }
 
     const status = await run.status;
 
     if (status === 'completed') {
       const result = await run.returnValue;
-      return NextResponse.json({
+      return jsonOk({
         status: 'completed',
         runId,
         result,
@@ -46,7 +46,7 @@ export async function GET(request: Request): Promise<NextResponse> {
         await run.returnValue;
       } catch (err) {
         const cause = err instanceof Error ? err.message : String(err);
-        return NextResponse.json({
+        return jsonOk({
           status: 'failed',
           runId,
           error: cause,
@@ -54,7 +54,7 @@ export async function GET(request: Request): Promise<NextResponse> {
       }
     }
 
-    return NextResponse.json({
+    return jsonOk({
       status,
       runId,
       startedAt: await run.startedAt,

@@ -68,9 +68,10 @@ export async function POST(request: Request): Promise<NextResponse> {
 
   try {
     const run = await start(handleAppPackGenerate, [input]);
-    return NextResponse.json(
+    // Wrap in the standard envelope ({ success: true, data }) so RTK Query
+    // surfaces runId at response.data.runId — matches ApiEnvelope<{ runId }>.
+    return jsonOk(
       {
-        ok: true,
         runId: run.runId,
         packId: input.packId ?? defaultPackId(input.prompt),
         status: 'accepted',
