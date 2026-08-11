@@ -87,3 +87,5 @@ Raw query failed. Code: `23502`. Message: `Failing row contains (null, admin, re
   37 |   // Match legacy auth-lib.js: first 32 chars of hex string as UTF-8 key material
   38 |   return new TextEncoder().encode(key.slice(0, 32));
   39 | }
+[?25h
+error: script "dev" exited with code 143

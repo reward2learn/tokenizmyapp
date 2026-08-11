@@ -13,6 +13,7 @@
     "test": "node scripts/enforce-redux.mjs && vitest run",
     "enforce:redux": "node scripts/enforce-redux.mjs",
     "seed": "bun run scripts/seed-from-sources.ts",
+    "seed:chatbot-key": "bun run scripts/seed-chatbot-openai-key.ts",
     "test-webhook": "bun run scripts/test-webhook.ts",
     "register-webhooks": "bun run scripts/register-vercel-webhooks.ts"
   },

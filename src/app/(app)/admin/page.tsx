@@ -54,14 +54,13 @@ import {
   useUpdateAdminGroupMutation,
 } from '@/store/apis/admin-api';
 import type { AdminUserView } from '@/app/api/admin/users/route';
-import type { BatchUserInput, BatchUserResult } from '@/app/api/admin/users/batch/route';
+import type { BatchUserInput } from '@/app/api/admin/users/batch/route';
 import type { AdminGroupView } from '@/app/api/admin/groups/route';
 import {
   useListTasksQuery,
   useUpdateUserTaskAssignmentMutation,
 } from '@/store/apis/tasks-api';
 import { FUNCTIONAL_ROLES } from '@/domain/security/functional-roles';
-import { PERSONS } from '@/domain/security/persons';
 import { CAPABILITY_AREAS, capability } from '@/domain/security/capabilities';
 
 /** Roles that persist regardless of seeded data state. */
@@ -1026,9 +1025,12 @@ export default function AdminPage() {
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down('md'));
   const isTokenizmyapp = getClientTenantConfig().slug === 'tokenizmyapp';
+  // AI App Pack (app-pack generator) is a platform-administrator capability only —
+  // it derives and materializes per-department apps into tenant deployments. It must
+  // NOT appear in a tenant application's own admin surface.
   const adminTabs = isTokenizmyapp
     ? ['Tenants', 'Tenant Info', 'Navigation', 'Brand Config', 'Security Groups', 'Accounts', 'Roles', 'AI Chat', 'AI App Pack']
-    : ['Tenant Info', 'Navigation', 'Brand Config', 'Security Groups', 'Accounts', 'Roles', 'AI Chat', 'AI App Pack'];
+    : ['Tenant Info', 'Navigation', 'Brand Config', 'Security Groups', 'Accounts', 'Roles', 'AI Chat'];
 
   return (
     <PlatformAdminGate
@@ -1077,7 +1079,7 @@ export default function AdminPage() {
           {tab === (isTokenizmyapp ? 5 : 4) ? <UserManager /> : null}
           {tab === (isTokenizmyapp ? 6 : 5) ? <RoleManager /> : null}
           {tab === (isTokenizmyapp ? 7 : 6) ? <ConversationManager /> : null}
-          {tab === (isTokenizmyapp ? 8 : 7) ? <AppPackTab /> : null}
+          {isTokenizmyapp && tab === 8 ? <AppPackTab /> : null}
         </Stack>
       </Box>
     </PlatformAdminGate>
