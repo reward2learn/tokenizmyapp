@@ -10,9 +10,14 @@ import Button from '@mui/material/Button';
 import Chip from '@mui/material/Chip';
 import CircularProgress from '@mui/material/CircularProgress';
 import Divider from '@mui/material/Divider';
+import FormControl from '@mui/material/FormControl';
 import FormControlLabel from '@mui/material/FormControlLabel';
+import FormHelperText from '@mui/material/FormHelperText';
+import InputLabel from '@mui/material/InputLabel';
 import LinearProgress from '@mui/material/LinearProgress';
+import MenuItem from '@mui/material/MenuItem';
 import Paper from '@mui/material/Paper';
+import Select from '@mui/material/Select';
 import Stack from '@mui/material/Stack';
 import Switch from '@mui/material/Switch';
 import Table from '@mui/material/Table';
@@ -59,6 +64,133 @@ interface RunStatus {
   };
 }
 
+interface BusinessCategoryPrompt {
+  category: string;
+  prompt: string;
+}
+
+/**
+ * Prepopulated business-need prompts per business category. Selecting a
+ * category from the dropdown fills the requirement field with a prompt that
+ * describes the per-department apps (plus CEO Overview) for that business.
+ * Prompts are used in real AI mode; Mock mode always returns the fixed demo pack.
+ */
+const BUSINESS_CATEGORY_PROMPTS: BusinessCategoryPrompt[] = [
+  {
+    category: 'Restaurant',
+    prompt:
+      'Build an app pack for restaurant operations: HR (employees, schedules, attendance), ' +
+      'Menu & Inventory (recipes, stock levels, supplier orders), Sales Reporting (daily sales, ' +
+      'hourly trends, payment methods), Finance (P&L, cash flow, costs tracking), plus a CEO ' +
+      'Overview with cross-department KPIs and realtime actionable items.',
+  },
+  {
+    category: 'Nightclub',
+    prompt:
+      'Build an app pack for nightclub operations: Guest List & Entry (guest lists, VIP tables, ' +
+      'entry passes, cover charges), Events & DJ Booking (lineups, event schedules, DJ contracts), ' +
+      'Sales & Bar Reporting (ticket sales, bar revenue, payment methods), Finance (cash flow, ' +
+      'P&L, costs tracking), plus a CEO Overview with cross-department KPIs and realtime ' +
+      'actionable items.',
+  },
+  {
+    category: 'Flower Shop',
+    prompt:
+      'Build an app pack for flower shop operations: Orders & Deliveries (online orders, delivery ' +
+      'scheduling, delivery routes), Inventory (flower stock, suppliers, spoilage tracking), ' +
+      'Customers & Occasions (customer records, occasions, campaigns), Finance (sales, costs, ' +
+      'cash flow), plus a CEO Overview with cross-department KPIs and realtime actionable items.',
+  },
+  {
+    category: 'Massage Service',
+    prompt:
+      'Build an app pack for massage service operations: Appointments & Booking (sessions, ' +
+      'therapists, rooms, availability), Client Records (health notes, preferences, visit history), ' +
+      'Therapist Management (schedules, commissions, certifications), Finance (revenue, costs, ' +
+      'cash flow), plus a CEO Overview with cross-department KPIs and realtime actionable items.',
+  },
+  {
+    category: 'Hotel',
+    prompt:
+      'Build an app pack for hotel operations: Bookings & Rooms (reservations, availability, ' +
+      'check-in/check-out), Housekeeping (room status, cleaning tasks, inspections), Guest Services ' +
+      '(requests, feedback, loyalty), Finance (revenue, occupancy, P&L), plus a CEO Overview with ' +
+      'cross-department KPIs and realtime actionable items.',
+  },
+  {
+    category: 'E-commerce / Retail',
+    prompt:
+      'Build an app pack for e-commerce and retail operations: Catalog & Inventory (products, ' +
+      'SKUs, stock levels), Orders & Fulfillment (orders, shipments, returns), Customers & Loyalty ' +
+      '(profiles, loyalty points, campaigns), Finance (sales, refunds, cash flow), plus a CEO ' +
+      'Overview with cross-department KPIs and realtime actionable items.',
+  },
+  {
+    category: 'Café / Coffee Shop',
+    prompt:
+      'Build an app pack for café operations: Sales & POS (daily sales, payment methods, hourly ' +
+      'trends), Inventory (beans, milk, supplies, supplier orders), Staff & Shifts (schedules, ' +
+      'attendance, tips), Finance (P&L, cash flow, costs tracking), plus a CEO Overview with ' +
+      'cross-department KPIs and realtime actionable items.',
+  },
+  {
+    category: 'Spa & Wellness',
+    prompt:
+      'Build an app pack for spa and wellness operations: Appointments & Booking (treatments, ' +
+      'therapists, rooms), Packages & Memberships (treatment packages, membership plans, upsells), ' +
+      'Client Records (preferences, health notes, history), Finance (revenue, costs, cash flow), ' +
+      'plus a CEO Overview with cross-department KPIs and realtime actionable items.',
+  },
+  {
+    category: 'Fitness / Gym',
+    prompt:
+      'Build an app pack for fitness center operations: Memberships (plans, renewals, check-ins), ' +
+      'Classes & Schedule (class schedule, capacity, bookings), Trainer Management (trainers, ' +
+      'sessions, commissions), Finance (revenue, costs, cash flow), plus a CEO Overview with ' +
+      'cross-department KPIs and realtime actionable items.',
+  },
+  {
+    category: 'Salon & Barber',
+    prompt:
+      'Build an app pack for salon and barber operations: Appointments (bookings, services, ' +
+      'stylists), Services & Pricing (service catalog, pricing, upselling), Stylists (schedules, ' +
+      'commissions, performance), Finance (revenue, product sales, costs), plus a CEO Overview ' +
+      'with cross-department KPIs and realtime actionable items.',
+  },
+  {
+    category: 'Coworking Space',
+    prompt:
+      'Build an app pack for coworking space operations: Memberships (plans, renewals, access), ' +
+      'Desk & Room Bookings (desks, meeting rooms, availability), Billing & Invoices (invoicing, ' +
+      'payments, overdue tracking), Finance (revenue, occupancy, costs), plus a CEO Overview with ' +
+      'cross-department KPIs and realtime actionable items.',
+  },
+  {
+    category: 'Professional Services Firm',
+    prompt:
+      'Build an app pack for a professional services firm: Clients & Projects (client records, ' +
+      'project tracking), Time & Billing (timesheets, billable hours, invoicing), HR (employees, ' +
+      'schedules, attendance), Finance (P&L, cash flow, costs tracking), plus a CEO Overview with ' +
+      'cross-department KPIs and realtime actionable items.',
+  },
+  {
+    category: 'Healthcare Clinic',
+    prompt:
+      'Build an app pack for healthcare clinic operations: Appointments & Patients (scheduling, ' +
+      'patient records), Consultations & Treatments (visit records, treatment plans, follow-ups), ' +
+      'Staff & Practitioners (doctors, nurses, schedules), Finance (billing, insurance, costs), ' +
+      'plus a CEO Overview with cross-department KPIs and realtime actionable items.',
+  },
+  {
+    category: 'Manufacturing',
+    prompt:
+      'Build an app pack for manufacturing operations: Production (work orders, batches, output), ' +
+      'Inventory & Materials (raw materials, stock levels, suppliers), Quality (inspections, defects, ' +
+      'non-conformances), Finance (costs, P&L, cash flow), plus a CEO Overview with cross-department ' +
+      'KPIs and realtime actionable items.',
+  },
+];
+
 const EXAMPLE_PROMPT =
   'Build an app pack for restaurant operations: HR (employees, schedules, attendance), ' +
   'Sales Reporting (daily sales, hourly trends, payment methods), Finance (P&L, cash flow, ' +
@@ -85,6 +217,11 @@ export function AppPackTab() {
   const latestPct = chunks.length ? chunks[chunks.length - 1].pct : 0;
   const lastChunk = chunks.length ? chunks[chunks.length - 1] : null;
   const running = !!runId && status !== 'completed' && status !== 'failed' && status !== 'not_found';
+
+  // Reflect the currently selected category only while the prompt still matches
+  // its preset; manual edits reset the dropdown to the placeholder.
+  const selectedCategory =
+    BUSINESS_CATEGORY_PROMPTS.find((c) => c.prompt === prompt)?.category ?? '';
 
   // Sync status from RTK Query
   useEffect(() => {
@@ -163,6 +300,32 @@ export function AppPackTab() {
             aggregates cross-department KPIs.
           </Typography>
         </Box>
+
+        <FormControl fullWidth size="small">
+          <InputLabel id="business-category-label">Business category</InputLabel>
+          <Select
+            labelId="business-category-label"
+            label="Business category"
+            value={selectedCategory}
+            onChange={(e) => {
+              const preset = BUSINESS_CATEGORY_PROMPTS.find((c) => c.category === e.target.value);
+              if (preset) setPrompt(preset.prompt);
+            }}
+          >
+            <MenuItem value="">
+              <em>Select a category to prefill…</em>
+            </MenuItem>
+            {BUSINESS_CATEGORY_PROMPTS.map((c) => (
+              <MenuItem key={c.category} value={c.category}>
+                {c.category}
+              </MenuItem>
+            ))}
+          </Select>
+          <FormHelperText>
+            Prefills the business requirement below with per-department apps + CEO Overview for that
+            category. Used in real AI mode; Mock mode always produces the fixed demo pack.
+          </FormHelperText>
+        </FormControl>
 
         <TextField
           label="Business requirement"
