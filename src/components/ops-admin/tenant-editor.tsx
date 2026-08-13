@@ -147,7 +147,9 @@ function getInitialFormState(tenant: TenantEditorProps['tenant']): FormData {
   const parsed = parseConfigFromMetadata(tenant.metadata);
   return {
     displayName: tenant.displayName,
-    template: tenant.template,
+    template: tenant.template === 'suite' 
+      ? (tenant.appPack?.apps[0]?.templateId ?? 'default')
+      : tenant.template,
     status: tenant.status,
     primaryColor: tenant.primaryColor,
     secondaryColor: tenant.secondaryColor,
@@ -177,7 +179,11 @@ export function TenantEditor({ open, onClose, tenant }: TenantEditorProps) {
   const [updateTenant, { isLoading, isError, error }] = useUpdateTenantMutation();
 
   const templates = listTemplates();
-  const selectedTemplate = getTemplate(formData.template);
+  // For suites, use the first app's template for display
+  const effectiveTemplate = tenant.templateMode === 'suite' 
+    ? (formData.templates?.[0] ?? formData.template)
+    : formData.template;
+  const selectedTemplate = getTemplate(effectiveTemplate);
 
   // Re-initialize form state whenever the dialog opens for a different tenant
   useEffect(() => {

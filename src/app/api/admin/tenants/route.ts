@@ -26,6 +26,7 @@ import { runMigrations } from '@/domain/tenant/migration-runner';
 import { generateTenantCode, injectTenantConfig, cleanupTenantCode } from '@/domain/tenant/codegen-service';
 import { deployViaCli } from '@/domain/tenant/vercel-cli-service';
 import { materializeAppPackForTenant, buildSuitePrompt } from '@/domain/app-pack/app-pack-tenant-materializer';
+import { provisionSuiteApps, redeploySuiteApps } from '@/domain/workflow/suite-provisioning';
 
 export const dynamic = 'force-dynamic';
 
@@ -133,7 +134,7 @@ export async function POST(request: Request): Promise<NextResponse> {
       tenantId,
       parsed.data.slug,
       parsed.data.displayName,
-      parsed.data.template,
+      parsed.data.templateMode === 'suite' ? 'suite' : parsed.data.template,  // G2 fix: suite tenants use 'suite' template
       'deploying',
       parsed.data.primaryColor,
       parsed.data.secondaryColor,
@@ -162,6 +163,8 @@ export async function POST(request: Request): Promise<NextResponse> {
             JSON.stringify({
               ...((existingMeta.config as Record<string, unknown>) ?? {}),
               templateMode: 'suite',
+              // Store the actual templates used so UI can reference them
+              templates: parsed.data.templates,
               appPack: packResult.appPack,
             }),
             parsed.data.slug,
@@ -169,6 +172,22 @@ export async function POST(request: Request): Promise<NextResponse> {
           console.log(`[tenants] Suite mode: app pack materialized — ${packResult.appPack.apps.length} apps`);
         } else {
           console.error('[tenants] Suite mode: materialization failed:', packResult.error);
+        }
+
+        // ── Provision infrastructure for each app in the suite ───────
+        try {
+          const provisionResult = await provisionSuiteApps(parsed.data.slug, { skipLive: false });
+          if (provisionResult.successful.length > 0) {
+            console.log(
+              `[tenants] Suite mode: provisioned ${provisionResult.successful.length}/${provisionResult.totalApps} apps`,
+              `(${provisionResult.errors.length} errors)`
+            );
+          } else if (provisionResult.totalApps === packResult.appPack?.apps.length && provisionResult.totalApps > 0) {
+            console.log('[tenants] Suite mode: no pending apps to provision');
+          }
+        } catch (provErr) {
+          console.error('[tenists] Suite mode: provisioning failed:', provErr instanceof Error ? provErr.message : String(provErr));
+          // Don't fail tenant creation if provisioning fails — status will be 'error' per-app
         }
       } catch (suiteErr) {
         console.error('[tenants] Suite mode: error:', suiteErr instanceof Error ? suiteErr.message : String(suiteErr));

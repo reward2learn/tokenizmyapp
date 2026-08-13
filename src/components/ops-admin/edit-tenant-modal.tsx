@@ -74,6 +74,7 @@ import ErrorIcon from '@mui/icons-material/Error';
 import { getTemplate } from '@/domain/tenant/template-catalog';
 import { DEFAULT_PLATFORM_ADMIN_EMAIL } from '@/domain/security/persons';
 import { TemplateSelector } from '@/components/ops-admin/tenant-wizard';
+import type { AppPackConfig, SuiteAppInstance } from '@/store/apis/tenant-api';
 import { useAppDispatch } from '@/store/hooks';
 import { setThemeColors } from '@/store/ui-slice';
 import { 
@@ -251,6 +252,14 @@ function initEnvPairs(tenant: TenantEntry | null): { key: string; value: string 
   const cfg = (tenant.metadata?.config ?? {}) as Record<string, unknown>;
   const savedEnv = (cfg.env ?? {}) as Record<string, string>;
   return Object.entries(savedEnv).map(([key, value]) => ({ key, value }));
+}
+
+/** Extract appPack config from tenant metadata (for suite mode). */
+function getAppPack(tenant: TenantEntry | null): AppPackConfig | null {
+  if (!tenant) return null;
+  const meta = (tenant.metadata ?? {}) as Record<string, unknown>;
+  const cfg = (meta.config ?? {}) as Record<string, unknown>;
+  return (cfg.appPack as AppPackConfig) ?? null;
 }
 
 export function EditTenantModal({ open, tenant, onClose, onSnackbar }: EditTenantModalProps) {
@@ -1148,35 +1157,88 @@ export function EditTenantModal({ open, tenant, onClose, onSnackbar }: EditTenan
   const selectedTemplate = getTemplate(editTemplate);
 
   // ── Step 0: Template ──────────────────────────────────────
-  const renderStepTemplate = () => (
-    <Stack spacing={3}>
-      <Box>
-        <Typography variant="subtitle1" sx={{ fontWeight: 600, mb: 2 }}>
-          Select Template &amp; Branding
-        </Typography>
-        <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
-          Choose a business template and customize the display name and brand colors.
-          These settings affect the tenant application&apos;s header, buttons, and page structure.
-        </Typography>
-      </Box>
-      <TextField
-        label="Display Name"
-        value={displayName}
-        onChange={(e) => setDisplayName(e.target.value)}
-        fullWidth
-        helperText="Human-readable name shown in the header and page titles."
-      />
-      <TemplateSelector
-        selectedId={editTemplate}
-        currentId={tenant.template}
-        onSelect={handleTemplateSelect}
-        primaryColor={editPrimaryColor}
-        secondaryColor={editSecondaryColor}
-        onColorsChange={handleColorsChange}
-        showPreviewDelta={true}
-      />
-    </Stack>
-  );
+  const renderStepTemplate = () => {
+    const appPack = getAppPack(tenant);
+    const isSuite = !!appPack;
+
+    return (
+      <Stack spacing={3}>
+        <Box>
+          <Typography variant="subtitle1" sx={{ fontWeight: 600, mb: 2 }}>
+            {isSuite ? 'Suite Configuration' : 'Select Template & Branding'}
+          </Typography>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
+            {isSuite 
+              ? `This tenant is a multi-app suite with ${appPack.apps.length} applications. Each app has its own template and deployment.`
+              : "Choose a business template and customize the display name and brand colors. These settings affect the tenant application's header, buttons, and page structure."
+
+            }
+          </Typography>
+        </Box>
+        <TextField
+          label="Display Name"
+          value={displayName}
+          onChange={(e) => setDisplayName(e.target.value)}
+          fullWidth
+          helperText="Human-readable name shown in the header and page titles."
+        />
+        
+        {isSuite ? (
+          <Paper variant="outlined" sx={{ p: 2, bgcolor: 'action.hover' }}>
+            <Typography variant="subtitle2" sx={{ fontWeight: 600, mb: 2 }}>
+              Suite Apps ({appPack.apps.length})
+            </Typography>
+            <Stack spacing={1.5}>
+              {appPack.apps.map((app) => {
+                const tpl = getTemplate(app.templateId);
+                return (
+                  <Paper key={app.appId} variant="outlined" sx={{ p: 2, bgcolor: 'background.paper' }}>
+                    <Stack direction="row" sx={{ alignItems: 'flex-start', justifyContent: 'space-between' }}>
+                      <Box sx={{ flex: 1 }}>
+                        <Typography variant="body2" sx={{ fontWeight: 600 }}>
+                          {app.name}
+                        </Typography>
+                        <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
+                          {app.appId} • {app.department}
+                        </Typography>
+                        <Stack direction="row" spacing={1} sx={{ mt: 1 }}>
+                          <Chip label={tpl.label} size="small" variant="outlined" />
+                          <Chip 
+                            label={app.status} 
+                            size="small" 
+                            color={app.status === 'live' ? 'success' : app.status === 'error' ? 'error' : 'default'}
+                          />
+                        </Stack>
+                        {app.appUrl && (
+                          <Typography variant="caption" sx={{ display: 'block', mt: 1, color: 'primary.main' }}>
+                            {app.appUrl}
+                          </Typography>
+                        )}
+                      </Box>
+                    </Stack>
+                  </Paper>
+                );
+              })}
+            </Stack>
+            <Alert severity="info" sx={{ mt: 2 }}>
+              <AlertTitle>Suite Mode</AlertTitle>
+              Template changes apply to the parent tenant only. Individual app templates can be modified by regenerating the suite or contacting support.
+            </Alert>
+          </Paper>
+        ) : (
+          <TemplateSelector
+            selectedId={editTemplate}
+            currentId={tenant.template}
+            onSelect={handleTemplateSelect}
+            primaryColor={editPrimaryColor}
+            secondaryColor={editSecondaryColor}
+            onColorsChange={handleColorsChange}
+            showPreviewDelta={true}
+          />
+        )}
+      </Stack>
+    );
+  };
 
   // ── Step 1: Preview ───────────────────────────────────────
   const renderStepPreview = () => (

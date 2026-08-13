@@ -199,10 +199,19 @@ const EXAMPLE_PROMPT =
   'Sales Reporting (daily sales, hourly trends, payment methods), Finance (P&L, cash flow, ' +
   'costs tracking), plus a CEO Overview with cross-department KPIs and realtime actionable items.';
 
-export function AppPackTab() {
+interface AppPackTabProps {
+  /** Pre-selected tenant slug (when used in tenant admin context) */
+  tenantSlug?: string;
+  /** Display name of the pre-selected tenant */
+  tenantName?: string;
+  /** Callback when app pack generation completes */
+  onGenerated?: () => void;
+}
+
+export function AppPackTab({ tenantSlug: propTenantSlug, tenantName, onGenerated }: AppPackTabProps = {}) {
   const [prompt, setPrompt] = useState('');
   const [mock, setMock] = useState(true);
-  const [tenantSlug, setTenantSlug] = useState('tokenizmyapp');
+  const [tenantSlug, setTenantSlug] = useState(propTenantSlug || 'tokenizmyapp');
   const [runId, setRunId] = useState<string | null>(null);
   const [status, setStatus] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -357,10 +366,14 @@ export function AppPackTab() {
             label="Target tenant"
             value={tenantSlug}
             onChange={(e) => setTenantSlug(e.target.value)}
-            disabled={running || starting}
+            disabled={running || starting || !!propTenantSlug}
           >
-            <MenuItem value="tokenizmyapp">Platform root (tokenizmyapp)</MenuItem>
-            {tenants
+            {propTenantSlug ? (
+              <MenuItem value={propTenantSlug}>{tenantName || propTenantSlug} (selected)</MenuItem>
+            ) : (
+              <MenuItem value="tokenizmyapp">Platform root (tokenizmyapp)</MenuItem>
+            )}
+            {!propTenantSlug && tenants
               .filter((t) => t.slug !== 'tokenizmyapp')
               .map((t) => (
                 <MenuItem key={t.slug} value={t.slug}>

@@ -12,8 +12,20 @@ import { useGetTenantQuery, useUploadTenantFaviconMutation, useRemoveTenantFavic
 import { getClientTenantConfig } from '@shared/lib/config/tenant';
 import { getTemplate } from '@/domain/tenant/template-catalog';
 
-export function TenantInfoTab() {
-  const tenant = getClientTenantConfig();
+interface TenantInfoTabProps {
+  /** When provided, displays info for this tenant slug instead of the current client config */
+  tenantSlug?: string;
+}
+
+/** Resolve tenant info — from prop or from current client config */
+function resolveTenant(slug: string | undefined): { slug: string; displayName: string } {
+  if (slug) return { slug, displayName: slug };
+  // Fall back to current app context
+  return getClientTenantConfig();
+}
+
+export function TenantInfoTab({ tenantSlug }: TenantInfoTabProps = {}) {
+  const tenant = resolveTenant(tenantSlug);
   const template = getTemplate(tenant.slug === 'tokenizmyapp' ? 'default' : tenant.slug);
   const { data: brandData } = useGetBrandConfigQuery();
 

@@ -39,6 +39,7 @@ import { BrandConfigTab } from '@/components/ops-admin/brand-config-tab';
 import { NavigationManager } from '@/components/ops-admin/navigation-manager';
 import { TenantInfoTab } from '@/components/ops-admin/tenant-info-tab';
 import { TenantDashboard } from '@/components/ops-admin/tenant-dashboard';
+import { TenantAdminPanel } from '@/components/ops-admin/tenant-admin-panel';
 import { AppPackTab } from '@/components/ops-admin/app-pack-tab';
 import { getClientTenantConfig } from '@shared/lib/config/tenant';
 import {
@@ -1071,7 +1072,7 @@ export default function AdminPage() {
               ))}
             </Tabs>
           )}
-          {isTokenizmyapp && tab === 0 ? <TenantDashboard /> : null}
+          {isTokenizmyapp && tab === 0 ? <TenantAdminPanel /> : null}
           {tab === (isTokenizmyapp ? 1 : 0) ? <TenantInfoTab /> : null}
           {tab === (isTokenizmyapp ? 2 : 1) ? <NavigationManager /> : null}
           {tab === (isTokenizmyapp ? 3 : 2) ? <BrandConfigTab /> : null}

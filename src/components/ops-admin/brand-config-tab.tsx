@@ -35,7 +35,12 @@ function isValidHex(c: string): boolean {
   return HEX_REGEX.test(c);
 }
 
-export function BrandConfigTab() {
+interface BrandConfigTabProps {
+  /** When provided, fetches brand config for this tenant slug */
+  tenantSlug?: string;
+}
+
+export function BrandConfigTab({ tenantSlug }: BrandConfigTabProps = {}) {
   const { data: brandData, isLoading } = useGetAdminBrandConfigQuery();
   const [updateBrandConfig, { isLoading: isSaving }] = useUpdateAdminBrandConfigMutation();
 

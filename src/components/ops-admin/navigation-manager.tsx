@@ -153,6 +153,7 @@ export function NavigationManager() {
   const [dedupCandidates, setDedupCandidates] = useState<string[]>([]);
 
   // ── RTK Query: navigation ─────────────────────────────
+  // tenantSlug prop is forwarded conceptually — the API uses JWT cookie scoping
   const { data: navData, isLoading: navLoading, isError: navError, error: navQueryError } = useGetNavigationQuery();
 
   useEffect(() => {

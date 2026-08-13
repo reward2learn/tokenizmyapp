@@ -184,3 +184,105 @@ export function buildSuitePrompt(
   }
   return `Create a multi-department application suite for ${displayName} covering these business areas: ${templates.join(', ')}. Include a CEO Overview dashboard that aggregates KPIs from all departments.`;
 }
+
+// ── Per-App Deployment ─────────────────────────────────────
+
+export interface DeploySuiteAppResult {
+  appId: string;
+  success: boolean;
+  projectId?: string;
+  appUrl?: string;
+  error?: string;
+}
+
+/**
+ * Deploy all apps in a suite to individual Vercel projects.
+ *
+ * Each app gets its own Vercel project with:
+ * - Unique slug: `{parentSlug}__{appId}`
+ * - App-specific env vars (NEXT_PUBLIC_TENANT_SLUG, template, colors)
+ * - Shared env vars from the parent tenant (ENCRYPTION_KEY, OPENAI_API_KEY, etc.)
+ *
+ * This function is called after the appPack is materialized and stored in
+ * the tenant's metadata. It updates each app's status as it progresses.
+ */
+export async function deploySuiteApps(
+  parentSlug: string,
+  appPack: AppPackConfig,
+  options?: {
+    /** Only deploy specific app IDs (default: all). */
+    appIds?: string[];
+    /** Skip apps that are already live. */
+    skipLive?: boolean;
+  },
+): Promise<DeploySuiteAppResult[]> {
+  const results: DeploySuiteAppResult[] = [];
+  const appsToDeploy = options?.appIds
+    ? appPack.apps.filter((a) => options.appIds!.includes(a.appId))
+    : appPack.apps;
+
+  for (const app of appsToDeploy) {
+    // Skip live apps if requested
+    if (options?.skipLive && app.status === 'live') {
+      results.push({ appId: app.appId, success: true, appUrl: app.appUrl ?? undefined });
+      continue;
+    }
+
+    try {
+      const { deployTenant } = await import('@/domain/tenant/vercel-deploy-service');
+      const { getTemplate } = await import('@/domain/tenant/template-catalog');
+
+      const appSlug = `${parentSlug}__${app.appId}`;
+      const tpl = getTemplate(app.templateId);
+
+      const result = await deployTenant({
+        slug: appSlug,
+        displayName: app.name,
+        template: app.templateId,
+        primaryColor: tpl.defaultColors.primary,
+        secondaryColor: tpl.defaultColors.secondary,
+        metadata: {
+          parentSlug,
+          appId: app.appId,
+          department: app.department,
+          suitePackId: appPack.packId,
+        },
+      });
+
+      results.push({
+        appId: app.appId,
+        success: true,
+        projectId: result.projectId,
+        appUrl: result.appUrl,
+      });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      console.error(`[deploy-suite] Failed to deploy "${app.appId}":`, message);
+      results.push({ appId: app.appId, success: false, error: message });
+    }
+  }
+
+  return results;
+}
+
+/**
+ * Update the appPack config in the tenant's metadata with deployment results.
+ * Call this after deploySuiteApps completes to persist projectIds and URLs.
+ */
+export function applyDeployResults(
+  appPack: AppPackConfig,
+  results: DeploySuiteAppResult[],
+): AppPackConfig {
+  const updated = { ...appPack, apps: [...appPack.apps] };
+  for (const result of results) {
+    const idx = updated.apps.findIndex((a) => a.appId === result.appId);
+    if (idx === -1) continue;
+    updated.apps[idx] = {
+      ...updated.apps[idx],
+      status: result.success ? 'deploying' : 'error',
+      vercelProjectId: result.projectId ?? updated.apps[idx].vercelProjectId,
+      appUrl: result.appUrl ?? updated.apps[idx].appUrl,
+    };
+  }
+  return updated;
+}
