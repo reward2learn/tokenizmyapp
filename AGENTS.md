@@ -10,7 +10,7 @@ The **TokenizMyApp Root Config App** is the tenant factory — the control plane
 tokenizmyapp.vercel.app  (Root Config App)
   ├── Tenant Creation Wizard
   ├── Tenant Registry (DB)
-  ├── Template Selection
+  ├── Template Selection (incl. Multi-App Suite)
   └── Vercel Deploy Integration
 
 redrubybali.vercel.app   (Tenant App — deployed via factory)
@@ -36,11 +36,28 @@ bun run dev          # Starts on localhost:3000
 | `POSTGRES_URL` | Neon database connection |
 | `ENCRYPTION_KEY` | JWT + AES-256-GCM encryption |
 
-## Shared Code
+## Code layout
 
-The `tokenizmyapp` directory shares code with `website/` via symlinks:
-- `src/` → `../website/src/`
-- `zenstack/` → `../website/zenstack/`
-- `scripts/` → `../website/scripts/`
+This directory **is** the Next.js application (not a symlink to `website/`).
 
-This ensures both apps stay in sync. Feature development happens in `website/`.
+| Path | Purpose |
+|------|---------|
+| `src/app/` | App Router pages + API |
+| `src/components/` | MUI components |
+| `src/store/` | RTK Query + Redux slices |
+| `src/lib/auth/` | JWT / OAuth / PIN |
+| `zenstack/` | schema.zmodel + generate output |
+
+## OpenCode agents for this app
+
+Use primary agent **`opencoder`**. Delegate with:
+
+```
+Task({
+  subagent_type: "website-ui",   # or website-nextjs / website-api / ...
+  description: "short title",
+  prompt: "full task for tokenizmyapp/..."
+})
+```
+
+Do **not** use `project-manager` for coding tasks (restaurant ops only).

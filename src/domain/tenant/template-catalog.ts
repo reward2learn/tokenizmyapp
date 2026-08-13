@@ -6,11 +6,23 @@
  * brand presets, W3C standard alignment, and schema.org structured data type.
  */
 
+/** A single departmental app inside a suite template. */
+export interface SuiteAppDefinition {
+  id: string;
+  name: string;
+  department: string;
+  summary: string;
+  templateId: string;
+  purpose?: string;
+  kpis?: string[];
+}
+
 export interface TemplateDefinition {
   id: string;
   label: string;
   description: string;
   icon: string; // MUI icon name
+  templateType: 'single' | 'suite';
   defaultColors: { primary: string; secondary: string };
   defaultPages: {
     slug: string;
@@ -29,6 +41,10 @@ export interface TemplateDefinition {
   schemaOrgType: string | string[];
   /** W3C XSD standard alignment */
   xsdStandard: string;
+
+  // Suite-specific fields (only present when templateType === 'suite')
+  suiteApps?: SuiteAppDefinition[];
+  baseTemplateId?: string;
 }
 
 // ── Shared page definitions ─────────────────────────────
@@ -73,6 +89,7 @@ export const TEMPLATE_CATALOG: Record<string, TemplateDefinition> = {
     label: 'Financial Analytics',
     description: 'Financial performance tracking: revenue analysis, BEP modeling, P&L projections, KPI monitoring, executive reporting.',
     icon: 'Analytics',
+    templateType: 'single',
     defaultColors: { primary: '#eb3d28', secondary: '#0af9fe' },
     defaultPages: [
       HOME_PAGE,
@@ -102,6 +119,7 @@ export const TEMPLATE_CATALOG: Record<string, TemplateDefinition> = {
     label: 'Restaurant',
     description: 'Restaurant operations: menu management, table reservations, daily covers, food cost analysis, GoFood integration.',
     icon: 'Restaurant',
+    templateType: 'single',
     defaultColors: { primary: '#2e7d32', secondary: '#ff8f00' },
     defaultPages: [
       HOME_PAGE,
@@ -130,6 +148,7 @@ export const TEMPLATE_CATALOG: Record<string, TemplateDefinition> = {
     label: 'Hotel & Hospitality',
     description: 'Hotel operations: room occupancy, RevPAR, F&B outlets, event spaces, booking management.',
     icon: 'Hotel',
+    templateType: 'single',
     defaultColors: { primary: '#1565c0', secondary: '#ff8f00' },
     defaultPages: [
       HOME_PAGE,
@@ -158,6 +177,7 @@ export const TEMPLATE_CATALOG: Record<string, TemplateDefinition> = {
     label: 'E-Commerce & Retail',
     description: 'Online store operations: product catalog, inventory management, sales orders, customer management.',
     icon: 'ShoppingCart',
+    templateType: 'single',
     defaultColors: { primary: '#7b1fa2', secondary: '#00bcd4' },
     defaultPages: [
       HOME_PAGE,
@@ -186,6 +206,7 @@ export const TEMPLATE_CATALOG: Record<string, TemplateDefinition> = {
     label: 'Healthcare & Clinical',
     description: 'Healthcare operations: patient records, clinical documents, insurance claims, medical device telemetry.',
     icon: 'LocalHospital',
+    templateType: 'single',
     defaultColors: { primary: '#0097a7', secondary: '#ff6f00' },
     defaultPages: [
       HOME_PAGE,
@@ -214,6 +235,7 @@ export const TEMPLATE_CATALOG: Record<string, TemplateDefinition> = {
     label: 'Supply Chain & Logistics',
     description: 'Logistics operations: shipment tracking, warehouse management, carrier coordination, freight manifests.',
     icon: 'LocalShipping',
+    templateType: 'single',
     defaultColors: { primary: '#37474f', secondary: '#ff9800' },
     defaultPages: [
       HOME_PAGE,
@@ -242,6 +264,7 @@ export const TEMPLATE_CATALOG: Record<string, TemplateDefinition> = {
     label: 'Real Estate & Property',
     description: 'Property management: listings, tenant management, lease tracking, maintenance requests.',
     icon: 'Home',
+    templateType: 'single',
     defaultColors: { primary: '#1b5e20', secondary: '#f57c00' },
     defaultPages: [
       HOME_PAGE,
@@ -270,6 +293,7 @@ export const TEMPLATE_CATALOG: Record<string, TemplateDefinition> = {
     label: 'Education & E-Learning',
     description: 'Educational operations: course management, student enrollment, assignments, grading, progress tracking.',
     icon: 'School',
+    templateType: 'single',
     defaultColors: { primary: '#0d47a1', secondary: '#ffc107' },
     defaultPages: [
       HOME_PAGE,
@@ -298,6 +322,7 @@ export const TEMPLATE_CATALOG: Record<string, TemplateDefinition> = {
     label: 'Professional Services',
     description: 'Consultancy operations: project management, time tracking, invoicing, client deliverables.',
     icon: 'BusinessCenter',
+    templateType: 'single',
     defaultColors: { primary: '#263238', secondary: '#00bcd4' },
     defaultPages: [
       HOME_PAGE,
@@ -326,6 +351,7 @@ export const TEMPLATE_CATALOG: Record<string, TemplateDefinition> = {
     label: 'Manufacturing & Industrial',
     description: 'Production operations: work orders, bill of materials, quality checks, inventory lots, production scheduling.',
     icon: 'PrecisionManufacturing',
+    templateType: 'single',
     defaultColors: { primary: '#bf360c', secondary: '#ffab00' },
     defaultPages: [
       HOME_PAGE,
@@ -354,6 +380,7 @@ export const TEMPLATE_CATALOG: Record<string, TemplateDefinition> = {
     label: 'Platform Admin',
     description: 'Central administration dashboard for managing tenant applications, platform configuration, system operations, and user management across all tenant instances.',
     icon: 'AdminPanelSettings',
+    templateType: 'single',
     defaultColors: { primary: '#1a237e', secondary: '#00bcd4' },
     defaultPages: [
       HOME_PAGE,
@@ -381,6 +408,7 @@ export const TEMPLATE_CATALOG: Record<string, TemplateDefinition> = {
     label: 'Generic Dashboard',
     description: 'A basic business operations dashboard with financial overview, tasks, and AI chat.',
     icon: 'Dashboard',
+    templateType: 'single',
     defaultColors: { primary: '#eb3d28', secondary: '#0af9fe' },
     defaultPages: [
       HOME_PAGE,
@@ -410,4 +438,16 @@ const RESERVED_SLUGS = new Set(['api', 'admin', 'dashboard', 'login', 'tokenizmy
 export function isSlugAvailable(slug: string): boolean {
   if (RESERVED_SLUGS.has(slug.toLowerCase())) return false;
   return /^[a-z0-9]+(-[a-z0-9]+)*$/.test(slug);
+}
+
+/** Get suite departmental apps for a template, or null for single templates. */
+export function getSuiteApps(templateId: string): SuiteAppDefinition[] | null {
+  const tpl = TEMPLATE_CATALOG[templateId];
+  if (tpl?.templateType === 'suite') return tpl.suiteApps ?? null;
+  return null;
+}
+
+/** Return only suite templates from the catalog. */
+export function listSuiteTemplates(): TemplateDefinition[] {
+  return Object.values(TEMPLATE_CATALOG).filter((t) => t.templateType === 'suite');
 }
