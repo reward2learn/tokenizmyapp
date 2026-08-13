@@ -3,6 +3,8 @@
  *
  * Full tenant provisioning pipeline that orchestrates:
  *   1. Google Cloud OAuth credential creation
+ *      - Suite (metadata.config.appPack): one client per app via provisionGoogleOAuthPerApp
+ *      - Single: tenant-level singleton via provisionGoogleOAuth + setGoogleOAuthConfig
  *   2. Neon Postgres database branch provisioning
  *   3. (Optional) Vercel deployment trigger
  *
@@ -20,9 +22,14 @@ import { jsonError, jsonOk } from '@/lib/api/response';
 import { ensureTenantsTable } from '@/domain/tenant/tenant-service';
 import { provisionTenantDatabase } from '@/domain/tenant/neon-provision-service';
 import { formatNeonConnectionStrings } from '@/domain/tenant/neon-output-formatter';
-import { provisionGoogleOAuth, saveClientSecretJson } from '@/domain/tenant/google-cloud-service';
+import {
+  provisionGoogleOAuth,
+  provisionGoogleOAuthPerApp,
+  saveClientSecretJson,
+} from '@/domain/tenant/google-cloud-service';
 import { setGoogleOAuthConfig } from '@/lib/auth/google-oauth';
 import { inngest } from '@/lib/inngest';
+import type { AppPackConfig } from '@/store/apis/tenant-api';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 300; // 5 min timeout for provisioning
@@ -35,7 +42,13 @@ const provisionSchema = z.object({
 
   // Google OAuth config
   email: z.string().email().optional(),
+  /** Single-tenant only — ignored in suite mode (use perAppRedirectUris). */
   redirectUris: z.array(z.string().url()).optional(),
+  /**
+   * Suite mode: custom domains / redirect URIs keyed by appId.
+   * Apps omitted from the map fall back to defaultRedirectUris(slug__appId).
+   */
+  perAppRedirectUris: z.record(z.string().min(1), z.array(z.string().url()).min(1)).optional(),
   logoPath: z.string().optional(),
 
   // Template config
@@ -50,6 +63,21 @@ type StepResult = {
   data?: Record<string, unknown>;
   error?: string;
 };
+
+/** Suite mode lives under tenants.metadata.config.appPack. */
+function getAppPack(tenant: { metadata?: unknown }): AppPackConfig | null {
+  const meta = (tenant.metadata ?? {}) as Record<string, unknown>;
+  const cfg = (meta.config ?? {}) as Record<string, unknown>;
+  return (cfg.appPack as AppPackConfig) ?? null;
+}
+
+/** Default redirect URIs for a Vercel app slug (parent or `parent__appId`). */
+function defaultRedirectUris(appSlug: string): string[] {
+  return [
+    `https://${appSlug}.vercel.app`,
+    `https://${appSlug}.vercel.app/api/auth/callback/google`,
+  ];
+}
 
 export async function POST(
   request: Request,
@@ -85,47 +113,114 @@ export async function POST(
 
     // ════════════════════════════════════════════════════════
     // STEP 1: Google Cloud OAuth
+    // Suite: one OAuth client + google_oauth_config row per app
+    // Single: existing tenant-level singleton (id='default')
     // ════════════════════════════════════════════════════════
     if (parsed.data.google) {
       try {
-        const oauthResult = await provisionGoogleOAuth({
-          slug,
-          displayName: tenant.displayName || slug,
-          redirectUris: parsed.data.redirectUris || [
-            `https://${slug}.vercel.app`,
-            `https://${slug}.vercel.app/api/auth/callback/google`,
-          ],
-          adminEmail: parsed.data.email || guard.session.email || 'reward2learn@gmail.com',
-          logoPath: parsed.data.logoPath,
-        });
+        const appPack = getAppPack(tenant);
 
-        // Store credentials in DB
-        await setGoogleOAuthConfig({
-          clientId: oauthResult.clientId,
-          clientSecret: oauthResult.clientSecret,
-          projectId: oauthResult.projectId,
-          authUri: oauthResult.authUri,
-          tokenUri: oauthResult.tokenUri,
-        });
+        if (appPack && appPack.apps.length > 0) {
+          // ── Suite mode: provision OAuth per app ───────────
+          const perAppResults: Array<Record<string, unknown>> = [];
+          const perAppErrors: Array<{ appId: string; error: string }> = [];
 
-        // Save client_secret JSON
-        await saveClientSecretJson(oauthResult);
+          for (const app of appPack.apps) {
+            try {
+              const appSlug = `${slug}__${app.appId}`;
+              // Prefer explicit per-app URIs (custom domains); never reuse
+              // flat redirectUris — that list cannot describe N hosts.
+              const redirectUris =
+                parsed.data.perAppRedirectUris?.[app.appId] ??
+                defaultRedirectUris(appSlug);
 
-        envVars.GOOGLE_CLIENT_ID = oauthResult.clientId;
-        envVars.GOOGLE_CLIENT_SECRET = oauthResult.clientSecret;
-        envVars.GOOGLE_PROJECT_ID = oauthResult.projectId;
-        envVars.GOOGLE_AUTH_URI = oauthResult.authUri;
-        envVars.GOOGLE_TOKEN_URI = oauthResult.tokenUri;
+              const result = await provisionGoogleOAuthPerApp(
+                slug,
+                app.appId,
+                app.name,
+                redirectUris,
+              );
 
-        steps.push({
-          name: 'google-oauth',
-          status: 'success',
-          data: {
+              perAppResults.push({
+                appId: result.appId,
+                configId: result.configId,
+                stored: result.stored,
+                clientId: result.oauth.clientId,
+                projectId: result.oauth.projectId,
+                strategy: result.oauth.strategy,
+                redirectUris,
+              });
+
+              // Namespaced env vars so deploy can wire each app separately
+              envVars[`GOOGLE_CLIENT_ID__${app.appId}`] = result.oauth.clientId;
+              envVars[`GOOGLE_CLIENT_SECRET__${app.appId}`] = result.oauth.clientSecret;
+              envVars[`GOOGLE_PROJECT_ID__${app.appId}`] = result.oauth.projectId;
+            } catch (appErr) {
+              const appErrMsg = appErr instanceof Error ? appErr.message : String(appErr);
+              perAppErrors.push({ appId: app.appId, error: appErrMsg });
+              console.error(
+                `[provision] Google OAuth failed for suite app ${slug}/${app.appId}:`,
+                appErrMsg,
+              );
+            }
+          }
+
+          const suiteOk = perAppErrors.length === 0 && perAppResults.length > 0;
+          steps.push({
+            name: 'google-oauth',
+            status: suiteOk ? 'success' : 'error',
+            data: {
+              mode: 'suite',
+              apps: perAppResults,
+              ...(perAppErrors.length > 0 ? { errors: perAppErrors } : {}),
+            },
+            ...(perAppErrors.length > 0
+              ? {
+                  error: `Failed for ${perAppErrors.length}/${appPack.apps.length} apps: ${perAppErrors
+                    .map((e) => e.appId)
+                    .join(', ')}`,
+                }
+              : {}),
+          });
+        } else {
+          // ── Single-tenant path (unchanged) ────────────────
+          const oauthResult = await provisionGoogleOAuth({
+            slug,
+            displayName: tenant.displayName || slug,
+            redirectUris: parsed.data.redirectUris || defaultRedirectUris(slug),
+            adminEmail: parsed.data.email || guard.session.email || 'reward2learn@gmail.com',
+            logoPath: parsed.data.logoPath,
+          });
+
+          // Store credentials in DB
+          await setGoogleOAuthConfig({
             clientId: oauthResult.clientId,
+            clientSecret: oauthResult.clientSecret,
             projectId: oauthResult.projectId,
-            strategy: oauthResult.strategy,
-          },
-        });
+            authUri: oauthResult.authUri,
+            tokenUri: oauthResult.tokenUri,
+          });
+
+          // Save client_secret JSON
+          await saveClientSecretJson(oauthResult);
+
+          envVars.GOOGLE_CLIENT_ID = oauthResult.clientId;
+          envVars.GOOGLE_CLIENT_SECRET = oauthResult.clientSecret;
+          envVars.GOOGLE_PROJECT_ID = oauthResult.projectId;
+          envVars.GOOGLE_AUTH_URI = oauthResult.authUri;
+          envVars.GOOGLE_TOKEN_URI = oauthResult.tokenUri;
+
+          steps.push({
+            name: 'google-oauth',
+            status: 'success',
+            data: {
+              mode: 'single',
+              clientId: oauthResult.clientId,
+              projectId: oauthResult.projectId,
+              strategy: oauthResult.strategy,
+            },
+          });
+        }
       } catch (err) {
         const errMsg = err instanceof Error ? err.message : String(err);
         steps.push({ name: 'google-oauth', status: 'error', error: errMsg });
