@@ -32,6 +32,17 @@ import OpenInNewIcon from '@mui/icons-material/OpenInNew';
 import AutoFixHighIcon from '@mui/icons-material/AutoFixHigh';
 import TravelExploreIcon from '@mui/icons-material/TravelExplore';
 import PaletteIcon from '@mui/icons-material/Palette';
+import FormControlLabel from '@mui/material/FormControlLabel';
+import Switch from '@mui/material/Switch';
+import Checkbox from '@mui/material/Checkbox';
+import Table from '@mui/material/Table';
+import TableBody from '@mui/material/TableBody';
+import TableCell from '@mui/material/TableCell';
+import TableContainer from '@mui/material/TableContainer';
+import TableHead from '@mui/material/TableHead';
+import TableRow from '@mui/material/TableRow';
+import ApartmentIcon from '@mui/icons-material/Apartment';
+import DashboardCustomizeIcon from '@mui/icons-material/DashboardCustomize';
 import {
   getTemplate,
   listTemplates,
@@ -57,10 +68,64 @@ interface ScrapedData {
   textContent: string;
 }
 
+/** App instance preview for suite mode — mirrors SuiteAppInstance in tenant-api.ts. */
+interface SuiteAppPreview {
+  id: string;
+  name: string;
+  department: string;
+  summary: string;
+  templateId: string;
+}
+
+/** Preset app pack categories for quick suite configuration. */
+const SUITE_PRESETS: Record<string, { label: string; description: string; icon: string; apps: SuiteAppPreview[] }> = {
+  'massage-spa': {
+    label: 'Massage Spa Operations',
+    description: 'Appointments, client records, therapist management, finance & owner dashboard.',
+    icon: 'Spa',
+    apps: [
+      { id: 'appointments-booking', name: 'Appointments & Booking', department: 'Operations', summary: 'Schedule and manage massage appointments.', templateId: 'spas-and-wellness' },
+      { id: 'client-records', name: 'Client Records', department: 'Operations', summary: 'Client profiles, preferences & history.', templateId: 'spas-and-wellness' },
+      { id: 'therapist-management', name: 'Therapist Management', department: 'Operations', summary: 'Therapist schedules & qualifications.', templateId: 'spas-and-wellness' },
+      { id: 'spa-finance', name: 'Spa Finance', department: 'Finance', summary: 'Revenue, expenses & financial reports.', templateId: 'financial-analytics' },
+      { id: 'owner-dashboard', name: 'Owner Dashboard', department: 'Executive', summary: 'Cross-department KPI dashboard.', templateId: 'financial-analytics' },
+    ],
+  },
+  'restaurant-group': {
+    label: 'Restaurant Group',
+    description: 'Multi-location restaurant ops: menu, reservations, kitchen, finance & dashboard.',
+    icon: 'Restaurant',
+    apps: [
+      { id: 'menu-management', name: 'Menu Management', department: 'Operations', summary: 'Menu items, categories & pricing.', templateId: 'restaurant' },
+      { id: 'reservations', name: 'Reservations', department: 'Front of House', summary: 'Table bookings & guest management.', templateId: 'restaurant' },
+      { id: 'kitchen-ops', name: 'Kitchen Operations', department: 'Kitchen', summary: 'Orders, prep tracking & food cost.', templateId: 'restaurant' },
+      { id: 'finance-reporting', name: 'Finance & Reporting', department: 'Finance', summary: 'Revenue, costs & P&L tracking.', templateId: 'financial-analytics' },
+      { id: 'owner-dashboard', name: 'Owner Dashboard', department: 'Executive', summary: 'Cross-location KPI dashboard.', templateId: 'financial-analytics' },
+    ],
+  },
+  'hotel-chain': {
+    label: 'Hotel Chain',
+    description: 'Multi-property hotel ops: rooms, bookings, F&B, events, finance & dashboard.',
+    icon: 'Hotel',
+    apps: [
+      { id: 'room-management', name: 'Room Management', department: 'Rooms', summary: 'Occupancy, housekeeping & room types.', templateId: 'hotel' },
+      { id: 'booking-engine', name: 'Booking Engine', department: 'Reservations', summary: 'Reservations, check-in/out & OTA sync.', templateId: 'hotel' },
+      { id: 'fb-outlets', name: 'F&B Outlets', department: 'Food & Beverage', summary: 'Restaurant, bar & room service ops.', templateId: 'restaurant' },
+      { id: 'events-conference', name: 'Events & Conference', department: 'Events', summary: 'Weddings, meetings & banquet management.', templateId: 'hotel' },
+      { id: 'finance-reporting', name: 'Finance & Reporting', department: 'Finance', summary: 'Revenue, RevPAR & P&L tracking.', templateId: 'financial-analytics' },
+      { id: 'owner-dashboard', name: 'Owner Dashboard', department: 'Executive', summary: 'Multi-property KPI dashboard.', templateId: 'financial-analytics' },
+    ],
+  },
+};
+
 interface WizardState {
   slug: string;
   displayName: string;
+  templateMode: 'single' | 'suite';
   template: string;
+  templates: string[];
+  suitePreset: string | null;
+  customSuiteApps: SuiteAppPreview[];
   prompt: string;
   primaryColor: string;
   secondaryColor: string;
@@ -71,7 +136,11 @@ interface WizardState {
 const INITIAL_STATE: WizardState = {
   slug: '',
   displayName: '',
+  templateMode: 'single',
   template: 'default',
+  templates: [],
+  suitePreset: null,
+  customSuiteApps: [],
   prompt: '',
   primaryColor: '#eb3d28',
   secondaryColor: '#0af9fe',
@@ -108,7 +177,8 @@ export function TenantWizard() {
   const update = useCallback((patch: Partial<WizardState>) => {
     setState((prev) => {
       const next = { ...prev, ...patch };
-      if (patch.template && !patch.primaryColor) {
+      // Auto-fill colors from selected template (single mode)
+      if (patch.template && !patch.primaryColor && next.templateMode === 'single') {
         const tpl = getTemplate(patch.template);
         next.primaryColor = tpl.defaultColors.primary;
         next.secondaryColor = tpl.defaultColors.secondary;
@@ -116,6 +186,58 @@ export function TenantWizard() {
       return next;
     });
   }, []);
+
+  /** Toggle a template in/out of the templates[] array (suite mode). */
+  const toggleSuiteTemplate = useCallback((tplId: string) => {
+    setState((prev) => {
+      const isSelected = prev.templates.includes(tplId);
+      const next = isSelected
+        ? prev.templates.filter((t) => t !== tplId)
+        : [...prev.templates, tplId];
+      // Auto-fill colors from first selected template
+      const firstTpl = next.length > 0 ? getTemplate(next[0]) : null;
+      return {
+        ...prev,
+        templates: next,
+        primaryColor: firstTpl?.defaultColors.primary ?? prev.primaryColor,
+        secondaryColor: firstTpl?.defaultColors.secondary ?? prev.secondaryColor,
+      };
+    });
+  }, []);
+
+  /** Apply a suite preset — populates templates[] and customSuiteApps[]. */
+  const applySuitePreset = useCallback((presetKey: string) => {
+    const preset = SUITE_PRESETS[presetKey];
+    if (!preset) return;
+    const templateIds = [...new Set(preset.apps.map((a) => a.templateId))];
+    const firstTpl = getTemplate(templateIds[0]);
+    setState((prev) => ({
+      ...prev,
+      suitePreset: presetKey,
+      templates: templateIds,
+      customSuiteApps: preset.apps,
+      primaryColor: firstTpl.defaultColors.primary,
+      secondaryColor: firstTpl.defaultColors.secondary,
+    }));
+  }, []);
+
+  /** Get the effective suite apps — either from preset or custom selection. */
+  const getEffectiveSuiteApps = useCallback((): SuiteAppPreview[] => {
+    if (state.suitePreset && SUITE_PRESETS[state.suitePreset]) {
+      return SUITE_PRESETS[state.suitePreset].apps;
+    }
+    // If no preset, build apps from selected templates
+    return state.templates.map((tplId) => {
+      const tpl = getTemplate(tplId);
+      return {
+        id: tplId,
+        name: tpl.label,
+        department: tpl.label,
+        summary: tpl.description,
+        templateId: tplId,
+      };
+    });
+  }, [state.suitePreset, state.templates]);
 
   const validateSlug = (slug: string): string | null => {
     if (!slug) return 'Business name is required';
@@ -223,10 +345,13 @@ export function TenantWizard() {
   const handleBack = () => setStep((s) => s - 1);
 
   const handleCreate = async () => {
+    const isSuite = state.templateMode === 'suite';
     const result = await createTenant({
       slug: state.slug,
       displayName: state.displayName.trim(),
-      template: state.template,
+      template: isSuite ? (state.templates[0] ?? 'default') : state.template,
+      templateMode: state.templateMode,
+      templates: isSuite ? state.templates : undefined,
       primaryColor: state.primaryColor,
       secondaryColor: state.secondaryColor,
       prompt: state.prompt.trim() || undefined,
@@ -238,6 +363,7 @@ export function TenantWizard() {
 
   const templates = listTemplates();
   const selectedTemplate = getTemplate(state.template);
+  const suiteApps = getEffectiveSuiteApps();
 
   const generateDefaultPrompt = () => {
     const tpl = selectedTemplate;
@@ -400,65 +526,201 @@ export function TenantWizard() {
             </Stack>
           ) : null}
 
-          {/* Step 1: Template Selection with AI Recommendation */}
+          {/* Step 1: Template Selection — Single or Suite Mode */}
           {step === 1 ? (
-            <Stack spacing={2}>
-              <Typography variant="body2" color="text.secondary">
-                Select a template that matches your business type. Each template includes
-                pre-configured pages, navigation, W3C schema alignment, and schema.org structured data.
-              </Typography>
-              {scraped ? (
-                <Alert severity="info" icon={<AutoFixHighIcon />}>
-                  AI analyzed your website and recommends: <strong>{getTemplate(selectedTemplate.id).label}</strong>
-                </Alert>
-              ) : null}
-               <Grid container spacing={2}>
-                 {templates.map((tpl) => {
-                   const selected = state.template === tpl.id;
-                   return (
-                     <Grid key={tpl.id} size={{ xs: 12, sm: 6 }}>
-
-                      <Card
-                        variant="outlined"
-                        sx={{
-                          borderColor: selected ? 'primary.main' : 'divider',
-                          borderWidth: selected ? 2 : 1,
-                          bgcolor: selected ? 'rgba(235,61,40,0.06)' : undefined,
+            <Stack spacing={3}>
+              {/* Suite Mode Toggle */}
+              <Paper variant="outlined" sx={{ p: 2, borderColor: state.templateMode === 'suite' ? 'primary.main' : 'divider', borderWidth: state.templateMode === 'suite' ? 2 : 1 }}>
+                <Stack direction={{ xs: 'column', sm: 'row' }} sx={{ alignItems: { sm: 'center' }, justifyContent: 'space-between', gap: 2 }}>
+                  <Stack direction="row" sx={{ gap: 1.5, alignItems: 'center' }}>
+                    {state.templateMode === 'suite' ? (
+                      <ApartmentIcon color="primary" />
+                    ) : (
+                      <DashboardCustomizeIcon color="action" />
+                    )}
+                    <Box>
+                      <Typography variant="subtitle1" sx={{ fontWeight: 700 }}>
+                        {state.templateMode === 'suite' ? 'Multi-App Suite Mode' : 'Single App Mode'}
+                      </Typography>
+                      <Typography variant="caption" color="text.secondary">
+                        {state.templateMode === 'suite'
+                          ? 'Create multiple department apps under one tenant. Each app gets its own template, schema, and deployment.'
+                          : 'Create a single application with one template. Switch to Suite Mode for multi-department operations.'}
+                      </Typography>
+                    </Box>
+                  </Stack>
+                  <FormControlLabel
+                    control={
+                      <Switch
+                        checked={state.templateMode === 'suite'}
+                        onChange={(e) => {
+                          const isSuite = e.target.checked;
+                          update({
+                            templateMode: isSuite ? 'suite' : 'single',
+                            templates: isSuite ? [] : [],
+                            suitePreset: null,
+                            customSuiteApps: [],
+                          });
                         }}
-                      >
-                        <CardActionArea onClick={() => update({ template: tpl.id })}>
-                          <CardContent>
-                            <Stack direction="row" sx={{ gap: 0 }}>
-                              <Typography variant="subtitle1" sx={{ fontWeight: 700 }}>
-                                {tpl.label}
+                        color="primary"
+                      />
+                    }
+                    label="Suite Mode"
+                    sx={{ flexShrink: 0 }}
+                  />
+                </Stack>
+              </Paper>
+
+              {/* Suite Presets (only in suite mode) */}
+              {state.templateMode === 'suite' ? (
+                <Box>
+                  <Typography variant="subtitle2" sx={{ fontWeight: 600, mb: 1.5 }}>
+                    Quick Start — App Pack Presets
+                  </Typography>
+                  <Grid container spacing={1.5}>
+                    {Object.entries(SUITE_PRESETS).map(([key, preset]) => {
+                      const isActive = state.suitePreset === key;
+                      return (
+                        <Grid key={key} size={{ xs: 12, sm: 4 }}>
+                          <Card
+                            variant="outlined"
+                            sx={{
+                              borderColor: isActive ? 'primary.main' : 'divider',
+                              borderWidth: isActive ? 2 : 1,
+                              bgcolor: isActive ? 'rgba(235,61,40,0.06)' : undefined,
+                              cursor: 'pointer',
+                              transition: 'all 0.15s',
+                              '&:hover': { boxShadow: 2 },
+                            }}
+                            onClick={() => applySuitePreset(key)}
+                          >
+                            <CardContent sx={{ p: 1.5, '&:last-child': { pb: 1.5 } }}>
+                              <Stack direction="row" sx={{ gap: 1, alignItems: 'center', mb: 0.5 }}>
+                                <Typography variant="body2" sx={{ fontWeight: 700 }}>{preset.label}</Typography>
+                                {isActive ? <CheckCircleIcon color="primary" fontSize="small" /> : null}
+                              </Stack>
+                              <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1 }}>
+                                {preset.description}
                               </Typography>
-                              {selected ? <CheckCircleIcon color="primary" fontSize="small" /> : null}
-                            </Stack>
-                            <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
-                              {tpl.description}
-                            </Typography>
-                            <Stack direction="row" sx={{ gap: 0.5, flexWrap: "wrap" }}>
-                              <Chip label={tpl.schemaOrgType} size="small" variant="outlined" color="info" />
-                              <Chip label={tpl.xsdStandard} size="small" variant="outlined" />
-                            </Stack>
-                            <Stack direction="row" sx={{ gap: 0.5, flexWrap: "wrap" }}>
-                              {tpl.defaultPages.slice(0, 4).map((p) => (
-                                <Chip key={p.slug} label={p.title} size="small" variant="outlined" />
-                              ))}
-                              {tpl.defaultPages.length > 4 ? (
-                                <Chip label={`+${tpl.defaultPages.length - 4} more`} size="small" variant="outlined" />
-                              ) : null}
-                            </Stack>
-                          </CardContent>
-                        </CardActionArea>
-                      </Card>
-                    </Grid>
-                  );
-                })}
-              </Grid>
+                              <Stack direction="row" sx={{ gap: 0.5, flexWrap: 'wrap' }}>
+                                <Chip label={`${preset.apps.length} apps`} size="small" color="primary" variant="outlined" />
+                                {[...new Set(preset.apps.map((a) => a.templateId))].map((tid) => (
+                                  <Chip key={tid} label={getTemplate(tid).label} size="small" variant="outlined" />
+                                ))}
+                              </Stack>
+                            </CardContent>
+                          </Card>
+                        </Grid>
+                      );
+                    })}
+                  </Grid>
+                </Box>
+              ) : null}
+
+              {/* Template Grid — radio (single) or checkbox (suite) selection */}
+              <Box>
+                <Typography variant="subtitle2" sx={{ fontWeight: 600, mb: 1 }}>
+                  {state.templateMode === 'suite'
+                    ? 'Select Templates (each becomes a department app)'
+                    : 'Select a Template'}
+                </Typography>
+                {scraped && state.templateMode === 'single' ? (
+                  <Alert severity="info" icon={<AutoFixHighIcon />} sx={{ mb: 1.5 }}>
+                    AI analyzed your website and recommends: <strong>{getTemplate(selectedTemplate.id).label}</strong>
+                  </Alert>
+                ) : null}
+                <Grid container spacing={2}>
+                  {templates.filter((tpl) => tpl.id !== 'default').map((tpl) => {
+                    const selected = state.templateMode === 'suite'
+                      ? state.templates.includes(tpl.id)
+                      : state.template === tpl.id;
+                    return (
+                      <Grid key={tpl.id} size={{ xs: 12, sm: 6 }}>
+                        <Card
+                          variant="outlined"
+                          sx={{
+                            borderColor: selected ? 'primary.main' : 'divider',
+                            borderWidth: selected ? 2 : 1,
+                            bgcolor: selected ? 'rgba(235,61,40,0.06)' : undefined,
+                            transition: 'all 0.15s',
+                          }}
+                        >
+                          <CardActionArea
+                            onClick={() => {
+                              if (state.templateMode === 'suite') {
+                                toggleSuiteTemplate(tpl.id);
+                              } else {
+                                update({ template: tpl.id });
+                              }
+                            }}
+                          >
+                            <CardContent>
+                              <Stack direction="row" sx={{ gap: 1, alignItems: 'center' }}>
+                                {state.templateMode === 'suite' ? (
+                                  <Checkbox
+                                    checked={selected}
+                                    size="small"
+                                    color="primary"
+                                    sx={{ p: 0 }}
+                                    tabIndex={-1}
+                                    disableRipple
+                                  />
+                                ) : selected ? (
+                                  <CheckCircleIcon color="primary" fontSize="small" />
+                                ) : null}
+                                <Typography variant="subtitle1" sx={{ fontWeight: 700 }}>
+                                  {tpl.label}
+                                </Typography>
+                              </Stack>
+                              <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
+                                {tpl.description}
+                              </Typography>
+                              <Stack direction="row" sx={{ gap: 0.5, flexWrap: 'wrap', mt: 0.5 }}>
+                                <Chip label={tpl.schemaOrgType} size="small" variant="outlined" color="info" />
+                                <Chip label={tpl.xsdStandard} size="small" variant="outlined" />
+                              </Stack>
+                              <Stack direction="row" sx={{ gap: 0.5, flexWrap: 'wrap', mt: 0.5 }}>
+                                {tpl.defaultPages.slice(0, 4).map((p) => (
+                                  <Chip key={p.slug} label={p.title} size="small" variant="outlined" />
+                                ))}
+                                {tpl.defaultPages.length > 4 ? (
+                                  <Chip label={`+${tpl.defaultPages.length - 4} more`} size="small" variant="outlined" />
+                                ) : null}
+                              </Stack>
+                            </CardContent>
+                          </CardActionArea>
+                        </Card>
+                      </Grid>
+                    );
+                  })}
+                </Grid>
+              </Box>
+
+              {/* Suite Selection Summary */}
+              {state.templateMode === 'suite' && suiteApps.length > 0 ? (
+                <Paper variant="outlined" sx={{ p: 2, bgcolor: 'background.default' }}>
+                  <Stack direction="row" sx={{ gap: 1, alignItems: 'center', mb: 1 }}>
+                    <CheckCircleIcon color="success" fontSize="small" />
+                    <Typography variant="subtitle2" sx={{ fontWeight: 600 }}>
+                      {suiteApps.length} apps selected across {state.templates.length} template{state.templates.length !== 1 ? 's' : ''}
+                    </Typography>
+                  </Stack>
+                  <Stack direction="row" sx={{ gap: 0.5, flexWrap: 'wrap' }}>
+                    {suiteApps.map((app) => (
+                      <Chip key={app.id} label={app.name} size="small" color="primary" variant="outlined" />
+                    ))}
+                    <Chip label="CEO Overview" size="small" color="success" variant="outlined" />
+                  </Stack>
+                </Paper>
+              ) : null}
+
+              {state.templateMode === 'single' ? (
+                <Typography variant="body2" color="text.secondary">
+                  Each template includes pre-configured pages, navigation, W3C schema alignment, and schema.org structured data.
+                </Typography>
+              ) : null}
             </Stack>
           ) : null}
-
           {/* Step 2: AI Business Description */}
           {step === 2 ? (
             <Stack spacing={3}>
@@ -665,9 +927,19 @@ export function TenantWizard() {
                     <Typography variant="body1" sx={{ fontWeight: 600 }}>{state.displayName}</Typography>
                   </Box>
                   <Box>
-                    <Typography variant="caption" color="text.secondary">Template</Typography>
+                    <Typography variant="caption" color="text.secondary">Mode</Typography>
                     <Typography variant="body1" sx={{ fontWeight: 600 }}>
-                      {selectedTemplate.label} — {selectedTemplate.schemaOrgType}
+                      {state.templateMode === 'suite' ? 'Multi-App Suite' : 'Single App'}
+                    </Typography>
+                  </Box>
+                  <Box>
+                    <Typography variant="caption" color="text.secondary">
+                      {state.templateMode === 'suite' ? 'Templates' : 'Template'}
+                    </Typography>
+                    <Typography variant="body1" sx={{ fontWeight: 600 }}>
+                      {state.templateMode === 'suite'
+                        ? state.templates.map((tid) => getTemplate(tid).label).join(', ')
+                        : `${selectedTemplate.label} — ${selectedTemplate.schemaOrgType}`}
                     </Typography>
                   </Box>
                   {state.logoBase64 ? (
@@ -709,22 +981,94 @@ export function TenantWizard() {
                   ) : null}
                 </Stack>
               </Paper>
+
+              {/* Suite Breakdown Table (only in suite mode) */}
+              {state.templateMode === 'suite' && suiteApps.length > 0 ? (
+                <Paper variant="outlined" sx={{ p: { xs: 1.5, md: 2 } }}>
+                  <Typography variant="subtitle2" sx={{ fontWeight: 700, mb: 1.5 }}>
+                    Suite Breakdown — {suiteApps.length} Department Apps + CEO Overview
+                  </Typography>
+                  <TableContainer>
+                    <Table size="small">
+                      <TableHead>
+                        <TableRow>
+                          <TableCell sx={{ fontWeight: 700, fontSize: '0.75rem' }}>App</TableCell>
+                          <TableCell sx={{ fontWeight: 700, fontSize: '0.75rem' }}>Department</TableCell>
+                          <TableCell sx={{ fontWeight: 700, fontSize: '0.75rem' }}>Template</TableCell>
+                        </TableRow>
+                      </TableHead>
+                      <TableBody>
+                        {suiteApps.map((app) => {
+                          const tpl = getTemplate(app.templateId);
+                          return (
+                            <TableRow key={app.id}>
+                              <TableCell>
+                                <Typography variant="body2" sx={{ fontWeight: 600 }}>{app.name}</Typography>
+                                <Typography variant="caption" color="text.secondary">{app.summary}</Typography>
+                              </TableCell>
+                              <TableCell>
+                                <Chip label={app.department} size="small" variant="outlined" />
+                              </TableCell>
+                              <TableCell>
+                                <Chip label={tpl.label} size="small" variant="outlined" color="info" />
+                              </TableCell>
+                            </TableRow>
+                          );
+                        })}
+                        <TableRow>
+                          <TableCell>
+                            <Typography variant="body2" sx={{ fontWeight: 600 }}>CEO Overview</Typography>
+                            <Typography variant="caption" color="text.secondary">Cross-department KPI dashboard with actionable items.</Typography>
+                          </TableCell>
+                          <TableCell>
+                            <Chip label="Executive" size="small" variant="outlined" color="success" />
+                          </TableCell>
+                          <TableCell>
+                            <Chip label="Financial Analytics" size="small" variant="outlined" color="info" />
+                          </TableCell>
+                        </TableRow>
+                      </TableBody>
+                    </Table>
+                  </TableContainer>
+                </Paper>
+              ) : null}
+
               <Paper variant="outlined" sx={{ p: { xs: 1.5, md: 2 } }}>
                 <Typography variant="caption" color="text.secondary" sx={{ mb: 1.5, display: 'block' }}>
                   Pipeline (runs automatically after creation):
                 </Typography>
                 <Stack spacing={0.5}>
-                  {PIPELINE_STEPS.map((ps, idx) => (
-                    <Box key={ps.key} sx={{ display: 'flex', flexDirection: 'row', gap: 1, alignItems: 'center' }}>
-                      <Typography variant="body2" color="text.secondary" sx={{ width: 20 }}>{idx + 1}.</Typography>
-                      <Typography variant="body2">{ps.label}</Typography>
-                    </Box>
-                  ))}
+                  {state.templateMode === 'suite' ? (
+                    <>
+                      <Box sx={{ display: 'flex', flexDirection: 'row', gap: 1, alignItems: 'center' }}>
+                        <Typography variant="body2" color="text.secondary" sx={{ width: 20 }}>1.</Typography>
+                        <Typography variant="body2">AI Decompose — generate {suiteApps.length} department app definitions</Typography>
+                      </Box>
+                      <Box sx={{ display: 'flex', flexDirection: 'row', gap: 1, alignItems: 'center' }}>
+                        <Typography variant="body2" color="text.secondary" sx={{ width: 20 }}>2.</Typography>
+                        <Typography variant="body2">Per-app: Schema Generation → DB Migrations → Seed → Deploy</Typography>
+                      </Box>
+                      <Box sx={{ display: 'flex', flexDirection: 'row', gap: 1, alignItems: 'center' }}>
+                        <Typography variant="body2" color="text.secondary" sx={{ width: 20 }}>3.</Typography>
+                        <Typography variant="body2">CEO Overview aggregation — cross-department KPIs</Typography>
+                      </Box>
+                      <Box sx={{ display: 'flex', flexDirection: 'row', gap: 1, alignItems: 'center' }}>
+                        <Typography variant="body2" color="text.secondary" sx={{ width: 20 }}>4.</Typography>
+                        <Typography variant="body2">Vercel Deployment — {suiteApps.length + 1} apps deployed</Typography>
+                      </Box>
+                    </>
+                  ) : (
+                    PIPELINE_STEPS.map((ps, idx) => (
+                      <Box key={ps.key} sx={{ display: 'flex', flexDirection: 'row', gap: 1, alignItems: 'center' }}>
+                        <Typography variant="body2" color="text.secondary" sx={{ width: 20 }}>{idx + 1}.</Typography>
+                        <Typography variant="body2">{ps.label}</Typography>
+                      </Box>
+                    ))
+                  )}
                 </Stack>
               </Paper>
             </Stack>
           ) : null}
-
           {/* Step 5: Success */}
           {step === 5 ? (
             <Stack spacing={2} sx={{ textAlign: 'center', py: 3 }}>

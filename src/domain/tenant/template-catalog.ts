@@ -374,6 +374,35 @@ export const TEMPLATE_CATALOG: Record<string, TemplateDefinition> = {
     xsdStandard: 'B2MML (Business To Manufacturing)',
   },
 
+  // 11. Spas & Wellness
+  'spas-and-wellness': {
+    id: 'spas-and-wellness',
+    label: 'Spas & Wellness',
+    description: 'Spa and wellness operations: appointment scheduling, client records, therapist management, service packages, treatment tracking.',
+    icon: 'Spa',
+    templateType: 'single',
+    defaultColors: { primary: '#6a1b9a', secondary: '#e040fb' },
+    defaultPages: [
+      HOME_PAGE,
+      DASHBOARD_PAGE(['hero', 'kpi_cards', 'chart_financial']),
+      { slug: 'appointments', title: 'Appointments', navLabel: 'Appointments', authTier: 'public', blockTypes: ['dynamic_form'] },
+      { slug: 'clients', title: 'Clients', navLabel: 'Clients', authTier: 'pin', blockTypes: ['dynamic_form'] },
+      SUMMARY_PAGE,
+      TASKS_PAGE,
+      ADMIN_PAGE,
+    ],
+    defaultNavItems: [
+      HOME_NAV,
+      { title: 'Dashboard', path: '/dashboard', icon: 'Dashboard', authTier: 'public' },
+      { title: 'Appointments', path: '/appointments', icon: 'EventNote', authTier: 'public' },
+      { title: 'Clients', path: '/clients', icon: 'PersonSearch', authTier: 'pin' },
+      { title: 'Tasks', path: '/tasks', icon: 'CheckCircle', authTier: 'pin' },
+      { title: 'Admin', path: '/admin', icon: 'Settings', authTier: 'pin' },
+    ],
+    schemaOrgType: 'HealthAndBeautyBusiness',
+    xsdStandard: 'HL7 (appointments), ISO 19011 (quality)',
+  },
+
   // 12. Platform Admin — designed for the root config / control-plane app (tokenizmyapp)
   'platform-admin': {
     id: 'platform-admin',

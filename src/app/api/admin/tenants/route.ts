@@ -25,6 +25,7 @@ import { provisionTenantDatabase, type ProvisionedDatabase } from '@/domain/tena
 import { runMigrations } from '@/domain/tenant/migration-runner';
 import { generateTenantCode, injectTenantConfig, cleanupTenantCode } from '@/domain/tenant/codegen-service';
 import { deployViaCli } from '@/domain/tenant/vercel-cli-service';
+import { materializeAppPackForTenant, buildSuitePrompt } from '@/domain/app-pack/app-pack-tenant-materializer';
 
 export const dynamic = 'force-dynamic';
 
@@ -32,6 +33,8 @@ const createSchema = z.object({
   slug: z.string().min(2).max(50).regex(/^[a-z0-9-]+$/, 'Slug must be lowercase alphanumeric with hyphens'),
   displayName: z.string().min(1).max(100),
   template: z.string().max(50).optional().default('default'),
+  templateMode: z.enum(['single', 'suite']).optional().default('single'),
+  templates: z.array(z.string().max(50)).max(10).optional(),
   prompt: z.string().max(2000).optional(),
   primaryColor: z.string().regex(/^#[0-9a-fA-F]{6}$/).optional().default('#eb3d28'),
   secondaryColor: z.string().regex(/^#[0-9a-fA-F]{6}$/).optional().default('#0af9fe'),
@@ -56,6 +59,8 @@ function mapTenantRow(row: Record<string, unknown>) {
     faviconData: row.favicon_data as string | null,
     faviconMimeType: row.favicon_mime_type as string | null,
     metadata: row.metadata as Record<string, unknown>,
+    templateMode: ((row.metadata as Record<string, unknown>)?.config as Record<string, unknown>)?.templateMode as 'single' | 'suite' ?? 'single',
+    appPack: ((row.metadata as Record<string, unknown>)?.config as Record<string, unknown>)?.appPack as import('@/store/apis/tenant-api').AppPackConfig ?? null,
     createdBy: row.created_by as string | null,
     createdAt: row.created_at as string,
     updatedAt: row.updated_at as string,
@@ -136,6 +141,39 @@ export async function POST(request: Request): Promise<NextResponse> {
       guard.session.sub ?? guard.session.email ?? null,
     );
     const tenant = { id: tenantId, slug: parsed.data.slug, status: 'deploying' } as const;
+
+    // ── Suite Mode: materialize app pack ─────────────────────────
+    if (parsed.data.templateMode === 'suite' && parsed.data.templates && parsed.data.templates.length > 0) {
+      try {
+        console.log('[tenants] Suite mode: materializing app pack...');
+        const suitePrompt = parsed.data.prompt || buildSuitePrompt(parsed.data.displayName, parsed.data.templates);
+        const packResult = await materializeAppPackForTenant({
+          tenantSlug: parsed.data.slug,
+          displayName: parsed.data.displayName,
+          templates: parsed.data.templates,
+          prompt: suitePrompt,
+          mock: !process.env.OPENAI_API_KEY,
+        });
+        if (packResult.success && packResult.appPack) {
+          // Store the app pack config in tenant metadata
+          const existingMeta = (parsed.data.metadata ?? {}) as Record<string, unknown>;
+          await db.$executeRawUnsafe(
+            `UPDATE tenants SET metadata = jsonb_set(COALESCE(metadata, '{}'), '{config}', $1::jsonb), updated_at = CURRENT_TIMESTAMP WHERE slug = $2;`,
+            JSON.stringify({
+              ...((existingMeta.config as Record<string, unknown>) ?? {}),
+              templateMode: 'suite',
+              appPack: packResult.appPack,
+            }),
+            parsed.data.slug,
+          );
+          console.log(`[tenants] Suite mode: app pack materialized — ${packResult.appPack.apps.length} apps`);
+        } else {
+          console.error('[tenants] Suite mode: materialization failed:', packResult.error);
+        }
+      } catch (suiteErr) {
+        console.error('[tenants] Suite mode: error:', suiteErr instanceof Error ? suiteErr.message : String(suiteErr));
+      }
+    }
 
     // ── Phase 2: AI schema generation (if prompt provided) ──────────
     // Best-effort: log errors but continue to the next step.

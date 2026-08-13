@@ -41,6 +41,12 @@ import BuildIcon from '@mui/icons-material/Build';
 import CloudUploadIcon from '@mui/icons-material/CloudUpload';
 import LanguageIcon from '@mui/icons-material/Language';
 import VerifiedIcon from '@mui/icons-material/Verified';
+import Collapse from '@mui/material/Collapse';
+import KeyboardArrowDownIcon from '@mui/icons-material/KeyboardArrowDown';
+import KeyboardArrowRightIcon from '@mui/icons-material/KeyboardArrowRight';
+import ApartmentIcon from '@mui/icons-material/Apartment';
+import SyncIcon from '@mui/icons-material/Sync';
+import SelectAllIcon from '@mui/icons-material/SelectAll';
 import {
   useListTenantsQuery,
   useDeleteTenantMutation,
@@ -48,18 +54,29 @@ import {
   useMigrateTenantMutation,
   useDeployTenantMutation,
   useUpdateTenantMutation,
-  useGetDeployStatusQuery,
   useLazyGetDeployStatusQuery,
-  useGetTenantDomainsQuery,
   useLazyGetTenantDomainsQuery,
   useTriggerDeployHookMutation,
   type TenantEntry,
+  type AppPackConfig,
 } from '@/store/apis/tenant-api';
 import { getTemplate } from '@/domain/tenant/template-catalog';
 import { TenantWizard } from '@/components/ops-admin/tenant-wizard';
 import { TenantUserManager } from '@/components/ops-admin/tenant-user-manager';
 import { EditTenantModal } from '@/components/ops-admin/edit-tenant-modal';
 import { VercelConnectButton } from '@/components/ops-admin/vercel-connect-button';
+
+/** Extract the AppPackConfig from a tenant's metadata (suite mode). */
+function getTenantAppPack(tenant: TenantEntry): AppPackConfig | null {
+  const cfg = (tenant.metadata?.config ?? {}) as Record<string, unknown>;
+  return (cfg.appPack as AppPackConfig) ?? null;
+}
+
+/** Check if a tenant is in suite mode. */
+function isSuiteTenant(tenant: TenantEntry): boolean {
+  const cfg = (tenant.metadata?.config ?? {}) as Record<string, unknown>;
+  return cfg.templateMode === 'suite' && !!cfg.appPack;
+}
 
 const STATUS_COLORS: Record<string, 'info' | 'warning' | 'success' | 'error'> = {
   draft: 'info',
@@ -126,6 +143,25 @@ export function TenantDashboard() {
 
   // Three-dot menu state — track which row's menu is open
   const [menuAnchor, setMenuAnchor] = useState<{ slug: string; el: HTMLElement } | null>(null);
+
+  // Expanded rows state — track which suite tenants are expanded
+  const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set());
+
+  // Per-app three-dot menu state
+  const [appMenuAnchor, setAppMenuAnchor] = useState<{ tenantSlug: string; appId: string; el: HTMLElement } | null>(null);
+
+  const toggleRow = (slug: string) => {
+    setExpandedRows((prev) => {
+      const next = new Set(prev);
+      if (next.has(slug)) next.delete(slug);
+      else next.add(slug);
+      return next;
+    });
+  };
+
+  const handleAppMenuOpen = (tenantSlug: string, appId: string, el: HTMLElement) =>
+    setAppMenuAnchor({ tenantSlug, appId, el });
+  const handleAppMenuClose = () => setAppMenuAnchor(null);
 
   // Seed/migrate state
   const [seedTenant, { isLoading: isSeeding }] = useSeedTenantMutation();
@@ -256,7 +292,6 @@ export function TenantDashboard() {
         deployStatus === 'QUEUED' ? 'deploying' : 'error';
 
       // Evaluate license
-      const hasLicense = !!license.licenseKey;
       const hasApiKey = !!apiKey;
       const licenseTier = (license.tier as string) || 'none';
       const licenseFeatures = Array.isArray(license.features) ? license.features : [];
@@ -525,6 +560,7 @@ export function TenantDashboard() {
             <Table size="small" sx={{ minWidth: 720 }}>
               <TableHead>
                 <TableRow>
+                  <TableCell sx={{ width: 40 }}></TableCell>
                   <TableCell>Tenant</TableCell>
                   <TableCell>Template</TableCell>
                   <TableCell>Status</TableCell>
@@ -537,109 +573,285 @@ export function TenantDashboard() {
               <TableBody>
                 {tenants.map((t) => {
                   const tpl = getTemplate(t.template);
+                  const suite = getTenantAppPack(t);
+                  const isExpanded = expandedRows.has(t.slug);
+                  const isSuite = isSuiteTenant(t);
                   return (
-                    <TableRow key={t.id}>
-                      <TableCell>
-                        <Typography variant="body2" sx={{ fontWeight: 600 }}>
-                          {t.displayName}
-                        </Typography>
-                        <Typography variant="caption" color="text.secondary">
-                          {t.slug}
-                        </Typography>
-                      </TableCell>
-                      <TableCell>
-                        <Chip label={tpl.label} size="small" variant="outlined" />
-                      </TableCell>
-                      <TableCell>
-                        <Chip
-                          label={t.status}
-                          size="small"
-                          color={STATUS_COLORS[t.status] ?? 'default'}
-                        />
-                      </TableCell>
-                      <TableCell>
-                        {t.apiKey ? (
-                          <Chip label="Licensed" size="small" color="success" variant="outlined" />
-                        ) : (
-                          <Chip label="Unlicensed" size="small" color="warning" variant="outlined" />
-                        )}
-                      </TableCell>
-                      <TableCell sx={{ maxWidth: 220 }}>
-                        <TenantUrlLink tenant={t} />
-                      </TableCell>
-                      <TableCell>
-                        <Typography variant="caption" color="text.secondary">
-                          {new Date(t.createdAt).toLocaleDateString()}
-                        </Typography>
-                      </TableCell>
-                      <TableCell align="right">
-                        <IconButton
-                          size="small"
-                          onClick={(e) => handleMenuOpen(t.slug, e.currentTarget)}
-                        >
-                          <MoreVertIcon fontSize="small" />
-                        </IconButton>
-                        <Menu
-                          anchorEl={menuAnchor?.slug === t.slug ? menuAnchor.el : null}
-                          open={menuAnchor?.slug === t.slug}
-                          onClose={handleMenuClose}
-                          transformOrigin={{ horizontal: 'right', vertical: 'top' }}
-                          anchorOrigin={{ horizontal: 'right', vertical: 'bottom' }}
-                        >
-                          <MenuItem onClick={() => { handleMenuClose(); setEditor(t); }}>
-                            <ListItemIcon><EditIcon fontSize="small" /></ListItemIcon>
-                            <ListItemText>Edit</ListItemText>
-                          </MenuItem>
-                          <MenuItem onClick={() => { handleMenuClose(); setUserManager({ slug: t.slug, displayName: t.displayName }); }}>
-                            <ListItemIcon><PeopleIcon fontSize="small" /></ListItemIcon>
-                            <ListItemText>Manage Users</ListItemText>
-                          </MenuItem>
-                          <Divider />
-                          <MenuItem onClick={() => void handleSeed(t.slug)} disabled={isSeeding}>
-                            <ListItemIcon><PlayArrowIcon fontSize="small" /></ListItemIcon>
-                            <ListItemText>{isSeeding ? 'Seeding…' : 'Seed'}</ListItemText>
-                          </MenuItem>
-                          <MenuItem onClick={() => void handleMigrate(t.slug)} disabled={isMigrating}>
-                            <ListItemIcon><BuildIcon fontSize="small" /></ListItemIcon>
-                            <ListItemText>{isMigrating ? 'Syncing…' : 'Sync DB Schema'}</ListItemText>
-                          </MenuItem>
-                          {(() => {
-                            const cfg = (t.metadata as Record<string, unknown>)?.config as Record<string, unknown> || {};
-                            const hookUrl = ((cfg.hooks as Record<string, unknown>)?.deployHookUrl as string) || '';
-                            return !hookUrl ? (
-                              <MenuItem onClick={() => void handleDeploy(t.slug)} disabled={isDeploying}>
-                                <ListItemIcon><CloudUploadIcon fontSize="small" /></ListItemIcon>
-                                <ListItemText>{isDeploying ? 'Deploying…' : 'Deploy to Vercel'}</ListItemText>
-                              </MenuItem>
-                            ) : null;
-                          })()}
-                          <MenuItem onClick={() => void handleCheckStatus(t.slug)} disabled={checkingStatus === t.slug}>
-                            <ListItemIcon><RefreshIcon fontSize="small" /></ListItemIcon>
-                            <ListItemText>{checkingStatus === t.slug ? 'Checking…' : 'Check Status'}</ListItemText>
-                          </MenuItem>
-                          <MenuItem onClick={() => void handleRefreshStatus(t.slug, t.metadata || {})} disabled={refreshingStatus === t.slug}>
-                            <ListItemIcon><VerifiedIcon fontSize="small" /></ListItemIcon>
-                            <ListItemText>{refreshingStatus === t.slug ? 'Refreshing…' : 'Refresh Status'}</ListItemText>
-                          </MenuItem>
-                          <MenuItem onClick={() => void handleTriggerHook(t.slug)} disabled={triggeringHook === t.slug}>
-                            <ListItemIcon><PlayArrowIcon fontSize="small" /></ListItemIcon>
-                            <ListItemText>{triggeringHook === t.slug ? 'Triggering…' : 'Trigger Deploy Hook'}</ListItemText>
-                          </MenuItem>
-                          <MenuItem onClick={() => void handleRefreshDomains(t.slug)} disabled={refreshingDomains === t.slug}>
-                            <ListItemIcon><LanguageIcon fontSize="small" /></ListItemIcon>
-                            <ListItemText>{refreshingDomains === t.slug ? 'Refreshing…' : 'Refresh Domains'}</ListItemText>
-                          </MenuItem>
-                          <Divider />
-                          <MenuItem
-                            onClick={() => { handleMenuClose(); setConfirmDelete(t.slug); }}
-                            disabled={isDeleting && deleting === t.slug}
+                    <>
+                      {/* ── Parent Row ── */}
+                      <TableRow key={t.id} sx={{ '& > *': { borderBottom: 'unset' } }}>
+                        <TableCell>
+                          {isSuite ? (
+                            <IconButton size="small" onClick={() => toggleRow(t.slug)} aria-label={isExpanded ? 'Collapse' : 'Expand'}>
+                              {isExpanded ? <KeyboardArrowDownIcon fontSize="small" /> : <KeyboardArrowRightIcon fontSize="small" />}
+                            </IconButton>
+                          ) : null}
+                        </TableCell>
+                        <TableCell>
+                          <Stack direction="row" sx={{ gap: 0.5, alignItems: 'center' }}>
+                            {isSuite ? <ApartmentIcon fontSize="small" color="primary" /> : null}
+                            <Box>
+                              <Typography variant="body2" sx={{ fontWeight: 600 }}>
+                                {t.displayName}
+                              </Typography>
+                              <Typography variant="caption" color="text.secondary">
+                                {t.slug}{isSuite && suite ? ` · ${suite.apps.length} apps` : ''}
+                              </Typography>
+                            </Box>
+                          </Stack>
+                        </TableCell>
+                        <TableCell>
+                          {isSuite && suite ? (
+                            <Stack direction="row" sx={{ gap: 0.5, flexWrap: 'wrap' }}>
+                              <Chip icon={<ApartmentIcon />} label={`Suite (${suite.apps.length})`} size="small" color="primary" variant="outlined" />
+                            </Stack>
+                          ) : (
+                            <Chip label={tpl.label} size="small" variant="outlined" />
+                          )}
+                        </TableCell>
+                        <TableCell>
+                          <Chip
+                            label={t.status}
+                            size="small"
+                            color={STATUS_COLORS[t.status] ?? 'default'}
+                          />
+                        </TableCell>
+                        <TableCell>
+                          {t.apiKey ? (
+                            <Chip label="Licensed" size="small" color="success" variant="outlined" />
+                          ) : (
+                            <Chip label="Unlicensed" size="small" color="warning" variant="outlined" />
+                          )}
+                        </TableCell>
+                        <TableCell sx={{ maxWidth: 220 }}>
+                          <TenantUrlLink tenant={t} />
+                        </TableCell>
+                        <TableCell>
+                          <Typography variant="caption" color="text.secondary">
+                            {new Date(t.createdAt).toLocaleDateString()}
+                          </Typography>
+                        </TableCell>
+                        <TableCell align="right">
+                          <Stack direction="row" sx={{ gap: 0.5, justifyContent: 'flex-end' }}>
+                            {isSuite ? (
+                              <Tooltip title="Bulk Actions">
+                                <IconButton size="small" onClick={(e) => handleMenuOpen(t.slug, e.currentTarget)}>
+                                  <SelectAllIcon fontSize="small" />
+                                </IconButton>
+                              </Tooltip>
+                            ) : null}
+                            <IconButton
+                              size="small"
+                              onClick={(e) => handleMenuOpen(t.slug, e.currentTarget)}
+                              aria-label={`Actions for ${t.displayName}`}
+                            >
+                              <MoreVertIcon fontSize="small" />
+                            </IconButton>
+                          </Stack>
+                          <Menu
+                            anchorEl={menuAnchor?.slug === t.slug ? menuAnchor.el : null}
+                            open={menuAnchor?.slug === t.slug}
+                            onClose={handleMenuClose}
+                            transformOrigin={{ horizontal: 'right', vertical: 'top' }}
+                            anchorOrigin={{ horizontal: 'right', vertical: 'bottom' }}
                           >
-                            <ListItemIcon><DeleteIcon fontSize="small" color="error" /></ListItemIcon>
-                            <ListItemText sx={{ color: 'error.main' }}>Delete</ListItemText>
-                          </MenuItem>
-                        </Menu>
-                      </TableCell>
-                    </TableRow>
+                            <MenuItem onClick={() => { handleMenuClose(); setEditor(t); }}>
+                              <ListItemIcon><EditIcon fontSize="small" /></ListItemIcon>
+                              <ListItemText>Edit</ListItemText>
+                            </MenuItem>
+                            <MenuItem onClick={() => { handleMenuClose(); setUserManager({ slug: t.slug, displayName: t.displayName }); }}>
+                              <ListItemIcon><PeopleIcon fontSize="small" /></ListItemIcon>
+                              <ListItemText>Manage Users</ListItemText>
+                            </MenuItem>
+                            <Divider />
+                            {isSuite ? (
+                              <>
+                                <MenuItem onClick={() => { handleMenuClose(); suite?.apps.forEach((app) => void handleSeed(`${t.slug}__${app.appId}`)); }} disabled={isSeeding}>
+                                  <ListItemIcon><PlayArrowIcon fontSize="small" /></ListItemIcon>
+                                  <ListItemText>Seed All Apps</ListItemText>
+                                </MenuItem>
+                                <MenuItem onClick={() => { handleMenuClose(); suite?.apps.forEach((app) => void handleMigrate(`${t.slug}__${app.appId}`)); }} disabled={isMigrating}>
+                                  <ListItemIcon><SyncIcon fontSize="small" /></ListItemIcon>
+                                  <ListItemText>Sync All DB Schemas</ListItemText>
+                                </MenuItem>
+                                <MenuItem onClick={() => { handleMenuClose(); suite?.apps.forEach((app) => void handleDeploy(`${t.slug}__${app.appId}`)); }} disabled={isDeploying}>
+                                  <ListItemIcon><CloudUploadIcon fontSize="small" /></ListItemIcon>
+                                  <ListItemText>Deploy All Apps</ListItemText>
+                                </MenuItem>
+                                <Divider />
+                              </>
+                            ) : null}
+                            <MenuItem onClick={() => void handleSeed(t.slug)} disabled={isSeeding}>
+                              <ListItemIcon><PlayArrowIcon fontSize="small" /></ListItemIcon>
+                              <ListItemText>{isSeeding ? 'Seeding…' : 'Seed'}</ListItemText>
+                            </MenuItem>
+                            <MenuItem onClick={() => void handleMigrate(t.slug)} disabled={isMigrating}>
+                              <ListItemIcon><BuildIcon fontSize="small" /></ListItemIcon>
+                              <ListItemText>{isMigrating ? 'Syncing…' : 'Sync DB Schema'}</ListItemText>
+                            </MenuItem>
+                            {(() => {
+                              const cfg = (t.metadata as Record<string, unknown>)?.config as Record<string, unknown> || {};
+                              const hookUrl = ((cfg.hooks as Record<string, unknown>)?.deployHookUrl as string) || '';
+                              return !hookUrl ? (
+                                <MenuItem onClick={() => void handleDeploy(t.slug)} disabled={isDeploying}>
+                                  <ListItemIcon><CloudUploadIcon fontSize="small" /></ListItemIcon>
+                                  <ListItemText>{isDeploying ? 'Deploying…' : 'Deploy to Vercel'}</ListItemText>
+                                </MenuItem>
+                              ) : null;
+                            })()}
+                            <MenuItem onClick={() => void handleCheckStatus(t.slug)} disabled={checkingStatus === t.slug}>
+                              <ListItemIcon><RefreshIcon fontSize="small" /></ListItemIcon>
+                              <ListItemText>{checkingStatus === t.slug ? 'Checking…' : 'Check Status'}</ListItemText>
+                            </MenuItem>
+                            <MenuItem onClick={() => void handleRefreshStatus(t.slug, t.metadata || {})} disabled={refreshingStatus === t.slug}>
+                              <ListItemIcon><VerifiedIcon fontSize="small" /></ListItemIcon>
+                              <ListItemText>{refreshingStatus === t.slug ? 'Refreshing…' : 'Refresh Status'}</ListItemText>
+                            </MenuItem>
+                            <MenuItem onClick={() => void handleTriggerHook(t.slug)} disabled={triggeringHook === t.slug}>
+                              <ListItemIcon><PlayArrowIcon fontSize="small" /></ListItemIcon>
+                              <ListItemText>{triggeringHook === t.slug ? 'Triggering…' : 'Trigger Deploy Hook'}</ListItemText>
+                            </MenuItem>
+                            <MenuItem onClick={() => void handleRefreshDomains(t.slug)} disabled={refreshingDomains === t.slug}>
+                              <ListItemIcon><LanguageIcon fontSize="small" /></ListItemIcon>
+                              <ListItemText>{refreshingDomains === t.slug ? 'Refreshing…' : 'Refresh Domains'}</ListItemText>
+                            </MenuItem>
+                            <Divider />
+                            <MenuItem
+                              onClick={() => { handleMenuClose(); setConfirmDelete(t.slug); }}
+                              disabled={isDeleting && deleting === t.slug}
+                            >
+                              <ListItemIcon><DeleteIcon fontSize="small" color="error" /></ListItemIcon>
+                              <ListItemText sx={{ color: 'error.main' }}>Delete</ListItemText>
+                            </MenuItem>
+                          </Menu>
+                        </TableCell>
+                      </TableRow>
+
+                      {/* ── Expanded Child Rows (suite apps) ── */}
+                      {isSuite && suite ? (
+                        <TableRow>
+                          <TableCell sx={{ py: 0 }} colSpan={8}>
+                            <Collapse in={isExpanded} timeout="auto" unmountOnExit>
+                              <Box sx={{ m: 1 }}>
+                                <Typography variant="caption" sx={{ fontWeight: 700, color: 'text.secondary', mb: 1, display: 'block' }}>
+                                  Department Apps ({suite.apps.length})
+                                </Typography>
+                                <Table size="small" sx={{ bgcolor: 'background.default', borderRadius: 1 }}>
+                                  <TableHead>
+                                    <TableRow>
+                                      <TableCell sx={{ fontWeight: 700, fontSize: '0.7rem' }}>App</TableCell>
+                                      <TableCell sx={{ fontWeight: 700, fontSize: '0.7rem' }}>Department</TableCell>
+                                      <TableCell sx={{ fontWeight: 700, fontSize: '0.7rem' }}>Template</TableCell>
+                                      <TableCell sx={{ fontWeight: 700, fontSize: '0.7rem' }}>Status</TableCell>
+                                      <TableCell sx={{ fontWeight: 700, fontSize: '0.7rem' }}>URL</TableCell>
+                                      <TableCell align="right" sx={{ fontWeight: 700, fontSize: '0.7rem' }}>Actions</TableCell>
+                                    </TableRow>
+                                  </TableHead>
+                                  <TableBody>
+                                    {suite.apps.map((app) => {
+                                      const appTpl = getTemplate(app.templateId);
+                                      const appStatusColor = STATUS_COLORS[app.status] ?? 'default';
+                                      return (
+                                        <TableRow key={app.appId}>
+                                          <TableCell>
+                                            <Typography variant="body2" sx={{ fontWeight: 600, fontSize: '0.8rem' }}>
+                                              {app.name}
+                                            </Typography>
+                                          </TableCell>
+                                          <TableCell>
+                                            <Chip label={app.department} size="small" variant="outlined" sx={{ fontSize: '0.7rem' }} />
+                                          </TableCell>
+                                          <TableCell>
+                                            <Chip label={appTpl.label} size="small" variant="outlined" color="info" sx={{ fontSize: '0.7rem' }} />
+                                          </TableCell>
+                                          <TableCell>
+                                            <Chip label={app.status} size="small" color={appStatusColor} sx={{ fontSize: '0.7rem' }} />
+                                          </TableCell>
+                                          <TableCell>
+                                            {app.appUrl ? (
+                                              <Button size="small" variant="text" href={app.appUrl} target="_blank" sx={{ fontSize: '0.7rem', textTransform: 'none' }}>
+                                                {app.appUrl.replace('https://', '').slice(0, 30)}
+                                              </Button>
+                                            ) : (
+                                              <Typography variant="caption" color="text.disabled">—</Typography>
+                                            )}
+                                          </TableCell>
+                                          <TableCell align="right">
+                                            <IconButton
+                                              size="small"
+                                              onClick={(e) => handleAppMenuOpen(t.slug, app.appId, e.currentTarget)}
+                                              aria-label={`Actions for ${app.name}`}
+                                            >
+                                              <MoreVertIcon fontSize="small" />
+                                            </IconButton>
+                                            <Menu
+                                              anchorEl={appMenuAnchor?.tenantSlug === t.slug && appMenuAnchor?.appId === app.appId ? appMenuAnchor.el : null}
+                                              open={appMenuAnchor?.tenantSlug === t.slug && appMenuAnchor?.appId === app.appId}
+                                              onClose={handleAppMenuClose}
+                                              transformOrigin={{ horizontal: 'right', vertical: 'top' }}
+                                              anchorOrigin={{ horizontal: 'right', vertical: 'bottom' }}
+                                            >
+                                              <MenuItem onClick={() => { handleAppMenuClose(); void handleSeed(`${t.slug}__${app.appId}`); }} disabled={isSeeding}>
+                                                <ListItemIcon><PlayArrowIcon fontSize="small" /></ListItemIcon>
+                                                <ListItemText>Seed This App</ListItemText>
+                                              </MenuItem>
+                                              <MenuItem onClick={() => { handleAppMenuClose(); void handleMigrate(`${t.slug}__${app.appId}`); }} disabled={isMigrating}>
+                                                <ListItemIcon><BuildIcon fontSize="small" /></ListItemIcon>
+                                                <ListItemText>Sync DB Schema</ListItemText>
+                                              </MenuItem>
+                                              <MenuItem onClick={() => { handleAppMenuClose(); void handleDeploy(`${t.slug}__${app.appId}`); }} disabled={isDeploying}>
+                                                <ListItemIcon><CloudUploadIcon fontSize="small" /></ListItemIcon>
+                                                <ListItemText>Deploy This App</ListItemText>
+                                              </MenuItem>
+                                              <Divider />
+                                              <MenuItem onClick={() => { handleAppMenuClose(); void handleCheckStatus(`${t.slug}__${app.appId}`); }} disabled={checkingStatus === `${t.slug}__${app.appId}`}>
+                                                <ListItemIcon><RefreshIcon fontSize="small" /></ListItemIcon>
+                                                <ListItemText>Check Status</ListItemText>
+                                              </MenuItem>
+                                              {app.appUrl ? (
+                                                <MenuItem component="a" href={app.appUrl} target="_blank" onClick={handleAppMenuClose}>
+                                                  <ListItemIcon><OpenInNewIcon fontSize="small" /></ListItemIcon>
+                                                  <ListItemText>Open App</ListItemText>
+                                                </MenuItem>
+                                              ) : null}
+                                            </Menu>
+                                          </TableCell>
+                                        </TableRow>
+                                      );
+                                    })}
+                                    {/* CEO Overview row */}
+                                    <TableRow>
+                                      <TableCell>
+                                        <Typography variant="body2" sx={{ fontWeight: 600, fontSize: '0.8rem' }}>
+                                          CEO Overview
+                                        </Typography>
+                                      </TableCell>
+                                      <TableCell>
+                                        <Chip label="Executive" size="small" variant="outlined" color="success" sx={{ fontSize: '0.7rem' }} />
+                                      </TableCell>
+                                      <TableCell>
+                                        <Chip label="Financial Analytics" size="small" variant="outlined" color="info" sx={{ fontSize: '0.7rem' }} />
+                                      </TableCell>
+                                      <TableCell>
+                                        <Chip label={t.status} size="small" color={STATUS_COLORS[t.status] ?? 'default'} sx={{ fontSize: '0.7rem' }} />
+                                      </TableCell>
+                                      <TableCell>
+                                        <Typography variant="caption" color="text.disabled">aggregated</Typography>
+                                      </TableCell>
+                                      <TableCell align="right">
+                                        <Typography variant="caption" color="text.secondary" sx={{ fontSize: '0.7rem' }}>
+                                          {suite.ceoOverview.kpis.length} KPIs
+                                        </Typography>
+                                      </TableCell>
+                                    </TableRow>
+                                  </TableBody>
+                                </Table>
+                              </Box>
+                            </Collapse>
+                          </TableCell>
+                        </TableRow>
+                      ) : null}
+                    </>
                   );
                 })}
               </TableBody>

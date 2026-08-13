@@ -36,6 +36,7 @@ const W3C_STANDARDS: Record<string, string> = {
   education: 'IMS Global (LTI, QTI) for learning tools interoperability and assessment',
   'professional-services': 'UBL for billing/invoices and project management data',
   manufacturing: 'B2MML (Business To Manufacturing Markup Language) for production data',
+  'spas-and-wellness': 'HL7 for appointment scheduling and client health records, ISO 19011 for wellness service quality management',
 };
 
 const SCHEMA_ORG_TYPES: Record<string, string> = {
@@ -49,6 +50,7 @@ const SCHEMA_ORG_TYPES: Record<string, string> = {
   education: 'EducationalOrganization',
   'professional-services': 'ProfessionalService',
   manufacturing: 'Manufacturer',
+  'spas-and-wellness': 'HealthAndBeautyBusiness',
 };
 
 // NOTE: must stay a subset of the ZenStack BlockType enum in
@@ -198,15 +200,16 @@ export async function generateAppDefinition(
 
 export function mockDecomposePack(): AppPackDecomposition {
   return {
-    packId: 'ops-department-pack',
-    name: 'Operations Department Pack',
+    packId: 'massage-operations-pack',
+    name: 'Massage Spa Operations Pack',
     description:
-      'Mock application pack: HR, Sales Reporting, Finance and a CEO Overview app that aggregates every department.',
+      'Massage spa operations app pack: Appointments & Booking, Client Records, Therapist Management, Spa Finance, and Owner Dashboard with cross-department KPIs.',
     apps: [
-      { id: 'hr', name: 'HR Management', department: 'Human Resources', summary: 'Employee records, onboarding, leave and attendance for the HR department.', templateId: 'professional-services' },
-      { id: 'sales-reporting', name: 'Sales Reporting', department: 'Sales', summary: 'Daily sales capture, trend reporting and target tracking for the Sales department.', templateId: 'restaurant' },
-      { id: 'finance', name: 'Finance / Reporting / Tracking', department: 'Finance', summary: 'Revenue, costs, cashflow tracking and financial reporting for the Finance department.', templateId: 'financial-analytics' },
-      { id: 'ceo-overview', name: 'CEO Overview', department: 'Executive Leadership', summary: 'Cross-department transparency dashboard with access to every department knowledge base and realtime actionable items.', templateId: 'financial-analytics' },
+      { id: 'appointments-booking', name: 'Appointments & Booking', department: 'Operations', summary: 'Schedule and manage massage appointments with clients.', templateId: 'spas-and-wellness' },
+      { id: 'client-records', name: 'Client Records', department: 'Operations', summary: 'Maintain client profiles, preferences, and service history.', templateId: 'spas-and-wellness' },
+      { id: 'therapist-management', name: 'Therapist Management', department: 'Operations', summary: 'Manage therapist schedules, qualifications, and performance.', templateId: 'spas-and-wellness' },
+      { id: 'spa-finance', name: 'Spa Finance', department: 'Finance', summary: 'Track spa revenue, expenses, and financial reports.', templateId: 'financial-analytics' },
+      { id: 'owner-dashboard', name: 'Owner Dashboard', department: 'Executive Leadership', summary: 'Cross-department transparency dashboard with access to every department knowledge base and realtime actionable items.', templateId: 'financial-analytics' },
     ],
     ceoOverview: {
       purpose: 'Aggregate KPIs and knowledge from every department app into a single leadership overview with actionable items.',
@@ -216,7 +219,7 @@ export function mockDecomposePack(): AppPackDecomposition {
 }
 
 export function mockGenerateAppDefinition(brief: AppPackBrief): AppPackAppDefinition {
-  const modelName = brief.id === 'hr' ? 'Employee' : brief.id === 'sales-reporting' ? 'DailySale' : brief.id === 'finance' ? 'FinancialRecord' : 'DepartmentKpi';
+  const modelName = brief.id === 'appointments-booking' ? 'Appointment' : brief.id === 'client-records' ? 'Client' : brief.id === 'therapist-management' ? 'Therapist' : brief.id === 'spa-finance' ? 'FinancialRecord' : 'DepartmentKpi';
   const tableName = `${modelName.replace(/([a-z])([A-Z])/g, '$1_$2').toLowerCase()}s`;
   return {
     appId: brief.id,
