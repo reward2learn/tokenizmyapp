@@ -16,6 +16,103 @@ import type { Client } from 'pg';
 import type { AppPackAppDefinition, AppPackDecomposition } from './app-pack-schema';
 import { compileAppRows, compileCeoRows, type CompiledAppArtifacts } from './app-pack-compiler';
 
+// ── Idempotent DDL — ensures the target DB has the tables the materializer
+// writes to. Tenant databases (per-tenant Neon branches) are provisioned empty
+// and may not have run the ZenStack migrations or the root seed-runner DDL, so
+// the materializer guarantees its own schema instead of assuming it exists.
+// Column shapes mirror zenstack/schema.zmodel + the shared seed DDL.
+
+const APP_PACK_ENUM_DDL = [
+  `DO $$ BEGIN CREATE TYPE "AuthTier" AS ENUM ('public', 'pin', 'google'); EXCEPTION WHEN duplicate_object THEN NULL; END $$`,
+  `DO $$ BEGIN CREATE TYPE "BlockType" AS ENUM ('hero', 'metric_grid', 'chart_financial', 'lever_accordion', 'action_checklist', 'doc_markdown', 'pnl_table', 'z_report_form', 'costs_form', 'calendar_import', 'chat_panel', 'kpi_cards', 'ops_admin_tabs', 'review_blocks', 'reports_rollup', 'sheet_viewer'); EXCEPTION WHEN duplicate_object THEN NULL; END $$`,
+  // Newer block types may be missing from pre-existing enums.
+  `ALTER TYPE "BlockType" ADD VALUE IF NOT EXISTS 'ops_admin_tabs'`,
+  `ALTER TYPE "BlockType" ADD VALUE IF NOT EXISTS 'review_blocks'`,
+  `ALTER TYPE "BlockType" ADD VALUE IF NOT EXISTS 'reports_rollup'`,
+  `ALTER TYPE "BlockType" ADD VALUE IF NOT EXISTS 'sheet_viewer'`,
+];
+
+const APP_PACK_TABLE_DDL = [
+  `CREATE TABLE IF NOT EXISTS security_groups (
+    id TEXT PRIMARY KEY DEFAULT gen_random_uuid(),
+    code TEXT NOT NULL UNIQUE,
+    name TEXT NOT NULL,
+    description TEXT,
+    is_system BOOLEAN NOT NULL DEFAULT false,
+    permissions TEXT[] NOT NULL DEFAULT '{}',
+    created_at TIMESTAMP WITHOUT TIME ZONE DEFAULT CURRENT_TIMESTAMP
+  )`,
+  `CREATE TABLE IF NOT EXISTS app_pages (
+    id TEXT PRIMARY KEY,
+    slug TEXT NOT NULL UNIQUE,
+    title TEXT NOT NULL,
+    auth_tier "AuthTier" NOT NULL DEFAULT 'public',
+    sort_order INTEGER NOT NULL DEFAULT 0,
+    nav_label TEXT,
+    show_in_nav BOOLEAN NOT NULL DEFAULT true,
+    tenant_slug TEXT
+  )`,
+  `CREATE TABLE IF NOT EXISTS page_sections (
+    id TEXT PRIMARY KEY,
+    page_id TEXT NOT NULL REFERENCES app_pages(id) ON DELETE CASCADE,
+    sort_order INTEGER NOT NULL,
+    block_type "BlockType" NOT NULL,
+    config JSONB NOT NULL DEFAULT '{}'
+  )`,
+  `CREATE INDEX IF NOT EXISTS page_sections_page_id_sort_order_idx ON page_sections(page_id, sort_order)`,
+  `CREATE TABLE IF NOT EXISTS navigation_items (
+    id TEXT PRIMARY KEY,
+    parent_id TEXT REFERENCES navigation_items(id) ON DELETE SET NULL,
+    sort_order INTEGER NOT NULL DEFAULT 0,
+    title TEXT NOT NULL,
+    path TEXT NOT NULL DEFAULT '',
+    icon TEXT NOT NULL DEFAULT '',
+    auth_tier TEXT NOT NULL DEFAULT 'public',
+    tenant_slug TEXT,
+    is_active BOOLEAN NOT NULL DEFAULT true,
+    required_groups TEXT NOT NULL DEFAULT '',
+    is_visible BOOLEAN NOT NULL DEFAULT true,
+    is_dynamic BOOLEAN NOT NULL DEFAULT false,
+    is_default BOOLEAN NOT NULL DEFAULT false,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+  )`,
+  `CREATE TABLE IF NOT EXISTS knowledge_snippets (
+    id TEXT PRIMARY KEY,
+    key TEXT NOT NULL UNIQUE,
+    content TEXT NOT NULL,
+    category TEXT NOT NULL
+  )`,
+];
+
+/** Column backfills for DBs where the tables pre-date these columns. */
+const APP_PACK_TABLE_ALTERS = [
+  `ALTER TABLE app_pages ADD COLUMN IF NOT EXISTS nav_label TEXT`,
+  `ALTER TABLE app_pages ADD COLUMN IF NOT EXISTS show_in_nav BOOLEAN NOT NULL DEFAULT true`,
+  `ALTER TABLE app_pages ADD COLUMN IF NOT EXISTS tenant_slug TEXT`,
+  `ALTER TABLE navigation_items ADD COLUMN IF NOT EXISTS tenant_slug TEXT`,
+  `ALTER TABLE navigation_items ADD COLUMN IF NOT EXISTS is_active BOOLEAN NOT NULL DEFAULT true`,
+  `ALTER TABLE navigation_items ADD COLUMN IF NOT EXISTS is_dynamic BOOLEAN NOT NULL DEFAULT false`,
+  `ALTER TABLE navigation_items ADD COLUMN IF NOT EXISTS is_default BOOLEAN NOT NULL DEFAULT false`,
+];
+
+/** Run before materialization so writes never hit missing tables/columns. */
+export async function ensureAppPackTables(client: Client): Promise<void> {
+  for (const stmt of APP_PACK_ENUM_DDL) {
+    await client.query(stmt);
+  }
+  for (const stmt of APP_PACK_TABLE_DDL) {
+    await client.query(stmt);
+  }
+  for (const stmt of APP_PACK_TABLE_ALTERS) {
+    try {
+      await client.query(stmt);
+    } catch {
+      // Column may already exist or the table may be missing — ignore.
+    }
+  }
+}
+
 export interface MaterializeCounts {
   apps: number;
   pages: number;
@@ -53,6 +150,9 @@ async function upsertSecurityGroups(client: Client, apps: CompiledAppArtifacts[]
 export async function materializeAppPack(client: Client, input: MaterializeInput): Promise<MaterializeCounts> {
   const { packId, tenantSlug, decomposition, apps, definitions } = input;
   const counts: MaterializeCounts = { apps: 0, pages: 0, sections: 0, nav: 0, snippets: 0, groups: 0 };
+
+  // Guarantee the target tables exist (tenant DBs may be provisioned empty).
+  await ensureAppPackTables(client);
 
   // 1. Security groups for every app.
   counts.groups = await upsertSecurityGroups(client, apps);
