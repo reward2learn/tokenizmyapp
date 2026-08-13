@@ -1,6 +1,8 @@
 import { NextResponse } from 'next/server';
 import { requireWriteAuth, requireCapability } from '@/lib/auth/guards';
 import { jsonError, jsonOk } from '@/lib/api/response';
+import { createRawClient } from '@/lib/db';
+import { ensureTenantsTable } from '@/domain/tenant/tenant-service';
 import { start } from 'workflow/api';
 import { handleAppPackGenerate } from '../../../../../../workflows/app-pack-generate';
 import type { AppPackGenerateInput } from '../../../../../../workflows/app-pack-generate/types';
@@ -34,14 +36,13 @@ export async function POST(request: Request): Promise<NextResponse> {
     return jsonError('Expected JSON body', 400);
   }
 
-  const { prompt, packId, name, tenantSlug, mock, model, dbUrl } = body as {
+  const { prompt, packId, name, tenantSlug, mock, model } = body as {
     prompt?: string;
     packId?: string;
     name?: string;
     tenantSlug?: string;
     mock?: boolean;
     model?: string;
-    dbUrl?: string;
   };
 
   if (!prompt || !prompt.trim()) {
@@ -51,7 +52,32 @@ export async function POST(request: Request): Promise<NextResponse> {
     return jsonError('prompt too long (max 4000 chars)', 400);
   }
 
-  const resolvedDbUrl = dbUrl ?? process.env.POSTGRES_URL ?? process.env.DATABASE_URL ?? '';
+  const targetSlug = tenantSlug?.trim() || 'tokenizmyapp';
+
+  // Resolve the target database server-side: prefer the tenant's provisioned
+  // Neon database (Tenant.dbUrl) so the pack materializes in the tenant's own
+  // app DB (the tenant app reads nav/pages from its own POSTGRES_URL). Tenants
+  // without a separate DB — including the root "tokenizmyapp" scope — fall
+  // back to this app's DB with rows scoped by tenant_slug.
+  let resolvedDbUrl = process.env.POSTGRES_URL ?? process.env.DATABASE_URL ?? '';
+  try {
+    const db = createRawClient();
+    await ensureTenantsTable(db);
+    const rows = await db.$queryRawUnsafe(
+      `SELECT db_url FROM tenants WHERE slug = $1 LIMIT 1;`,
+      targetSlug,
+    ) as { db_url: string | null }[];
+    if (rows.length && rows[0].db_url) {
+      resolvedDbUrl = rows[0].db_url;
+      console.log(`[app-pack] Materializing pack for tenant "${targetSlug}" into its own DB`);
+    }
+    await db.$disconnect();
+  } catch (err) {
+    console.warn(
+      `[app-pack] Tenant DB lookup failed for "${targetSlug}" — falling back to root DB:`,
+      err,
+    );
+  }
   if (!resolvedDbUrl) {
     return jsonError('No database connection string configured', 500);
   }
@@ -60,7 +86,7 @@ export async function POST(request: Request): Promise<NextResponse> {
     prompt: prompt.trim(),
     packId: packId?.trim() || undefined,
     name: name?.trim() || undefined,
-    tenantSlug: tenantSlug?.trim() || 'tokenizmyapp',
+    tenantSlug: targetSlug,
     dbUrl: resolvedDbUrl,
     mock: mock === true,
     model: model?.trim() || undefined,

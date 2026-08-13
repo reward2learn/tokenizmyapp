@@ -30,6 +30,7 @@ import Typography from '@mui/material/Typography';
 import AutoFixHighIcon from '@mui/icons-material/AutoFixHigh';
 import RocketLaunchIcon from '@mui/icons-material/RocketLaunch';
 import { useGenerateAppPackMutation, useGetAppPackStatusQuery } from '@/store/apis/admin-api';
+import { useListTenantsQuery } from '@/store/apis/tenant-api';
 
 interface ProgressChunk {
   step: string;
@@ -199,6 +200,7 @@ const EXAMPLE_PROMPT =
 export function AppPackTab() {
   const [prompt, setPrompt] = useState('');
   const [mock, setMock] = useState(true);
+  const [tenantSlug, setTenantSlug] = useState('tokenizmyapp');
   const [runId, setRunId] = useState<string | null>(null);
   const [status, setStatus] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -209,9 +211,17 @@ export function AppPackTab() {
 
   // RTK Query hooks
   const [generateAppPack, { isLoading: isGenerating }] = useGenerateAppPackMutation();
+  // Tenant registry — the pack is materialized into the selected tenant's DB.
+  const { data: tenantsData, isLoading: tenantsLoading } = useListTenantsQuery();
+  const tenants = tenantsData?.data?.tenants ?? [];
+  // Poll only while the run is active — stop once it reaches a terminal state
+  // (completed/failed) so /generate/status is not hit forever.
   const { data: statusData } = useGetAppPackStatusQuery(
     runId ?? '',
-    { skip: !runId, pollingInterval: 2000 }
+    {
+      skip: !runId || status === 'completed' || status === 'failed',
+      pollingInterval: 2000,
+    }
   );
 
   const latestPct = chunks.length ? chunks[chunks.length - 1].pct : 0;
@@ -250,7 +260,7 @@ export function AppPackTab() {
       const response = await generateAppPack({
         prompt: prompt.trim(),
         mock,
-        tenantSlug: 'tokenizmyapp',
+        tenantSlug,
       }).unwrap();
       if (response.data?.runId) {
         setRunId(response.data.runId);
@@ -263,7 +273,7 @@ export function AppPackTab() {
       setError(err instanceof Error ? err.message : String(err));
       setStarting(false);
     }
-  }, [prompt, mock, generateAppPack]);
+  }, [prompt, mock, tenantSlug, generateAppPack]);
 
   // Open SSE stream once runId is known.
   useEffect(() => {
@@ -297,7 +307,7 @@ export function AppPackTab() {
           <Typography variant="body2" color="text.secondary">
             Describe a business need — the workflow derives per-department apps (W3 schema → ZenStack →
             dynamic pages → navigation → UX workflow → knowledge snippets) with a CEO Overview that
-            aggregates cross-department KPIs.
+            aggregates cross-department KPIs. Choose the tenant below that the pack is created for.
           </Typography>
         </Box>
 
@@ -337,6 +347,31 @@ export function AppPackTab() {
           maxRows={10}
           fullWidth
         />
+
+        <FormControl fullWidth size="small">
+          <InputLabel id="target-tenant-label">Target tenant</InputLabel>
+          <Select
+            labelId="target-tenant-label"
+            label="Target tenant"
+            value={tenantSlug}
+            onChange={(e) => setTenantSlug(e.target.value)}
+            disabled={running || starting}
+          >
+            <MenuItem value="tokenizmyapp">Platform root (tokenizmyapp)</MenuItem>
+            {tenants
+              .filter((t) => t.slug !== 'tokenizmyapp')
+              .map((t) => (
+                <MenuItem key={t.slug} value={t.slug}>
+                  {t.displayName} ({t.slug})
+                </MenuItem>
+              ))}
+          </Select>
+          <FormHelperText>
+            {tenantsLoading
+              ? 'Loading tenants…'
+              : 'The generated app pack (pages, nav, knowledge snippets, security groups) is materialized into this tenant\u2019s database.'}
+          </FormHelperText>
+        </FormControl>
 
         <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} sx={{ alignItems: 'center' }}>
           <FormControlLabel

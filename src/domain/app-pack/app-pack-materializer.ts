@@ -61,6 +61,11 @@ export async function materializeAppPack(client: Client, input: MaterializeInput
   const pageSlugPrefix = `${packId}-%`;
   await client.query(`DELETE FROM app_pages WHERE slug LIKE $1 AND tenant_slug = $2;`, [pageSlugPrefix, tenantSlug]);
 
+  // Nav — scoped replace (pack nav items only). Nav ids are deterministic
+  // (nav_<packId>_<appId>[_<seg>]) and the PK, so a re-run of the same packId
+  // would otherwise fail with a duplicate-key violation.
+  await client.query(`DELETE FROM navigation_items WHERE id LIKE $1 AND tenant_slug = $2;`, [`nav_${packId}_%`, tenantSlug]);
+
   const defs = [...definitions];
   // CEO Overview def is last in decomposition.apps order (guaranteed by generator).
   const ceoDef = defs[defs.length - 1];
