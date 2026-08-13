@@ -793,3 +793,77 @@ export async function deleteGoogleOAuthCredentials(
     // Do not throw — cleanup should be best-effort
   }
 }
+
+// ── Suite Mode: Per-App OAuth Provisioning ─────────────
+
+/**
+ * Provision Google OAuth for every app in a suite and persist per-app rows.
+ *
+ * Each app gets its own google_oauth_config row keyed by
+ * "default:{appId}" so the tenant-level singleton (id='default') is not
+ * polluted with the last app's credentials — critical because all apps on
+ * the same deployment share the DB.
+ */
+export interface GoogleOAuthPerAppResult {
+  appId: string;
+  /** Full OAuth credentials for this app (same shape as provisionGoogleOAuth result). */
+  oauth: GoogleOAuthClientResult;
+  /** Per-app row ID used in google_oauth_config (e.g. "default:myapp"). */
+  configId: string;
+  /** Whether the DB store step succeeded. */
+  stored: boolean;
+}
+
+export async function provisionGoogleOAuthPerApp(
+  tenantSlug: string,
+  appId: string,
+  appName: string,
+  redirectUris: string[],
+): Promise<GoogleOAuthPerAppResult> {
+  const config = {
+    slug: `${tenantSlug}__${appId}`,
+    displayName: appName,
+    redirectUris,
+    adminEmail: 'reward2learn@gmail.com', // default — configurable later
+  };
+
+  const oauth = await provisionGoogleOAuth(config);
+
+  // Per-app row key: "default:{appId}" — avoids leaking parent tenant's OAuth client.
+  const configId = `default:${appId}`;
+
+  try {
+    const { encrypt } = await import('@/lib/crypto');
+    const { createClient } = await import('@/lib/db');
+    const db = createClient();
+
+    const encryptedSecret = encrypt(oauth.clientSecret);
+    await (db as any).googleOAuthConfig.upsert({
+      where: { id: configId },
+      create: {
+        id: configId,
+        clientId: oauth.clientId,
+        projectId: oauth.projectId,
+        authUri: oauth.authUri,
+        tokenUri: oauth.tokenUri,
+        encryptedSecret: encryptedSecret.encrypted,
+        iv: encryptedSecret.iv,
+        authTag: encryptedSecret.authTag,
+      },
+      update: {
+        clientId: oauth.clientId,
+        projectId: oauth.projectId,
+        authUri: oauth.authUri,
+        tokenUri: oauth.tokenUri,
+        encryptedSecret: encryptedSecret.encrypted,
+        iv: encryptedSecret.iv,
+        authTag: encryptedSecret.authTag,
+      },
+    });
+
+    return { appId, oauth, configId, stored: true };
+  } catch (err) {
+    console.warn(`[google-cloud] Per-app DB store failed for "${appId}":`, err instanceof Error ? err.message : String(err));
+    return { appId, oauth, configId, stored: false };
+  }
+}

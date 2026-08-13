@@ -19,12 +19,23 @@ import { seedTenantDefaults, seedTemplateSecurityGroups } from '@/domain/tenant/
 import { ensureTenantsTable } from '@/domain/tenant/tenant-service';
 import { getTemplate } from '@/domain/tenant/template-catalog';
 import type { AppPackConfig, SuiteAppInstance } from '@/store/apis/tenant-api';
+import type { GoogleOAuthClientResult } from '@/domain/tenant/google-cloud-service';
+
+/** Per-app provision result used in SuiteProvisionResult. */
+export interface PerAppProvisionResult {
+  appId: string;
+  dbUrl?: string;
+  appUrl?: string;
+  projectId?: string;
+  /** Per-app Google OAuth provision result (suite mode only). */
+  oauthProvision?: { configId: string; stored: boolean } & GoogleOAuthClientResult;
+}
 
 export interface SuiteProvisionResult {
   /** Total apps in the suite */
   totalApps: number;
   /** Apps successfully provisioned */
-  successful: Array<{ appId: string; dbUrl?: string; appUrl?: string; projectId?: string }>;
+  successful: Array<PerAppProvisionResult>;
   /** Apps that failed provisioning */
   errors: Array<{ appId: string; error: string }>;
 }
