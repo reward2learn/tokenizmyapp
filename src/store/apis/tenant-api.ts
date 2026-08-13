@@ -324,9 +324,9 @@ export const tenantApi = createApi({
 
     /** POST to an arbitrary deploy hook URL (Vercel webhook, etc).
      *  Uses queryFn so absolute URLs are supported and the enforce-redux
-     *  gate can reach zero violations. Returns any because external webhooks
-     *  have arbitrary response shapes. */
-    triggerDeployHook: builder.mutation<any, string>({
+     *  gate can reach zero violations. Returns unknown because external
+     *  webhooks have arbitrary response shapes. */
+    triggerDeployHook: builder.mutation<unknown, string>({
       queryFn: async (hookUrl, _api, _extraOptions, baseQuery) => {
         if (hookUrl.startsWith('http')) {
           // External webhook — use native fetch with absolute URL

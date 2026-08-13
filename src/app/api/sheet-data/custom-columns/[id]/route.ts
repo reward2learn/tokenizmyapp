@@ -11,7 +11,6 @@
 import { NextResponse } from 'next/server';
 import { PrismaClient } from '@/generated/prisma';
 import { read } from 'xlsx';
-import { findHeaderRow, buildColumnKeys } from '@/lib/workbook-mapping';
 import { evaluateFormula } from '@/lib/excel-formula';
 import {
   CUSTOM_COLUMNS_SNIPPET_KEY,

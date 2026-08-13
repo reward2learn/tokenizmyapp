@@ -1,6 +1,6 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
 import { utils, write } from 'xlsx';
-import { renderAllSheetsForAi, comprehendWorkbook, WorkbookComprehensionSchema } from './workbook-comprehension';
+import { renderAllSheetsForAi, WorkbookComprehensionSchema } from './workbook-comprehension';
 
 function wbBuffer(sheets: Record<string, unknown[][]>): Buffer {
   const wb = utils.book_new();

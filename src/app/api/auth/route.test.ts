@@ -7,7 +7,7 @@ const TEST_KEY = 'a'.repeat(64);
 // Mock DB for user_accounts + roles queries used by new PIN flow (listConfiguredPinUsers
 // and handleVerifyPin user resolution). Falls back gracefully in tests.
 const mockDb = {
-  $queryRawUnsafe: vi.fn().mockImplementation(async (sql: string, param?: any) => {
+  $queryRawUnsafe: vi.fn().mockImplementation(async (sql: string, param?: unknown) => {
     const sqlStr = String(sql || '').toLowerCase();
     if (sqlStr.includes('user_accounts') && (sqlStr.includes('admin') || param === 'admin' || (typeof param === 'string' && param?.toLowerCase?.() === 'admin'))) {
       return [{ sub: 'admin', name: 'Admin', role_code: 'platform-admin', is_platform_admin: true }];

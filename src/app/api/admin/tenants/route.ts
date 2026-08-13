@@ -38,18 +38,6 @@ const createSchema = z.object({
   metadata: z.record(z.unknown()).optional().default({}),
 });
 
-const updateSchema = z.object({
-  displayName: z.string().min(1).max(100).optional(),
-  template: z.string().max(50).optional(),
-  status: z.enum(['draft', 'deploying', 'live', 'error']).optional(),
-  primaryColor: z.string().regex(/^#[0-9a-fA-F]{6}$/).optional(),
-  secondaryColor: z.string().regex(/^#[0-9a-fA-F]{6}$/).optional(),
-  appUrl: z.string().max(500).optional(),
-  vercelProjectId: z.string().max(100).optional(),
-  dbUrl: z.string().max(500).optional(),
-  metadata: z.record(z.unknown()).optional(),
-});
-
 // ── Helper: snake_case DB rows → camelCase TenantEntry ──
 
 function mapTenantRow(row: Record<string, unknown>) {
@@ -83,7 +71,7 @@ export async function GET(request: Request): Promise<NextResponse> {
   const { searchParams } = new URL(request.url);
   const status = searchParams.get('status');
 
-  const db = createRawClient() as any;
+  const db = createRawClient();
   try {
     await ensureTenantsTable(db);
     await ensureTenantConfigColumns(db);
@@ -120,7 +108,7 @@ export async function POST(request: Request): Promise<NextResponse> {
     return jsonError(`Validation failed: ${parsed.error.issues.map((i) => i.message).join(', ')}`, 400);
   }
 
-  const db = createRawClient() as any;
+  const db = createRawClient();
   try {
     await ensureTenantsTable(db);
 

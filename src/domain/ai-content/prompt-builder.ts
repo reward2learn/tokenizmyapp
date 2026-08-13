@@ -14,13 +14,6 @@ import { getTenantConfig } from '@shared/lib/config/tenant';
 
 // ── Formatting helpers ──────────────────────────────────
 
-function fmtIdr(n: number): string {
-  if (n >= 1_000_000_000) return `IDR ${(n / 1_000_000_000).toFixed(1)}B`;
-  if (n >= 1_000_000) return `IDR ${(n / 1_000_000).toLocaleString('id-ID')}`;
-  if (n >= 1_000) return `IDR ${(n / 1_000).toFixed(0)}K`;
-  return `IDR ${Math.round(n).toLocaleString('id-ID')}`;
-}
-
 function fmtIdrExact(n: number): string {
   return `IDR ${Math.round(n).toLocaleString('id-ID')}`;
 }

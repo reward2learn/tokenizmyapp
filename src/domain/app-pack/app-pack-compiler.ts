@@ -102,6 +102,21 @@ export function sanitizePageSlug(slug: string): string {
 }
 
 /**
+ * Pluralize a PascalCase model name for CRUD page titles / nav labels.
+ * Simple English heuristic (documented, not exhaustive):
+ *   - already-plural / uncountable names ending in "s" (Sales, News) → as-is
+ *   - ends in s, x, z, ch, sh → append "es"  (Status → Statuses, Box → Boxes)
+ *   - ends in consonant + "y" → drop "y", append "ies"  (Category → Categories)
+ *   - otherwise → append "s"  (Reservation → Reservations)
+ */
+function pluralizeModelName(name: string): string {
+  if (/s$/i.test(name) && !/(ss|us)$/i.test(name)) return name;
+  if (/[sxz]$/i.test(name) || /(ch|sh)$/i.test(name)) return `${name}es`;
+  if (/[^aeiou]y$/i.test(name)) return `${name.slice(0, -1)}ies`;
+  return `${name}s`;
+}
+
+/**
  * Build DB rows for one app. The dynamic router is a single-level `/[slug]`
  * route, so page slugs are FLAT and prefixed with packId + appId to stay
  * globally unique (`app_pages.slug` is a global unique column). Nav clusters
@@ -125,22 +140,39 @@ export function compileAppRows(
     sections: [{ blockType: 'hero', config: { title: def.appName } }],
   };
 
-  const pages: PageRow[] = [
-    root,
-    ...def.pages.map((p) => {
-      const seg = sanitizePageSlug(p.slug);
-      return {
-        id: `page_${packId}_${def.appId}_${seg}`,
-        slug: `${packId}-${def.appId}-${seg}`,
-        title: p.title,
-        authTier: p.authTier,
-        navLabel: p.navLabel ?? null,
-        showInNav: p.navLabel != null,
-        tenantSlug,
-        sections: p.blockTypes.map((bt) => ({ blockType: bt, config: {} })),
-      };
-    }),
-  ];
+  const aiPages: PageRow[] = def.pages.map((p) => {
+    const seg = sanitizePageSlug(p.slug);
+    return {
+      id: `page_${packId}_${def.appId}_${seg}`,
+      slug: `${packId}-${def.appId}-${seg}`,
+      title: p.title,
+      authTier: p.authTier,
+      navLabel: p.navLabel ?? null,
+      showInNav: p.navLabel != null,
+      tenantSlug,
+      sections: p.blockTypes.map((bt) => ({ blockType: bt, config: {} })),
+    };
+  });
+
+  // Deterministic CRUD pages: one per model, appended after AI pages so every
+  // model gets a runtime CRUD surface regardless of AI page choices. Slugs are
+  // flat and packId+appId+tableName-prefixed to stay globally unique
+  // (app_pages.slug is a global unique column).
+  const modelPages: PageRow[] = def.models.map((model) => {
+    const title = pluralizeModelName(model.name);
+    return {
+      id: `page_${packId}_${def.appId}_model_${model.tableName}`,
+      slug: `${packId}-${def.appId}-${model.tableName}`,
+      title,
+      authTier: 'pin',
+      navLabel: title,
+      showInNav: true,
+      tenantSlug,
+      sections: [{ blockType: 'pack_table', config: { table: model.tableName, title: model.name } }],
+    };
+  });
+
+  const pages: PageRow[] = [root, ...aiPages, ...modelPages];
 
   // Nav: one parent item for the app section + children per nav page.
   const groupCode = `app_${def.appId}`;
@@ -166,6 +198,20 @@ export function compileAppRows(
       requiredGroups: groupCode,
       isDynamic: true,
       sortOrder: i + 1,
+      tenantSlug,
+    });
+  });
+  // Model CRUD nav children — sort order continues after the AI nav pages.
+  def.models.forEach((model, i) => {
+    const title = pluralizeModelName(model.name);
+    nav.push({
+      id: `nav_${packId}_${def.appId}_model_${model.tableName}`,
+      title,
+      path: `/${packId}-${def.appId}-${model.tableName}`,
+      icon: '',
+      requiredGroups: groupCode,
+      isDynamic: true,
+      sortOrder: def.nav.pages.length + i + 1,
       tenantSlug,
     });
   });

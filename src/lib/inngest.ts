@@ -65,7 +65,7 @@ export interface VercelEvents {
     data: {
       tenantSlug: string;
       projectId: string;
-      cleanupResult?: any;
+      cleanupResult?: unknown;
       source?: string;
     };
   };
@@ -73,15 +73,15 @@ export interface VercelEvents {
     data: {
       tenantSlug?: string;
       projectId: string;
-      deployment?: any;
+      deployment?: unknown;
       source?: string;
     };
   };
   'vercel.deployment.error': {
     data: {
-      tenantSlug?: string;
+tenantSlug?: string;
       projectId?: string;
-      error?: any;
+      payload: unknown;
       source?: string;
     };
   };
@@ -89,7 +89,7 @@ export interface VercelEvents {
     data: {
       tenantSlug?: string;
       projectId?: string;
-      payload: any;
+      payload: unknown;
       source?: string;
     };
   };
@@ -97,14 +97,14 @@ export interface VercelEvents {
     data: {
       tenantSlug?: string;
       projectId?: string;
-      payload: any;
+      payload: unknown;
       source?: string;
     };
   };
   'vercel.webhook.unhandled': {
     data: {
       type: string;
-      payload: any;
+      payload: unknown;
       tenantSlug?: string;
     };
   };

@@ -8,7 +8,7 @@ import { handleAppPackGenerate } from '../../../../../../workflows/app-pack-gene
 import type { AppPackGenerateInput } from '../../../../../../workflows/app-pack-generate/types';
 import { defaultPackId } from '../../../../../../workflows/app-pack-generate/steps';
 
-export const maxDuration = 60;
+export const maxDuration = 300; // 5 min — workflow steps run zenstack generate + prisma db push
 
 /**
  * POST /api/admin/app-pack/generate

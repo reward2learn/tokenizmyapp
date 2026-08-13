@@ -21,6 +21,10 @@ import {
   type MaterializeCounts,
   type MaterializeInput,
 } from '../../src/domain/app-pack/app-pack-materializer';
+import {
+  applyPackSchema,
+  type PackSchemaApplyResult,
+} from '../../src/domain/app-pack/app-pack-schema-apply';
 import type { AppPackAppDefinition, AppPackDecomposition } from '../../src/domain/app-pack/app-pack-schema';
 import { writeProgressChunk, closeProgressStream } from './progress';
 import type { AppPackGenerateInput, ProgressChunk } from './types';
@@ -130,6 +134,18 @@ export async function materializeAppPackStep(
     definitions,
   };
   return withPgClient(input.dbUrl, (db) => materializeAppPack(db, materializeInput));
+}
+
+/**
+ * Stage 5: apply the pack's consolidated ZenStack schema to the tenant DB so
+ * the generated models become real tables (additive DDL — never drops data).
+ */
+export async function applyPackSchemaStep(
+  input: AppPackGenerateInput,
+  definitions: AppPackAppDefinition[],
+): Promise<PackSchemaApplyResult> {
+  'use step';
+  return withPgClient(input.dbUrl, (db) => applyPackSchema(db, definitions));
 }
 
 /** Emit one progress chunk from a step context. */

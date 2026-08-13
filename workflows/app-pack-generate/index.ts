@@ -20,6 +20,7 @@ import {
   generateAppStep,
   compileAppPackStep,
   materializeAppPackStep,
+  applyPackSchemaStep,
   emitProgressStep,
   closeProgressStep,
   defaultPackId,
@@ -94,6 +95,22 @@ export async function handleAppPackGenerate(
     detail: { counts },
   });
 
+  // ── 5. APPLY SCHEMA ───────────────────────────────────────
+  // Persist the pack's models as real tables in the tenant DB so the dynamic
+  // CRUD surfaces can operate. Fatal on failure (like materialize) — the run
+  // reports the migration error and can be re-run safely (idempotent).
+  const schemaResult = await applyPackSchemaStep(input, definitions);
+
+  await emitProgressStep(writable, {
+    step: 'schema',
+    message: schemaResult.applied
+      ? `Applied pack schema to tenant DB (${schemaResult.durationMs}ms) — ` +
+        `${definitions.reduce((n, d) => n + d.models.length, 0)} model(s).`
+      : 'Pack schema apply did not complete.',
+    pct: 99,
+    detail: { applied: schemaResult.applied, durationMs: schemaResult.durationMs },
+  });
+
   await closeProgressStep(writable);
 
   return {
@@ -117,6 +134,8 @@ export async function handleAppPackGenerate(
       uxStages: def.uxWorkflow.length,
     })),
     counts,
-    zmodel: artifacts.map((a) => a.zmodel).join('\n\n'),
+    schemaApplied: schemaResult.applied,
+    migrationMs: schemaResult.durationMs,
+    zmodel: schemaResult.zmodel,
   };
 }

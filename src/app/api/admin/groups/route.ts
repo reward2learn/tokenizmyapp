@@ -3,7 +3,7 @@ import { createRawClient } from '@/lib/db';
 import { requireWriteAuth } from '@/lib/auth/guards';
 import { sessionIsPlatformAdmin } from '@/lib/auth/jwt';
 import { jsonError, jsonOk } from '@/lib/api/response';
-import { ensureSecurityTables, DEFAULT_SECURITY_GROUPS } from '@/lib/db-migrate';
+import { DEFAULT_SECURITY_GROUPS } from '@/lib/db-migrate';
 import { CAPABILITY_AREAS, capability, ALL_CAPABILITIES } from '@/domain/security/capabilities';
 
 export const maxDuration = 30;
@@ -23,28 +23,38 @@ export const VALID_CAPABILITIES: string[] = [
   ...CAPABILITY_AREAS.flatMap((a) => a.accesses.map((acc) => capability(a.area, acc))),
 ];
 
+/** Raw row shape returned by the security_groups SELECT below. */
+type GroupRow = {
+  code: string;
+  name: string;
+  description: string | null;
+  is_system: boolean;
+  permissions: string[] | null;
+  member_count: number;
+};
+
 export async function GET(request: Request): Promise<NextResponse> {
   const guard = await requireWriteAuth(request);
   if (!guard.ok) return guard.response;
   if (!sessionIsPlatformAdmin(guard.session)) return jsonError('Platform admin only', 403);
 
   // Use raw Prisma client (tables created by prisma db push during build)
-  let db: any;
+  let db: ReturnType<typeof createRawClient>;
   try {
-    db = createRawClient() as any;
+    db = createRawClient();
   } catch {
     return jsonError('Database unavailable', 503);
   }
 
   try {
-    const rows = await (db as any).$queryRawUnsafe(`SELECT sg.code, sg.name, sg.description, sg.is_system, sg.permissions,
+    const rows = await db.$queryRawUnsafe(`SELECT sg.code, sg.name, sg.description, sg.is_system, sg.permissions,
                 COUNT(ug.id)::int AS member_count
           FROM security_groups sg
           LEFT JOIN user_groups ug ON ug.group_id = sg.id
           GROUP BY sg.code, sg.name, sg.description, sg.is_system, sg.permissions
           ORDER BY sg.is_system DESC, sg.name ASC;`);
 
-    const groups: AdminGroupView[] = (rows as any[]).map((r: any) => ({
+    const groups: AdminGroupView[] = (rows as GroupRow[]).map((r) => ({
       code: r.code,
       name: r.name,
       description: r.description,
@@ -87,15 +97,15 @@ export async function POST(request: Request): Promise<NextResponse> {
   const perms = normalizePermissions(permissions);
 
   // Use raw Prisma client
-  let db: any;
+  let db: ReturnType<typeof createRawClient>;
   try {
-    db = createRawClient() as any;
+    db = createRawClient();
   } catch {
     return jsonError('Database unavailable', 503);
   }
 
   try {
-    await (db as any).$executeRawUnsafe(
+    await db.$executeRawUnsafe(
       `INSERT INTO security_groups (code, name, description, is_system, permissions)
        VALUES ($1, $2, $3, false, $4)
        ON CONFLICT (code) DO UPDATE SET name = $2, description = $3, permissions = $4;`,
@@ -136,14 +146,14 @@ export async function PATCH(request: Request): Promise<NextResponse> {
 
   let db;
   try {
-    db = createRawClient() as any;
+    db = createRawClient();
     // ensureSecurityTables skipped — tables from prisma db push
   } catch {
     return jsonError('Database unavailable', 503);
   }
 
   try {
-    const affected = await (db as any).$executeRawUnsafe(
+    const affected = await db.$executeRawUnsafe(
       `UPDATE security_groups
        SET name = COALESCE($2, name),
            description = COALESCE($3, description),

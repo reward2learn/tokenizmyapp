@@ -1,6 +1,5 @@
 import { Suspense } from 'react';
 import { AuthGate } from '@/components/auth/auth-gate';
-import { SignInErrorOverlay } from '@/components/auth/sign-in-error-overlay';
 import { SignInPanelGate } from '@/components/auth/sign-in-panel';
 import { DynamicPage } from '@/components/dynamic/dynamic-page';
 import { AiFindingsBlock } from '@/components/blocks/ai-findings-block';

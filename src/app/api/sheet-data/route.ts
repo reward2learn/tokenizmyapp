@@ -28,7 +28,6 @@ import {
   virtualAddress,
   type CustomColumnsStore,
 } from '@/lib/custom-columns';
-import type { WorkSheet } from 'xlsx';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 30;
@@ -171,7 +170,7 @@ export async function GET(request: Request): Promise<NextResponse> {
     // CRITICAL: Use columnKeys (not columns) for the Excel column index to preserve correct cell positions
     const rowsWithCellRefs = dataRows.map((row, idx) => {
       const excelRow = headerRow + 1 + idx; // Excel is 1-based
-      const rowWithRefs: any = { 
+      const rowWithRefs: Record<string, unknown> = { 
         ...row, 
         _excelRow: excelRow 
       };

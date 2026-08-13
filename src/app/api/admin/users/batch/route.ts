@@ -61,7 +61,7 @@ export async function POST(request: Request): Promise<NextResponse> {
   let db: DbClient;
   try {
     db = createRawClient() as unknown as DbClient;
-    await (db as any).$queryRawUnsafe('SELECT 1 as ok');
+    await db.$queryRawUnsafe('SELECT 1 as ok');
   } catch (err) {
     console.error('[admin/users/batch] createRawClient error:', err instanceof Error ? err.message : String(err));
     return jsonError('Database unavailable', 503);
@@ -93,13 +93,13 @@ export async function POST(request: Request): Promise<NextResponse> {
     const sub = email;
 
     try {
-      const existing = await (db as any).$queryRawUnsafe(
+      const existing = await db.$queryRawUnsafe(
         `SELECT id FROM user_accounts WHERE sub = $1;`,
         sub,
       ) as { id: string }[];
 
       if (existing[0]?.id) {
-        await (db as any).$executeRawUnsafe(
+        await db.$executeRawUnsafe(
           `UPDATE user_accounts
            SET email = COALESCE($1, email),
                name = COALESCE($2, name),
@@ -116,7 +116,7 @@ export async function POST(request: Request): Promise<NextResponse> {
         if (pin) await setSecret(`USER_PIN_${sub}`, pin);
         results.push({ row: i + 1, email, status: 'updated' });
       } else {
-        await (db as any).$executeRawUnsafe(
+        await db.$executeRawUnsafe(
           `INSERT INTO user_accounts (id, sub, email, name, tier, role_code, is_active, created_at, updated_at)
            VALUES (gen_random_uuid()::TEXT, $1, $2, $3, 'pin', $4, $5, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP);`,
           sub,

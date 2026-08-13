@@ -5,7 +5,7 @@
  * Secret is stored encrypted in the DB via the secrets table.
  */
 import { requireWriteAuth } from '@/lib/auth/guards';
-import { jsonOk, jsonError } from '@/lib/api/response';
+import { jsonOk } from '@/lib/api/response';
 import { getSecret } from '@/lib/secrets';
 
 export const dynamic = 'force-dynamic';

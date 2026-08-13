@@ -112,7 +112,6 @@ export async function generateSchemaFromPrompt(
 
 export function mockGenerateSchema(templateId: string): SchemaGenerationResult {
   const schemaOrgType = SCHEMA_ORG_TYPES[templateId] ?? 'LocalBusiness';
-  const w3cStandard = W3C_STANDARDS[templateId] ?? 'schema.org';
 
   // Return a minimal restaurant schema for testing
   return {

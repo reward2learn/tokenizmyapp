@@ -22,7 +22,7 @@ export async function POST(
   if (!guard.ok) return guard.response;
 
   const { slug } = await params;
-  const db = createRawClient() as any;
+  const db = createRawClient();
 
   const results: Record<string, string> = {};
 

@@ -12,7 +12,7 @@ import { resolveOpenAiKey } from '@/lib/openai';
 import { seedFromSources, type SeedCounts } from '@/domain/seed/seed-runner';
 import type { SourceFileKey } from '@/domain/seed/source-files';
 import type { AiPipelineResult } from '@/domain/ai-workbook/pipeline';
-import { start, getRun } from 'workflow/api';
+import { start } from 'workflow/api';
 import { handleWorkbookIngest } from '../../../../../workflows/workbook-ingest';
 import type { WorkbookIngestInput } from '../../../../../workflows/workbook-ingest/types';
 
@@ -119,8 +119,6 @@ export async function POST(request: Request): Promise<NextResponse> {
       uploaded.push('executiveSummary');
     }
 
-    const warnings: string[] = [];
-
     if (mode === 'ai' && overrides.excel && overrides.excel.length > 0) {
       // ── AI-first: seed base content synchronously, then launch durable workflow ──
       const baseSeed = await seedFromSources({
@@ -128,11 +126,6 @@ export async function POST(request: Request): Promise<NextResponse> {
         persistOverrides: true,
         skipFinancialProjections: true,
       });
-
-      const maxDurationOverride = (formData.get('maxDurationSeconds') as string | null);
-      const maxDurationSeconds = maxDurationOverride
-        ? Math.min(Math.max(Number(maxDurationOverride), 60), 900)
-        : 900; // 15 min default, clamped 1–15 min
 
       const input: WorkbookIngestInput = {
         files: overrides.excel.map((buf) => ({

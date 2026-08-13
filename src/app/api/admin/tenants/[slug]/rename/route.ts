@@ -66,7 +66,7 @@ export async function POST(
     return jsonError('New slug is the same as the current slug', 400);
   }
 
-  const db = createRawClient() as any;
+  const db = createRawClient();
 
   try {
     // 1. Verify tenant exists

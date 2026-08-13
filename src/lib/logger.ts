@@ -7,7 +7,7 @@
  * Does not depend on external logging libraries (no winston, pino, etc.).
  */
 const createLogFn = (level: 'info' | 'warn' | 'error', defaultTag = 'tenant') => {
-  return (message: string, meta?: any) => {
+  return (message: string, meta?: unknown) => {
     const tag = `[${defaultTag}]`;
     const fullMsg = `${tag} ${message}`;
     

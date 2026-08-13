@@ -101,7 +101,7 @@ function workbookPath(): string {
 function toNumber(v: unknown): number {
   if (typeof v === 'number') return v;
   if (typeof v === 'string') {
-    const cleaned = v.replace(/[^0-9.\-]/g, '');
+    const cleaned = v.replace(/[^0-9.-]/g, '');
     const n = Number(cleaned);
     return Number.isFinite(n) ? n : 0;
   }
@@ -156,7 +156,6 @@ function extractPl(ws: WorkSheet): PlLine[] {
   const rows = utils.sheet_to_json<Record<string, unknown>>(ws, { header: 1, defval: '' });
   let inIncome = false;
   let inCos = false;
-  let inExpenses = false;
 
   for (const row of rows) {
     const cells = row as unknown as unknown[];
@@ -228,12 +227,10 @@ function extractBepMonthly(ws: WorkSheet): BepMonthlyRow[] {
 
   // Find header row with dates (row 3 in the sheet)
   let headerRow: unknown[] = [];
-  let dataStartIdx = -1;
   for (let i = 0; i < rows.length; i++) {
     const r = rows[i] as unknown as unknown[];
     if (String(r[0] ?? '').includes('INPUT DATA')) {
       headerRow = r;
-      dataStartIdx = i + 1;
       break;
     }
   }
@@ -314,16 +311,14 @@ function extractDailySales(ws: WorkSheet): ExcelData['dailySales'] {
   const totals: Record<string, number> = {};
   const spendPerGuest: Record<string, number> = {};
 
-  let inTerrace = false;
-  let inClub = false;
   let currentSection: 'terrace' | 'club' | null = null;
 
   for (const row of rows) {
     const r = row as unknown as unknown[];
     const b = String(r[1] ?? '').trim();
 
-    if (b === 'Terrace Revenue:') { currentSection = 'terrace'; inTerrace = true; inClub = false; continue; }
-    if (b === 'Club Revenue:') { currentSection = 'club'; inTerrace = false; inClub = true; continue; }
+    if (b === 'Terrace Revenue:') { currentSection = 'terrace'; continue; }
+    if (b === 'Club Revenue:') { currentSection = 'club'; continue; }
     if (b === 'Total Terrace Revenue') {
       // Collect totals from column C onwards
       for (let c = 2; c < r.length; c++) {

@@ -22,7 +22,7 @@ export const maxDuration = 30;
 
 // ── Helpers ────────────────────────────────────────────
 
-async function resolveGroups(db: any, userId: string): Promise<string[]> {
+async function resolveGroups(db: DbClient, userId: string): Promise<string[]> {
   try {
     const rows = await db.$queryRawUnsafe(
       `SELECT sg.code FROM security_groups sg
@@ -36,7 +36,7 @@ async function resolveGroups(db: any, userId: string): Promise<string[]> {
   }
 }
 
-async function resolveCaps(db: any, sub: string): Promise<string[]> {
+async function resolveCaps(db: DbClient, sub: string): Promise<string[]> {
   try {
     return await resolveCapabilitiesForSub(db, sub);
   } catch {
@@ -73,7 +73,7 @@ export async function GET(
 
   const { slug } = await params;
 
-  const db = createRawClient() as any;
+  const db = createRawClient() as unknown as DbClient;
   try {
     await ensureTenantsTable(db);
     await ensureTenantUserColumn(db);
@@ -144,7 +144,7 @@ export async function POST(
     return jsonError('Validation error: ' + JSON.stringify(parsed.error.flatten()), 400);
   }
 
-  const db = createRawClient() as any;
+  const db = createRawClient() as unknown as DbClient;
   try {
     await ensureTenantsTable(db);
     await ensureTenantUserColumn(db);
@@ -239,7 +239,7 @@ export async function DELETE(
   const id = searchParams.get('id');
   if (!id) return jsonError('id query param is required', 400);
 
-  const db = createRawClient() as any;
+  const db = createRawClient() as unknown as DbClient;
   try {
     await ensureTenantsTable(db);
     await ensureTenantUserColumn(db);

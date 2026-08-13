@@ -32,7 +32,7 @@ async function pollDeploymentUntilReady(
   vercelToken: string,
 ): Promise<void> {
   const maxAttempts = 120; // 120 * 15s = 30 minutes max
-  const db = (await import('@/lib/db')).createRawClient() as any;
+  const db = (await import('@/lib/db')).createRawClient();
 
   for (let attempt = 0; attempt < maxAttempts; attempt++) {
     await new Promise((r) => setTimeout(r, 15000)); // poll every 15 seconds
@@ -93,7 +93,9 @@ async function pollDeploymentUntilReady(
     await db.$executeRawUnsafe(
       `UPDATE tenants SET status = 'error', updated_at = CURRENT_TIMESTAMP WHERE slug = $1;`, slug,
     );
-  } catch {}
+  } catch {
+    // non-critical: timeout state already logged above; nothing more to do
+  }
 }
 
 export const dynamic = 'force-dynamic';
@@ -113,7 +115,7 @@ export async function POST(
     body = {};
   }
 
-  const db = createRawClient() as any;
+  const db = createRawClient();
 
   try {
     // Fetch the tenant record from DB to get displayName
@@ -237,7 +239,9 @@ export async function POST(
       await db.$executeRawUnsafe(
         `UPDATE tenants SET status = 'error', updated_at = CURRENT_TIMESTAMP WHERE slug = $1;`, slug,
       );
-    } catch {}
+    } catch {
+      // non-critical: status update is best-effort; original error is reported below
+    }
     const message = err instanceof Error ? err.message : String(err);
     console.error(`[deploy] POST /${slug} error:`, message);
     return jsonError(`Deploy failed: ${message}`, 500);

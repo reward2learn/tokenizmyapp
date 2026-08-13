@@ -174,7 +174,7 @@ export async function PUT(request: Request): Promise<NextResponse> {
     // Roles are just display names + isPlatformAdmin flag (no email/person data).
     // Person/sub mapping is now in user_accounts table (see security-service.ts).
     // PERSONS.ts is LEGACY for transitional PIN/role bridging only.
-    const roleData: Record<string, unknown> = {
+    const roleData: { name: string; isPlatformAdmin: boolean } = {
       name: name.trim(),
       isPlatformAdmin: isPlatformAdmin ?? false,
     };
@@ -187,7 +187,7 @@ export async function PUT(request: Request): Promise<NextResponse> {
         data: {
           code: normalizedCode,
           ...roleData,
-        } as any,
+        },
       });
       return jsonOk({ code: normalizedCode, created: true });
     }

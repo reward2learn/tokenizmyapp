@@ -46,7 +46,7 @@ export function findHeaderRow(ws: WorkSheet): HeaderRowInfo {
       const str = String(cell);
       if (str === '#N/A' || str === '#REF!' || str === '#VALUE!') continue;
       const num = Number(cell);
-      const isNumeric = typeof cell === 'number' || (typeof cell === 'string' && /^[\d,.\-]+$/.test(str.trim()) && isFinite(num));
+      const isNumeric = typeof cell === 'number' || (typeof cell === 'string' && /^[\d,.-]+$/.test(str.trim()) && isFinite(num));
       if (isNumeric && Math.abs(num) > 0) numericCount++;
       else if (HEADER_KEYWORDS.test(str)) headerLikeCount++;
     }

@@ -6,7 +6,7 @@
  */
 import { NextResponse } from 'next/server';
 import { requireWriteAuth } from '@/lib/auth/guards';
-import { jsonError, jsonOk } from '@/lib/api/response';
+import { jsonOk } from '@/lib/api/response';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 30;

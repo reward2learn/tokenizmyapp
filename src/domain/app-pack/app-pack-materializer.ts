@@ -30,6 +30,7 @@ const APP_PACK_ENUM_DDL = [
   `ALTER TYPE "BlockType" ADD VALUE IF NOT EXISTS 'review_blocks'`,
   `ALTER TYPE "BlockType" ADD VALUE IF NOT EXISTS 'reports_rollup'`,
   `ALTER TYPE "BlockType" ADD VALUE IF NOT EXISTS 'sheet_viewer'`,
+  `ALTER TYPE "BlockType" ADD VALUE IF NOT EXISTS 'pack_table'`,
 ];
 
 const APP_PACK_TABLE_DDL = [

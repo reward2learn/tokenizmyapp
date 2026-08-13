@@ -57,7 +57,7 @@ function vercelAppUrl(projectName: string): string {
  */
 async function fetchTenantAndProject(
   slug: string,
-  db: any,
+  db: ReturnType<typeof createRawClient>,
 ): Promise<{ tenant: Record<string, unknown> | null; projectId: string | null; error?: NextResponse }> {
   const rows = await db.$queryRawUnsafe(
     `SELECT * FROM tenants WHERE slug = $1 LIMIT 1;`, slug,
@@ -83,7 +83,7 @@ export async function GET(
   if (!guard.ok) return guard.response;
 
   const { slug } = await params;
-  const db = createRawClient() as any;
+  const db = createRawClient();
 
   try {
     const { tenant, projectId, error } = await fetchTenantAndProject(slug, db);
@@ -150,7 +150,7 @@ export async function POST(
     );
   }
 
-  const db = createRawClient() as any;
+  const db = createRawClient();
 
   try {
     const { tenant, projectId, error } = await fetchTenantAndProject(slug, db);
@@ -205,7 +205,9 @@ export async function POST(
       let projectInfo: { name: string; id: string; updatedAt: string } | null = null;
       try {
         projectInfo = await getVercelProject(projectId);
-      } catch {}
+      } catch {
+        // non-critical: project info is best-effort; the domain list already reflects the rename
+      }
 
       return jsonOk({
         domain,

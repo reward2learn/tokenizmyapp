@@ -59,6 +59,10 @@ export interface AppPackGenerateResult {
   apps: AppPackAppSummary[];
   /** DB write counts from the materializer. */
   counts: MaterializeCounts;
-  /** Concatenated ZenStack zmodel sources (for audit / preview). */
+  /** True when the pack's schema was applied to the tenant DB (prisma db push). */
+  schemaApplied: boolean;
+  /** Migration duration in ms (0 when not applied). */
+  migrationMs: number;
+  /** Consolidated ZenStack zmodel source (what was applied / audit preview). */
   zmodel: string;
 }

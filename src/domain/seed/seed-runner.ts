@@ -8,7 +8,7 @@ import {
   type Prisma,
   type TaskStatus,
 } from '@/generated/prisma';
-import { getFullCatalog, PAGE_CATALOG, REVIEW_PART_CATALOG } from '@/lib/page-catalog';
+import { getFullCatalog, REVIEW_PART_CATALOG } from '@/lib/page-catalog';
 import type { DbClient } from '@/lib/db';
 import { FUNCTIONAL_ROLES } from '@/domain/security/functional-roles';
 import { parseBusinessReviewParts } from '@/lib/parse-business-review';

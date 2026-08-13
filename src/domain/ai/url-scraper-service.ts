@@ -223,7 +223,9 @@ function extractBusinessName(html: string, title: string, hostname: string): str
       const json = JSON.parse(jsonLdMatch[1].trim());
       if (json.name) return json.name;
       if (Array.isArray(json) && json[0]?.name) return json[0].name;
-    } catch {}
+    } catch {
+      // invalid JSON-LD — fall through to og:site_name
+    }
   }
 
   // Try og:site_name
@@ -347,7 +349,7 @@ function extractImages(html: string, baseUrl: URL): Array<{ url: string; alt: st
   return images.slice(0, 20); // Limit to 20 images
 }
 
-function extractSocialLinks(html: string, baseUrl: URL): ScrapedData['socialLinks'] {
+function extractSocialLinks(html: string, _baseUrl: URL): ScrapedData['socialLinks'] {
   const links: ScrapedData['socialLinks'] = {};
   
   const patterns: Record<keyof ScrapedData['socialLinks'], RegExp> = {
@@ -426,12 +428,22 @@ function extractAddress(html: string): string | null {
           .filter(Boolean);
         if (parts.length > 0) return parts.join(', ');
       }
-    } catch {}
+    } catch {
+      // invalid JSON-LD — fall through to no address
+    }
   }
   return null;
 }
 
-function extractInstagramJson(html: string): any | null {
+interface InstagramProfile {
+  fullName?: string;
+  biography?: string;
+  profilePicUrl?: string;
+  externalUrl?: string;
+  followerCount?: number;
+}
+
+function extractInstagramJson(html: string): InstagramProfile | null {
   // Instagram embeds data in a script tag with window._sharedData or a JSON-LD script
   const sharedDataMatch = html.match(/window\._sharedData\s*=\s*({.*?});/s);
   if (sharedDataMatch) {
@@ -447,7 +459,9 @@ function extractInstagramJson(html: string): any | null {
           followerCount: user.edge_followed_by?.count,
         };
       }
-    } catch {}
+    } catch {
+      // corrupted _sharedData payload — fall through to JSON-LD attempt
+    }
   }
 
   // Try JSON-LD
@@ -462,7 +476,9 @@ function extractInstagramJson(html: string): any | null {
           profilePicUrl: json.image?.url ?? json.image,
         };
       }
-    } catch {}
+    } catch {
+      // invalid JSON-LD — fall through to no profile data
+    }
   }
 
   return null;
@@ -538,7 +554,7 @@ async function downloadImageAsBase64(url: string): Promise<string | null> {
  * Extract dominant colors from a base64-encoded image.
  * Uses a simple histogram approach — groups similar colors and returns the most frequent.
  */
-async function extractColorsFromImageBase64(base64Data: string): Promise<string[]> {
+async function extractColorsFromImageBase64(_base64Data: string): Promise<string[]> {
   // This is a simplified approach — in production, use a WASM color extractor
   // or a library like 'colorthief' or 'node-vibrant'
   //

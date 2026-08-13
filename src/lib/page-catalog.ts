@@ -23,7 +23,8 @@ export type BlockType =
   | 'review_blocks'
   | 'kpi_cards'
   | 'reports_rollup'
-  | 'sheet_viewer';
+  | 'sheet_viewer'
+  | 'pack_table';
 
 export interface PageSectionDefinition {
   blockType: BlockType;

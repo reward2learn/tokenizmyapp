@@ -73,6 +73,7 @@ enum BlockType {
   review_blocks
   reports_rollup
   sheet_viewer
+  pack_table
 }
 
 enum JobStatus {

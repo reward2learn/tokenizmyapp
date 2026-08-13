@@ -239,6 +239,8 @@ export const adminApi = createApi({
           uxStages: number;
         }>;
         counts: { apps: number; pages: number; sections: number; nav: number; snippets: number; groups: number };
+        schemaApplied: boolean;
+        migrationMs: number;
         zmodel: string;
       };
     }>, string>({

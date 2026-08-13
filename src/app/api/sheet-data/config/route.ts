@@ -11,7 +11,6 @@ import { NextResponse } from 'next/server';
 import { PrismaClient } from '@/generated/prisma';
 import {
   SHEET_VIEWER_CONFIG_SNIPPET_KEY,
-  emptySheetViewerConfigStore,
   getSheetViewerConfig,
   mergeSheetViewerConfig,
   parseSheetViewerConfigStore,

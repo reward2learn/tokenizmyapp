@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import dynamic from 'next/dynamic';
 import Box from '@mui/material/Box';
 import CircularProgress from '@mui/material/CircularProgress';
@@ -49,7 +49,7 @@ function isLikelyFinancial(key: string, value: unknown): boolean {
   return /amount|total|sales|revenue|cost|price|balance|amount|sum|income|expense/i.test(k);
 }
 
-function SheetDataView({ sheet, title }: { sheet: string; title?: string }) {
+function SheetDataView({ sheet, title: _title }: { sheet: string; title?: string }) {
   const [paginationModel, setPaginationModel] = useState({ page: 0, pageSize: PER_PAGE });
   const { data: payload, isLoading, error: queryError } = useGetSheetDataQuery(
     { sheet, page: paginationModel.page + 1, perPage: PER_PAGE },

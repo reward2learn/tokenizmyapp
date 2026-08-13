@@ -12,7 +12,7 @@
  */
 
 import { read, utils } from 'xlsx';
-import type { WorkBook, WorkSheet } from 'xlsx';
+import type { WorkSheet } from 'xlsx';
 
 // ── Types ──────────────────────────────────────────────
 
@@ -141,7 +141,7 @@ function guessDataType(
   // Check sample values
   const numericSamples = sampleValues.filter(
     (v): v is number | string =>
-      typeof v === 'number' || (typeof v === 'string' && /^[\d,.\-]+$/.test(v.trim())),
+      typeof v === 'number' || (typeof v === 'string' && /^[\d,.-]+$/.test(v.trim())),
   );
   if (numericSamples.length > sampleValues.length / 2) {
     const numericValues = numericSamples.map((v) => Number(v));
@@ -171,7 +171,6 @@ function findHeaderRow(ws: WorkSheet): { headerRow: number; headers: string[] } 
   for (let i = 0; i < maxScan; i++) {
     const row = rows[i] ?? [];
     const nonEmpty = row.filter((c) => c !== '' && c !== undefined && c !== null) as unknown[];
-    const totalCells = row.length;
     const nonEmptyCount = nonEmpty.length;
 
     if (nonEmptyCount === 0) continue;
@@ -187,7 +186,7 @@ function findHeaderRow(ws: WorkSheet): { headerRow: number; headers: string[] } 
       const str = String(cell);
       if (str === '#N/A' || str === '#REF!' || str === '#VALUE!') continue; // skip error cells
       const num = Number(cell);
-      const isNumeric = typeof cell === 'number' || (typeof cell === 'string' && /^[\d,.\-]+$/.test(str.trim()) && isFinite(num));
+      const isNumeric = typeof cell === 'number' || (typeof cell === 'string' && /^[\d,.-]+$/.test(str.trim()) && isFinite(num));
       if (isNumeric && Math.abs(num) > 0) {
         numericCount++;
       } else if (HEADER_KEYWORDS.test(str)) {

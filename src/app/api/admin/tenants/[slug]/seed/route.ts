@@ -22,7 +22,7 @@ export async function POST(
   if (!guard.ok) return guard.response;
 
   const { slug } = await params;
-  const db = createRawClient() as any;
+  const db = createRawClient();
 
   try {
     await ensureTenantsTable(db);
@@ -51,8 +51,8 @@ export async function POST(
       secondaryColor: (tenant.secondary_color as string) || '#0af9fe',
     });
 
-    if ((result as any).errors?.length > 0) {
-      console.error(`[seed] Seed errors for "${slug}":`, (result as any).errors);
+    if (result.errors?.length > 0) {
+      console.error(`[seed] Seed errors for "${slug}":`, result.errors);
     }
     console.log(`[seed] Seed complete for "${slug}": ${result.pages} pages, ${result.navItems} nav items, ${groupsCount} groups`);
 
@@ -62,7 +62,7 @@ export async function POST(
       navItems: result.navItems,
       groups: groupsCount,
       settings: result.settings,
-      errors: (result as any).errors || [],
+      errors: result.errors || [],
     });
   } catch (err) {
     console.error(`[seed] POST /${slug}/seed error:`, err);

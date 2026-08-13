@@ -10,6 +10,7 @@ import { ChartFinancialBlock } from '@/components/blocks/chart-financial-block';
 import { PnlTableBlock } from '@/components/blocks/pnl-table-block';
 import { ReportsRollupBlock } from '@/components/blocks/reports-rollup-block';
 import { SheetViewerBlock } from '@/components/blocks/sheet-viewer-block';
+import { PackTableBlock } from '@/components/blocks/pack-table-block';
 import {
   OpsAdminTabsBlock,
   ZReportFormBlock,
@@ -38,6 +39,7 @@ export const BLOCK_REGISTRY: Record<BlockType, BlockComponent> = {
   review_blocks: ReviewBlocksBlock,
   reports_rollup: ReportsRollupBlock,
   sheet_viewer: SheetViewerBlock,
+  pack_table: PackTableBlock,
 };
 
 export function getBlockComponent(blockType: BlockType): BlockComponent {

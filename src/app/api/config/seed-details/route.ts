@@ -23,7 +23,6 @@
 
 import { NextResponse } from 'next/server';
 import { PrismaClient } from '@/generated/prisma';
-import type { AuthTier } from '@/lib/page-catalog';
 
 export const dynamic = 'force-dynamic';
 

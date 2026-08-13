@@ -127,7 +127,7 @@ export function compileToPageCatalog(schema: SchemaGenerationResult): string {
     authTier: '${p.authTier}',
     navLabel: '${p.navLabel ?? p.title}',
     sections: [
-      ${p.blockTypes.map((bt, i) => `{ blockType: '${bt}' as BlockType, config: {} }`).join(',\n      ')}
+      ${p.blockTypes.map((bt) => `{ blockType: '${bt}' as BlockType, config: {} }`).join(',\n      ')}
     ],
   }`).join(',\n');
 

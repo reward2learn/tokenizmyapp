@@ -94,7 +94,9 @@ export async function GET(
           const events = Array.isArray(evData) ? evData : (evData as { events: Array<{ text: string; created: number }> }).events || [];
           errorInfo = events.slice(-5).map((e) => e.text).filter(Boolean).join(' | ');
         }
-      } catch {}
+      } catch {
+        // non-critical: deployment event details are best-effort
+      }
     }
 
     return jsonOk({

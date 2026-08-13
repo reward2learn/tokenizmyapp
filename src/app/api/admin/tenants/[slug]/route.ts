@@ -59,7 +59,7 @@ export async function GET(
   if (!guard.ok) return guard.response;
 
   const { slug } = await params;
-  const db = createRawClient() as any;
+  const db = createRawClient();
 
   try {
     await ensureTenantsTable(db);
@@ -96,7 +96,7 @@ export async function PUT(
     return jsonError(`Validation failed: ${parsed.error.issues.map((i) => i.message).join(', ')}`, 400);
   }
 
-  const db = createRawClient() as any;
+  const db = createRawClient();
   try {
     await ensureTenantsTable(db);
     await ensureTenantConfigColumns(db);
@@ -152,7 +152,7 @@ export async function DELETE(
 
   const { slug } = await params;
 
-  const db = createRawClient() as any;
+  const db = createRawClient();
   try {
     await ensureTenantsTable(db);
     const existingRows = await db.$queryRawUnsafe(

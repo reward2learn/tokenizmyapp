@@ -61,6 +61,8 @@ interface RunStatus {
       uxStages: number;
     }>;
     counts: { apps: number; pages: number; sections: number; nav: number; snippets: number; groups: number };
+    schemaApplied: boolean;
+    migrationMs: number;
     zmodel: string;
   };
 }
@@ -460,6 +462,11 @@ export function AppPackTab() {
                 Materialized: {result.counts.apps} app(s) · {result.counts.pages} pages · {result.counts.sections} sections ·
                 {result.counts.nav} nav items · {result.counts.snippets} snippets · {result.counts.groups} security groups
               </Typography>
+              <Alert severity={result.schemaApplied ? 'success' : 'warning'} icon={false}>
+                {result.schemaApplied
+                  ? `Pack schema applied to tenant DB in ${result.migrationMs}ms — the generated models are live tables.`
+                  : 'Pack schema was not applied to the tenant DB — the generated models are preview-only and CRUD surfaces may be empty.'}
+              </Alert>
               <Box>
                 <Typography variant="subtitle2">Generated ZenStack .zmodel (audit preview)</Typography>
                 <Box

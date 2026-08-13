@@ -7,7 +7,6 @@ import { ReviewNav } from '@/components/review/review-nav';
 import { createClient } from '@/lib/db';
 import { getReviewPartContent } from '@/domain/content/review-part-service';
 import { resolveReviewPart, setDynamicReviewParts } from '@/lib/page-catalog';
-import type { ReviewPartDefinition } from '@/lib/page-catalog';
 
 /** Avoid Prisma/Neon calls during `next build` static generation. */
 export const dynamic = 'force-dynamic';

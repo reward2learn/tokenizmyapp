@@ -14,9 +14,6 @@ import { resolveOpenAiKey } from '@/lib/openai';
 import { renderAllSheetsForAi } from './extract-sheets';
 import {
   comprehendOnce,
-  MetricSchema,
-  SheetComprehensionSchema,
-  WorkbookComprehensionSchema,
   type AiMetric,
   type AiSheetComprehension,
   type ComprehensionResult,

@@ -505,7 +505,7 @@ function parseGenericSheet(sheet: WorkSheet, sheetName: string): FinancialProjec
 
   // Which columns hold values? For single-period sheets, pick the column with
   // the most numeric cells on recognized label rows.
-  const valueColFor = (c: number): number => {
+  const valueColFor = (_c: number): number => {
     let best = 0;
     let bestCount = -1;
     for (let col = 0; col < Math.min(grid[0]?.length ?? 0, 26); col++) {

@@ -3,7 +3,6 @@
 import { Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { SignInPanel } from '@/components/auth/sign-in-panel';
-import Box from '@mui/material/Box';
 
 function SignInErrorOverlayInner() {
   const searchParams = useSearchParams();

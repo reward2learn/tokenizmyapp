@@ -76,6 +76,15 @@ export const sheetViewerConfigSchema = z.object({
   minTier: minTierSchema,
 });
 
+export const packTableConfigSchema = z.object({
+  table: z.string(),
+  title: z.string().optional(),
+  pageSize: z.number().min(1).max(500).optional(),
+  readonly: z.boolean().optional(),
+  columns: z.array(z.string()).optional(),
+  minTier: minTierSchema,
+});
+
 export const blockConfigSchemas = {
   hero: heroConfigSchema,
   metric_grid: metricGridConfigSchema,
@@ -93,6 +102,7 @@ export const blockConfigSchemas = {
   review_blocks: reviewBlocksConfigSchema,
   reports_rollup: reportsRollupConfigSchema,
   sheet_viewer: sheetViewerConfigSchema,
+  pack_table: packTableConfigSchema,
 } as const satisfies Record<BlockType, z.ZodType>;
 
 export type BlockConfigMap = {
