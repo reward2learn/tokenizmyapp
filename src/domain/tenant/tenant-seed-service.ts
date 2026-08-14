@@ -71,6 +71,41 @@ export async function addTenantColumnsIfMissing(db: any): Promise<void> {
 }
 
 /**
+ * Fully wipe every previously-seeded row for a tenant (all pages, page
+ * sections, and nav items — across every app in the tenant's database)
+ * before re-seeding. seedTenantDefaults() on its own only clears nav items
+ * scoped to the exact tenant_slug/app_id it's about to reinsert — safe for
+ * a single app's own re-seed, but not enough for a "clean and rebuild
+ * everything" tenant-level re-seed: every app in a suite independently
+ * inserts its OWN copy of the template's default nav items (Home,
+ * Dashboard, ...), so re-seeding one app leaves every other app's copies in
+ * place and repeated tenant-level seeds compound duplicates. Call this
+ * first, then seedTenantDefaults(), for a guaranteed clean slate.
+ */
+export async function cleanTenantSeed(db: any, tenantSlug: string): Promise<void> {
+  await addTenantColumnsIfMissing(db);
+  try {
+    await db.$executeRawUnsafe(
+      `DELETE FROM page_sections WHERE page_id IN (SELECT id FROM app_pages WHERE tenant_slug = $1);`,
+      tenantSlug,
+    );
+  } catch (err) {
+    console.warn(`[tenant-seed] cleanTenantSeed: could not clear page_sections:`, (err as Error).message);
+  }
+  try {
+    await db.$executeRawUnsafe(`DELETE FROM app_pages WHERE tenant_slug = $1;`, tenantSlug);
+  } catch (err) {
+    console.warn(`[tenant-seed] cleanTenantSeed: could not clear app_pages:`, (err as Error).message);
+  }
+  try {
+    await db.$executeRawUnsafe(`DELETE FROM navigation_items WHERE tenant_slug = $1;`, tenantSlug);
+  } catch (err) {
+    console.warn(`[tenant-seed] cleanTenantSeed: could not clear navigation_items:`, (err as Error).message);
+  }
+  console.log(`[tenant-seed] cleanTenantSeed: cleared existing pages/sections/nav for "${tenantSlug}"`);
+}
+
+/**
  * Generate a random ID string compatible with Prisma's String @id fields.
  */
 function genRandomId(): string {

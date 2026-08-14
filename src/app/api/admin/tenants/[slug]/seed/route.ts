@@ -10,7 +10,7 @@ import { createRawClient } from '@/lib/db';
 import { requireWriteAuth } from '@/lib/auth/guards';
 import { jsonError, jsonOk } from '@/lib/api/response';
 import { ensureTenantsTable } from '@/domain/tenant/tenant-service';
-import { seedTenantDefaults, seedTemplateSecurityGroups, seedTemplateBranding } from '@/domain/tenant/tenant-seed-service';
+import { seedTenantDefaults, seedTemplateSecurityGroups, seedTemplateBranding, cleanTenantSeed } from '@/domain/tenant/tenant-seed-service';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 120; // 2 min timeout for seeding
@@ -47,6 +47,13 @@ export async function POST(
     const seedDb: unknown = dedicatedClient ?? db;
 
     try {
+      // Fully clean before rebuilding — every app in a suite independently
+      // inserts its own copy of the template's default nav items, so a
+      // partial/scoped clear leaves other apps' copies in place and repeated
+      // seeds compound into duplicate nav entries. This wipes ALL pages,
+      // sections, and nav items for the tenant first.
+      await cleanTenantSeed(seedDb, tenant.slug as string);
+
       const result = await seedTenantDefaults({
         slug: tenant.slug as string,
         displayName: tenant.display_name as string,
