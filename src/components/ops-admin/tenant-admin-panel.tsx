@@ -17,6 +17,7 @@ import { setAdminSelectedTenant, setAdminActiveSubtab, type AdminTenantSubtab } 
 import Box from '@mui/material/Box';
 import Chip from '@mui/material/Chip';
 import FormControl from '@mui/material/FormControl';
+import IconButton from '@mui/material/IconButton';
 import InputLabel from '@mui/material/InputLabel';
 import MenuItem from '@mui/material/MenuItem';
 import Paper from '@mui/material/Paper';
@@ -24,11 +25,13 @@ import Select from '@mui/material/Select';
 import Stack from '@mui/material/Stack';
 import Tab from '@mui/material/Tab';
 import Tabs from '@mui/material/Tabs';
+import Tooltip from '@mui/material/Tooltip';
 import Typography from '@mui/material/Typography';
 import useMediaQuery from '@mui/material/useMediaQuery';
 import { useTheme } from '@mui/material/styles';
 import ApartmentIcon from '@mui/icons-material/Apartment';
 import AutoFixHighIcon from '@mui/icons-material/AutoFixHigh';
+import ClearIcon from '@mui/icons-material/Clear';
 
 import { useListTenantsQuery, type TenantEntry, type AppPackConfig } from '@/store/apis/tenant-api';
 import { getTemplate } from '@/domain/tenant/template-catalog';
@@ -84,9 +87,28 @@ export function TenantAdminPanel() {
   const selectedAppPack = selectedTenant ? getAppPack(selectedTenant) : null;
   const isSuite = selectedTenant ? isSuiteTenant(selectedTenant) : false;
 
+  // Apps under the selected tenant — suite tenants list every app in the pack;
+  // a single-template tenant has exactly one "app" (itself).
+  const tenantApps = useMemo(() => {
+    if (!selectedTenant) return [];
+    if (isSuite && selectedAppPack) return selectedAppPack.apps;
+    return [{
+      appId: selectedTenant.slug,
+      name: selectedTenant.displayName,
+      department: '—',
+      templateId: selectedTenant.template,
+      status: selectedTenant.status,
+      appUrl: selectedTenant.appUrl,
+    }];
+  }, [selectedTenant, isSuite, selectedAppPack]);
+
   // Handle tenant selection
   const handleTenantChange = (slug: string) => {
     dispatch(setAdminSelectedTenant(slug || null)); // also resets subtab to 'info'
+  };
+
+  const handleClearSelection = () => {
+    dispatch(setAdminSelectedTenant(null));
   };
 
   // Subtab definitions
@@ -149,27 +171,32 @@ export function TenantAdminPanel() {
               })}
             </Select>
           </FormControl>
-          
+
           {selectedTenant && (
             <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
-              <Chip 
-                label={getTemplate(selectedTenant.template).label} 
-                size="small" 
+              <Chip
+                label={getTemplate(selectedTenant.template).label}
+                size="small"
                 variant="outlined"
               />
               {isSuite && selectedAppPack && (
-                <Chip 
-                  label={`Suite: ${selectedAppPack.name}`} 
-                  size="small" 
+                <Chip
+                  label={`Suite: ${selectedAppPack.name}`}
+                  size="small"
                   color="primary"
                   icon={<ApartmentIcon />}
                 />
               )}
-              <Chip 
-                label={selectedTenant.status} 
-                size="small" 
+              <Chip
+                label={selectedTenant.status}
+                size="small"
                 color={selectedTenant.status === 'live' ? 'success' : selectedTenant.status === 'error' ? 'error' : 'default'}
               />
+              <Tooltip title="Clear selection — back to all tenants">
+                <IconButton size="small" onClick={handleClearSelection} aria-label="Clear tenant selection">
+                  <ClearIcon fontSize="small" />
+                </IconButton>
+              </Tooltip>
             </Stack>
           )}
         </Stack>
@@ -180,8 +207,57 @@ export function TenantAdminPanel() {
         // No tenant selected — show dashboard with all tenants
         <TenantDashboard />
       ) : (
-        // Tenant selected — show subtabs
+        // Tenant selected — show its apps, then subtabs
         <Box>
+          {/* Apps under this tenant */}
+          {selectedTenant && (
+            <Paper elevation={0} sx={{ mb: 3, p: 2, border: '1px solid', borderColor: 'divider', bgcolor: 'background.paper' }}>
+              <Typography variant="subtitle2" sx={{ fontWeight: 600, mb: 2, display: 'flex', alignItems: 'center', gap: 1 }}>
+                <ApartmentIcon fontSize="small" />
+                {isSuite && selectedAppPack
+                  ? `Suite Hierarchy — ${selectedAppPack.name} (${tenantApps.length} apps)`
+                  : 'Apps'}
+              </Typography>
+              <Stack spacing={1}>
+                {tenantApps.map((app) => {
+                  const tpl = getTemplate(app.templateId);
+                  return (
+                    <Paper key={app.appId} variant="outlined" sx={{ p: 1.5, bgcolor: 'action.hover' }}>
+                      <Stack direction="row" sx={{ alignItems: 'center', justifyContent: 'space-between' }}>
+                        <Box>
+                          <Typography variant="body2" sx={{ fontWeight: 500 }}>
+                            {app.name}
+                          </Typography>
+                          <Typography variant="caption" color="text.secondary">
+                            {app.appId}{app.department !== '—' ? ` • ${app.department}` : ''} • {tpl.label}
+                          </Typography>
+                        </Box>
+                        <Stack direction="row" spacing={1}>
+                          <Chip
+                            label={app.status}
+                            size="small"
+                            color={app.status === 'live' ? 'success' : app.status === 'error' ? 'error' : 'default'}
+                          />
+                          {app.appUrl && (
+                            <Chip
+                              label="Open"
+                              size="small"
+                              variant="outlined"
+                              component="a"
+                              href={app.appUrl}
+                              target="_blank"
+                              clickable
+                            />
+                          )}
+                        </Stack>
+                      </Stack>
+                    </Paper>
+                  );
+                })}
+              </Stack>
+            </Paper>
+          )}
+
           {/* Subtab Navigation */}
           <Paper elevation={0} sx={{ mb: 3, border: '1px solid', borderColor: 'divider', bgcolor: 'background.paper' }}>
             <Tabs
@@ -237,53 +313,6 @@ export function TenantAdminPanel() {
               />
             )}
           </Box>
-          
-          {/* Suite Hierarchy Display */}
-          {isSuite && selectedAppPack && (
-            <Paper elevation={0} sx={{ mt: 3, p: 2, border: '1px solid', borderColor: 'divider', bgcolor: 'action.hover' }}>
-              <Typography variant="subtitle2" sx={{ fontWeight: 600, mb: 2, display: 'flex', alignItems: 'center', gap: 1 }}>
-                <ApartmentIcon fontSize="small" />
-                Suite Hierarchy — {selectedAppPack.name}
-              </Typography>
-              <Stack spacing={1}>
-                {selectedAppPack.apps.map((app) => {
-                  const tpl = getTemplate(app.templateId);
-                  return (
-                    <Paper key={app.appId} variant="outlined" sx={{ p: 1.5, bgcolor: 'background.paper' }}>
-                      <Stack direction="row" sx={{ alignItems: 'center', justifyContent: 'space-between' }}>
-                        <Box>
-                          <Typography variant="body2" sx={{ fontWeight: 500 }}>
-                            {app.name}
-                          </Typography>
-                          <Typography variant="caption" color="text.secondary">
-                            {app.appId} • {app.department} • {tpl.label}
-                          </Typography>
-                        </Box>
-                        <Stack direction="row" spacing={1}>
-                          <Chip 
-                            label={app.status} 
-                            size="small" 
-                            color={app.status === 'live' ? 'success' : app.status === 'error' ? 'error' : 'default'}
-                          />
-                          {app.appUrl && (
-                            <Chip 
-                              label="Open" 
-                              size="small" 
-                              variant="outlined"
-                              component="a"
-                              href={app.appUrl}
-                              target="_blank"
-                              clickable
-                            />
-                          )}
-                        </Stack>
-                      </Stack>
-                    </Paper>
-                  );
-                })}
-              </Stack>
-            </Paper>
-          )}
         </Box>
       )}
       
