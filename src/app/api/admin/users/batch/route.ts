@@ -7,6 +7,7 @@ import { jsonError, jsonOk } from '@/lib/api/response';
 import { setSecret } from '@/lib/secrets';
 import { FUNCTIONAL_ROLES } from '@/domain/security/functional-roles';
 import { resolveDedicatedTenantDbUrl } from '@/domain/tenant/tenant-db-resolver';
+import { addTenantColumnsIfMissing } from '@/domain/tenant/tenant-seed-service';
 
 export const maxDuration = 30;
 
@@ -74,6 +75,9 @@ export async function POST(request: Request): Promise<NextResponse> {
   try {
     db = (dbUrl ? new PrismaClient({ datasources: { db: { url: dbUrl } } }) : createRawClient()) as unknown as DbClient;
     await db.$queryRawUnsafe('SELECT 1 as ok');
+    // Self-healing — a tenant's dedicated DB may predate the tenant_slug/app_id
+    // columns on user_accounts (only added by a Seed/Sync action).
+    await addTenantColumnsIfMissing(db);
   } catch (err) {
     console.error('[admin/users/batch] createRawClient error:', err instanceof Error ? err.message : String(err));
     return jsonError('Database unavailable', 503);

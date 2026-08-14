@@ -270,15 +270,28 @@ export async function PATCH(
     ) as Record<string, unknown>[];
     if (rows.length === 0) return jsonError('Tenant not found', 404);
 
-    const appPack = getAppPack(rows[0]);
+    const tenant = rows[0];
+    const appPack = getAppPack(tenant);
     if (!appPack) return jsonError('Tenant is not in suite mode', 400);
 
     const app = appPack.apps.find((a) => a.appId === appId);
     if (!app) return jsonError(`App "${appId}" not found in suite`, 404);
 
-    // Run tenant column migrations (idempotent)
+    // Run column migrations against the TENANT's own dedicated database —
+    // all apps in a suite share it, never a separate DB per app (see
+    // suite-provisioning.ts). Running this against the root `db` client
+    // above would silently migrate the platform's own DB and never touch
+    // where this app's actual data lives.
     const { addTenantColumnsIfMissing } = await import('@/domain/tenant/tenant-seed-service');
-    await addTenantColumnsIfMissing(db);
+    const tenantDbUrl = tenant.db_url as string | null;
+    const migrateClient = tenantDbUrl
+      ? new PrismaClient({ datasources: { db: { url: tenantDbUrl } } })
+      : null;
+    try {
+      await addTenantColumnsIfMissing(migrateClient ?? db);
+    } finally {
+      if (migrateClient) await migrateClient.$disconnect();
+    }
 
     console.log(`[app-migrate] Schema sync complete for "${appId}" in tenant "${slug}"`);
 

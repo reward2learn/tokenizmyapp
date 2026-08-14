@@ -53,14 +53,6 @@ export async function GET(request: Request): Promise<NextResponse> {
   // dedicated database must be read there, not the platform root DB.
   const dbUrl = await resolveDedicatedTenantDbUrl(tenantSlug, appId);
 
-  if (!dbUrl) {
-    try {
-      await ensureConversationsOnce();
-    } catch {
-      // Best-effort column ensure.
-    }
-  }
-
   let db;
   try {
     db = dbUrl
@@ -68,6 +60,20 @@ export async function GET(request: Request): Promise<NextResponse> {
       : createClient({ tier: guard.session.tier, sub: guard.session.sub });
   } catch {
     return jsonError('Database unavailable', 503);
+  }
+
+  try {
+    // Self-healing — a tenant's dedicated DB may predate the tenant_slug/
+    // app_id columns (only added by a Seed/Sync action, or here). The root
+    // DB's ensure is cached process-wide since every request shares it; a
+    // dedicated client is fresh per-request, so it's cheap to just run it.
+    if (dbUrl) {
+      await ensureConversationsColumns(db);
+    } else {
+      await ensureConversationsOnce();
+    }
+  } catch {
+    // Best-effort column ensure.
   }
 
   try {
@@ -148,6 +154,16 @@ export async function PATCH(request: Request): Promise<NextResponse> {
       : createClient({ tier: guard.session.tier, sub: guard.session.sub });
   } catch {
     return jsonError('Database unavailable', 503);
+  }
+
+  try {
+    if (dbUrl) {
+      await ensureConversationsColumns(db);
+    } else {
+      await ensureConversationsOnce();
+    }
+  } catch {
+    // Best-effort column ensure.
   }
 
   try {

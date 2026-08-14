@@ -37,6 +37,7 @@ import { requireWriteAuth } from '@/lib/auth/guards';
 import { sessionIsPlatformAdmin } from '@/lib/auth/jwt';
 import { jsonError, jsonOk } from '@/lib/api/response';
 import { resolveTenantDbUrl } from '@/domain/tenant/tenant-db-resolver';
+import { addTenantColumnsIfMissing } from '@/domain/tenant/tenant-seed-service';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 120;
@@ -103,14 +104,25 @@ function appIdWhere(table: string, appId: string | undefined): { clause: string;
  *  own dedicated database when a platform admin passes tenantSlug, otherwise
  *  the current app's own (self-clear, the historical behavior). */
 async function resolveClient(tenantSlug: string | undefined, isPlatformAdmin: boolean): Promise<PrismaClient | { error: NextResponse }> {
+  let prisma: PrismaClient;
   if (tenantSlug && isPlatformAdmin) {
     const dbUrl = await resolveTenantDbUrl(tenantSlug);
     if (!dbUrl) return { error: jsonError(`Tenant "${tenantSlug}" has no database configured`, 400) };
-    return new PrismaClient({ datasources: { db: { url: dbUrl } } });
+    prisma = new PrismaClient({ datasources: { db: { url: dbUrl } } });
+  } else {
+    const connStr = process.env.POSTGRES_URL ?? process.env.DATABASE_URL;
+    if (!connStr) return { error: jsonError('POSTGRES_URL not configured', 500) };
+    prisma = new PrismaClient({ datasources: { db: { url: connStr } } });
   }
-  const connStr = process.env.POSTGRES_URL ?? process.env.DATABASE_URL;
-  if (!connStr) return { error: jsonError('POSTGRES_URL not configured', 500) };
-  return new PrismaClient({ datasources: { db: { url: connStr } } });
+  // Self-healing — a tenant's dedicated DB may predate the app_id columns on
+  // these tables (only added by a Seed/Sync action, or here). Without this,
+  // a never-re-seeded tenant's counts/deletes silently no-op per table.
+  try {
+    await addTenantColumnsIfMissing(prisma);
+  } catch {
+    // Best-effort — individual table operations below still guard themselves.
+  }
+  return prisma;
 }
 
 // ── GET: row-count overview ────────────────────────────────

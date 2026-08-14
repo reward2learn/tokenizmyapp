@@ -8,6 +8,7 @@ import { resolveCapabilitiesForSub } from '@/domain/security/security-service';
 import { setSecret, deleteSecret } from '@/lib/secrets';
 import { resolveDedicatedTenantDbUrl } from '@/domain/tenant/tenant-db-resolver';
 import { DEFAULT_PLATFORM_ADMIN_EMAIL } from '@/domain/security/functional-roles';
+import { addTenantColumnsIfMissing } from '@/domain/tenant/tenant-seed-service';
 
 export const maxDuration = 30;
 
@@ -74,6 +75,12 @@ export async function GET(request: Request): Promise<NextResponse> {
   }
 
   try {
+    // Self-healing: a tenant's dedicated DB may predate the tenant_slug/app_id
+    // columns on user_accounts (they're only added when a Seed/Sync action
+    // has actually run against it) — ensure they exist before querying so a
+    // tenant that's never been re-seeded doesn't 500 here.
+    await addTenantColumnsIfMissing(db);
+
     const where: string[] = [];
     const params: unknown[] = [];
     if (tenantSlug) { params.push(tenantSlug); where.push(`tenant_slug = $${params.length}`); }
@@ -264,6 +271,9 @@ export async function DELETE(request: Request): Promise<NextResponse> {
   }
 
   try {
+    // Self-healing — see GET handler.
+    await addTenantColumnsIfMissing(db);
+
     // Fetch the sub + identity fields before deleting — both to remove the
     // PIN secret and to block deleting the platform's own default admin
     // account, which would lock everyone out of this console.

@@ -5,6 +5,7 @@
  * Creates missing tables and tenant-isolation columns.
  */
 import { NextResponse } from 'next/server';
+import { PrismaClient } from '@/generated/prisma';
 import { createRawClient } from '@/lib/db';
 import { requireWriteAuth } from '@/lib/auth/guards';
 import { jsonError, jsonOk } from '@/lib/api/response';
@@ -33,16 +34,27 @@ export async function POST(
 
     // 2. Check tenant exists
     const rows = await db.$queryRawUnsafe(
-      `SELECT id FROM tenants WHERE slug = $1 LIMIT 1;`, slug,
-    ) as { id: string }[];
+      `SELECT id, db_url FROM tenants WHERE slug = $1 LIMIT 1;`, slug,
+    ) as { id: string; db_url: string | null }[];
     if (rows.length === 0) return jsonError('Tenant not found', 404);
     results.tenantExists = 'ok';
 
-    // 3. Run tenant-isolation column migration
-    await addTenantColumnsIfMissing(db);
+    // 3. Run tenant-isolation column migration — against the tenant's own
+    // dedicated database when it has one, never the platform root DB. Every
+    // app in a suite shares this one database (see suite-provisioning.ts).
+    const tenantDbUrl = rows[0].db_url;
+    const migrateClient = tenantDbUrl
+      ? new PrismaClient({ datasources: { db: { url: tenantDbUrl } } })
+      : null;
+    try {
+      await addTenantColumnsIfMissing(migrateClient ?? db);
+    } finally {
+      if (migrateClient) await migrateClient.$disconnect();
+    }
     results.tenantColumns = 'ok';
 
-    // 4. Ensure tenant config columns (api_key, etc.)
+    // 4. Ensure tenant config columns (api_key, etc.) — these live on the
+    // `tenants` registry row itself, which always lives in the root DB.
     await ensureTenantConfigColumns(db);
     results.configColumns = 'ok';
 
