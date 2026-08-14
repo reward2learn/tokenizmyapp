@@ -165,6 +165,7 @@ export const tenantApi = createApi({
       template?: string;
       templateMode?: 'single' | 'suite';
       templates?: string[];
+      packMode?: 'predefined' | 'custom';
       primaryColor?: string;
       secondaryColor?: string;
       metadata?: Record<string, unknown>;

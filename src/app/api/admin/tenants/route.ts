@@ -36,6 +36,7 @@ const createSchema = z.object({
   template: z.string().max(50).optional().default('default'),
   templateMode: z.enum(['single', 'suite']).optional().default('single'),
   templates: z.array(z.string().max(50)).max(10).optional(),
+  packMode: z.enum(['predefined', 'custom']).optional().default('custom'),
   prompt: z.string().max(2000).optional(),
   primaryColor: z.string().regex(/^#[0-9a-fA-F]{6}$/).optional().default('#eb3d28'),
   secondaryColor: z.string().regex(/^#[0-9a-fA-F]{6}$/).optional().default('#0af9fe'),
@@ -154,6 +155,7 @@ export async function POST(request: Request): Promise<NextResponse> {
           templates: parsed.data.templates,
           prompt: suitePrompt,
           mock: !process.env.OPENAI_API_KEY,
+          packMode: parsed.data.packMode,
         });
         if (packResult.success && packResult.appPack) {
           // Store the app pack config in tenant metadata

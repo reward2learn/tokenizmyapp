@@ -1026,11 +1026,12 @@ export default function AdminPage() {
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down('md'));
   const isTokenizmyapp = getClientTenantConfig().slug === 'tokenizmyapp';
-  // AI App Pack (app-pack generator) is a platform-administrator capability only —
-  // it derives and materializes per-department apps into tenant deployments. It must
-  // NOT appear in a tenant application's own admin surface.
+  // Unified App Bundle (app-pack generator) is a platform-administrator capability only —
+  // it derives and materializes department sections into ONE tenant deployment (distinct
+  // from Suite Mode's separately-deployed apps, see app-pack-tab.tsx). It must NOT appear
+  // in a tenant application's own admin surface.
   const adminTabs = isTokenizmyapp
-    ? ['Tenants', 'Tenant Info', 'Navigation', 'Brand Config', 'Security Groups', 'Accounts', 'Roles', 'AI Chat', 'AI App Pack']
+    ? ['Tenants', 'Tenant Info', 'Navigation', 'Brand Config', 'Security Groups', 'Accounts', 'Roles', 'AI Chat', 'Unified App Bundle']
     : ['Tenant Info', 'Navigation', 'Brand Config', 'Security Groups', 'Accounts', 'Roles', 'AI Chat'];
 
   return (

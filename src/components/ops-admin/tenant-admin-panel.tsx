@@ -145,7 +145,7 @@ export function TenantAdminPanel() {
     { key: 'accounts', label: 'Accounts' },
     { key: 'roles', label: 'Roles' },
     { key: 'ai-chat', label: 'AI Chat' },
-    { key: 'app-pack', label: 'AI App Pack', icon: <AutoFixHighIcon fontSize="small" /> },
+    { key: 'app-pack', label: 'Unified App Bundle', icon: <AutoFixHighIcon fontSize="small" /> },
   ];
   
   return (

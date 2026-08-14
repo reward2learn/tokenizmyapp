@@ -16,16 +16,28 @@
 import {
   decomposePackFromPrompt,
   generateAppDefinition,
-  mockDecomposePack,
   mockGenerateAppDefinition,
 } from './app-pack-generator';
+import { getTemplate } from '@/domain/tenant/template-catalog';
 import type {
   AppPackDecomposition,
   AppPackAppDefinition,
+  AppPackBrief,
 } from './app-pack-schema';
 import type { AppPackConfig, SuiteAppInstance } from '@/store/apis/tenant-api';
 
 // ── Input types ────────────────────────────────────────────
+
+/**
+ * - 'custom'     — the admin/client hand-picked templates; materialization MUST
+ *                  produce exactly one app per selected template, deterministically.
+ * - 'predefined' — a business-category "app kit" was chosen; with a real AI key,
+ *                  the category's tuned prompt is free-decomposed into whatever
+ *                  department apps fit best. Without a key (or in 'custom' mode)
+ *                  materialization always falls back to the deterministic builder
+ *                  below — mock mode can't "think," so it must not pretend to.
+ */
+export type PackMode = 'predefined' | 'custom';
 
 export interface MaterializeAppPackInput {
   /** Tenant slug (e.g. "redruby-bali"). */
@@ -34,20 +46,60 @@ export interface MaterializeAppPackInput {
   displayName: string;
   /** Selected template IDs from the wizard (e.g. ["spas-and-wellness", "financial-analytics"]). */
   templates: string[];
-  /** Business description prompt for AI generation. */
+  /** Business description prompt for AI generation (used only in 'predefined' + real-AI mode). */
   prompt?: string;
   /** When true, uses deterministic mock pipeline (no OpenAI key needed). */
   mock?: boolean;
-  /** Preset key if a preset was selected (e.g. "massage-spa"). */
-  presetKey?: string;
-  /** Preset app definitions (when using a preset, these override AI decomposition). */
-  presetApps?: Array<{
-    id: string;
-    name: string;
-    department: string;
-    summary: string;
-    templateId: string;
-  }>;
+  /** Selection mode — see PackMode. Defaults to 'custom' (deterministic) when omitted. */
+  packMode?: PackMode;
+}
+
+/**
+ * Build a decomposition that guarantees exactly one app per selected template,
+ * plus a CEO Overview app spanning all of them. No AI call — this is the
+ * deterministic fallback used whenever mock mode is active, and always used
+ * for 'custom' mode regardless of AI availability, so "N templates selected"
+ * reliably means "N apps created."
+ */
+export function buildDeterministicAppPack(
+  templates: string[],
+  displayName: string,
+  tenantSlug: string,
+): AppPackDecomposition {
+  const seen = new Set<string>();
+  const briefs: AppPackBrief[] = [];
+  for (const tplId of templates) {
+    if (seen.has(tplId)) continue;
+    seen.add(tplId);
+    const tpl = getTemplate(tplId);
+    briefs.push({
+      id: tplId,
+      name: tpl.label,
+      department: tpl.label,
+      summary: tpl.description,
+      templateId: tplId,
+    });
+  }
+  briefs.push({
+    id: 'ceo-overview',
+    name: 'CEO Overview',
+    department: 'Executive Leadership',
+    summary:
+      'Cross-department transparency dashboard with access to every department app’s ' +
+      'knowledge base and realtime actionable items.',
+    templateId: 'financial-analytics',
+  });
+
+  return {
+    packId: `${tenantSlug}-suite`,
+    name: `${displayName} Suite`,
+    description: `Multi-app suite for ${displayName}: ${briefs.slice(0, -1).map((b) => b.name).join(', ')}.`,
+    apps: briefs,
+    ceoOverview: {
+      purpose: `Aggregate KPIs and knowledge from every department app into a single leadership overview with actionable items for ${displayName}.`,
+      kpis: ['revenue', 'grossMargin', 'headcount', 'salesTargetAchievement', 'cashflow', 'complianceStatus'],
+    },
+  };
 }
 
 export interface MaterializeAppPackResult {
@@ -77,36 +129,19 @@ export async function materializeAppPackForTenant(
 ): Promise<MaterializeAppPackResult> {
   try {
     const useMock = input.mock ?? !process.env.OPENAI_API_KEY;
+    const packMode: PackMode = input.packMode ?? 'custom';
+    // Mock mode can't "think," so it never free-decomposes — it always falls back
+    // to the deterministic per-template builder, same as explicit 'custom' mode.
+    const deterministic = useMock || packMode === 'custom';
 
     // ── 1. DECOMPOSE ──────────────────────────────────────
     let decomposition: AppPackDecomposition;
 
-    if (input.presetApps && input.presetApps.length > 0) {
-      // Preset mode: build decomposition from preset app definitions
-      decomposition = {
-        packId: `${input.tenantSlug}-suite`,
-        name: `${input.displayName} Suite`,
-        description: `Multi-app suite for ${input.displayName}`,
-        apps: input.presetApps.map((app) => ({
-          id: app.id,
-          name: app.name,
-          department: app.department,
-          summary: app.summary,
-          templateId: app.templateId,
-        })),
-        ceoOverview: {
-          purpose: `Aggregate KPIs and knowledge from every department app into a single leadership overview with actionable items for ${input.displayName}.`,
-          kpis: ['revenue', 'grossMargin', 'headcount', 'salesTargetAchievement', 'cashflow', 'complianceStatus'],
-        },
-      };
-    } else if (useMock) {
-      // Mock mode: use the deterministic mock decomposition
-      decomposition = mockDecomposePack();
-      decomposition.packId = `${input.tenantSlug}-suite`;
-      decomposition.name = `${input.displayName} Suite`;
+    if (deterministic) {
+      decomposition = buildDeterministicAppPack(input.templates, input.displayName, input.tenantSlug);
     } else {
-      // AI mode: decompose from the user's prompt
-      const prompt = input.prompt || `Create a multi-department application suite for ${input.displayName} covering: ${input.templates.join(', ')}`;
+      // 'predefined' mode with a real AI key: free-decompose from the category prompt.
+      const prompt = input.prompt || buildSuitePrompt(input.displayName, input.templates);
       decomposition = await decomposePackFromPrompt(prompt);
       decomposition.packId = `${input.tenantSlug}-suite`;
       decomposition.name = `${input.displayName} Suite`;
@@ -116,7 +151,7 @@ export async function materializeAppPackForTenant(
     const definitions: AppPackAppDefinition[] = [];
     for (const brief of decomposition.apps) {
       let def: AppPackAppDefinition;
-      if (useMock || (input.presetApps && input.presetApps.length > 0)) {
+      if (useMock) {
         def = mockGenerateAppDefinition(brief);
       } else {
         const isCeo = brief === decomposition.apps[decomposition.apps.length - 1];
@@ -166,22 +201,10 @@ export async function materializeAppPackForTenant(
 }
 
 /**
- * Build a default prompt for suite mode when the user didn't provide one.
- * Uses the selected template IDs to describe the business need.
+ * Fallback prompt for 'predefined' + real-AI mode when the wizard's own
+ * business-category prompt (business-category-prompts.ts) wasn't supplied.
  */
-export function buildSuitePrompt(
-  displayName: string,
-  templates: string[],
-  presetKey?: string,
-): string {
-  if (presetKey) {
-    const presetDescriptions: Record<string, string> = {
-      'massage-spa': `I run ${displayName}, a massage spa. We need appointment scheduling, client records, therapist management, spa finance tracking, and an owner dashboard with cross-department KPIs.`,
-      'restaurant-group': `I run ${displayName}, a restaurant group. We need menu management, table reservations, kitchen operations, finance reporting, and an owner dashboard across locations.`,
-      'hotel-chain': `I run ${displayName}, a hotel chain. We need room management, booking engine, F&B outlets, events/conference, finance reporting, and a multi-property owner dashboard.`,
-    };
-    return presetDescriptions[presetKey] ?? `Create a multi-department suite for ${displayName}.`;
-  }
+export function buildSuitePrompt(displayName: string, templates: string[]): string {
   return `Create a multi-department application suite for ${displayName} covering these business areas: ${templates.join(', ')}. Include a CEO Overview dashboard that aggregates KPIs from all departments.`;
 }
 

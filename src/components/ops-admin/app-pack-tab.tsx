@@ -31,6 +31,7 @@ import AutoFixHighIcon from '@mui/icons-material/AutoFixHigh';
 import RocketLaunchIcon from '@mui/icons-material/RocketLaunch';
 import { useGenerateAppPackMutation, useGetAppPackStatusQuery } from '@/store/apis/admin-api';
 import { useListTenantsQuery } from '@/store/apis/tenant-api';
+import { BUSINESS_CATEGORY_PROMPTS } from '@/domain/app-pack/business-category-prompts';
 
 interface ProgressChunk {
   step: string;
@@ -66,133 +67,6 @@ interface RunStatus {
     zmodel: string;
   };
 }
-
-interface BusinessCategoryPrompt {
-  category: string;
-  prompt: string;
-}
-
-/**
- * Prepopulated business-need prompts per business category. Selecting a
- * category from the dropdown fills the requirement field with a prompt that
- * describes the per-department apps (plus CEO Overview) for that business.
- * Prompts are used in real AI mode; Mock mode always returns the fixed demo pack.
- */
-const BUSINESS_CATEGORY_PROMPTS: BusinessCategoryPrompt[] = [
-  {
-    category: 'Restaurant',
-    prompt:
-      'Build an app pack for restaurant operations: HR (employees, schedules, attendance), ' +
-      'Menu & Inventory (recipes, stock levels, supplier orders), Sales Reporting (daily sales, ' +
-      'hourly trends, payment methods), Finance (P&L, cash flow, costs tracking), plus a CEO ' +
-      'Overview with cross-department KPIs and realtime actionable items.',
-  },
-  {
-    category: 'Nightclub',
-    prompt:
-      'Build an app pack for nightclub operations: Guest List & Entry (guest lists, VIP tables, ' +
-      'entry passes, cover charges), Events & DJ Booking (lineups, event schedules, DJ contracts), ' +
-      'Sales & Bar Reporting (ticket sales, bar revenue, payment methods), Finance (cash flow, ' +
-      'P&L, costs tracking), plus a CEO Overview with cross-department KPIs and realtime ' +
-      'actionable items.',
-  },
-  {
-    category: 'Flower Shop',
-    prompt:
-      'Build an app pack for flower shop operations: Orders & Deliveries (online orders, delivery ' +
-      'scheduling, delivery routes), Inventory (flower stock, suppliers, spoilage tracking), ' +
-      'Customers & Occasions (customer records, occasions, campaigns), Finance (sales, costs, ' +
-      'cash flow), plus a CEO Overview with cross-department KPIs and realtime actionable items.',
-  },
-  {
-    category: 'Massage Service',
-    prompt:
-      'Build an app pack for massage service operations: Appointments & Booking (sessions, ' +
-      'therapists, rooms, availability), Client Records (health notes, preferences, visit history), ' +
-      'Therapist Management (schedules, commissions, certifications), Finance (revenue, costs, ' +
-      'cash flow), plus a CEO Overview with cross-department KPIs and realtime actionable items.',
-  },
-  {
-    category: 'Hotel',
-    prompt:
-      'Build an app pack for hotel operations: Bookings & Rooms (reservations, availability, ' +
-      'check-in/check-out), Housekeeping (room status, cleaning tasks, inspections), Guest Services ' +
-      '(requests, feedback, loyalty), Finance (revenue, occupancy, P&L), plus a CEO Overview with ' +
-      'cross-department KPIs and realtime actionable items.',
-  },
-  {
-    category: 'E-commerce / Retail',
-    prompt:
-      'Build an app pack for e-commerce and retail operations: Catalog & Inventory (products, ' +
-      'SKUs, stock levels), Orders & Fulfillment (orders, shipments, returns), Customers & Loyalty ' +
-      '(profiles, loyalty points, campaigns), Finance (sales, refunds, cash flow), plus a CEO ' +
-      'Overview with cross-department KPIs and realtime actionable items.',
-  },
-  {
-    category: 'Café / Coffee Shop',
-    prompt:
-      'Build an app pack for café operations: Sales & POS (daily sales, payment methods, hourly ' +
-      'trends), Inventory (beans, milk, supplies, supplier orders), Staff & Shifts (schedules, ' +
-      'attendance, tips), Finance (P&L, cash flow, costs tracking), plus a CEO Overview with ' +
-      'cross-department KPIs and realtime actionable items.',
-  },
-  {
-    category: 'Spa & Wellness',
-    prompt:
-      'Build an app pack for spa and wellness operations: Appointments & Booking (treatments, ' +
-      'therapists, rooms), Packages & Memberships (treatment packages, membership plans, upsells), ' +
-      'Client Records (preferences, health notes, history), Finance (revenue, costs, cash flow), ' +
-      'plus a CEO Overview with cross-department KPIs and realtime actionable items.',
-  },
-  {
-    category: 'Fitness / Gym',
-    prompt:
-      'Build an app pack for fitness center operations: Memberships (plans, renewals, check-ins), ' +
-      'Classes & Schedule (class schedule, capacity, bookings), Trainer Management (trainers, ' +
-      'sessions, commissions), Finance (revenue, costs, cash flow), plus a CEO Overview with ' +
-      'cross-department KPIs and realtime actionable items.',
-  },
-  {
-    category: 'Salon & Barber',
-    prompt:
-      'Build an app pack for salon and barber operations: Appointments (bookings, services, ' +
-      'stylists), Services & Pricing (service catalog, pricing, upselling), Stylists (schedules, ' +
-      'commissions, performance), Finance (revenue, product sales, costs), plus a CEO Overview ' +
-      'with cross-department KPIs and realtime actionable items.',
-  },
-  {
-    category: 'Coworking Space',
-    prompt:
-      'Build an app pack for coworking space operations: Memberships (plans, renewals, access), ' +
-      'Desk & Room Bookings (desks, meeting rooms, availability), Billing & Invoices (invoicing, ' +
-      'payments, overdue tracking), Finance (revenue, occupancy, costs), plus a CEO Overview with ' +
-      'cross-department KPIs and realtime actionable items.',
-  },
-  {
-    category: 'Professional Services Firm',
-    prompt:
-      'Build an app pack for a professional services firm: Clients & Projects (client records, ' +
-      'project tracking), Time & Billing (timesheets, billable hours, invoicing), HR (employees, ' +
-      'schedules, attendance), Finance (P&L, cash flow, costs tracking), plus a CEO Overview with ' +
-      'cross-department KPIs and realtime actionable items.',
-  },
-  {
-    category: 'Healthcare Clinic',
-    prompt:
-      'Build an app pack for healthcare clinic operations: Appointments & Patients (scheduling, ' +
-      'patient records), Consultations & Treatments (visit records, treatment plans, follow-ups), ' +
-      'Staff & Practitioners (doctors, nurses, schedules), Finance (billing, insurance, costs), ' +
-      'plus a CEO Overview with cross-department KPIs and realtime actionable items.',
-  },
-  {
-    category: 'Manufacturing',
-    prompt:
-      'Build an app pack for manufacturing operations: Production (work orders, batches, output), ' +
-      'Inventory & Materials (raw materials, stock levels, suppliers), Quality (inspections, defects, ' +
-      'non-conformances), Finance (costs, P&L, cash flow), plus a CEO Overview with cross-department ' +
-      'KPIs and realtime actionable items.',
-  },
-];
 
 const EXAMPLE_PROMPT =
   'Build an app pack for restaurant operations: HR (employees, schedules, attendance), ' +
@@ -313,13 +187,20 @@ export function AppPackTab({ tenantSlug: propTenantSlug, tenantName, onGenerated
       <Stack spacing={3}>
         <Box>
           <Typography variant="h6" sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-            <AutoFixHighIcon /> AI App Pack Generator
+            <AutoFixHighIcon /> Unified App Bundle Generator
           </Typography>
           <Typography variant="body2" color="text.secondary">
             Describe a business need — the workflow derives per-department apps (W3 schema → ZenStack →
             dynamic pages → navigation → UX workflow → knowledge snippets) with a CEO Overview that
             aggregates cross-department KPIs. Choose the tenant below that the pack is created for.
           </Typography>
+          <Alert severity="info" icon={false} sx={{ mt: 1.5 }}>
+            This bundles every department as a nav-grouped section inside <strong>one</strong> tenant
+            deployment and database — the cheapest option when apps don&apos;t need their own URL. Need
+            each department as its <strong>own separately-deployed</strong> app instead? Use{' '}
+            <strong>Suite Mode</strong> in the tenant creation/edit wizard — it walks you through the
+            same predefined-vs-custom app pack choice, but each app gets its own deployment.
+          </Alert>
         </Box>
 
         <FormControl fullWidth size="small">

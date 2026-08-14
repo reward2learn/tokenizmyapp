@@ -71,7 +71,7 @@ import PlayArrowIcon from '@mui/icons-material/PlayArrow';
 import WarningIcon from '@mui/icons-material/Warning';
 import ErrorIcon from '@mui/icons-material/Error';
 
-import { getTemplate } from '@/domain/tenant/template-catalog';
+import { getTemplate, listTemplates } from '@/domain/tenant/template-catalog';
 import { DEFAULT_PLATFORM_ADMIN_EMAIL } from '@/domain/security/persons';
 import { TemplateSelector } from '@/components/ops-admin/tenant-wizard';
 import type { AppPackConfig, SuiteAppInstance } from '@/store/apis/tenant-api';
@@ -94,7 +94,9 @@ import {
   useLazyGetDeployStatusQuery,
   useLazyGetTenantDomainsQuery,
   useLazyGetAiFindingsQuery,
-  type TenantEntry 
+  useAddAppToSuiteMutation,
+  useRemoveAppFromSuiteMutation,
+  type TenantEntry
 } from '@/store/apis/tenant-api';
 import {
   useListRoleConfigsQuery,
@@ -377,6 +379,41 @@ export function EditTenantModal({ open, tenant, onClose, onSnackbar }: EditTenan
   const [updateTenant] = useUpdateTenantMutation();
   const [uploadFavicon, { isLoading: uploadingFavicon }] = useUploadTenantFaviconMutation();
   const [removeFavicon] = useRemoveTenantFaviconMutation();
+  const [addAppToSuite, { isLoading: addingSuiteApp }] = useAddAppToSuiteMutation();
+  const [removeAppFromSuite, { isLoading: removingSuiteApp }] = useRemoveAppFromSuiteMutation();
+
+  // ── Suite composition (editable template multi-select) ────────────────
+  const [suiteTemplates, setSuiteTemplates] = useState<string[]>(() => {
+    const pack = tenant ? getAppPack(tenant) : null;
+    return pack ? [...new Set(pack.apps.map((a) => a.templateId))] : [];
+  });
+  const [suiteApplying, setSuiteApplying] = useState(false);
+
+  const applySuiteChanges = useCallback(async () => {
+    if (!tenant) return;
+    const pack = getAppPack(tenant);
+    if (!pack) return;
+    setSuiteApplying(true);
+    try {
+      const currentTemplateIds = new Set(pack.apps.map((a) => a.templateId));
+      const nextTemplateIds = new Set(suiteTemplates);
+      for (const tplId of suiteTemplates) {
+        if (currentTemplateIds.has(tplId)) continue;
+        const tpl = getTemplate(tplId);
+        await addAppToSuite({ slug: tenant.slug, appId: tplId, name: tpl.label, department: tpl.label, templateId: tplId }).unwrap();
+      }
+      for (const app of pack.apps) {
+        if (nextTemplateIds.has(app.templateId)) continue;
+        if (app.status === 'live') continue; // don't silently orphan a deployed app
+        await removeAppFromSuite({ slug: tenant.slug, appId: app.appId }).unwrap();
+      }
+      onSnackbar?.({ message: 'Suite composition updated', severity: 'success' });
+    } catch (err) {
+      onSnackbar?.({ message: err instanceof Error ? err.message : 'Failed to update suite composition', severity: 'error' });
+    } finally {
+      setSuiteApplying(false);
+    }
+  }, [tenant, suiteTemplates, addAppToSuite, removeAppFromSuite, onSnackbar]);
 
   // Role management hooks
   const { data: rolesData, isLoading: rolesLoadingFromApi } = useListRoleConfigsQuery();
@@ -1217,10 +1254,51 @@ export function EditTenantModal({ open, tenant, onClose, onSnackbar }: EditTenan
                 );
               })}
             </Stack>
-            <Alert severity="info" sx={{ mt: 2 }}>
-              <AlertTitle>Suite Mode</AlertTitle>
-              Template changes apply to the parent tenant only. Individual app templates can be modified by regenerating the suite or contacting support.
-            </Alert>
+
+            <Divider sx={{ my: 2 }} />
+
+            <Typography variant="subtitle2" sx={{ fontWeight: 600, mb: 0.5 }}>
+              Edit Composition
+            </Typography>
+            <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1.5 }}>
+              Toggle templates to add or remove apps from this suite. Unchecking a template removes its
+              not-yet-deployed app(s); apps already <strong>live</strong> are left in place — remove those
+              from their own three-dot menu on the Apps list instead, to avoid orphaning a deployed Vercel
+              project.
+            </Typography>
+            <Grid container spacing={0.5}>
+              {listTemplates().filter((tpl) => tpl.id !== 'default').map((tpl) => {
+                const checked = suiteTemplates.includes(tpl.id);
+                return (
+                  <Grid key={tpl.id} size={{ xs: 12, sm: 6 }}>
+                    <FormControlLabel
+                      control={
+                        <Checkbox
+                          checked={checked}
+                          size="small"
+                          onChange={() =>
+                            setSuiteTemplates((prev) =>
+                              checked ? prev.filter((t) => t !== tpl.id) : [...prev, tpl.id],
+                            )
+                          }
+                        />
+                      }
+                      label={tpl.label}
+                    />
+                  </Grid>
+                );
+              })}
+            </Grid>
+            <Button
+              variant="contained"
+              size="small"
+              sx={{ mt: 1 }}
+              disabled={suiteApplying || addingSuiteApp || removingSuiteApp}
+              startIcon={suiteApplying || addingSuiteApp || removingSuiteApp ? <CircularProgress size={14} color="inherit" /> : undefined}
+              onClick={() => void applySuiteChanges()}
+            >
+              Apply Suite Changes
+            </Button>
           </Paper>
         ) : (
           <TemplateSelector

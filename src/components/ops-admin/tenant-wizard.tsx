@@ -48,6 +48,7 @@ import {
   listTemplates,
   isSlugAvailable,
 } from '@/domain/tenant/template-catalog';
+import { BUSINESS_CATEGORY_PROMPTS, getBusinessCategory } from '@/domain/app-pack/business-category-prompts';
 import {
   useCreateTenantMutation,
   useScrapeTenantMutation,
@@ -77,55 +78,17 @@ interface SuiteAppPreview {
   templateId: string;
 }
 
-/** Preset app pack categories for quick suite configuration. */
-const SUITE_PRESETS: Record<string, { label: string; description: string; icon: string; apps: SuiteAppPreview[] }> = {
-  'massage-spa': {
-    label: 'Massage Spa Operations',
-    description: 'Appointments, client records, therapist management, finance & owner dashboard.',
-    icon: 'Spa',
-    apps: [
-      { id: 'appointments-booking', name: 'Appointments & Booking', department: 'Operations', summary: 'Schedule and manage massage appointments.', templateId: 'spas-and-wellness' },
-      { id: 'client-records', name: 'Client Records', department: 'Operations', summary: 'Client profiles, preferences & history.', templateId: 'spas-and-wellness' },
-      { id: 'therapist-management', name: 'Therapist Management', department: 'Operations', summary: 'Therapist schedules & qualifications.', templateId: 'spas-and-wellness' },
-      { id: 'spa-finance', name: 'Spa Finance', department: 'Finance', summary: 'Revenue, expenses & financial reports.', templateId: 'financial-analytics' },
-      { id: 'owner-dashboard', name: 'Owner Dashboard', department: 'Executive', summary: 'Cross-department KPI dashboard.', templateId: 'financial-analytics' },
-    ],
-  },
-  'restaurant-group': {
-    label: 'Restaurant Group',
-    description: 'Multi-location restaurant ops: menu, reservations, kitchen, finance & dashboard.',
-    icon: 'Restaurant',
-    apps: [
-      { id: 'menu-management', name: 'Menu Management', department: 'Operations', summary: 'Menu items, categories & pricing.', templateId: 'restaurant' },
-      { id: 'reservations', name: 'Reservations', department: 'Front of House', summary: 'Table bookings & guest management.', templateId: 'restaurant' },
-      { id: 'kitchen-ops', name: 'Kitchen Operations', department: 'Kitchen', summary: 'Orders, prep tracking & food cost.', templateId: 'restaurant' },
-      { id: 'finance-reporting', name: 'Finance & Reporting', department: 'Finance', summary: 'Revenue, costs & P&L tracking.', templateId: 'financial-analytics' },
-      { id: 'owner-dashboard', name: 'Owner Dashboard', department: 'Executive', summary: 'Cross-location KPI dashboard.', templateId: 'financial-analytics' },
-    ],
-  },
-  'hotel-chain': {
-    label: 'Hotel Chain',
-    description: 'Multi-property hotel ops: rooms, bookings, F&B, events, finance & dashboard.',
-    icon: 'Hotel',
-    apps: [
-      { id: 'room-management', name: 'Room Management', department: 'Rooms', summary: 'Occupancy, housekeeping & room types.', templateId: 'hotel' },
-      { id: 'booking-engine', name: 'Booking Engine', department: 'Reservations', summary: 'Reservations, check-in/out & OTA sync.', templateId: 'hotel' },
-      { id: 'fb-outlets', name: 'F&B Outlets', department: 'Food & Beverage', summary: 'Restaurant, bar & room service ops.', templateId: 'restaurant' },
-      { id: 'events-conference', name: 'Events & Conference', department: 'Events', summary: 'Weddings, meetings & banquet management.', templateId: 'hotel' },
-      { id: 'finance-reporting', name: 'Finance & Reporting', department: 'Finance', summary: 'Revenue, RevPAR & P&L tracking.', templateId: 'financial-analytics' },
-      { id: 'owner-dashboard', name: 'Owner Dashboard', department: 'Executive', summary: 'Multi-property KPI dashboard.', templateId: 'financial-analytics' },
-    ],
-  },
-};
-
 interface WizardState {
   slug: string;
   displayName: string;
   templateMode: 'single' | 'suite';
   template: string;
   templates: string[];
-  suitePreset: string | null;
-  customSuiteApps: SuiteAppPreview[];
+  /** 'predefined' — a business-category app kit was chosen (see business-category-prompts.ts).
+   *  'custom' — templates were hand-picked; materialization is always one app per template. */
+  packMode: 'predefined' | 'custom';
+  /** Selected business category label when packMode === 'predefined'. */
+  category: string | null;
   prompt: string;
   primaryColor: string;
   secondaryColor: string;
@@ -139,8 +102,8 @@ const INITIAL_STATE: WizardState = {
   templateMode: 'single',
   template: 'default',
   templates: [],
-  suitePreset: null,
-  customSuiteApps: [],
+  packMode: 'custom',
+  category: null,
   prompt: '',
   primaryColor: '#eb3d28',
   secondaryColor: '#0af9fe',
@@ -187,7 +150,7 @@ export function TenantWizard() {
     });
   }, []);
 
-  /** Toggle a template in/out of the templates[] array (suite mode). */
+  /** Toggle a template in/out of the templates[] array — always switches to Custom App Pack mode. */
   const toggleSuiteTemplate = useCallback((tplId: string) => {
     setState((prev) => {
       const isSelected = prev.templates.includes(tplId);
@@ -199,35 +162,33 @@ export function TenantWizard() {
       return {
         ...prev,
         templates: next,
+        packMode: 'custom',
+        category: null,
         primaryColor: firstTpl?.defaultColors.primary ?? prev.primaryColor,
         secondaryColor: firstTpl?.defaultColors.secondary ?? prev.secondaryColor,
       };
     });
   }, []);
 
-  /** Apply a suite preset — populates templates[] and customSuiteApps[]. */
-  const applySuitePreset = useCallback((presetKey: string) => {
-    const preset = SUITE_PRESETS[presetKey];
+  /** Apply a business-category app kit — populates templates[] + prompt for AI decomposition. */
+  const applyCategory = useCallback((categoryName: string) => {
+    const preset = getBusinessCategory(categoryName);
     if (!preset) return;
-    const templateIds = [...new Set(preset.apps.map((a) => a.templateId))];
-    const firstTpl = getTemplate(templateIds[0]);
+    const firstTpl = getTemplate(preset.templateIds[0]);
     setState((prev) => ({
       ...prev,
-      suitePreset: presetKey,
-      templates: templateIds,
-      customSuiteApps: preset.apps,
+      packMode: 'predefined',
+      category: categoryName,
+      templates: preset.templateIds,
+      prompt: preset.prompt,
       primaryColor: firstTpl.defaultColors.primary,
       secondaryColor: firstTpl.defaultColors.secondary,
     }));
   }, []);
 
-  /** Get the effective suite apps — either from preset or custom selection. */
+  /** Preview of the apps this selection will produce — one per selected template. */
   const getEffectiveSuiteApps = useCallback((): SuiteAppPreview[] => {
-    if (state.suitePreset && SUITE_PRESETS[state.suitePreset]) {
-      return SUITE_PRESETS[state.suitePreset].apps;
-    }
-    // If no preset, build apps from selected templates
-    return state.templates.map((tplId) => {
+    return [...new Set(state.templates)].map((tplId) => {
       const tpl = getTemplate(tplId);
       return {
         id: tplId,
@@ -237,7 +198,7 @@ export function TenantWizard() {
         templateId: tplId,
       };
     });
-  }, [state.suitePreset, state.templates]);
+  }, [state.templates]);
 
   const validateSlug = (slug: string): string | null => {
     if (!slug) return 'Business name is required';
@@ -352,6 +313,7 @@ export function TenantWizard() {
       template: isSuite ? (state.templates[0] ?? 'default') : state.template,
       templateMode: state.templateMode,
       templates: isSuite ? state.templates : undefined,
+      packMode: isSuite ? state.packMode : undefined,
       primaryColor: state.primaryColor,
       secondaryColor: state.secondaryColor,
       prompt: state.prompt.trim() || undefined,
@@ -544,7 +506,7 @@ export function TenantWizard() {
                       </Typography>
                       <Typography variant="caption" color="text.secondary">
                         {state.templateMode === 'suite'
-                          ? 'Create multiple department apps under one tenant. Each app gets its own template, schema, and deployment.'
+                          ? 'Create multiple department apps under one tenant. Each app gets its own template, schema, and separate deployment (own URL). Want all departments sharing one deployment instead? Use the Unified App Bundle tool from the tenant’s admin panel after creation.'
                           : 'Create a single application with one template. Switch to Suite Mode for multi-department operations.'}
                       </Typography>
                     </Box>
@@ -557,9 +519,9 @@ export function TenantWizard() {
                           const isSuite = e.target.checked;
                           update({
                             templateMode: isSuite ? 'suite' : 'single',
-                            templates: isSuite ? [] : [],
-                            suitePreset: null,
-                            customSuiteApps: [],
+                            templates: [],
+                            packMode: 'custom',
+                            category: null,
                           });
                         }}
                         color="primary"
@@ -571,17 +533,44 @@ export function TenantWizard() {
                 </Stack>
               </Paper>
 
-              {/* Suite Presets (only in suite mode) */}
+              {/* Predefined vs Custom App Pack (only in suite mode) */}
               {state.templateMode === 'suite' ? (
+                <Paper variant="outlined" sx={{ p: 1 }}>
+                  <Stack direction="row" spacing={1}>
+                    <Button
+                      fullWidth
+                      variant={state.packMode === 'predefined' ? 'contained' : 'outlined'}
+                      onClick={() => setState((p) => ({ ...p, packMode: 'predefined' }))}
+                    >
+                      Predefined App Pack
+                    </Button>
+                    <Button
+                      fullWidth
+                      variant={state.packMode === 'custom' ? 'contained' : 'outlined'}
+                      onClick={() => setState((p) => ({ ...p, packMode: 'custom', category: null, templates: [], prompt: '' }))}
+                    >
+                      Custom App Pack
+                    </Button>
+                  </Stack>
+                </Paper>
+              ) : null}
+
+              {/* Predefined: business-category "app kit" grid (only in suite + predefined mode) */}
+              {state.templateMode === 'suite' && state.packMode === 'predefined' ? (
                 <Box>
-                  <Typography variant="subtitle2" sx={{ fontWeight: 600, mb: 1.5 }}>
-                    Quick Start — App Pack Presets
+                  <Typography variant="subtitle2" sx={{ fontWeight: 600, mb: 0.5 }}>
+                    Choose a business category — App Kit
+                  </Typography>
+                  <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1.5 }}>
+                    With an AI key configured, the category&apos;s description is decomposed into whichever
+                    department apps fit best. Without one, you get exactly the seed templates shown below —
+                    one app each.
                   </Typography>
                   <Grid container spacing={1.5}>
-                    {Object.entries(SUITE_PRESETS).map(([key, preset]) => {
-                      const isActive = state.suitePreset === key;
+                    {BUSINESS_CATEGORY_PROMPTS.map((preset) => {
+                      const isActive = state.category === preset.category;
                       return (
-                        <Grid key={key} size={{ xs: 12, sm: 4 }}>
+                        <Grid key={preset.category} size={{ xs: 12, sm: 4 }}>
                           <Card
                             variant="outlined"
                             sx={{
@@ -592,19 +581,15 @@ export function TenantWizard() {
                               transition: 'all 0.15s',
                               '&:hover': { boxShadow: 2 },
                             }}
-                            onClick={() => applySuitePreset(key)}
+                            onClick={() => applyCategory(preset.category)}
                           >
                             <CardContent sx={{ p: 1.5, '&:last-child': { pb: 1.5 } }}>
                               <Stack direction="row" sx={{ gap: 1, alignItems: 'center', mb: 0.5 }}>
-                                <Typography variant="body2" sx={{ fontWeight: 700 }}>{preset.label}</Typography>
+                                <Typography variant="body2" sx={{ fontWeight: 700 }}>{preset.category}</Typography>
                                 {isActive ? <CheckCircleIcon color="primary" fontSize="small" /> : null}
                               </Stack>
-                              <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1 }}>
-                                {preset.description}
-                              </Typography>
                               <Stack direction="row" sx={{ gap: 0.5, flexWrap: 'wrap' }}>
-                                <Chip label={`${preset.apps.length} apps`} size="small" color="primary" variant="outlined" />
-                                {[...new Set(preset.apps.map((a) => a.templateId))].map((tid) => (
+                                {preset.templateIds.map((tid) => (
                                   <Chip key={tid} label={getTemplate(tid).label} size="small" variant="outlined" />
                                 ))}
                               </Stack>
@@ -617,7 +602,8 @@ export function TenantWizard() {
                 </Box>
               ) : null}
 
-              {/* Template Grid — radio (single) or checkbox (suite) selection */}
+              {/* Template Grid — radio (single), checkbox (suite + custom) selection */}
+              {state.templateMode === 'single' || state.packMode === 'custom' ? (
               <Box>
                 <Typography variant="subtitle2" sx={{ fontWeight: 600, mb: 1 }}>
                   {state.templateMode === 'suite'
@@ -695,6 +681,7 @@ export function TenantWizard() {
                   })}
                 </Grid>
               </Box>
+              ) : null}
 
               {/* Suite Selection Summary */}
               {state.templateMode === 'suite' && suiteApps.length > 0 ? (
@@ -702,7 +689,9 @@ export function TenantWizard() {
                   <Stack direction="row" sx={{ gap: 1, alignItems: 'center', mb: 1 }}>
                     <CheckCircleIcon color="success" fontSize="small" />
                     <Typography variant="subtitle2" sx={{ fontWeight: 600 }}>
-                      {suiteApps.length} apps selected across {state.templates.length} template{state.templates.length !== 1 ? 's' : ''}
+                      {state.packMode === 'custom'
+                        ? `${suiteApps.length} apps — one per selected template (deterministic, plus CEO Overview)`
+                        : `${suiteApps.length} seed app${suiteApps.length !== 1 ? 's' : ''} for "${state.category}" — with an AI key, the actual pack may cover more or fewer department apps`}
                     </Typography>
                   </Stack>
                   <Stack direction="row" sx={{ gap: 0.5, flexWrap: 'wrap' }}>
