@@ -10,6 +10,7 @@
 
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
+import { PrismaClient } from '@/generated/prisma';
 import { createRawClient } from '@/lib/db';
 import { requireWriteAuth } from '@/lib/auth/guards';
 import { jsonError, jsonOk } from '@/lib/api/response';
@@ -295,11 +296,18 @@ export async function POST(request: Request): Promise<NextResponse> {
       secondaryColor: parsed.data.secondaryColor,
     };
 
-    // Seed immediately using the same DB connection
+    // Seed immediately. When a dedicated Neon DB was just provisioned, seed
+    // THAT database — the tenant's own live app reads from it via its own
+    // POSTGRES_URL, not the root DB's tenant_slug-scoped rows. Seeding the
+    // root DB instead (the old behavior) left the dedicated DB with schema
+    // but no baseline nav items (Home/Dashboard/Ops Admin/Config).
+    const dedicatedSeedClient = neonResult?.directUrl
+      ? new PrismaClient({ datasources: { db: { url: neonResult.directUrl } } })
+      : null;
+    const seedDb: unknown = dedicatedSeedClient ?? db;
     try {
-      const rawDb = db; // Same raw client
-      await seedTenantDefaults({ ...seedInput, db: rawDb });
-      await seedTemplateSecurityGroups(rawDb, parsed.data.template);
+      await seedTenantDefaults({ ...seedInput, db: seedDb });
+      await seedTemplateSecurityGroups(seedDb, parsed.data.template);
 
       // Update status to 'live' after successful seed
       await db.$executeRawUnsafe(
@@ -312,6 +320,8 @@ export async function POST(request: Request): Promise<NextResponse> {
       console.error('[tenants] Seed failed:', seedErr instanceof Error ? seedErr.message : String(seedErr));
       // Tenant is created but seeding failed — status stays 'deploying'
       // Admin can retry seeding from the tenant dashboard
+    } finally {
+      if (dedicatedSeedClient) await dedicatedSeedClient.$disconnect();
     }
 
     // ── Step 7: Deploy (Phase 6 CLI if codegen succeeded, else existing API) ──
@@ -368,6 +378,7 @@ export async function POST(request: Request): Promise<NextResponse> {
             template: parsed.data.template,
             primaryColor: parsed.data.primaryColor,
             secondaryColor: parsed.data.secondaryColor,
+            dbUrl: neonResult ? { pooled: neonResult.pooledUrl, direct: neonResult.directUrl } : null,
             metadata: parsed.data.metadata,
           })
             .then((result: { projectId: string; appUrl: string; envCount: number }) => {
@@ -397,6 +408,7 @@ export async function POST(request: Request): Promise<NextResponse> {
         template: parsed.data.template,
         primaryColor: parsed.data.primaryColor,
         secondaryColor: parsed.data.secondaryColor,
+        dbUrl: neonResult ? { pooled: neonResult.pooledUrl, direct: neonResult.directUrl } : null,
         metadata: parsed.data.metadata,
       }).then((result: { projectId: string; appUrl: string; projectName: string; envCount: number }) => {
         console.log('[tenants] Vercel project created:', result.projectId, 'env vars:', result.envCount);

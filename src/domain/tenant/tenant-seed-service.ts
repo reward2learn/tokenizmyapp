@@ -12,11 +12,17 @@
 import { getTemplate, type TemplateDefinition } from '@/domain/tenant/template-catalog';
 
 interface SeedTenantInput {
+  /** Parent tenant slug — always the tenant, never a "{parent}__{appId}" combined key. */
   slug: string;
   displayName: string;
   template: string;
   primaryColor: string;
   secondaryColor: string;
+  /** Suite-mode app id — when set, rows are also stamped with app_id so a
+   *  specific app's data is distinguishable from the tenant's own baseline
+   *  and from sibling apps (matters most when seeding falls back to a shared
+   *  DB instead of the app's own dedicated one — see suite-provisioning.ts). */
+  appId?: string;
   /** Override the DB to use a tenant-specific connection */
   db?: any;
 }
@@ -31,13 +37,15 @@ interface SeedTenantInput {
  */
 export async function addTenantColumnsIfMissing(db: any): Promise<void> {
   const statements: string[] = [
-    // app_pages — nav display metadata + tenant isolation
+    // app_pages — nav display metadata + tenant/app isolation
     `ALTER TABLE app_pages ADD COLUMN IF NOT EXISTS nav_label TEXT;`,
     `ALTER TABLE app_pages ADD COLUMN IF NOT EXISTS show_in_nav BOOLEAN DEFAULT true;`,
     `ALTER TABLE app_pages ADD COLUMN IF NOT EXISTS tenant_slug TEXT;`,
+    `ALTER TABLE app_pages ADD COLUMN IF NOT EXISTS app_id TEXT;`,
 
     // navigation_items — tenant isolation + active toggle
     `ALTER TABLE navigation_items ADD COLUMN IF NOT EXISTS tenant_slug TEXT;`,
+    `ALTER TABLE navigation_items ADD COLUMN IF NOT EXISTS app_id TEXT;`,
     `ALTER TABLE navigation_items ADD COLUMN IF NOT EXISTS is_active BOOLEAN DEFAULT true;`,
 
     // user_accounts — tenant isolation
@@ -45,7 +53,9 @@ export async function addTenantColumnsIfMissing(db: any): Promise<void> {
 
     // Indexes on tenant_slug columns for query performance
     `CREATE INDEX IF NOT EXISTS idx_app_pages_tenant_slug ON app_pages(tenant_slug);`,
+    `CREATE INDEX IF NOT EXISTS idx_app_pages_tenant_app ON app_pages(tenant_slug, app_id);`,
     `CREATE INDEX IF NOT EXISTS idx_navigation_items_tenant_slug ON navigation_items(tenant_slug);`,
+    `CREATE INDEX IF NOT EXISTS idx_navigation_items_tenant_app ON navigation_items(tenant_slug, app_id);`,
     `CREATE INDEX IF NOT EXISTS idx_user_accounts_tenant_slug ON user_accounts(tenant_slug);`,
   ];
 
@@ -88,18 +98,21 @@ export async function seedTenantDefaults(input: SeedTenantInput): Promise<{
   await addTenantColumnsIfMissing(db);
 
   // ── 1. Seed AppSetting (brand config) ─────────────────
+  // id matches app-settings-service.ts's buildRowId() convention so
+  // getAppSettings(db, tenantSlug, appId) can actually find this row.
+  const settingsRowId = input.appId ? `${input.slug}__${input.appId}` : input.slug;
   try {
     await db.$executeRawUnsafe(
-      `INSERT INTO app_settings (id, web_search_enabled, tenant_slug, tenant_display_name, tenant_template,
+      `INSERT INTO app_settings (id, web_search_enabled, tenant_slug, app_id, tenant_display_name, tenant_template,
           tenant_metadata, brand_logo_text, brand_logo_url, brand_primary_color, brand_secondary_color, updated_at)
-       VALUES ($1, false, $2, $3, $4, '{}'::jsonb, '', '', $5, $6, NOW())
+       VALUES ($1, false, $2, $3, $4, $5, '{}'::jsonb, '', '', $6, $7, NOW())
        ON CONFLICT (id) DO UPDATE
-         SET tenant_slug = $2, tenant_display_name = $3, tenant_template = $4,
-             brand_primary_color = $5, brand_secondary_color = $6, updated_at = NOW();`,
-      input.slug, input.slug, input.displayName, input.template,
+         SET tenant_slug = $2, app_id = $3, tenant_display_name = $4, tenant_template = $5,
+             brand_primary_color = $6, brand_secondary_color = $7, updated_at = NOW();`,
+      settingsRowId, input.slug, input.appId ?? '', input.displayName, input.template,
       input.primaryColor, input.secondaryColor,
     );
-    console.log(`[tenant-seed] AppSetting seeded for ${input.slug}`);
+    console.log(`[tenant-seed] AppSetting seeded for ${settingsRowId}`);
   } catch (err) {
     console.error(`[tenant-seed] Failed to seed AppSetting:`, err);
   }
@@ -110,14 +123,19 @@ export async function seedTenantDefaults(input: SeedTenantInput): Promise<{
 
   for (const tplPage of template.defaultPages) {
     try {
-      // Upsert page — include a generated ID for FK references
+      // Upsert page — include a generated ID for FK references.
+      // NOTE: `slug` is a GLOBAL unique constraint, not composite with
+      // tenant/app — two apps sharing the same template and the same shared
+      // DB (dedicated-DB provisioning failure fallback) can still collide
+      // here. Stamping app_id below is correct for the normal case (each
+      // app in its own dedicated DB) but doesn't fully solve that fallback.
       const pageId_ = genRandomId();
       await db.$executeRawUnsafe(
-        `INSERT INTO app_pages (id, slug, title, auth_tier, sort_order, nav_label, show_in_nav, tenant_slug)
-         VALUES ($1, $2, $3, CAST($4 AS "AuthTier"), $5, $6, true, $7)
+        `INSERT INTO app_pages (id, slug, title, auth_tier, sort_order, nav_label, show_in_nav, tenant_slug, app_id)
+         VALUES ($1, $2, $3, CAST($4 AS "AuthTier"), $5, $6, true, $7, $8)
          ON CONFLICT (slug) DO UPDATE
            SET id = COALESCE(app_pages.id, $1), title = $3, auth_tier = CAST($4 AS "AuthTier"), sort_order = $5,
-               nav_label = $6, show_in_nav = true, tenant_slug = $7;`,
+               nav_label = $6, show_in_nav = true, tenant_slug = $7, app_id = $8;`,
         pageId_,
         tplPage.slug,
         tplPage.title,
@@ -125,6 +143,7 @@ export async function seedTenantDefaults(input: SeedTenantInput): Promise<{
         pageCount, // sort_order reflects page definition order in the template
         tplPage.navLabel ?? null,
         input.slug,
+        input.appId ?? null,
       );
 
       // Look up the actual page ID from DB to handle ON CONFLICT upserts
@@ -175,10 +194,18 @@ export async function seedTenantDefaults(input: SeedTenantInput): Promise<{
   // ── 3. Seed NavigationItem ────────────────────────────
   let navCount = 0;
 
-  // Clear all existing nav items for this tenant before re-seeding.
-  // Clear existing nav items for this tenant before re-seeding.
+  // Clear existing nav items before re-seeding — scoped to this specific app
+  // when appId is set, so re-seeding one suite app never wipes a sibling
+  // app's (or the tenant's own) nav items when they share a database.
   try {
-    await db.$executeRawUnsafe(`DELETE FROM navigation_items WHERE tenant_slug = $1;`, input.slug);
+    if (input.appId) {
+      await db.$executeRawUnsafe(
+        `DELETE FROM navigation_items WHERE tenant_slug = $1 AND app_id = $2;`,
+        input.slug, input.appId,
+      );
+    } else {
+      await db.$executeRawUnsafe(`DELETE FROM navigation_items WHERE tenant_slug = $1;`, input.slug);
+    }
   } catch (err) {
     console.warn(`[tenant-seed] Could not clear navigation_items:`, (err as Error).message);
   }
@@ -186,12 +213,12 @@ export async function seedTenantDefaults(input: SeedTenantInput): Promise<{
   for (let i = 0; i < template.defaultNavItems.length; i++) {
     const navItem = template.defaultNavItems[i];
     try {
-      // Include generated ID and tenant_slug; cast auth_tier to the AuthTier enum
+      // Include generated ID and tenant_slug/app_id; cast auth_tier to the AuthTier enum
       // Provide explicit created_at and updated_at to satisfy NOT NULL constraints
       const navId = genRandomId();
       await db.$executeRawUnsafe(
-        `INSERT INTO navigation_items (id, title, path, icon, auth_tier, sort_order, tenant_slug, is_default, created_at, updated_at)
-         VALUES ($1, $2, $3, $4, CAST($5 AS "AuthTier"), $6, $7, $8, NOW(), NOW());`,
+        `INSERT INTO navigation_items (id, title, path, icon, auth_tier, sort_order, tenant_slug, app_id, is_default, created_at, updated_at)
+         VALUES ($1, $2, $3, $4, CAST($5 AS "AuthTier"), $6, $7, $8, $9, NOW(), NOW());`,
         navId,
         navItem.title,
         navItem.path,
@@ -199,6 +226,7 @@ export async function seedTenantDefaults(input: SeedTenantInput): Promise<{
         navItem.authTier,
         i, // sort_order reflects nav definition order in the template
         input.slug,
+        input.appId ?? null,
         navItem.path === '/', // the Home '/' item is the default landing route on initial provisioning
       );
       navCount++;

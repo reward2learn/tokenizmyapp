@@ -194,8 +194,9 @@ export const adminApi = createApi({
       query: (scope) => ({ url: 'admin/navigation', params: { tenantSlug: scope?.tenantSlug, appId: scope?.appId } }),
       providesTags: ['Navigation'],
     }),
-    /** POST /api/admin/navigation — create nav item */
-    createNavigationItem: builder.mutation<ApiEnvelope<unknown>, Record<string, unknown>>({
+    /** POST /api/admin/navigation — create nav item. tenantSlug/appId route the
+     *  write to that tenant's own database when it has one — see admin/navigation/route.ts. */
+    createNavigationItem: builder.mutation<ApiEnvelope<unknown>, Record<string, unknown> & TenantAppScope>({
       query: (body) => ({
         url: 'admin/navigation',
         method: 'POST',
@@ -204,7 +205,7 @@ export const adminApi = createApi({
       invalidatesTags: ['Navigation'],
     }),
     /** PUT /api/admin/navigation — batch update nav items */
-    updateNavigationItems: builder.mutation<ApiEnvelope<unknown>, { items: Record<string, unknown>[] }>({
+    updateNavigationItems: builder.mutation<ApiEnvelope<unknown>, { items: Record<string, unknown>[] } & TenantAppScope>({
       query: (body) => ({
         url: 'admin/navigation',
         method: 'PUT',
@@ -213,11 +214,13 @@ export const adminApi = createApi({
       invalidatesTags: ['Navigation'],
     }),
     /** DELETE /api/admin/navigation — delete by IDs */
-    deleteNavigationItems: builder.mutation<ApiEnvelope<unknown>, string[]>({
-      query: (ids) => ({
-        url: `admin/navigation?ids=${ids.map(encodeURIComponent).join(',')}`,
-        method: 'DELETE',
-      }),
+    deleteNavigationItems: builder.mutation<ApiEnvelope<unknown>, { ids: string[] } & TenantAppScope>({
+      query: ({ ids, tenantSlug, appId }) => {
+        const params = new URLSearchParams({ ids: ids.map(encodeURIComponent).join(',') });
+        if (tenantSlug) params.set('tenantSlug', tenantSlug);
+        if (appId) params.set('appId', appId);
+        return { url: `admin/navigation?${params.toString()}`, method: 'DELETE' };
+      },
       invalidatesTags: ['Navigation'],
     }),
 

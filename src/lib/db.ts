@@ -61,3 +61,20 @@ export function createBaseClient(): DbClient {
 export function createRawClient() {
   return getBasePrisma();
 }
+
+/**
+ * Same shape as createClient(), but connects to an explicit URL instead of the
+ * process-global root DB — for tenants that have their own dedicated database
+ * (tenants.db_url). Returns a fresh, non-singleton connection; callers MUST
+ * call $disconnect() on it when done to avoid leaking connections.
+ */
+export function createClientForUrl(url: string, session: DbSession = { tier: 'public' }) {
+  const prisma = new PrismaClient({ datasources: { db: { url } } });
+  return enhance(prisma, {
+    user: {
+      id: session.sub ?? session.tier,
+      tier: session.tier,
+      ...(session.sub !== undefined ? { sub: session.sub } : {}),
+    },
+  });
+}

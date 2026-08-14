@@ -12,6 +12,7 @@
  */
 
 import { NextResponse } from 'next/server';
+import { PrismaClient } from '@/generated/prisma';
 import { createRawClient } from '@/lib/db';
 import { requireWriteAuth } from '@/lib/auth/guards';
 import { jsonError, jsonOk } from '@/lib/api/response';
@@ -115,18 +116,34 @@ export async function POST(
     // Update status to provisioning
     await updateAppStatus(db, slug, appPack, appId, { status: 'provisioning' });
 
-    // Seed using the app's template
+    // Seed into the TENANT's own dedicated database — all apps in a suite
+    // share the one tenant database, never a separate database per app; the
+    // live deployed app reads from that same URL via its own POSTGRES_URL,
+    // never the root DB. `slug`/`appId` are passed as separate columns (not
+    // a combined key) so admin queries scoped by {tenantSlug, appId} can
+    // find these rows within the shared database.
+    const tenantDbUrl = tenant.db_url as string | null;
     const tpl = getTemplate(app.templateId);
-    const result = await seedTenantDefaults({
-      slug: `${slug}__${appId}`,
-      displayName: app.name,
-      template: app.templateId,
-      primaryColor: tpl.defaultColors.primary,
-      secondaryColor: tpl.defaultColors.secondary,
-      db,
-    });
+    const dedicatedSeedClient = tenantDbUrl
+      ? new PrismaClient({ datasources: { db: { url: tenantDbUrl } } })
+      : null;
+    const seedDb: unknown = dedicatedSeedClient ?? db;
+    let result: { pages: number; navItems: number; settings: boolean; errors: string[] };
+    try {
+      result = await seedTenantDefaults({
+        slug,
+        appId,
+        displayName: app.name,
+        template: app.templateId,
+        primaryColor: tpl.defaultColors.primary,
+        secondaryColor: tpl.defaultColors.secondary,
+        db: seedDb,
+      });
 
-    await seedTemplateSecurityGroups(db, app.templateId);
+      await seedTemplateSecurityGroups(seedDb, app.templateId);
+    } finally {
+      if (dedicatedSeedClient) await dedicatedSeedClient.$disconnect();
+    }
 
     // Update status to live
     await updateAppStatus(db, slug, appPack, appId, { status: 'live' });
@@ -185,10 +202,12 @@ export async function PUT(
     // Update status to deploying
     await updateAppStatus(db, slug, appPack, appId, { status: 'deploying' });
 
-    // Deploy using the vercel-deploy-service
+    // Deploy using the vercel-deploy-service — pointed at the TENANT's own
+    // database (not a new one of its own; see suite-provisioning.ts).
     const { deployTenant } = await import('@/domain/tenant/vercel-deploy-service');
     const appSlug = `${slug}__${appId}`;
     const tpl = getTemplate(app.templateId);
+    const tenantDbUrl = tenant.db_url as string | null;
 
     const result = await deployTenant({
       slug: appSlug,
@@ -196,6 +215,7 @@ export async function PUT(
       template: app.templateId,
       primaryColor: tpl.defaultColors.primary,
       secondaryColor: tpl.defaultColors.secondary,
+      dbUrl: tenantDbUrl ? { pooled: tenantDbUrl } : null,
       metadata: { parentSlug: slug, appId, department: app.department },
     });
 

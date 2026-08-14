@@ -16,12 +16,12 @@ import { requireWriteAuth } from '@/lib/auth/guards';
 import { sessionIsPlatformAdmin } from '@/lib/auth/jwt';
 import { jsonError, jsonOk } from '@/lib/api/response';
 import { ensureNavigationTable, seedMissingNavigationFromCatalog } from '@/lib/navigation/db';
+import { resolveTenantDbUrl } from '@/domain/tenant/tenant-db-resolver';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 30;
 
-function getClient() {
-  const url = process.env.POSTGRES_URL ?? process.env.DATABASE_URL;
+function getClient(url: string) {
   if (!url) throw new Error('POSTGRES_URL is not set');
   return new PrismaClient({ datasources: { db: { url } } });
 }
@@ -56,6 +56,8 @@ const updateSchema = z.object({
     isDynamic: z.boolean().optional(),
     isDefault: z.boolean().optional(),
   })),
+  tenantSlug: z.string().max(50).optional(),
+  appId: z.string().max(50).optional(),
 });
 
 // ── GET ─────────────────────────────────────────────────
@@ -72,10 +74,15 @@ export async function GET(request: Request): Promise<NextResponse> {
   const tenantSlug = isPlatformAdmin ? searchParams.get('tenantSlug') : null;
   const appId = isPlatformAdmin ? searchParams.get('appId') : null;
 
-  const prisma = getClient();
+  // Tenants with their own dedicated database must be read there — the
+  // tenant's own live app reads/writes that same DB via its own POSTGRES_URL,
+  // never the platform root DB, even though the root `tenants` table also has
+  // rows scoped by tenant_slug (stale leftovers once a tenant has its own DB).
+  const dbUrl = await resolveTenantDbUrl(tenantSlug, appId);
+  const prisma = getClient(dbUrl);
   try {
     await ensureNavigationTable(prisma);
-    const seeded = await seedMissingNavigationFromCatalog(prisma);
+    const seeded = await seedMissingNavigationFromCatalog(prisma, { tenantSlug, appId });
     if (seeded > 0) console.log(`[navigation] Seeded ${seeded} new item(s) from page catalog`);
 
     const where: string[] = [];
@@ -129,7 +136,8 @@ export async function POST(request: Request): Promise<NextResponse> {
 
   const { parentId, title, path, icon, authTier, requiredGroups, isVisible, tenantSlug, appId } = parsed.data;
 
-  const prisma = getClient();
+  const dbUrl = await resolveTenantDbUrl(tenantSlug, appId);
+  const prisma = getClient(dbUrl);
   try {
     await ensureNavigationTable(prisma);
     await prisma.$executeRawUnsafe(
@@ -158,7 +166,9 @@ export async function PUT(request: Request): Promise<NextResponse> {
   const parsed = updateSchema.safeParse(body);
   if (!parsed.success) return jsonError('Validation error: ' + JSON.stringify(parsed.error.flatten()), 400);
 
-  const prisma = getClient();
+  const { tenantSlug, appId } = parsed.data;
+  const dbUrl = await resolveTenantDbUrl(tenantSlug, appId);
+  const prisma = getClient(dbUrl);
   try {
     await ensureNavigationTable(prisma);
     for (const item of parsed.data.items) {
@@ -175,8 +185,14 @@ export async function PUT(request: Request): Promise<NextResponse> {
       if (item.isVisible !== undefined) { sets.push(`is_visible = $${idx++}`); params.push(item.isVisible); }
       if (item.isDynamic !== undefined) { sets.push(`is_dynamic = $${idx++}`); params.push(item.isDynamic); }
       if (item.isDefault !== undefined) {
-        // Clear any existing default first
-        await prisma.$executeRawUnsafe(`UPDATE navigation_items SET is_default = FALSE`);
+        // Clear any existing default first — scoped to this tenant when this
+        // connection is a shared DB (dedicated-DB connections only ever hold
+        // one tenant's rows, so the scoping is a no-op there, not a hazard).
+        if (tenantSlug) {
+          await prisma.$executeRawUnsafe(`UPDATE navigation_items SET is_default = FALSE WHERE tenant_slug = $1`, tenantSlug);
+        } else {
+          await prisma.$executeRawUnsafe(`UPDATE navigation_items SET is_default = FALSE`);
+        }
         sets.push(`is_default = $${idx++}`);
         params.push(item.isDefault);
       }
@@ -206,8 +222,11 @@ export async function DELETE(request: Request): Promise<NextResponse> {
   if (!idsParam) return jsonError('Query param "ids" required (comma-separated)', 400);
   const ids = idsParam.split(',').map((s) => s.trim()).filter(Boolean);
   if (ids.length === 0) return jsonError('No valid IDs provided', 400);
+  const tenantSlug = searchParams.get('tenantSlug');
+  const appId = searchParams.get('appId');
 
-  const prisma = getClient();
+  const dbUrl = await resolveTenantDbUrl(tenantSlug, appId);
+  const prisma = getClient(dbUrl);
   try {
     await ensureNavigationTable(prisma);
     // Set children's parent_id to null first, then delete

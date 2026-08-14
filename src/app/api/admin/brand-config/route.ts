@@ -18,12 +18,13 @@
 
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
-import { createClient } from '@/lib/db';
+import { createClient, createClientForUrl } from '@/lib/db';
 import { requireWriteAuth } from '@/lib/auth/guards';
 import { sessionIsPlatformAdmin } from '@/lib/auth/jwt';
 import { jsonError, jsonOk } from '@/lib/api/response';
 import { getAppSettings, updateAppSettings } from '@/domain/config/app-settings-service';
 import { getTenantConfig } from '@shared/lib/config/tenant';
+import { resolveDedicatedTenantDbUrl } from '@/domain/tenant/tenant-db-resolver';
 
 /** Cross-tenant browsing is a platform-admin-only capability; ignored for
  * any other caller so a tenant's own admin panel keeps editing its own row. */
@@ -57,8 +58,17 @@ export async function GET(request: Request): Promise<NextResponse> {
   if (!sessionIsPlatformAdmin(guard.session)) return jsonError('Platform admin only', 403);
 
   const { tenantSlug: scopeTenantSlug, appId } = resolveScope(request, true);
-  const db = createClient();
-  const settings = await getAppSettings(db, scopeTenantSlug, appId);
+  // Tenants with their own dedicated database must be read there — see
+  // tenant-db-resolver.ts. Falls back to the shared root connection when the
+  // tenant has none (e.g. the platform's own root tenant).
+  const dbUrl = await resolveDedicatedTenantDbUrl(scopeTenantSlug, appId);
+  const db = dbUrl ? createClientForUrl(dbUrl) : createClient();
+  let settings;
+  try {
+    settings = await getAppSettings(db, scopeTenantSlug, appId);
+  } finally {
+    if (dbUrl) await db.$disconnect();
+  }
 
   return jsonOk({
     tenantSlug: settings.tenantSlug,
@@ -158,7 +168,8 @@ export async function PUT(request: Request): Promise<NextResponse> {
     }
   }
 
-  const db = createClient();
+  const dbUrl = await resolveDedicatedTenantDbUrl(scope.tenantSlug, scope.appId);
+  const db = dbUrl ? createClientForUrl(dbUrl) : createClient();
   let settings;
   try {
     settings = await updateAppSettings(db, {
@@ -177,6 +188,8 @@ export async function PUT(request: Request): Promise<NextResponse> {
       { success: false, error: msg, step: 'updateAppSettings' },
       { status: 500 },
     );
+  } finally {
+    if (dbUrl) await db.$disconnect();
   }
 
   return jsonOk({

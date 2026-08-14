@@ -172,6 +172,12 @@ export async function POST(
     // Use Git-based deployment if requested, otherwise standard deployment
     const useGit = body.gitSource === true;
     const vercelProjectId = storedProjectId || projectId;
+    // This tenant's own dedicated database — every deploy of it (and of its
+    // suite apps, elsewhere) must point POSTGRES_URL here, never silently
+    // fall back to the platform root's own connection string.
+    const tenantDbUrl =
+      (tenant.db_url as string | undefined) ||
+      ((metadata.config as Record<string, unknown> | undefined)?.database as { databaseUrl?: string } | undefined)?.databaseUrl;
     const result = useGit
       ? await deployTenantWithGit({
           slug,
@@ -179,6 +185,7 @@ export async function POST(
           template: body.template || (tenant.template as string) || 'default',
           primaryColor: (tenant.primary_color as string) || '#eb3d28',
           secondaryColor: (tenant.secondary_color as string) || '#0af9fe',
+          dbUrl: tenantDbUrl ? { pooled: tenantDbUrl } : null,
           metadata: body.metadata || ((tenant.metadata as Record<string, unknown>) || {}),
           projectId: vercelProjectId,
         })
@@ -188,14 +195,12 @@ export async function POST(
           template: body.template || (tenant.template as string) || 'default',
           primaryColor: (tenant.primary_color as string) || '#eb3d28',
           secondaryColor: (tenant.secondary_color as string) || '#0af9fe',
+          dbUrl: tenantDbUrl ? { pooled: tenantDbUrl } : null,
           metadata: body.metadata || ((tenant.metadata as Record<string, unknown>) || {}),
           projectId: vercelProjectId,
         });
 
     // Step 2b: Seed dedicated platform-admin email into tenant Neon DB
-    const tenantDbUrl =
-      (tenant.db_url as string | undefined) ||
-      ((metadata.config as Record<string, unknown> | undefined)?.database as { databaseUrl?: string } | undefined)?.databaseUrl;
     const adminSeed = await seedTenantAdminDefaults(
       tenantDbUrl,
       slug,

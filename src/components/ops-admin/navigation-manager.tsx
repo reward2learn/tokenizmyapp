@@ -200,9 +200,23 @@ export function NavigationManager({ tenantSlug, appId }: NavigationManagerProps 
   }, [groupsData]);
 
   // ── RTK Query: mutations ──────────────────────────────
-  const [createNav] = useCreateNavigationItemMutation();
-  const [updateNav] = useUpdateNavigationItemsMutation();
-  const [deleteNav] = useDeleteNavigationItemsMutation();
+  // Wrapped so every call site automatically routes to this tenant/app's own
+  // database (see admin/navigation/route.ts) without touching each call site.
+  const [createNavRaw] = useCreateNavigationItemMutation();
+  const [updateNavRaw] = useUpdateNavigationItemsMutation();
+  const [deleteNavRaw] = useDeleteNavigationItemsMutation();
+  const createNav = useCallback(
+    (body: Record<string, unknown>) => createNavRaw({ ...body, tenantSlug, appId: appId ?? undefined }),
+    [createNavRaw, tenantSlug, appId],
+  );
+  const updateNav = useCallback(
+    (body: { items: Record<string, unknown>[] }) => updateNavRaw({ ...body, tenantSlug, appId: appId ?? undefined }),
+    [updateNavRaw, tenantSlug, appId],
+  );
+  const deleteNav = useCallback(
+    (ids: string[]) => deleteNavRaw({ ids, tenantSlug, appId: appId ?? undefined }),
+    [deleteNavRaw, tenantSlug, appId],
+  );
 
   // ── Create ────────────────────────────────────────────
   const [newTitle, setNewTitle] = useState('');

@@ -43,17 +43,26 @@ export const provisionTenant = inngest.createFunction(
       }
     });
 
-    // Step 4: Seed tenant defaults
+    // Step 4: Seed tenant defaults — into this tenant's own dedicated
+    // database when Neon provisioning succeeded, never the root DB.
     await step.run('seed-defaults', async () => {
       try {
         const { seedTenantDefaults, seedTemplateSecurityGroups } = await import('@/domain/tenant/tenant-seed-service');
+        const { PrismaClient } = await import('@/generated/prisma');
         const { createRawClient } = await import('@/lib/db');
-        const db = createRawClient() as any;
-        await seedTenantDefaults({
-          slug, displayName, template: templateId,
-          primaryColor, secondaryColor, db,
-        });
-        await seedTemplateSecurityGroups(db, templateId);
+        const dedicatedClient = dbInfo?.pooledUrl
+          ? new PrismaClient({ datasources: { db: { url: dbInfo.pooledUrl } } })
+          : null;
+        const db = (dedicatedClient ?? createRawClient()) as any;
+        try {
+          await seedTenantDefaults({
+            slug, displayName, template: templateId,
+            primaryColor, secondaryColor, db,
+          });
+          await seedTemplateSecurityGroups(db, templateId);
+        } finally {
+          if (dedicatedClient) await dedicatedClient.$disconnect();
+        }
         return true;
       } catch (err) {
         console.error('[workflow] Seed failed:', err);
@@ -61,13 +70,15 @@ export const provisionTenant = inngest.createFunction(
       }
     });
 
-    // Step 5: Deploy to Vercel
+    // Step 5: Deploy to Vercel — pointed at this tenant's own database.
     const deployResult = await step.run('deploy-to-vercel', async () => {
       try {
         const { deployTenant } = await import('@/domain/tenant/vercel-deploy-service');
         const result = await deployTenant({
           slug, displayName, template: templateId,
-          primaryColor, secondaryColor, metadata,
+          primaryColor, secondaryColor,
+          dbUrl: dbInfo?.pooledUrl ? { pooled: dbInfo.pooledUrl, direct: dbInfo.directUrl } : null,
+          metadata,
         });
         return result;
       } catch (err) {

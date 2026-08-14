@@ -96,10 +96,29 @@ async function deriveNavItemsFromCatalog(): Promise<
  * Idempotently insert static infrastructure nav items from the page catalog.
  * Template-driven pages are NOT seeded here — they come from the tenant template
  * via app_pages. Returns the number of rows inserted.
+ *
+ * `scope` matters only when `prisma` is a shared/multi-tenant database (the
+ * platform root DB, or a suite parent DB holding several apps) — without it,
+ * the "already seeded" check was global, so once ANY tenant/app anywhere had
+ * e.g. an "admin" item, every other tenant/app silently never got its own.
+ * When `prisma` is a tenant's own dedicated database, every row already
+ * belongs to that one tenant and `scope` can be omitted.
  */
-export async function seedMissingNavigationFromCatalog(prisma: PrismaClient): Promise<number> {
+export async function seedMissingNavigationFromCatalog(
+  prisma: PrismaClient,
+  scope?: { tenantSlug?: string | null; appId?: string | null },
+): Promise<number> {
+  const tenantSlug = scope?.tenantSlug ?? null;
+  const appId = scope?.appId ?? null;
+  const where: string[] = [];
+  const params: unknown[] = [];
+  if (tenantSlug) { params.push(tenantSlug); where.push(`tenant_slug = $${params.length}`); }
+  if (appId) { params.push(appId); where.push(`app_id = $${params.length}`); }
+  const whereClause = where.length ? `WHERE ${where.join(' AND ')}` : '';
+
   const existing = await prisma.$queryRawUnsafe<{ id: string; path: string }[]>(
-    `SELECT id, path FROM navigation_items`,
+    `SELECT id, path FROM navigation_items ${whereClause}`,
+    ...params,
   );
   const existingIds = new Set(existing.map((r) => r.id));
   const existingPaths = new Set(existing.map((r) => r.path));
@@ -109,21 +128,25 @@ export async function seedMissingNavigationFromCatalog(prisma: PrismaClient): Pr
 
   const insertIfMissing = async (id: string, title: string, path: string, authTier: string) => {
     if (existingIds.has(id) || existingPaths.has(path)) return;
+    // Scoped ids so the same catalog slug can exist once per tenant/app.
+    const scopedId = tenantSlug ? `${id}_${appId ?? tenantSlug}` : id;
     try {
       await prisma.$executeRawUnsafe(
-        `INSERT INTO navigation_items (id, parent_id, sort_order, title, path, icon, auth_tier, required_groups, is_visible, is_dynamic, is_default, updated_at)
-         VALUES ($1, NULL, $2, $3, $4, '', CAST($5 AS "AuthTier"), '', TRUE, FALSE, $6, NOW())`,
-        id,
+        `INSERT INTO navigation_items (id, parent_id, sort_order, title, path, icon, auth_tier, required_groups, is_visible, is_dynamic, is_default, tenant_slug, app_id, updated_at)
+         VALUES ($1, NULL, $2, $3, $4, '', CAST($5 AS "AuthTier"), '', TRUE, FALSE, $6, $7, $8, NOW())`,
+        scopedId,
         inserted,
         title,
         path,
         authTier,
         path === '/', // the Home '/' item becomes the default landing route when seeded
+        tenantSlug,
+        appId,
       );
-      existingIds.add(id);
+      existingIds.add(scopedId);
       inserted++;
     } catch (err) {
-      console.error(`[navigation] Failed to seed item ${id}:`, err);
+      console.error(`[navigation] Failed to seed item ${scopedId}:`, err);
     }
   };
 

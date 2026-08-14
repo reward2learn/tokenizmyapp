@@ -17,6 +17,15 @@ interface DeployTenantInput {
   metadata?: Record<string, unknown>;
   /** Optional project ID from tenant record — used as fallback lookup key. */
   projectId?: string;
+  /**
+   * All data for a tenant — including every suite app under it — lives in
+   * ONE dedicated Neon database (the tenant's own db_url), never a separate
+   * per-app database. When set, this overrides POSTGRES_URL/POSTGRES_URL_NON_POOLING
+   * on the deployed Vercel project; when omitted, the deploy falls back to
+   * copying the CURRENT PROCESS's own POSTGRES_URL, which is only correct for
+   * the platform's own root deployment, never for an actual tenant.
+   */
+  dbUrl?: { pooled: string; direct?: string } | null;
 }
 
 interface DeployTenantResult {
@@ -203,12 +212,27 @@ export async function syncEnvVars(
     NEXT_PUBLIC_APP_URL: appUrl,
   };
 
-  const SHARED_ENV_KEYS = [
-    'POSTGRES_URL', 'POSTGRES_PRISMA_URL', 'POSTGRES_URL_NON_POOLING',
-    'POSTGRES_HOST', 'POSTGRES_DATABASE', 'POSTGRES_USER', 'POSTGRES_PASSWORD',
-    'ENCRYPTION_KEY', 'OPENAI_API_KEY', 'SETUP_TOKEN',
-  ];
+  // Postgres connection vars: when a tenant-specific dbUrl is supplied, that
+  // tenant's own database wins — never fall back to this (the platform root's
+  // own) process's POSTGRES_URL for an actual tenant deployment. The
+  // HOST/DATABASE/USER/PASSWORD parts are root-project-specific and are
+  // skipped entirely in that case (the app only ever reads the full URL).
+  if (input.dbUrl) {
+    envVars.POSTGRES_URL = input.dbUrl.pooled;
+    envVars.POSTGRES_PRISMA_URL = input.dbUrl.pooled;
+    envVars.POSTGRES_URL_NON_POOLING = input.dbUrl.direct ?? input.dbUrl.pooled;
+  } else {
+    const ROOT_POSTGRES_KEYS = [
+      'POSTGRES_URL', 'POSTGRES_PRISMA_URL', 'POSTGRES_URL_NON_POOLING',
+      'POSTGRES_HOST', 'POSTGRES_DATABASE', 'POSTGRES_USER', 'POSTGRES_PASSWORD',
+    ];
+    for (const key of ROOT_POSTGRES_KEYS) {
+      const value = process.env[key];
+      if (value) envVars[key] = value;
+    }
+  }
 
+  const SHARED_ENV_KEYS = ['ENCRYPTION_KEY', 'OPENAI_API_KEY', 'SETUP_TOKEN'];
   for (const key of SHARED_ENV_KEYS) {
     const value = process.env[key];
     if (value) {

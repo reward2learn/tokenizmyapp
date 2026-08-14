@@ -5,6 +5,7 @@
  * Seeds: AppPages + PageSections, NavigationItems, AppSettings, SecurityGroups
  */
 import { NextResponse } from 'next/server';
+import { PrismaClient } from '@/generated/prisma';
 import { createRawClient } from '@/lib/db';
 import { requireWriteAuth } from '@/lib/auth/guards';
 import { jsonError, jsonOk } from '@/lib/api/response';
@@ -35,35 +36,49 @@ export async function POST(
 
     const tenant = rows[0] as Record<string, unknown>;
 
-    const result = await seedTenantDefaults({
-      slug: tenant.slug as string,
-      displayName: tenant.display_name as string,
-      template: tenant.template as string,
-      primaryColor: (tenant.primary_color as string) || '#eb3d28',
-      secondaryColor: (tenant.secondary_color as string) || '#0af9fe',
-      db,
-    });
+    // Tenants with their own dedicated database must be seeded there — the
+    // tenant's own live app reads from that same URL via its own
+    // POSTGRES_URL, not the root DB's tenant_slug-scoped rows. Re-seeding the
+    // root DB instead (the old behavior) never reached the tenant's real DB.
+    const dedicatedDbUrl = tenant.db_url as string | null;
+    const dedicatedClient = dedicatedDbUrl
+      ? new PrismaClient({ datasources: { db: { url: dedicatedDbUrl } } })
+      : null;
+    const seedDb: unknown = dedicatedClient ?? db;
 
-    const groupsCount = await seedTemplateSecurityGroups(db, tenant.template as string);
+    try {
+      const result = await seedTenantDefaults({
+        slug: tenant.slug as string,
+        displayName: tenant.display_name as string,
+        template: tenant.template as string,
+        primaryColor: (tenant.primary_color as string) || '#eb3d28',
+        secondaryColor: (tenant.secondary_color as string) || '#0af9fe',
+        db: seedDb,
+      });
 
-    await seedTemplateBranding(slug, db, {
-      primaryColor: (tenant.primary_color as string) || '#eb3d28',
-      secondaryColor: (tenant.secondary_color as string) || '#0af9fe',
-    });
+      const groupsCount = await seedTemplateSecurityGroups(seedDb, tenant.template as string);
 
-    if (result.errors?.length > 0) {
-      console.error(`[seed] Seed errors for "${slug}":`, result.errors);
+      await seedTemplateBranding(slug, seedDb, {
+        primaryColor: (tenant.primary_color as string) || '#eb3d28',
+        secondaryColor: (tenant.secondary_color as string) || '#0af9fe',
+      });
+
+      if (result.errors?.length > 0) {
+        console.error(`[seed] Seed errors for "${slug}":`, result.errors);
+      }
+      console.log(`[seed] Seed complete for "${slug}" (${dedicatedClient ? 'dedicated DB' : 'root DB'}): ${result.pages} pages, ${result.navItems} nav items, ${groupsCount} groups`);
+
+      return jsonOk({
+        seeded: true,
+        pages: result.pages,
+        navItems: result.navItems,
+        groups: groupsCount,
+        settings: result.settings,
+        errors: result.errors || [],
+      });
+    } finally {
+      if (dedicatedClient) await dedicatedClient.$disconnect();
     }
-    console.log(`[seed] Seed complete for "${slug}": ${result.pages} pages, ${result.navItems} nav items, ${groupsCount} groups`);
-
-    return jsonOk({
-      seeded: true,
-      pages: result.pages,
-      navItems: result.navItems,
-      groups: groupsCount,
-      settings: result.settings,
-      errors: result.errors || [],
-    });
   } catch (err) {
     console.error(`[seed] POST /${slug}/seed error:`, err);
     return jsonError('Failed to seed tenant: ' + (err as Error).message, 500);

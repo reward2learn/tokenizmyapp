@@ -12,8 +12,8 @@
  * actual infrastructure provisioning (which needs per-app Neon + Vercel).
  */
 
+import { PrismaClient } from '@/generated/prisma';
 import { createRawClient } from '@/lib/db';
-import { provisionTenantDatabase, type ProvisionedDatabase } from '@/domain/tenant/neon-provision-service';
 import { deployTenant } from '@/domain/tenant/vercel-deploy-service';
 import { seedTenantDefaults, seedTemplateSecurityGroups } from '@/domain/tenant/tenant-seed-service';
 import { ensureTenantsTable } from '@/domain/tenant/tenant-service';
@@ -112,6 +112,18 @@ export async function provisionSuiteApps(
       throw new Error('Tenant is not in suite mode');
     }
 
+    // All data for this tenant — including every app in the suite — lives in
+    // ONE dedicated database: the tenant's own db_url. Apps do NOT get their
+    // own separate Neon database; only their own Vercel deployment.
+    const tenantDbUrl = tenant.db_url as string | null;
+    if (!tenantDbUrl) {
+      console.warn(`[suite-provision] Tenant "${parentSlug}" has no dedicated db_url yet — apps will seed into the shared root DB until it's provisioned.`);
+    }
+    const dedicatedSeedClient = tenantDbUrl
+      ? new PrismaClient({ datasources: { db: { url: tenantDbUrl } } })
+      : null;
+    const seedDb: unknown = dedicatedSeedClient ?? db;
+
     // Get apps to provision (pending or deploying)
     const statusFilter = options?.skipLive ? ['pending', 'deploying'] : ['pending'];
     const appsToProvision = appPack.apps.filter((a) => {
@@ -126,6 +138,7 @@ export async function provisionSuiteApps(
     const finalApps = appsToProvision.length > 0 ? appsToProvision : appPack.apps.filter((a) => a.status === 'pending');
 
     if (finalApps.length === 0) {
+      if (dedicatedSeedClient) await dedicatedSeedClient.$disconnect();
       return { totalApps: appPack.apps.length, successful: [], errors: [] };
     }
 
@@ -135,81 +148,82 @@ export async function provisionSuiteApps(
       errors: [],
     };
 
-    for (const app of finalApps) {
-      try {
-        // Update status to provisioning
-        await updateAppStatus(db, parentSlug, appPack, app.appId, { status: 'provisioning' });
-
-        const appSlug = `${parentSlug}__${app.appId}`;
-        const tpl = getTemplate(app.templateId);
-
-        // Step 1: Provision Neon database for this app
-        let dbUrl: string | undefined;
+    try {
+      for (const app of finalApps) {
         try {
-          const neonDb = await provisionTenantDatabase(appSlug);
-          dbUrl = neonDb.pooledUrl;
-        } catch (dbErr) {
-          console.warn(`[suite-provision] Neon provisioning skipped for "${app.appId}":`, dbErr instanceof Error ? dbErr.message : String(dbErr));
-        }
+          // Update status to provisioning
+          await updateAppStatus(db, parentSlug, appPack, app.appId, { status: 'provisioning' });
 
-        // Step 2: Deploy to Vercel
-        const deployResult = await deployTenant({
-          slug: appSlug,
-          displayName: app.name,
-          template: app.templateId,
-          primaryColor: tpl.defaultColors.primary,
-          secondaryColor: tpl.defaultColors.secondary,
-          metadata: {
-            parentSlug,
+          const appSlug = `${parentSlug}__${app.appId}`;
+          const tpl = getTemplate(app.templateId);
+
+          // Step 1: Deploy to Vercel — its own project, but pointed at the
+          // TENANT's own database, not a new one of its own.
+          const deployResult = await deployTenant({
+            slug: appSlug,
+            displayName: app.name,
+            template: app.templateId,
+            primaryColor: tpl.defaultColors.primary,
+            secondaryColor: tpl.defaultColors.secondary,
+            dbUrl: tenantDbUrl ? { pooled: tenantDbUrl } : null,
+            metadata: {
+              parentSlug,
+              appId: app.appId,
+              department: app.department,
+              suitePackId: appPack.packId,
+            },
+          });
+
+          // Step 2: Seed this app's defaults (pages, nav, security groups)
+          // into the tenant's own database. `slug`/`appId` are separate
+          // columns (not a combined key) so admin queries scoped by
+          // {tenantSlug, appId} can find these rows.
+          const seedResult = await seedTenantDefaults({
+            slug: parentSlug,
             appId: app.appId,
-            department: app.department,
-            suitePackId: appPack.packId,
-          },
-        });
+            displayName: app.name,
+            template: app.templateId,
+            primaryColor: tpl.defaultColors.primary,
+            secondaryColor: tpl.defaultColors.secondary,
+            db: seedDb,
+          });
 
-        // Step 3: Seed this app's defaults (pages, nav, security groups)
-        const seedResult = await seedTenantDefaults({
-          slug: appSlug,
-          displayName: app.name,
-          template: app.templateId,
-          primaryColor: tpl.defaultColors.primary,
-          secondaryColor: tpl.defaultColors.secondary,
-          db,
-        });
+          await seedTemplateSecurityGroups(seedDb, app.templateId);
 
-        await seedTemplateSecurityGroups(db, app.templateId);
+          // Update app with deployment results
+          await updateAppStatus(db, parentSlug, appPack, app.appId, {
+            status: 'live',
+            dbUrl: tenantDbUrl ?? null,
+            vercelProjectId: deployResult.projectId,
+            appUrl: deployResult.appUrl,
+            metadata: {
+              ...app.metadata,
+              models: seedResult.pages || 0, // reuse as model count proxy
+              pages: seedResult.pages || 0,
+              navItems: seedResult.navItems || 0,
+            },
+          });
 
-        // Update app with deployment results
-        await updateAppStatus(db, parentSlug, appPack, app.appId, {
-          status: 'live',
-          dbUrl: dbUrl ?? null,
-          vercelProjectId: deployResult.projectId,
-          appUrl: deployResult.appUrl,
-          metadata: {
-            ...app.metadata,
-            models: seedResult.pages || 0, // reuse as model count proxy
-            pages: seedResult.pages || 0,
-            navItems: seedResult.navItems || 0,
-          },
-        });
+          result.successful.push({
+            appId: app.appId,
+            dbUrl: tenantDbUrl ?? undefined,
+            appUrl: deployResult.appUrl,
+            projectId: deployResult.projectId,
+          });
 
-        result.successful.push({
-          appId: app.appId,
-          dbUrl,
-          appUrl: deployResult.appUrl,
-          projectId: deployResult.projectId,
-        });
+          console.log(`[suite-provision] ✅ Provisioned "${app.appId}": ${deployResult.appUrl}`);
+        } catch (err) {
+          const errorMsg = err instanceof Error ? err.message : String(err);
+          console.error(`[suite-provision] ❌ Failed to provision "${app.appId}":`, errorMsg);
 
-        console.log(`[suite-provision] ✅ Provisioned "${app.appId}": ${deployResult.appUrl}`);
-      } catch (err) {
-        const errorMsg = err instanceof Error ? err.message : String(err);
-        console.error(`[suite-provision] ❌ Failed to provision "${app.appId}":`, errorMsg);
+          // Update status to error
+          await updateAppStatus(db, parentSlug, appPack, app.appId, { status: 'error' });
 
-        // Update status to error
-        await updateAppStatus(db, parentSlug, appPack, app.appId, { status: 'error' });
-
-        result.errors.push({ appId: app.appId, error: errorMsg });
+          result.errors.push({ appId: app.appId, error: errorMsg });
+        }
       }
+    } finally {
+      if (dedicatedSeedClient) await dedicatedSeedClient.$disconnect();
     }
 
     return result;
@@ -243,6 +257,7 @@ export async function redeploySuiteApps(
     if (!appPack) {
       throw new Error('Tenant is not in suite mode');
     }
+    const tenantDbUrl = tenant.db_url as string | null;
 
     const appsToDeploy = options?.appIds
       ? appPack.apps.filter((a) => options.appIds!.includes(a.appId))
@@ -271,6 +286,7 @@ export async function redeploySuiteApps(
           template: app.templateId,
           primaryColor: tpl.defaultColors.primary,
           secondaryColor: tpl.defaultColors.secondary,
+          dbUrl: tenantDbUrl ? { pooled: tenantDbUrl } : null,
           metadata: {
             parentSlug,
             appId: app.appId,
