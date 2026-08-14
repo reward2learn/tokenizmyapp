@@ -197,7 +197,7 @@ export const tenantApi = createApi({
         method: 'PUT',
         body,
       }),
-      invalidatesTags: (_result, _error, { slug }) => [{ type: 'Tenants', id: slug }],
+      invalidatesTags: ['Tenants'],
     }),
 
     deleteTenant: builder.mutation<ApiEnvelope<{ deleted: boolean }>, string>({
@@ -291,7 +291,7 @@ export const tenantApi = createApi({
         url: `admin/tenants/${slug}/apps/${appId}`,
         method: 'POST',
       }),
-      invalidatesTags: (_result, _error, { slug }) => [{ type: 'Tenants', id: slug }],
+      invalidatesTags: ['Tenants'],
     }),
 
     migrateApp: builder.mutation<ApiEnvelope<{ migrated: boolean; appId: string; templateId: string }>, { slug: string; appId: string }>({
@@ -299,7 +299,7 @@ export const tenantApi = createApi({
         url: `admin/tenants/${slug}/apps/${appId}`,
         method: 'PATCH',
       }),
-      invalidatesTags: (_result, _error, { slug }) => [{ type: 'Tenants', id: slug }],
+      invalidatesTags: ['Tenants'],
     }),
 
     deployApp: builder.mutation<ApiEnvelope<{ deployed: boolean; appId: string; projectId: string; appUrl: string; envCount: number }>, { slug: string; appId: string }>({
@@ -307,7 +307,7 @@ export const tenantApi = createApi({
         url: `admin/tenants/${slug}/apps/${appId}`,
         method: 'PUT',
       }),
-      invalidatesTags: (_result, _error, { slug }) => [{ type: 'Tenants', id: slug }],
+      invalidatesTags: ['Tenants'],
     }),
 
     /** GET — lightweight read of the app's currently-stored status (no live Vercel check). */
@@ -333,7 +333,7 @@ export const tenantApi = createApi({
         method: 'PATCH',
         body,
       }),
-      invalidatesTags: (_result, _error, { slug }) => [{ type: 'Tenants', id: slug }],
+      invalidatesTags: ['Tenants'],
     }),
 
     /** GET — this app's own domain list + Vercel project info (keyed by the app's own vercelProjectId). */
@@ -387,7 +387,7 @@ export const tenantApi = createApi({
         method: 'POST',
         body,
       }),
-      invalidatesTags: (_result, _error, { slug }) => [{ type: 'Tenants', id: slug }],
+      invalidatesTags: ['Tenants'],
     }),
 
     /** POST — clone an existing suite app (identity + app-scoped content). */
@@ -400,7 +400,7 @@ export const tenantApi = createApi({
         method: 'POST',
         body,
       }),
-      invalidatesTags: (_result, _error, { slug }) => [{ type: 'Tenants', id: slug }],
+      invalidatesTags: ['Tenants'],
     }),
 
     /** DELETE — remove an app from an existing suite. */
@@ -412,7 +412,7 @@ export const tenantApi = createApi({
         url: `admin/tenants/${slug}/apps?appId=${encodeURIComponent(appId)}`,
         method: 'DELETE',
       }),
-      invalidatesTags: (_result, _error, { slug }) => [{ type: 'Tenants', id: slug }],
+      invalidatesTags: ['Tenants'],
     }),
 
     // ── Custom Domain ─────────────────────────────────
