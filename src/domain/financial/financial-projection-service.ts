@@ -1,4 +1,5 @@
 import type { DbClient } from '@/lib/db';
+import { getCurrentAppId } from '@shared/lib/config/tenant';
 export type ProjectionDataType = 'actual' | 'forecast';
 export type ProjectionScenario = 'actual' | 'conservative' | 'realistic' | 'aspirational';
 import { SyncMonthlyActuals, type ScenarioPayload } from '@/domain/actuals/sync-monthly-actuals';
@@ -100,10 +101,11 @@ export class FinancialProjectionService {
   async findByTypeAndScenario(query: ProjectionQuery) {
     return this.db.financialProjection.findUnique({
       where: {
-        period_dataType_scenario: {
+        period_dataType_scenario_appId: {
           period: query.period,
           dataType: query.dataType,
           scenario: query.scenario,
+          appId: getCurrentAppId(),
         },
       },
     });
@@ -159,6 +161,7 @@ export class FinancialProjectionService {
     const scenarioCfg = SCENARIO_MAP[scenario] ?? SCENARIO_MAP.conservative;
 
     const rows = await this.db.financialProjection.findMany({
+      where: { appId: getCurrentAppId() },
       orderBy: [{ year: 'asc' }, { month: 'asc' }, { dataType: 'asc' }, { scenario: 'asc' }],
     });
 

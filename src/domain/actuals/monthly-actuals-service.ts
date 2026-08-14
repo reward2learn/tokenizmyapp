@@ -1,4 +1,5 @@
 import type { DbClient } from '@/lib/db';
+import { getCurrentAppId } from '@shared/lib/config/tenant';
 import {
   buildComputedPnl,
   computedPreview,
@@ -72,10 +73,12 @@ function normalizeDeptRow(row: {
 export class MonthlyActualsService {
   private readonly sync: SyncMonthlyActuals;
   private readonly prefill: MonthlyActualsPrefill;
+  private readonly appId: string;
 
   constructor(private readonly db: DbClient) {
     this.sync = new SyncMonthlyActuals(db);
     this.prefill = new MonthlyActualsPrefill(db);
+    this.appId = getCurrentAppId();
   }
 
   sanitizeDepartmentInputs(department: string, raw: Record<string, unknown>): Record<string, number> {
@@ -93,14 +96,14 @@ export class MonthlyActualsService {
 
   async getDepartmentRecord(period: string, department: string): Promise<DepartmentRecord | null> {
     const row = await this.db.monthlyActualDepartment.findUnique({
-      where: { period_department: { period, department } },
+      where: { period_department_appId: { period, department, appId: this.appId } },
     });
     return normalizeDeptRow(row);
   }
 
   async getAllDepartmentRecords(period: string): Promise<DepartmentRecord[]> {
     const rows = await this.db.monthlyActualDepartment.findMany({
-      where: { period },
+      where: { period, appId: this.appId },
       orderBy: { department: 'asc' },
     });
     return rows.map((r) => normalizeDeptRow(r)!).filter(Boolean);
@@ -113,8 +116,8 @@ export class MonthlyActualsService {
   async saveManualInputs(period: string, inputs: Record<string, unknown>): Promise<Record<string, number>> {
     const clean = sanitizeManualInputs(inputs);
     await this.db.monthlyActualInput.upsert({
-      where: { period },
-      create: { period, inputs: clean },
+      where: { period_appId: { period, appId: this.appId } },
+      create: { period, inputs: clean, appId: this.appId },
       update: { inputs: clean },
     });
     await this.sync.resyncActualsCascadeFrom(period);
@@ -159,11 +162,12 @@ export class MonthlyActualsService {
     const safeLimit = Math.min(50, Math.max(1, limit));
     const safeOffset = Math.max(0, offset);
 
+    const appId = this.appId;
     const countResult = await this.db.$queryRaw<{ total: number }[]>`
       SELECT COUNT(*)::int AS total FROM (
-        SELECT period FROM monthly_actual_inputs WHERE period >= '2026-06'
+        SELECT period FROM monthly_actual_inputs WHERE period >= '2026-06' AND app_id = ${appId}
         UNION ALL
-        SELECT period FROM monthly_actual_departments
+        SELECT period FROM monthly_actual_departments WHERE app_id = ${appId}
       ) combined`;
 
     const rows = await this.db.$queryRaw<{
@@ -178,11 +182,12 @@ export class MonthlyActualsService {
         SELECT period, 'month' AS kind, 'all' AS department, inputs,
                '[]'::jsonb AS receipt_images, updated_at
         FROM monthly_actual_inputs
-        WHERE period >= '2026-06'
+        WHERE period >= '2026-06' AND app_id = ${appId}
         UNION ALL
         SELECT period, 'department' AS kind, department, inputs,
                receipt_images, updated_at
         FROM monthly_actual_departments
+        WHERE app_id = ${appId}
       ) combined
       ORDER BY updated_at DESC NULLS LAST, period DESC, department ASC
       LIMIT ${safeLimit} OFFSET ${safeOffset}`;
@@ -231,7 +236,7 @@ export class MonthlyActualsService {
     const deptExisting = await this.getDepartmentRecord(period, department);
     if (deptExisting) {
       await this.db.monthlyActualDepartment.update({
-        where: { period_department: { period, department } },
+        where: { period_department_appId: { period, department, appId: this.appId } },
         data: { inputs: { ...deptExisting.inputs, ...cleanInputs } },
       });
     }
@@ -254,13 +259,14 @@ export class MonthlyActualsService {
       if (!Object.keys(cleanInputs).length) continue;
       const existing = await this.getDepartmentRecord(period, dept.id);
       await this.db.monthlyActualDepartment.upsert({
-        where: { period_department: { period, department: dept.id } },
+        where: { period_department_appId: { period, department: dept.id, appId: this.appId } },
         create: {
           period,
           department: dept.id,
           inputs: cleanInputs,
           receiptImages: (existing?.receipt_images || []) as unknown as object,
           notes: existing?.notes || '',
+          appId: this.appId,
         },
         update: {
           inputs: { ...existing?.inputs, ...cleanInputs },
@@ -294,13 +300,14 @@ export class MonthlyActualsService {
       : (existing?.notes || '');
 
     await this.db.monthlyActualDepartment.upsert({
-      where: { period_department: { period, department } },
+      where: { period_department_appId: { period, department, appId: this.appId } },
       create: {
         period,
         department,
         inputs: cleanInputs,
         receiptImages: mergedImages as unknown as object,
         notes,
+        appId: this.appId,
       },
       update: {
         inputs: cleanInputs,

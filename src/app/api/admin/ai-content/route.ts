@@ -35,6 +35,7 @@ import { jsonError } from '@/lib/api/response';
 import { extractExcelData, type ExcelData } from '@/domain/excel/excel-extractor';
 import { buildGenerationPrompt, buildDataSummary } from '@/domain/ai-content/prompt-builder';
 import { generateAndSave, OPENAI_QUOTA_MARKER, type ProgressEvent } from '@/domain/ai-content/content-generator';
+import { getCurrentAppId } from '@shared/lib/config/tenant';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 120; // 2 min timeout for OpenAI calls
@@ -134,7 +135,7 @@ async function resolveWorkbook(): Promise<ExcelData> {
   try {
     const db = createClient();
     const cached = await db.knowledgeSnippet.findUnique({
-      where: { key: 'workbook_data' },
+      where: { key_appId: { key: 'workbook_data', appId: getCurrentAppId() } },
     });
     if (cached?.content) {
       return extractExcelData(Buffer.from(cached.content, 'base64'));
@@ -175,7 +176,7 @@ export async function GET(request: Request): Promise<NextResponse> {
 
     try {
       const snippet = await db.knowledgeSnippet.findUnique({
-        where: { key: 'executive_summary' },
+        where: { key_appId: { key: 'executive_summary', appId: getCurrentAppId() } },
       });
       existingContent.executiveSummary = snippet?.content
         ? snippet.content.slice(0, 500) + '...'
@@ -246,14 +247,14 @@ export async function POST(request: Request): Promise<Response> {
         const db = createClient(dbSession);
         // Read primary cached workbook
         const cached = await db.knowledgeSnippet.findUnique({
-          where: { key: 'workbook_data' },
+          where: { key_appId: { key: 'workbook_data', appId: getCurrentAppId() } },
         });
         if (cached?.content) {
           const buffers: Buffer[] = [Buffer.from(cached.content, 'base64')];
           // Read additional cached workbooks
           for (let i = 1; i < 10; i++) {
             const extra = await db.knowledgeSnippet.findUnique({
-              where: { key: `workbook_data_${i}` },
+              where: { key_appId: { key: `workbook_data_${i}`, appId: getCurrentAppId() } },
             });
             if (extra?.content) {
               buffers.push(Buffer.from(extra.content, 'base64'));

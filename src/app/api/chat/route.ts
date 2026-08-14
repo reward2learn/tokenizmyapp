@@ -11,6 +11,7 @@ import { getSessionFromRequest } from '@/lib/auth/session';
 import { sessionIsPlatformAdmin } from '@/lib/auth/jwt';
 import { legacyError } from '@/lib/api/response';
 import { sanitizeConversationMessages } from '@/lib/chat/conversation-messages';
+import { getCurrentAppId } from '@shared/lib/config/tenant';
 import {
   attachmentDataUrl,
   describeAttachmentForPrompt,
@@ -102,6 +103,7 @@ async function fetchDatabaseContext(db: ReturnType<typeof createClient>): Promis
 
   try {
     const recent = await db.dailyZReport.findMany({
+      where: { appId: getCurrentAppId() },
       orderBy: { reportDate: 'desc' },
       take: 7,
       select: {

@@ -17,6 +17,7 @@
  */
 import type { DbClient } from '@/lib/db';
 import type { PrismaClient } from '@/generated/prisma';
+import { getCurrentAppId } from '@shared/lib/config/tenant';
 import type { PageDefinition, PageSectionDefinition } from '@/lib/page-catalog';
 import { setDynamicPages } from '@/lib/page-catalog';
 import {
@@ -181,11 +182,12 @@ async function saveComprehensionSnippets(
 ): Promise<void> {
   // Raw comprehension JSON (used by AI chat / reprocess).
   await db.knowledgeSnippet.upsert({
-    where: { key: 'workbook_comprehension' },
+    where: { key_appId: { key: 'workbook_comprehension', appId: getCurrentAppId() } },
     create: {
       key: 'workbook_comprehension',
       category: 'document',
       content: JSON.stringify({ model, comprehendedAt: new Date().toISOString(), comprehension }),
+      appId: getCurrentAppId(),
     },
     update: {
       content: JSON.stringify({ model, comprehendedAt: new Date().toISOString(), comprehension }),
@@ -206,8 +208,8 @@ async function saveComprehensionSnippets(
       .filter((l) => l !== '')
       .join('\n');
     await db.knowledgeSnippet.upsert({
-      where: { key },
-      create: { key, category: 'sheet', content: markdown },
+      where: { key_appId: { key, appId: getCurrentAppId() } },
+      create: { key, category: 'sheet', content: markdown, appId: getCurrentAppId() },
       update: { content: markdown },
     });
   }

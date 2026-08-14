@@ -15,6 +15,7 @@ import { z } from 'zod';
 import { PrismaClient } from '@/generated/prisma';
 import { requireWriteAuth } from '@/lib/auth/guards';
 import { jsonError, jsonOk } from '@/lib/api/response';
+import { getCurrentAppId } from '@shared/lib/config/tenant';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
@@ -46,15 +47,16 @@ export async function POST(request: Request): Promise<NextResponse> {
 
   try {
     let imported = 0;
+    const appId = getCurrentAppId();
 
     if (table === 'knowledge_snippets') {
       for (const row of data) {
         if (!row.key || !row.content) continue;
         await prisma.$executeRawUnsafe(
-          `INSERT INTO knowledge_snippets (id, key, category, content)
-           VALUES (gen_random_uuid()::text, $1, $2, $3)
-           ON CONFLICT (key) DO UPDATE SET category = $2, content = $3`,
-          String(row.key), String(row.category ?? 'imported'), String(row.content),
+          `INSERT INTO knowledge_snippets (id, key, category, content, app_id)
+           VALUES (gen_random_uuid()::text, $1, $2, $3, $4)
+           ON CONFLICT (key, app_id) DO UPDATE SET category = $2, content = $3`,
+          String(row.key), String(row.category ?? 'imported'), String(row.content), appId,
         );
         imported++;
       }
@@ -62,15 +64,16 @@ export async function POST(request: Request): Promise<NextResponse> {
       for (const row of data) {
         if (!row.month) continue;
         await prisma.$executeRawUnsafe(
-          `INSERT INTO monthly_targets (id, month, target_revenue, target_ebitda, target_guests, target_avg_spend, target_staff_cost_pct)
-           VALUES (gen_random_uuid()::text, $1, $2, $3, $4, $5, $6)
-           ON CONFLICT (month) DO UPDATE SET target_revenue = $2, target_ebitda = $3, target_guests = $4, target_avg_spend = $5, target_staff_cost_pct = $6`,
+          `INSERT INTO monthly_targets (id, month, target_revenue, target_ebitda, target_guests, target_avg_spend, target_staff_cost_pct, app_id)
+           VALUES (gen_random_uuid()::text, $1, $2, $3, $4, $5, $6, $7)
+           ON CONFLICT (month, app_id) DO UPDATE SET target_revenue = $2, target_ebitda = $3, target_guests = $4, target_avg_spend = $5, target_staff_cost_pct = $6`,
           String(row.month),
           Number(row.targetRevenue ?? row.target_revenue ?? 0),
           Number(row.targetEbitda ?? row.target_ebitda ?? 0),
           Number(row.targetGuests ?? row.target_guests ?? 0),
           Number(row.targetAvgSpend ?? row.target_avg_spend ?? 0),
           Number(row.targetStaffCostPct ?? row.target_staff_cost_pct ?? 0),
+          appId,
         );
         imported++;
       }
@@ -78,10 +81,10 @@ export async function POST(request: Request): Promise<NextResponse> {
       for (const row of data) {
         if (!row.num || !row.name) continue;
         await prisma.$executeRawUnsafe(
-          `INSERT INTO levers (id, num, name, impact, description)
-           VALUES (gen_random_uuid()::text, $1, $2, $3, $4)
-           ON CONFLICT (num) DO UPDATE SET name = $2, impact = $3, description = $4`,
-          Number(row.num), String(row.name), String(row.impact ?? ''), String(row.description ?? ''),
+          `INSERT INTO levers (id, num, name, impact, description, app_id)
+           VALUES (gen_random_uuid()::text, $1, $2, $3, $4, $5)
+           ON CONFLICT (num, app_id) DO UPDATE SET name = $2, impact = $3, description = $4`,
+          Number(row.num), String(row.name), String(row.impact ?? ''), String(row.description ?? ''), appId,
         );
         imported++;
       }
@@ -120,10 +123,10 @@ export async function POST(request: Request): Promise<NextResponse> {
       for (const row of data) {
         if (!row.slug || !row.markdown) continue;
         await prisma.$executeRawUnsafe(
-          `INSERT INTO business_review_parts (id, part_key, slug, title, sort_order, auth_tier, markdown)
-           VALUES (gen_random_uuid()::text, $1, $2, $3, $4, CAST($5 AS "AuthTier"), $6)
-           ON CONFLICT (slug) DO UPDATE SET title = $3, sort_order = $4, markdown = $6`,
-          String(row.partKey ?? ''), String(row.slug), String(row.title ?? ''), Number(row.sortOrder ?? 0), String(row.authTier ?? 'google'), String(row.markdown),
+          `INSERT INTO business_review_parts (id, part_key, slug, title, sort_order, auth_tier, markdown, app_id)
+           VALUES (gen_random_uuid()::text, $1, $2, $3, $4, CAST($5 AS "AuthTier"), $6, $7)
+           ON CONFLICT (slug, app_id) DO UPDATE SET title = $3, sort_order = $4, markdown = $6`,
+          String(row.partKey ?? ''), String(row.slug), String(row.title ?? ''), Number(row.sortOrder ?? 0), String(row.authTier ?? 'google'), String(row.markdown), appId,
         );
         imported++;
       }
@@ -151,7 +154,7 @@ export async function POST(request: Request): Promise<NextResponse> {
             dine_in_qty, dine_in_amount, gofood_qty, gofood_amount,
             total_ctgry_qty, total_ctgry_amount, bill_disc_20_qty, bill_disc_20_amount,
             total_item_discount_qty, total_item_discount_amount,
-            raw_text, entry_source, receipt_images
+            raw_text, entry_source, receipt_images, app_id
           ) VALUES (
             $1, $2::date, $3, $4::time, $5, $6, $7, $8::timestamp, $9::timestamp,
             $10, $11, $12, $13, $14, $15, $16,
@@ -165,7 +168,7 @@ export async function POST(request: Request): Promise<NextResponse> {
             $52, $53, $54, $55, $56, $57,
             $58, $59, $60, $61, $62, $63,
             $64, $65, $66, $67, $68, $69, $70,
-            $71, $72, $73, $74, $75::jsonb
+            $71, $72, $73, $74, $75::jsonb, $76
           )
           ON CONFLICT (id) DO UPDATE SET
             report_date = $2::date, department = $3, nett_sales = $44, receipt_images = $75::jsonb`,
@@ -255,6 +258,7 @@ export async function POST(request: Request): Promise<NextResponse> {
           String(row.raw_text ?? row.rawText ?? ''),
           String(row.entry_source ?? row.entrySource ?? 'imported'),
           row.receipt_images ? JSON.stringify(row.receipt_images) : '[]',
+          appId,
         );
         imported++;
       }

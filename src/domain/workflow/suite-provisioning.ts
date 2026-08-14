@@ -15,7 +15,7 @@
 import { PrismaClient } from '@/generated/prisma';
 import { createRawClient } from '@/lib/db';
 import { deployTenant } from '@/domain/tenant/vercel-deploy-service';
-import { seedTenantDefaults, seedTemplateSecurityGroups } from '@/domain/tenant/tenant-seed-service';
+import { seedTenantDefaults, seedTemplateSecurityGroups, resolveTenantAdminEmail } from '@/domain/tenant/tenant-seed-service';
 import { ensureTenantsTable } from '@/domain/tenant/tenant-service';
 import { getTemplate } from '@/domain/tenant/template-catalog';
 import type { AppPackConfig, SuiteAppInstance } from '@/store/apis/tenant-api';
@@ -185,6 +185,7 @@ export async function provisionSuiteApps(
             template: app.templateId,
             primaryColor: tpl.defaultColors.primary,
             secondaryColor: tpl.defaultColors.secondary,
+            adminEmail: resolveTenantAdminEmail(tenant.metadata as Record<string, unknown>),
             db: seedDb,
           });
 

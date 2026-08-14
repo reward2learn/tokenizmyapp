@@ -9,6 +9,7 @@ import {
 } from '@/domain/financial/pnl-calculator';
 import type { ZMonthAggregate } from '@/domain/financial/pnl-calculator';
 import { SyncMonthlyActuals } from '@/domain/actuals/sync-monthly-actuals';
+import { getCurrentAppId } from '@shared/lib/config/tenant';
 
 export const NET_INCOME_RATIOS: Record<string, number> = {
   purchases_food: 0.6 * 0.30,
@@ -108,9 +109,11 @@ function applyStaffCosts(out: Record<string, number>) {
 
 export class MonthlyActualsPrefill {
   private readonly sync: SyncMonthlyActuals;
+  private readonly appId: string;
 
   constructor(private readonly db: DbClient) {
     this.sync = new SyncMonthlyActuals(db);
+    this.appId = getCurrentAppId();
   }
 
   async getMonthBaseline(period: string) {
@@ -121,7 +124,7 @@ export class MonthlyActualsPrefill {
 
     const row = await this.db.financialProjection.findUnique({
       where: {
-        period_dataType_scenario: { period, dataType: 'actual', scenario: 'actual' },
+        period_dataType_scenario_appId: { period, dataType: 'actual', scenario: 'actual', appId: this.appId },
       },
       select: { pnlLines: true },
     });
@@ -160,7 +163,7 @@ export class MonthlyActualsPrefill {
     let priorNet: number | null = null;
     const priorRow = await this.db.financialProjection.findUnique({
       where: {
-        period_dataType_scenario: { period: fromPeriod, dataType: 'actual', scenario: 'actual' },
+        period_dataType_scenario_appId: { period: fromPeriod, dataType: 'actual', scenario: 'actual', appId: this.appId },
       },
       select: { pnlLines: true },
     });

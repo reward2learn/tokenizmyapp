@@ -11,6 +11,7 @@
  */
 import type { DbClient } from '@/lib/db';
 import { resolveOpenAiKey } from '@/lib/openai';
+import { getCurrentAppId } from '@shared/lib/config/tenant';
 import type { ReviewPart } from './parse-review-parts';
 
 interface UpdateResult {
@@ -41,12 +42,13 @@ export async function rephraseReviewDocumentsFromChat(
 
   // 1) Read current review parts from DB
   const currentParts = await db.businessReviewPart.findMany({
+    where: { appId: getCurrentAppId() },
     orderBy: { sortOrder: 'asc' },
   });
 
   // 2) Read current executive summary
   const execSnippet = await db.knowledgeSnippet.findUnique({
-    where: { key: 'executive_summary' },
+    where: { key_appId: { key: 'executive_summary', appId: getCurrentAppId() } },
   });
 
   const currentExecSummary = execSnippet?.content ?? '';
@@ -129,7 +131,7 @@ export async function rephraseReviewDocumentsFromChat(
   for (const part of parts) {
     try {
       await db.businessReviewPart.upsert({
-        where: { slug: part.slug },
+        where: { slug_appId: { slug: part.slug, appId: getCurrentAppId() } },
         create: {
           slug: part.slug,
           partKey: part.partKey,
@@ -137,6 +139,7 @@ export async function rephraseReviewDocumentsFromChat(
           sortOrder: part.sortOrder,
           authTier: 'google',
           markdown: part.markdown,
+          appId: getCurrentAppId(),
         },
         update: {
           title: part.title,
@@ -153,11 +156,12 @@ export async function rephraseReviewDocumentsFromChat(
   // Save executive summary
   try {
     await db.knowledgeSnippet.upsert({
-      where: { key: 'executive_summary' },
+      where: { key_appId: { key: 'executive_summary', appId: getCurrentAppId() } },
       create: {
         key: 'executive_summary',
         category: 'document',
         content: execSummary,
+        appId: getCurrentAppId(),
       },
       update: {
         content: execSummary,
@@ -200,7 +204,7 @@ export async function rephraseExecutiveSummary(
 
   // Read current executive summary
   const execSnippet = await db.knowledgeSnippet.findUnique({
-    where: { key: 'executive_summary' },
+    where: { key_appId: { key: 'executive_summary', appId: getCurrentAppId() } },
   });
   const currentExecSummary = execSnippet?.content ?? '';
 
@@ -250,11 +254,12 @@ export async function rephraseExecutiveSummary(
   // Save
   try {
     await db.knowledgeSnippet.upsert({
-      where: { key: 'executive_summary' },
+      where: { key_appId: { key: 'executive_summary', appId: getCurrentAppId() } },
       create: {
         key: 'executive_summary',
         category: 'document',
         content: execSummary,
+        appId: getCurrentAppId(),
       },
       update: {
         content: execSummary,

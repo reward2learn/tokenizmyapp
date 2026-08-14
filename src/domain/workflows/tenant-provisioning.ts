@@ -47,7 +47,7 @@ export const provisionTenant = inngest.createFunction(
     // database when Neon provisioning succeeded, never the root DB.
     await step.run('seed-defaults', async () => {
       try {
-        const { seedTenantDefaults, seedTemplateSecurityGroups } = await import('@/domain/tenant/tenant-seed-service');
+        const { seedTenantDefaults, seedTemplateSecurityGroups, resolveTenantAdminEmail } = await import('@/domain/tenant/tenant-seed-service');
         const { PrismaClient } = await import('@/generated/prisma');
         const { createRawClient } = await import('@/lib/db');
         const dedicatedClient = dbInfo?.pooledUrl
@@ -57,7 +57,9 @@ export const provisionTenant = inngest.createFunction(
         try {
           await seedTenantDefaults({
             slug, displayName, template: templateId,
-            primaryColor, secondaryColor, db,
+            primaryColor, secondaryColor,
+            adminEmail: resolveTenantAdminEmail(metadata as Record<string, unknown>),
+            db,
           });
           await seedTemplateSecurityGroups(db, templateId);
         } finally {

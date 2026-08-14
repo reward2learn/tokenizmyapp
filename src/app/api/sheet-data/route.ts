@@ -14,6 +14,7 @@
 import { NextResponse } from 'next/server';
 import { PrismaClient } from '@/generated/prisma';
 import { read, utils, write } from 'xlsx';
+import { getCurrentAppId } from '@shared/lib/config/tenant';
 import { evaluateFormula } from '@/lib/excel-formula';
 import { findHeaderRow, buildColumnKeys } from '@/lib/workbook-mapping';
 import type { WorkbookFormulaMap } from '@/lib/workbook-formulas';
@@ -82,7 +83,7 @@ export async function GET(request: Request): Promise<NextResponse> {
   const prisma = getClient();
   try {
     const cached = await prisma.knowledgeSnippet.findUnique({
-      where: { key: 'workbook_data' },
+      where: { key_appId: { key: 'workbook_data', appId: getCurrentAppId() } },
     });
     if (!cached?.content) {
       return NextResponse.json({ error: 'No workbook cached. Upload the workbook via Config > Source first.' }, { status: 404 });
@@ -98,7 +99,7 @@ export async function GET(request: Request): Promise<NextResponse> {
     if (formulasEnabled) {
       try {
         const mapSnippet = await prisma.knowledgeSnippet.findUnique({
-          where: { key: 'workbook_formulas' },
+          where: { key_appId: { key: 'workbook_formulas', appId: getCurrentAppId() } },
         });
         if (mapSnippet?.content) formulaMap = JSON.parse(mapSnippet.content) as WorkbookFormulaMap;
       } catch {
@@ -125,7 +126,7 @@ export async function GET(request: Request): Promise<NextResponse> {
     let customStore: CustomColumnsStore = parseCustomColumnsStore(null);
     try {
       const customSnippet = await prisma.knowledgeSnippet.findUnique({
-        where: { key: CUSTOM_COLUMNS_SNIPPET_KEY },
+        where: { key_appId: { key: CUSTOM_COLUMNS_SNIPPET_KEY, appId: getCurrentAppId() } },
       });
       customStore = parseCustomColumnsStore(customSnippet?.content ?? null);
     } catch {
@@ -291,7 +292,7 @@ export async function POST(request: Request): Promise<NextResponse> {
     }
 
     const cached = await prisma.knowledgeSnippet.findUnique({
-      where: { key: 'workbook_data' },
+      where: { key_appId: { key: 'workbook_data', appId: getCurrentAppId() } },
     });
 
     if (!cached?.content) {
@@ -398,7 +399,7 @@ export async function POST(request: Request): Promise<NextResponse> {
     const base64Updated = Buffer.from(updatedBuffer).toString('base64');
 
     await prisma.knowledgeSnippet.update({
-      where: { key: 'workbook_data' },
+      where: { key_appId: { key: 'workbook_data', appId: getCurrentAppId() } },
       data: { content: base64Updated },
     });
 

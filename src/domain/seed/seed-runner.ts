@@ -627,9 +627,9 @@ async function upsertFinancialProjectionRaw(
 ): Promise<void> {
   const pnlJson = JSON.stringify(row.pnlLines);
   await prisma.$executeRaw`
-    INSERT INTO financial_projections (period, year, month, data_type, scenario, revenue, ebitda, net_income, guests, staff_cost, pnl_lines)
-    VALUES (${row.period}, ${row.year}, ${row.month}, ${row.dataType}, ${row.scenario}, ${row.revenue}, ${row.ebitda}, ${row.netIncome}, ${row.guests}, ${row.staffCost}, ${pnlJson}::jsonb)
-    ON CONFLICT (period, data_type, scenario)
+    INSERT INTO financial_projections (period, year, month, data_type, scenario, revenue, ebitda, net_income, guests, staff_cost, pnl_lines, app_id)
+    VALUES (${row.period}, ${row.year}, ${row.month}, ${row.dataType}, ${row.scenario}, ${row.revenue}, ${row.ebitda}, ${row.netIncome}, ${row.guests}, ${row.staffCost}, ${pnlJson}::jsonb, '')
+    ON CONFLICT (period, data_type, scenario, app_id)
     DO UPDATE SET
       year = EXCLUDED.year,
       month = EXCLUDED.month,
@@ -947,7 +947,7 @@ export async function seedFromSources(options: SeedOptions = {}): Promise<SeedRe
       const catalog = REVIEW_PART_CATALOG[part.slug];
       const authTier = (catalog?.authTier ?? 'google') as AuthTier;
       await prisma.businessReviewPart.upsert({
-        where: { slug: part.slug },
+        where: { slug_appId: { slug: part.slug, appId: '' } },
         create: {
           partKey: part.partKey,
           slug: part.slug,
@@ -974,7 +974,7 @@ export async function seedFromSources(options: SeedOptions = {}): Promise<SeedRe
         ...lever.actions.map((a) => `- ${a}`),
       ].join('\n');
       await prisma.lever.upsert({
-        where: { num: lever.num },
+        where: { num_appId: { num: lever.num, appId: '' } },
         create: {
           num: lever.num,
           name: lever.name,
@@ -1047,7 +1047,7 @@ export async function seedFromSources(options: SeedOptions = {}): Promise<SeedRe
 
     for (const target of MONTHLY_TARGETS) {
       await prisma.monthlyTarget.upsert({
-        where: { month: target.month },
+        where: { month_appId: { month: target.month, appId: '' } },
         create: {
           month: target.month,
           targetRevenue: target.revenue,
@@ -1068,7 +1068,7 @@ export async function seedFromSources(options: SeedOptions = {}): Promise<SeedRe
 
     for (const snippet of knowledgeSnippets) {
       await prisma.knowledgeSnippet.upsert({
-        where: { key: snippet.key },
+        where: { key_appId: { key: snippet.key, appId: '' } },
         create: snippet,
         update: { category: snippet.category, content: snippet.content },
       });

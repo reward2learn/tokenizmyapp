@@ -12,6 +12,7 @@ import { NextResponse } from 'next/server';
 import { PrismaClient } from '@/generated/prisma';
 import { read } from 'xlsx';
 import { evaluateFormula } from '@/lib/excel-formula';
+import { getCurrentAppId } from '@shared/lib/config/tenant';
 import {
   CUSTOM_COLUMNS_SNIPPET_KEY,
   emptyCustomColumnsStore,
@@ -63,7 +64,7 @@ export async function PATCH(request: Request, ctx: { params: Promise<{ id: strin
   try {
     const body = await request.json();
     const snippet = await prisma.knowledgeSnippet.findUnique({
-      where: { key: CUSTOM_COLUMNS_SNIPPET_KEY },
+      where: { key_appId: { key: CUSTOM_COLUMNS_SNIPPET_KEY, appId: getCurrentAppId() } },
     });
     const store = parseCustomColumnsStore(snippet?.content ?? null);
     const col = store.columns.find((c) => c.id === id);
@@ -113,7 +114,7 @@ export async function PATCH(request: Request, ctx: { params: Promise<{ id: strin
       }
 
       if (formulaEntries.length > 0) {
-        const cached = await prisma.knowledgeSnippet.findUnique({ where: { key: 'workbook_data' } });
+        const cached = await prisma.knowledgeSnippet.findUnique({ where: { key_appId: { key: 'workbook_data', appId: getCurrentAppId() } } });
         if (!cached?.content) {
           return NextResponse.json({ error: 'No workbook cached. Upload via Config > Source first.' }, { status: 404 });
         }
@@ -143,8 +144,8 @@ export async function PATCH(request: Request, ctx: { params: Promise<{ id: strin
       columns: store.columns,
     };
     await prisma.knowledgeSnippet.upsert({
-      where: { key: CUSTOM_COLUMNS_SNIPPET_KEY },
-      create: { key: CUSTOM_COLUMNS_SNIPPET_KEY, category: 'cache', content: JSON.stringify(nextStore) },
+      where: { key_appId: { key: CUSTOM_COLUMNS_SNIPPET_KEY, appId: getCurrentAppId() } },
+      create: { key: CUSTOM_COLUMNS_SNIPPET_KEY, category: 'cache', content: JSON.stringify(nextStore), appId: getCurrentAppId() },
       update: { content: JSON.stringify(nextStore) },
     });
 
@@ -163,7 +164,7 @@ export async function DELETE(request: Request, ctx: { params: Promise<{ id: stri
   const prisma = getClient();
   try {
     const snippet = await prisma.knowledgeSnippet.findUnique({
-      where: { key: CUSTOM_COLUMNS_SNIPPET_KEY },
+      where: { key_appId: { key: CUSTOM_COLUMNS_SNIPPET_KEY, appId: getCurrentAppId() } },
     });
     const store = parseCustomColumnsStore(snippet?.content ?? null);
     const before = store.columns.length;
@@ -173,8 +174,8 @@ export async function DELETE(request: Request, ctx: { params: Promise<{ id: stri
     }
 
     await prisma.knowledgeSnippet.upsert({
-      where: { key: CUSTOM_COLUMNS_SNIPPET_KEY },
-      create: { key: CUSTOM_COLUMNS_SNIPPET_KEY, category: 'cache', content: JSON.stringify(store) },
+      where: { key_appId: { key: CUSTOM_COLUMNS_SNIPPET_KEY, appId: getCurrentAppId() } },
+      create: { key: CUSTOM_COLUMNS_SNIPPET_KEY, category: 'cache', content: JSON.stringify(store), appId: getCurrentAppId() },
       update: { content: JSON.stringify(store) },
     });
 

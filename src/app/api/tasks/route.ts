@@ -5,6 +5,7 @@ import { jsonError, jsonOk } from '@/lib/api/response';
 import { ensureTaskTables, seedTaskTracking } from '@/domain/seed/seed-runner';
 import { legacyTaskCodeForSub } from '@/domain/security/persons'; // LEGACY only; prefer roleCode from session/user_accounts
 import type { SessionClaims } from '@/lib/auth/jwt';
+import { getCurrentAppId } from '@shared/lib/config/tenant';
 
 export const maxDuration = 30;
 
@@ -225,6 +226,7 @@ export async function GET(request: Request): Promise<NextResponse> {
   }
 
   const tasks = await db.task.findMany({
+    where: { appId: getCurrentAppId() },
     orderBy: [{ sortOrder: 'asc' }],
     include: {
       assignments: {
@@ -313,6 +315,7 @@ export async function POST(request: Request): Promise<NextResponse> {
       priority: priority ?? 'P0',
       status: 'pending',
       dueDate: dueDate ? new Date(dueDate) : null,
+      appId: getCurrentAppId(),
       assignments: {
         create:
           ownerCodes && ownerCodes.length > 0

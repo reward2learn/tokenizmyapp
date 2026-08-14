@@ -1,10 +1,12 @@
 import { NextResponse } from 'next/server';
-import { createBaseClient, createRawClient, type DbClient } from '@/lib/db';
+import { PrismaClient } from '@/generated/prisma';
+import { createRawClient, type DbClient } from '@/lib/db';
 import { requireWriteAuth } from '@/lib/auth/guards';
 import { sessionIsPlatformAdmin } from '@/lib/auth/jwt';
 import { jsonError, jsonOk } from '@/lib/api/response';
 import { resolveCapabilitiesForSub } from '@/domain/security/security-service';
 import { setSecret, deleteSecret } from '@/lib/secrets';
+import { resolveDedicatedTenantDbUrl } from '@/domain/tenant/tenant-db-resolver';
 
 export const maxDuration = 30;
 
@@ -54,10 +56,15 @@ export async function GET(request: Request): Promise<NextResponse> {
   const tenantSlug = searchParams.get('tenantSlug');
   const appId = searchParams.get('appId');
 
-  // Use raw Prisma client (tables created by prisma db push during build)
+  // A tenant with its own dedicated database (tenants.db_url) must be read
+  // there — its live app reads/writes that DB via its own POSTGRES_URL, not
+  // the platform root DB. Without this, seeded data (including the default
+  // admin account) is invisible here even though it exists in the tenant's
+  // own database. See tenant-db-resolver.ts.
+  const dbUrl = await resolveDedicatedTenantDbUrl(tenantSlug, appId);
   let db: DbClient;
   try {
-    db = createRawClient() as unknown as DbClient;
+    db = (dbUrl ? new PrismaClient({ datasources: { db: { url: dbUrl } } }) : createRawClient()) as unknown as DbClient;
     // Quick connectivity test
     await db.$queryRawUnsafe('SELECT 1 as ok');
   } catch (err) {
@@ -69,7 +76,10 @@ export async function GET(request: Request): Promise<NextResponse> {
     const where: string[] = [];
     const params: unknown[] = [];
     if (tenantSlug) { params.push(tenantSlug); where.push(`tenant_slug = $${params.length}`); }
-    if (appId) { params.push(appId); where.push(`app_id = $${params.length}`); }
+    // The default admin account (and any other tenant-wide row) is seeded
+    // with app_id = NULL on purpose, so it should show up in every app's
+    // user list for this tenant, not just an exact appId match.
+    if (appId) { params.push(appId); where.push(`(app_id = $${params.length} OR app_id IS NULL)`); }
     const whereClause = where.length ? `WHERE ${where.join(' AND ')}` : '';
 
     const rows = await db.$queryRawUnsafe(
@@ -105,6 +115,8 @@ export async function GET(request: Request): Promise<NextResponse> {
   } catch (err) {
     console.error('[admin/users] GET error:', err);
     return jsonError('Failed to load users', 500);
+  } finally {
+    if (dbUrl) await (db as unknown as PrismaClient).$disconnect();
   }
 }
 
@@ -156,21 +168,26 @@ export async function POST(request: Request): Promise<NextResponse> {
     return jsonError('Invalid JSON', 400);
   }
 
-  const { id, email, isActive, roleCode, groupCodes, pin } = (body ?? {}) as {
+  const { id, email, isActive, roleCode, groupCodes, pin, tenantSlug, appId } = (body ?? {}) as {
     id?: string;
     email?: string;
     isActive?: boolean;
     roleCode?: string | null;
     groupCodes?: string[];
     pin?: string;
+    tenantSlug?: string;
+    appId?: string;
   };
 
   if (!id || typeof id !== 'string') return jsonError('id is required', 400);
 
-  // Use raw Prisma client (tables created by prisma db push during build)
+  // The user row being edited may live in a tenant's own dedicated database
+  // (not the root DB) — without this, the UPDATE below silently affects 0
+  // rows because the id doesn't exist in the root DB's user_accounts table.
+  const dbUrl = await resolveDedicatedTenantDbUrl(tenantSlug, appId);
   let db: DbClient;
   try {
-    db = createRawClient() as unknown as DbClient;
+    db = (dbUrl ? new PrismaClient({ datasources: { db: { url: dbUrl } } }) : createRawClient()) as unknown as DbClient;
   } catch (err) {
     console.error('[admin/users] POST createRawClient error:', err instanceof Error ? err.message : String(err));
     return jsonError('Database unavailable', 503);
@@ -221,6 +238,8 @@ export async function POST(request: Request): Promise<NextResponse> {
   } catch (err) {
     console.error('[admin/users] POST error:', err instanceof Error ? (err.message + ' ' + err.stack?.slice(0, 200)) : String(err));
     return jsonError('Failed to update user', 500);
+  } finally {
+    if (dbUrl) await (db as unknown as PrismaClient).$disconnect();
   }
 }
 
@@ -232,10 +251,13 @@ export async function DELETE(request: Request): Promise<NextResponse> {
   const { searchParams } = new URL(request.url);
   const id = searchParams.get('id');
   if (!id) return jsonError('id query param is required', 400);
+  const tenantSlug = searchParams.get('tenantSlug');
+  const appId = searchParams.get('appId');
 
-  let db;
+  const dbUrl = await resolveDedicatedTenantDbUrl(tenantSlug, appId);
+  let db: DbClient;
   try {
-    db = createBaseClient();
+    db = (dbUrl ? new PrismaClient({ datasources: { db: { url: dbUrl } } }) : createRawClient()) as unknown as DbClient;
   } catch {
     return jsonError('Database unavailable', 503);
   }
@@ -256,5 +278,7 @@ export async function DELETE(request: Request): Promise<NextResponse> {
   } catch (err) {
     console.error('[admin/users] DELETE error:', err);
     return jsonError('Failed to delete user', 500);
+  } finally {
+    if (dbUrl) await (db as unknown as PrismaClient).$disconnect();
   }
 }

@@ -3,6 +3,7 @@ import { PrismaClient } from '@/generated/prisma';
 import { read, write } from 'xlsx';
 import { applyCellUpdate, type CellUpdateParams, type CellUpdateResult } from '@/lib/workbook-cell-update';
 import { CUSTOM_COLUMNS_SNIPPET_KEY, parseCustomColumnsStore } from '@/lib/custom-columns';
+import { getCurrentAppId } from '@shared/lib/config/tenant';
 
 export const dynamic = 'force-dynamic';
 
@@ -32,7 +33,7 @@ export async function POST(request: Request): Promise<NextResponse> {
       return NextResponse.json({ error: `Too many cells in one batch (${cells.length} > 5000)` }, { status: 400 });
     }
 
-    const cached = await prisma.knowledgeSnippet.findUnique({ where: { key: 'workbook_data' } });
+    const cached = await prisma.knowledgeSnippet.findUnique({ where: { key_appId: { key: 'workbook_data', appId: getCurrentAppId() } } });
     if (!cached?.content) {
       return NextResponse.json({ error: 'No workbook cached. Upload via Config > Source first.' }, { status: 404 });
     }
@@ -51,7 +52,7 @@ export async function POST(request: Request): Promise<NextResponse> {
     }
 
     const customSnippet = await prisma.knowledgeSnippet.findUnique({
-      where: { key: CUSTOM_COLUMNS_SNIPPET_KEY },
+      where: { key_appId: { key: CUSTOM_COLUMNS_SNIPPET_KEY, appId: getCurrentAppId() } },
     });
     const customStore = parseCustomColumnsStore(customSnippet?.content ?? null);
 
@@ -76,8 +77,8 @@ export async function POST(request: Request): Promise<NextResponse> {
     // Persist the custom-column overlay if any custom cell was written.
     if (customSnippet || customStore.columns.length > 0) {
       await prisma.knowledgeSnippet.upsert({
-        where: { key: CUSTOM_COLUMNS_SNIPPET_KEY },
-        create: { key: CUSTOM_COLUMNS_SNIPPET_KEY, category: 'cache', content: JSON.stringify(customStore) },
+        where: { key_appId: { key: CUSTOM_COLUMNS_SNIPPET_KEY, appId: getCurrentAppId() } },
+        create: { key: CUSTOM_COLUMNS_SNIPPET_KEY, category: 'cache', content: JSON.stringify(customStore), appId: getCurrentAppId() },
         update: { content: JSON.stringify(customStore) },
       });
     }
@@ -85,7 +86,7 @@ export async function POST(request: Request): Promise<NextResponse> {
     const updatedBuffer = write(wb, { bookType: 'xlsx', type: 'buffer' });
     const base64Updated = Buffer.from(updatedBuffer).toString('base64');
     await prisma.knowledgeSnippet.update({
-      where: { key: 'workbook_data' },
+      where: { key_appId: { key: 'workbook_data', appId: getCurrentAppId() } },
       data: { content: base64Updated },
     });
 

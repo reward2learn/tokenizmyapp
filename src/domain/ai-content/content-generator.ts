@@ -19,6 +19,7 @@ import { extractExcelData, extractExcelDataFromBuffers } from '@/domain/excel/ex
 import { buildGenerationPrompt, buildDashboardPrompt } from '@/domain/ai-content/prompt-builder';
 import { resolveOpenAiKey } from '@/lib/openai';
 import type { DbClient } from '@/lib/db';
+import { getCurrentAppId } from '@shared/lib/config/tenant';
 import { parseReviewParts } from '@/domain/ai-content/parse-review-parts';
 import type { ReviewPart } from '@/domain/ai-content/parse-review-parts';
 
@@ -183,11 +184,12 @@ async function saveExecutiveSummary(
 ): Promise<boolean> {
   try {
     await db.knowledgeSnippet.upsert({
-      where: { key: 'executive_summary' },
+      where: { key_appId: { key: 'executive_summary', appId: getCurrentAppId() } },
       create: {
         key: 'executive_summary',
         category: 'document',
         content: markdown,
+        appId: getCurrentAppId(),
       },
       update: {
         content: markdown,
@@ -212,7 +214,7 @@ async function saveBusinessReviewParts(
     const part = parts[i];
     try {
       await db.businessReviewPart.upsert({
-        where: { slug: part.slug },
+        where: { slug_appId: { slug: part.slug, appId: getCurrentAppId() } },
         create: {
           slug: part.slug,
           partKey: part.partKey,
@@ -220,6 +222,7 @@ async function saveBusinessReviewParts(
           sortOrder: part.sortOrder,
           authTier: 'google',
           markdown: part.markdown,
+          appId: getCurrentAppId(),
         },
         update: {
           title: part.title,
@@ -398,11 +401,12 @@ export async function generateAndSave(
             if (parsed.actionPhases && parsed.targetRows && parsed.levers) {
               // Save to knowledge_snippets so the dashboard blocks can read it
               await db.knowledgeSnippet.upsert({
-                where: { key: 'dashboard_data' },
+                where: { key_appId: { key: 'dashboard_data', appId: getCurrentAppId() } },
                 create: {
                   key: 'dashboard_data',
                   category: 'document',
                   content: JSON.stringify(parsed),
+                  appId: getCurrentAppId(),
                 },
                 update: {
                   content: JSON.stringify(parsed),

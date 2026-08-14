@@ -24,6 +24,7 @@ import { NextResponse } from 'next/server';
 import { PrismaClient } from '@/generated/prisma';
 import { readFileSync, existsSync } from 'node:fs';
 import { resolve } from 'node:path';
+import { getCurrentAppId } from '@shared/lib/config/tenant';
 
 // ── Source resolution ───────────────────────────────────
 
@@ -108,7 +109,7 @@ export async function GET(request: Request): Promise<NextResponse> {
 
     if (resolved.type === 'part') {
       const row = await prisma.businessReviewPart.findUnique({
-        where: { slug: resolved.slug },
+        where: { slug_appId: { slug: resolved.slug, appId: getCurrentAppId() } },
       });
       if (!row) {
         return NextResponse.json({ source, markdown: '', title: '', contentType: 'markdown', found: false });
@@ -138,7 +139,7 @@ export async function GET(request: Request): Promise<NextResponse> {
 
     // Snippet lookup — uses direct PrismaClient (no ZenStack policy filtering)
     const row = await prisma.knowledgeSnippet.findUnique({
-      where: { key: resolved.key },
+      where: { key_appId: { key: resolved.key, appId: getCurrentAppId() } },
     });
     if (!row) {
       return NextResponse.json({ source, markdown: '', title: '', contentType: 'markdown', found: false });

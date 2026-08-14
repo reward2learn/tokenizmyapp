@@ -202,7 +202,7 @@ export function AppActionsMenu({ tenantSlug, tenantName, app, anchorEl, open, on
 
   const handleClearData = async () => {
     try {
-      const result = await clearSeed({ mode: 'all', confirm: 'CLEAR ALL SEEDED DATA', tenantSlug }).unwrap();
+      const result = await clearSeed({ mode: 'all', confirm: 'CLEAR ALL SEEDED DATA', tenantSlug, appId: app.appId }).unwrap();
       setClearDataOpen(false);
       setClearConfirmText('');
       const rows = Object.values(result.data?.deleted ?? {}).reduce((sum, n) => sum + (n > 0 ? n : 0), 0);
@@ -314,11 +314,10 @@ export function AppActionsMenu({ tenantSlug, tenantName, app, anchorEl, open, on
         <DialogTitle>Delete Seeded Data?</DialogTitle>
         <DialogContent>
           <Alert severity="warning" sx={{ mb: 2 }}>
-            This deletes all rows in App Pages, Business Review Parts, Knowledge Snippets, Tasks, Roles,
-            Monthly Targets, Levers, Action Items, Financial Projections, and Z-Reports — for the whole
-            tenant &quot;{tenantSlug}&quot;&apos;s own database, not just {app.name}. None of these tables
-            currently track which app a row belongs to, so this clears every app sharing this tenant&apos;s
-            database.
+            This deletes all of <strong>{app.name}</strong>&apos;s own rows in App Pages, Business Review
+            Parts, Knowledge Snippets, Tasks, Roles, Monthly Targets, Levers, Action Items, Financial
+            Projections, and Z-Reports — scoped to this app only. Other apps sharing tenant
+            &quot;{tenantSlug}&quot;&apos;s database are not affected.
           </Alert>
           <DialogContentText sx={{ mb: 1 }}>
             Type <strong>CLEAR ALL SEEDED DATA</strong> below to confirm:

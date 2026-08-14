@@ -119,10 +119,11 @@ describe('FinancialProjectionService scenario resolution', () => {
 
       expect(findUnique).toHaveBeenCalledWith({
         where: {
-          period_dataType_scenario: {
+          period_dataType_scenario_appId: {
             period: '2029-07',
             dataType: 'forecast',
             scenario: 'realistic',
+            appId: '',
           },
         },
       });

@@ -117,26 +117,35 @@ model PageSection {
 
 model BusinessReviewPart {
   id        String   @id @default(cuid())
-  partKey   String   @unique @map("part_key") // "A".."O"
-  slug      String   @unique
+  partKey   String   @map("part_key") // "A".."O"
+  slug      String
   title     String
   sortOrder Int      @map("sort_order")
   authTier  AuthTier @default(google) @map("auth_tier")
   markdown  String   @db.Text
+  /// Suite-mode app id — empty string means the tenant's own (single-app) copy.
+  appId     String   @default("") @map("app_id")
 
   // Platform admins (pin/google tier) can generate content; everyone can read
   @@allow('create,update,delete', auth().tier == pin || auth().tier == google)
   @@allow('read', true)
+  @@unique([partKey, appId])
+  @@unique([slug, appId])
+  @@index([appId])
   @@map("business_review_parts")
 }
 
 model Lever {
   id          String @id @default(cuid())
-  num         Int    @unique
+  num         Int
   name        String
   impact      String
   description String @db.Text
+  /// Suite-mode app id — empty string means the tenant's own (single-app) copy.
+  appId       String @default("") @map("app_id")
 
+  @@unique([num, appId])
+  @@index([appId])
   @@map("levers")
 }
 
@@ -146,7 +155,10 @@ model ActionItem {
   label     String
   completed Boolean        @default(false)
   sortOrder Int            @default(0) @map("sort_order")
+  /// Suite-mode app id — empty string means the tenant's own (single-app) copy.
+  appId     String         @default("") @map("app_id")
 
+  @@index([appId])
   @@map("action_items")
 }
 
@@ -253,8 +265,11 @@ model Task {
   userAssignments TaskUserAssignment[]
   createdAt   DateTime         @default(now()) @map("created_at")
   updatedAt   DateTime         @updatedAt @map("updated_at")
+  /// Suite-mode app id — empty string means the tenant's own (single-app) copy.
+  appId       String           @default("") @map("app_id")
 
   @@index([status])
+  @@index([appId])
   @@allow('read', true)
   @@allow('create,update,delete', auth().tier == pin || auth().tier == google)
   @@map("tasks")
@@ -297,12 +312,16 @@ model TaskUserAssignment {
 
 model KnowledgeSnippet {
   id       String @id @default(cuid())
-  key      String @unique
+  key      String
   content  String @db.Text
   category String
+  /// Suite-mode app id — empty string means the tenant's own (single-app) copy.
+  appId    String @default("") @map("app_id")
 
   @@allow('read', true)
   @@allow('create,update,delete', auth().tier == pin || auth().tier == google)
+  @@unique([key, appId])
+  @@index([appId])
   @@map("knowledge_snippets")
 }
 
@@ -461,9 +480,12 @@ model FinancialProjection {
   guests    Int      @default(0)
   staffCost Decimal  @default(0) @map("staff_cost") @db.Decimal(14, 2)
   pnlLines  Json?    @map("pnl_lines")
+  /// Suite-mode app id — empty string means the tenant's own (single-app) copy.
+  appId     String   @default("") @map("app_id")
 
-  @@unique([period, dataType, scenario])
+  @@unique([period, dataType, scenario, appId])
   @@index([period])
+  @@index([appId])
   // Public dashboard chart + P&L reads (server-side createClient, tier public)
   @@allow('read', true)
   // Z-report / monthly-actuals sync upserts data_type=actual rows (route-gated pin|google)
@@ -551,17 +573,23 @@ model DailyZReport {
   correctionField       String?   @map("correction_field")
   correctionReason      String?   @map("correction_reason")
   createdAt             DateTime  @default(now()) @map("created_at")
+  /// Suite-mode app id — empty string means the tenant's own (single-app) copy.
+  appId                 String    @default("") @map("app_id")
 
-  @@unique([reportDate, department])
+  @@unique([reportDate, department, appId])
+  @@index([appId])
   @@allow('all', true)
   @@map("daily_z_reports")
 }
 
 model MonthlyActualInput {
-  period    String   @id
+  period    String
   inputs    Json     @default("{}")
   updatedAt DateTime @updatedAt @map("updated_at")
+  /// Suite-mode app id — empty string means the tenant's own (single-app) copy.
+  appId     String   @default("") @map("app_id")
 
+  @@id([period, appId])
   @@allow('all', true)
   @@map("monthly_actual_inputs")
 }
@@ -573,8 +601,10 @@ model MonthlyActualDepartment {
   receiptImages  Json     @default("[]") @map("receipt_images")
   notes          String   @default("")
   updatedAt      DateTime @updatedAt @map("updated_at")
+  /// Suite-mode app id — empty string means the tenant's own (single-app) copy.
+  appId          String   @default("") @map("app_id")
 
-  @@id([period, department])
+  @@id([period, department, appId])
   @@allow('all', true)
   @@map("monthly_actual_departments")
 }
@@ -582,7 +612,7 @@ model MonthlyActualDepartment {
 /// Legacy — schema.sql only; ensure migration creates if missing (see website-db-migration ensureLegacyTables)
 model DailyMetric {
   id            Int      @id @default(autoincrement())
-  date          DateTime @unique @db.Date
+  date          DateTime @db.Date
   revenue       Decimal  @default(0) @db.Decimal(12, 2)
   guestsCount   Int      @default(0) @map("guests_count")
   avgSpend      Decimal? @map("avg_spend") @db.Decimal(10, 2)
@@ -594,20 +624,28 @@ model DailyMetric {
   directOrders  Decimal  @default(0) @map("direct_orders") @db.Decimal(12, 2)
   notes         String?
   createdAt     DateTime @default(now()) @map("created_at")
+  /// Suite-mode app id — empty string means the tenant's own (single-app) copy.
+  appId         String   @default("") @map("app_id")
 
+  @@unique([date, appId])
+  @@index([appId])
   @@allow('all', true)
   @@map("daily_metrics")
 }
 
 model MonthlyTarget {
   id                 Int     @id @default(autoincrement())
-  month              String  @unique // YYYY-MM from knowledge-base MONTHLY_TARGETS
+  month              String  // YYYY-MM from knowledge-base MONTHLY_TARGETS
   targetRevenue      Decimal @map("target_revenue") @db.Decimal(12, 2)
   targetEbitda       Decimal @map("target_ebitda") @db.Decimal(12, 2)
   targetGuests       Int     @map("target_guests")
   targetAvgSpend     Decimal @map("target_avg_spend") @db.Decimal(10, 2)
   targetStaffCostPct Decimal @map("target_staff_cost_pct") @db.Decimal(5, 2)
+  /// Suite-mode app id — empty string means the tenant's own (single-app) copy.
+  appId              String  @default("") @map("app_id")
 
+  @@unique([month, appId])
+  @@index([appId])
   @@allow('all', true)
   @@map("monthly_targets")
 }

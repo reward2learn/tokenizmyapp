@@ -17,7 +17,7 @@ import { createRawClient } from '@/lib/db';
 import { requireWriteAuth } from '@/lib/auth/guards';
 import { jsonError, jsonOk } from '@/lib/api/response';
 import { ensureTenantsTable } from '@/domain/tenant/tenant-service';
-import { seedTenantDefaults, seedTemplateSecurityGroups } from '@/domain/tenant/tenant-seed-service';
+import { seedTenantDefaults, seedTemplateSecurityGroups, resolveTenantAdminEmail } from '@/domain/tenant/tenant-seed-service';
 import { getTemplate } from '@/domain/tenant/template-catalog';
 import type { AppPackConfig, SuiteAppInstance } from '@/store/apis/tenant-api';
 
@@ -128,7 +128,7 @@ export async function POST(
       ? new PrismaClient({ datasources: { db: { url: tenantDbUrl } } })
       : null;
     const seedDb: unknown = dedicatedSeedClient ?? db;
-    let result: { pages: number; navItems: number; settings: boolean; errors: string[] };
+    let result: { pages: number; navItems: number; settings: boolean; adminSeeded: boolean; errors: string[] };
     try {
       result = await seedTenantDefaults({
         slug,
@@ -137,6 +137,7 @@ export async function POST(
         template: app.templateId,
         primaryColor: tpl.defaultColors.primary,
         secondaryColor: tpl.defaultColors.secondary,
+        adminEmail: resolveTenantAdminEmail(tenant.metadata as Record<string, unknown>),
         db: seedDb,
       });
 

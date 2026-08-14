@@ -9,6 +9,7 @@
 
 import { NextResponse } from 'next/server';
 import { PrismaClient } from '@/generated/prisma';
+import { getCurrentAppId } from '@shared/lib/config/tenant';
 import {
   SHEET_VIEWER_CONFIG_SNIPPET_KEY,
   getSheetViewerConfig,
@@ -34,7 +35,7 @@ export async function GET(request: Request): Promise<NextResponse> {
       return NextResponse.json({ error: 'Query param "sheet" is required' }, { status: 400 });
     }
     const snippet = await prisma.knowledgeSnippet.findUnique({
-      where: { key: SHEET_VIEWER_CONFIG_SNIPPET_KEY },
+      where: { key_appId: { key: SHEET_VIEWER_CONFIG_SNIPPET_KEY, appId: getCurrentAppId() } },
     });
     const store = parseSheetViewerConfigStore(snippet?.content ?? null);
     return NextResponse.json({ success: true, data: getSheetViewerConfig(store, sheetName) });
@@ -56,7 +57,7 @@ export async function POST(request: Request): Promise<NextResponse> {
     }
 
     const snippet = await prisma.knowledgeSnippet.findUnique({
-      where: { key: SHEET_VIEWER_CONFIG_SNIPPET_KEY },
+      where: { key_appId: { key: SHEET_VIEWER_CONFIG_SNIPPET_KEY, appId: getCurrentAppId() } },
     });
     const store = parseSheetViewerConfigStore(snippet?.content ?? null);
     const nextStore = mergeSheetViewerConfig(store, sheetName, {
@@ -68,8 +69,8 @@ export async function POST(request: Request): Promise<NextResponse> {
     });
 
     await prisma.knowledgeSnippet.upsert({
-      where: { key: SHEET_VIEWER_CONFIG_SNIPPET_KEY },
-      create: { key: SHEET_VIEWER_CONFIG_SNIPPET_KEY, category: 'cache', content: JSON.stringify(nextStore) },
+      where: { key_appId: { key: SHEET_VIEWER_CONFIG_SNIPPET_KEY, appId: getCurrentAppId() } },
+      create: { key: SHEET_VIEWER_CONFIG_SNIPPET_KEY, category: 'cache', content: JSON.stringify(nextStore), appId: getCurrentAppId() },
       update: { content: JSON.stringify(nextStore) },
     });
 

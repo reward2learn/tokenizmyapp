@@ -66,7 +66,7 @@ export function TenantAIChat({ tenantSlug, tenantName, appId }: TenantAIChatProp
   const tenantConversations = data.data.conversations ?? [];
 
   const handleArchive = async (id: number, archived: boolean) => {
-    await archive({ id, archived }).unwrap();
+    await archive({ id, archived, tenantSlug, appId: appId ?? undefined }).unwrap();
     refetch();
   };
 

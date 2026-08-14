@@ -212,6 +212,15 @@ export async function syncEnvVars(
     NEXT_PUBLIC_APP_URL: appUrl,
   };
 
+  // Suite apps deploy with metadata.appId (see suite-provisioning.ts) — stamp
+  // it so this deployment knows its own app identity at runtime (business-data
+  // tables like FinancialProjection/Task/DailyZReport are scoped by app_id
+  // within the tenant's shared database; see shared/lib/config/tenant.ts:getCurrentAppId).
+  const suiteAppId = input.metadata?.appId;
+  if (typeof suiteAppId === 'string' && suiteAppId) {
+    envVars.NEXT_PUBLIC_APP_ID = suiteAppId;
+  }
+
   // Postgres connection vars: when a tenant-specific dbUrl is supplied, that
   // tenant's own database wins — never fall back to this (the platform root's
   // own) process's POSTGRES_URL for an actual tenant deployment. The

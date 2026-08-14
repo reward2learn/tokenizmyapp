@@ -10,6 +10,18 @@
  */
 // Using raw Prisma client (any) for compatibility
 import { getTemplate, type TemplateDefinition } from '@/domain/tenant/template-catalog';
+import { DEFAULT_PLATFORM_ADMIN_EMAIL } from '@/domain/security/functional-roles';
+
+/**
+ * Resolve the "Default Admin Email" configured in the tenant edit wizard's
+ * Admin & Authentication step (metadata.config.auth.adminEmail, falling back
+ * to the older metadata.config.adminEmail field), or the platform default.
+ */
+export function resolveTenantAdminEmail(metadata: Record<string, unknown> | null | undefined): string {
+  const config = (metadata?.config ?? {}) as Record<string, unknown>;
+  const auth = (config.auth ?? {}) as Record<string, unknown>;
+  return (auth.adminEmail as string) || (config.adminEmail as string) || DEFAULT_PLATFORM_ADMIN_EMAIL;
+}
 
 interface SeedTenantInput {
   /** Parent tenant slug — always the tenant, never a "{parent}__{appId}" combined key. */
@@ -23,6 +35,12 @@ interface SeedTenantInput {
    *  and from sibling apps (matters most when seeding falls back to a shared
    *  DB instead of the app's own dedicated one — see suite-provisioning.ts). */
   appId?: string;
+  /** Default Admin Email from the tenant wizard's Admin & Authentication step
+   *  (metadata.config.auth.adminEmail) — seeded as a platform-admin
+   *  user_accounts row so there's always a default admin identity, not just
+   *  an app_config value nobody can sign in with an unclaimed account for.
+   *  Falls back to DEFAULT_PLATFORM_ADMIN_EMAIL via resolveTenantAdminEmail(). */
+  adminEmail?: string;
   /** Override the DB to use a tenant-specific connection */
   db?: any;
 }
@@ -48,8 +66,21 @@ export async function addTenantColumnsIfMissing(db: any): Promise<void> {
     `ALTER TABLE navigation_items ADD COLUMN IF NOT EXISTS app_id TEXT;`,
     `ALTER TABLE navigation_items ADD COLUMN IF NOT EXISTS is_active BOOLEAN DEFAULT true;`,
 
-    // user_accounts — tenant isolation
+    // user_accounts — tenant/app isolation
     `ALTER TABLE user_accounts ADD COLUMN IF NOT EXISTS tenant_slug TEXT;`,
+    `ALTER TABLE user_accounts ADD COLUMN IF NOT EXISTS app_id TEXT;`,
+
+    // roles — tenant/app isolation (also ensures the table exists at all for
+    // tenant databases provisioned before this table was part of the schema)
+    `CREATE TABLE IF NOT EXISTS roles (
+      id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::TEXT,
+      code TEXT NOT NULL UNIQUE,
+      name TEXT NOT NULL,
+      is_platform_admin BOOLEAN NOT NULL DEFAULT false,
+      created_at TIMESTAMP WITHOUT TIME ZONE DEFAULT CURRENT_TIMESTAMP
+    );`,
+    `ALTER TABLE roles ADD COLUMN IF NOT EXISTS tenant_slug TEXT;`,
+    `ALTER TABLE roles ADD COLUMN IF NOT EXISTS app_id TEXT;`,
 
     // Indexes on tenant_slug columns for query performance
     `CREATE INDEX IF NOT EXISTS idx_app_pages_tenant_slug ON app_pages(tenant_slug);`,
@@ -57,6 +88,89 @@ export async function addTenantColumnsIfMissing(db: any): Promise<void> {
     `CREATE INDEX IF NOT EXISTS idx_navigation_items_tenant_slug ON navigation_items(tenant_slug);`,
     `CREATE INDEX IF NOT EXISTS idx_navigation_items_tenant_app ON navigation_items(tenant_slug, app_id);`,
     `CREATE INDEX IF NOT EXISTS idx_user_accounts_tenant_slug ON user_accounts(tenant_slug);`,
+    `CREATE INDEX IF NOT EXISTS idx_user_accounts_tenant_app ON user_accounts(tenant_slug, app_id);`,
+    `CREATE INDEX IF NOT EXISTS idx_roles_tenant_app ON roles(tenant_slug, app_id);`,
+
+    // business_review_parts / levers / action_items / tasks / knowledge_snippets /
+    // financial_projections / daily_z_reports / monthly_targets / monthly_actual_inputs /
+    // monthly_actual_departments / daily_metrics — app-scoped seeded/business data.
+    // app_id is NOT NULL DEFAULT '' (never nullable) so composite unique/PK
+    // constraints below actually dedupe the common single-app case — Postgres
+    // treats NULL as distinct from NULL in unique constraints, so a nullable
+    // app_id would silently stop deduping upserts for every non-suite tenant.
+    `ALTER TABLE business_review_parts ADD COLUMN IF NOT EXISTS app_id TEXT NOT NULL DEFAULT '';`,
+    `ALTER TABLE levers ADD COLUMN IF NOT EXISTS app_id TEXT NOT NULL DEFAULT '';`,
+    `ALTER TABLE action_items ADD COLUMN IF NOT EXISTS app_id TEXT NOT NULL DEFAULT '';`,
+    `ALTER TABLE tasks ADD COLUMN IF NOT EXISTS app_id TEXT NOT NULL DEFAULT '';`,
+    `ALTER TABLE knowledge_snippets ADD COLUMN IF NOT EXISTS app_id TEXT NOT NULL DEFAULT '';`,
+    `ALTER TABLE financial_projections ADD COLUMN IF NOT EXISTS app_id TEXT NOT NULL DEFAULT '';`,
+    `ALTER TABLE daily_z_reports ADD COLUMN IF NOT EXISTS app_id TEXT NOT NULL DEFAULT '';`,
+    `ALTER TABLE monthly_targets ADD COLUMN IF NOT EXISTS app_id TEXT NOT NULL DEFAULT '';`,
+    `ALTER TABLE monthly_actual_inputs ADD COLUMN IF NOT EXISTS app_id TEXT NOT NULL DEFAULT '';`,
+    `ALTER TABLE monthly_actual_departments ADD COLUMN IF NOT EXISTS app_id TEXT NOT NULL DEFAULT '';`,
+    `ALTER TABLE daily_metrics ADD COLUMN IF NOT EXISTS app_id TEXT NOT NULL DEFAULT '';`,
+
+    `CREATE INDEX IF NOT EXISTS idx_business_review_parts_app_id ON business_review_parts(app_id);`,
+    `CREATE INDEX IF NOT EXISTS idx_levers_app_id ON levers(app_id);`,
+    `CREATE INDEX IF NOT EXISTS idx_action_items_app_id ON action_items(app_id);`,
+    `CREATE INDEX IF NOT EXISTS idx_tasks_app_id ON tasks(app_id);`,
+    `CREATE INDEX IF NOT EXISTS idx_knowledge_snippets_app_id ON knowledge_snippets(app_id);`,
+    `CREATE INDEX IF NOT EXISTS idx_financial_projections_app_id ON financial_projections(app_id);`,
+    `CREATE INDEX IF NOT EXISTS idx_daily_z_reports_app_id ON daily_z_reports(app_id);`,
+    `CREATE INDEX IF NOT EXISTS idx_monthly_targets_app_id ON monthly_targets(app_id);`,
+    `CREATE INDEX IF NOT EXISTS idx_monthly_actual_inputs_app_id ON monthly_actual_inputs(app_id);`,
+    `CREATE INDEX IF NOT EXISTS idx_monthly_actual_departments_app_id ON monthly_actual_departments(app_id);`,
+    `CREATE INDEX IF NOT EXISTS idx_daily_metrics_app_id ON daily_metrics(app_id);`,
+
+    // Reusable helper: find a unique/PK constraint matching an exact old
+    // column set and swap it for a new one that includes app_id. Constraint
+    // names on these tables were whatever `prisma db push` auto-generated
+    // (this app has no migration files), so they can't be hardcoded — this
+    // discovers the name dynamically. Safe to re-run: once the old constraint
+    // is gone, the second call becomes a no-op (duplicate_object is caught).
+    `CREATE OR REPLACE FUNCTION _rrfpa_migrate_key(
+       p_table text, p_old_cols text[], p_new_cols text[], p_is_pk boolean, p_new_name text
+     ) RETURNS void AS $$
+     DECLARE
+       cname text;
+     BEGIN
+       SELECT tc.constraint_name INTO cname
+       FROM information_schema.table_constraints tc
+       WHERE tc.table_name = p_table
+         AND tc.constraint_type = (CASE WHEN p_is_pk THEN 'PRIMARY KEY' ELSE 'UNIQUE' END)
+         AND (
+           SELECT array_agg(kcu.column_name ORDER BY kcu.ordinal_position)
+           FROM information_schema.key_column_usage kcu
+           WHERE kcu.constraint_name = tc.constraint_name AND kcu.table_name = p_table
+         ) = p_old_cols
+       LIMIT 1;
+
+       IF cname IS NOT NULL THEN
+         EXECUTE format('ALTER TABLE %I DROP CONSTRAINT %I', p_table, cname);
+       END IF;
+
+       BEGIN
+         IF p_is_pk THEN
+           EXECUTE format('ALTER TABLE %I ADD CONSTRAINT %I PRIMARY KEY (%s)', p_table, p_new_name, array_to_string(p_new_cols, ', '));
+         ELSE
+           EXECUTE format('ALTER TABLE %I ADD CONSTRAINT %I UNIQUE (%s)', p_table, p_new_name, array_to_string(p_new_cols, ', '));
+         END IF;
+       EXCEPTION WHEN duplicate_table THEN NULL;
+       WHEN others THEN NULL;
+       END;
+     END;
+     $$ LANGUAGE plpgsql;`,
+
+    `SELECT _rrfpa_migrate_key('business_review_parts', ARRAY['part_key'], ARRAY['part_key','app_id'], false, 'business_review_parts_part_key_app_id_key');`,
+    `SELECT _rrfpa_migrate_key('business_review_parts', ARRAY['slug'], ARRAY['slug','app_id'], false, 'business_review_parts_slug_app_id_key');`,
+    `SELECT _rrfpa_migrate_key('levers', ARRAY['num'], ARRAY['num','app_id'], false, 'levers_num_app_id_key');`,
+    `SELECT _rrfpa_migrate_key('knowledge_snippets', ARRAY['key'], ARRAY['key','app_id'], false, 'knowledge_snippets_key_app_id_key');`,
+    `SELECT _rrfpa_migrate_key('financial_projections', ARRAY['period','data_type','scenario'], ARRAY['period','data_type','scenario','app_id'], false, 'financial_projections_period_data_type_scenario_app_id_key');`,
+    `SELECT _rrfpa_migrate_key('daily_z_reports', ARRAY['report_date','department'], ARRAY['report_date','department','app_id'], false, 'daily_z_reports_report_date_department_app_id_key');`,
+    `SELECT _rrfpa_migrate_key('monthly_targets', ARRAY['month'], ARRAY['month','app_id'], false, 'monthly_targets_month_app_id_key');`,
+    `SELECT _rrfpa_migrate_key('daily_metrics', ARRAY['date'], ARRAY['date','app_id'], false, 'daily_metrics_date_app_id_key');`,
+    `SELECT _rrfpa_migrate_key('monthly_actual_inputs', ARRAY['period'], ARRAY['period','app_id'], true, 'monthly_actual_inputs_pkey_appid');`,
+    `SELECT _rrfpa_migrate_key('monthly_actual_departments', ARRAY['period','department'], ARRAY['period','department','app_id'], true, 'monthly_actual_departments_pkey_appid');`,
   ];
 
   for (const sql of statements) {
@@ -124,6 +238,7 @@ export async function seedTenantDefaults(input: SeedTenantInput): Promise<{
   pages: number;
   navItems: number;
   settings: boolean;
+  adminSeeded: boolean;
   errors: string[];
 }> {
   const template = getTemplate(input.template);
@@ -272,11 +387,49 @@ export async function seedTenantDefaults(input: SeedTenantInput): Promise<{
     }
   }
 
+  // ── 4. Seed default admin UserAccount + platform-admin role ──
+  // Without this, user_accounts stays empty until someone actually signs in —
+  // there's no default admin identity to grant access ahead of time. The
+  // account is tenant-wide (app_id left null) even when this seed run is for
+  // one specific app, so re-seeding N apps in a suite converges on the same
+  // single admin row instead of creating N duplicates.
+  let adminSeeded = false;
+  const adminEmail = input.adminEmail || DEFAULT_PLATFORM_ADMIN_EMAIL;
+  try {
+    await db.$executeRawUnsafe(
+      `INSERT INTO roles (id, code, name, is_platform_admin, tenant_slug, app_id, created_at)
+       VALUES (gen_random_uuid()::TEXT, 'platform-admin', 'Platform Admin', true, $1, NULL, NOW())
+       ON CONFLICT (code) DO UPDATE
+         SET name = 'Platform Admin', is_platform_admin = true, tenant_slug = $1;`,
+      input.slug,
+    );
+
+    // sub is a stable placeholder until the admin's first real Google
+    // sign-in claims this row (security-service.ts upsertUserAccount matches
+    // by email on sub conflict and rewrites sub to the real OAuth subject).
+    const placeholderSub = `pending:${adminEmail}`;
+    await db.$executeRawUnsafe(
+      `INSERT INTO user_accounts (id, sub, email, name, tier, role_code, tenant_slug, app_id, is_active, created_at, updated_at)
+       VALUES (gen_random_uuid()::TEXT, $1, $2, 'Platform Admin', 'google', 'platform-admin', $3, NULL, true, NOW(), NOW())
+       ON CONFLICT (sub) DO UPDATE
+         SET email = $2, role_code = 'platform-admin', tenant_slug = $3, is_active = true, updated_at = NOW();`,
+      placeholderSub,
+      adminEmail,
+      input.slug,
+    );
+    adminSeeded = true;
+    console.log(`[tenant-seed] Default admin account seeded: ${adminEmail}`);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error(`[tenant-seed] Failed to seed default admin account:`, msg);
+    errors.push(`admin account: ${msg.slice(0, 200)}`);
+  }
+
   if (errors.length > 0) {
     console.error(`[tenant-seed] Errors: ${errors.join('; ')}`);
   }
   console.log(`[tenant-seed] Seeded ${pageCount} pages, ${navCount} nav items for ${input.slug}`);
-  return { pages: pageCount, navItems: navCount, settings: true, errors };
+  return { pages: pageCount, navItems: navCount, settings: true, adminSeeded, errors };
 }
 
 /**

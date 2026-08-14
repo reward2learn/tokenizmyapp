@@ -23,6 +23,7 @@
 
 import { NextResponse } from 'next/server';
 import { PrismaClient } from '@/generated/prisma';
+import { getCurrentAppId } from '@shared/lib/config/tenant';
 
 export const dynamic = 'force-dynamic';
 
@@ -34,6 +35,7 @@ function getClient() {
 
 export async function GET(): Promise<NextResponse> {
   const prisma = getClient();
+  const appId = getCurrentAppId();
 
   try {
     // ── App pages (with sections) ────────────────────────
@@ -57,6 +59,7 @@ export async function GET(): Promise<NextResponse> {
 
     // ── Business Review parts ────────────────────────────
     const reviewParts = await prisma.businessReviewPart.findMany({
+      where: { appId },
       orderBy: { sortOrder: 'asc' },
     });
 
@@ -70,6 +73,7 @@ export async function GET(): Promise<NextResponse> {
 
     // ── Knowledge snippets ───────────────────────────────
     const snippets = await prisma.knowledgeSnippet.findMany({
+      where: { appId },
       orderBy: { key: 'asc' },
     });
 
@@ -82,6 +86,7 @@ export async function GET(): Promise<NextResponse> {
 
     // ── Tasks (with assignments + role names) ────────────
     const tasks = await prisma.task.findMany({
+      where: { appId },
       orderBy: { sortOrder: 'asc' },
       include: {
         assignments: {
@@ -105,7 +110,7 @@ export async function GET(): Promise<NextResponse> {
     }));
 
     // ── Monthly targets ──────────────────────────────────
-    const targets = await prisma.monthlyTarget.findMany({ orderBy: { month: 'asc' } });
+    const targets = await prisma.monthlyTarget.findMany({ where: { appId }, orderBy: { month: 'asc' } });
     const targetDetails = targets.map((t) => ({
       month: t.month,
       targetRevenue: t.targetRevenue,
@@ -114,7 +119,7 @@ export async function GET(): Promise<NextResponse> {
     }));
 
     // ── Levers ────────────────────────────────────────────
-    const leverRecords = await prisma.lever.findMany({ orderBy: { num: 'asc' } });
+    const leverRecords = await prisma.lever.findMany({ where: { appId }, orderBy: { num: 'asc' } });
     const leverDetails = leverRecords.map((l) => ({
       num: l.num,
       name: l.name,
@@ -122,7 +127,7 @@ export async function GET(): Promise<NextResponse> {
     }));
 
     // ── Action items ─────────────────────────────────────
-    const actionItemRecords = await prisma.actionItem.findMany({ orderBy: { sortOrder: 'asc' } });
+    const actionItemRecords = await prisma.actionItem.findMany({ where: { appId }, orderBy: { sortOrder: 'asc' } });
     const actionItemDetails = actionItemRecords.map((a) => ({
       priority: a.priority,
       label: a.label,
@@ -131,6 +136,7 @@ export async function GET(): Promise<NextResponse> {
 
     // ── Daily Z-reports ───────────────────────────────────
     const zReports = await prisma.dailyZReport.findMany({
+      where: { appId },
       orderBy: { reportDate: 'desc' },
       take: 200,
     });

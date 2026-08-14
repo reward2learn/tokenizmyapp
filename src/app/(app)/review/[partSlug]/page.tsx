@@ -7,6 +7,7 @@ import { ReviewNav } from '@/components/review/review-nav';
 import { createClient } from '@/lib/db';
 import { getReviewPartContent } from '@/domain/content/review-part-service';
 import { resolveReviewPart, setDynamicReviewParts } from '@/lib/page-catalog';
+import { getCurrentAppId } from '@shared/lib/config/tenant';
 
 /** Avoid Prisma/Neon calls during `next build` static generation. */
 export const dynamic = 'force-dynamic';
@@ -30,7 +31,7 @@ export default async function ReviewPartPage({ params }: ReviewPartPageProps) {
         const prisma = new PrismaClient({ datasources: { db: { url } } });
         try {
           const row = await prisma.businessReviewPart.findUnique({
-            where: { slug: partSlug },
+            where: { slug_appId: { slug: partSlug, appId: getCurrentAppId() } },
           });
           if (row) {
             part = {

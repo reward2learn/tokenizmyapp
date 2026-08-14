@@ -10,6 +10,9 @@
  *   NEXT_PUBLIC_TENANT_DISPLAY_NAME — display name (e.g. "Red Ruby Bali")
  *   NEXT_PUBLIC_TENANT_DESCRIPTION  — app description / tagline
  *   NEXT_PUBLIC_APP_URL             — canonical app URL (overrides slug-based derivation)
+ *   NEXT_PUBLIC_APP_ID              — suite-mode app id (e.g. "hr", "sales") this
+ *                                      specific Vercel deployment serves; unset/empty
+ *                                      for single-app tenants and the tenant's own hub.
  */
 
 /** Default values when no tenant env vars are set. */
@@ -42,6 +45,16 @@ export function getTenantConfig(): TenantConfig {
   const appTitle = process.env.NEXT_PUBLIC_TENANT_APP_TITLE?.trim() || displayName;
 
   return { slug, displayName, description, appTitle };
+}
+
+/**
+ * Resolve this deployment's own suite-mode app id, e.g. "hr" or "sales-reporting".
+ * Empty string for single-app tenants and the tenant's own hub deployment —
+ * the same "no app scope" sentinel used throughout the business-data tables
+ * (FinancialProjection, Task, DailyZReport, etc.) and admin routes.
+ */
+export function getCurrentAppId(): string {
+  return process.env.NEXT_PUBLIC_APP_ID?.trim() || '';
 }
 
 /**

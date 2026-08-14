@@ -1,5 +1,6 @@
 import type { DbClient } from '@/lib/db';
 import { resolveReviewPart } from '@/lib/page-catalog';
+import { getCurrentAppId } from '@shared/lib/config/tenant';
 
 export interface ReviewPartContent {
   slug: string;
@@ -22,7 +23,7 @@ export async function getReviewPartContent(
   }
 
   // DB is the only source of truth (populated by AI Content Generation or seed).
-  const row = await db.businessReviewPart.findUnique({ where: { slug } });
+  const row = await db.businessReviewPart.findUnique({ where: { slug_appId: { slug, appId: getCurrentAppId() } } });
   if (!row) return null;
 
   return {

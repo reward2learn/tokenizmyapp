@@ -10,6 +10,7 @@ import { z } from 'zod';
 import { createClient } from '@/lib/db';
 import { requireWriteAuth } from '@/lib/auth/guards';
 import { jsonError, jsonOk } from '@/lib/api/response';
+import { getCurrentAppId } from '@shared/lib/config/tenant';
 
 const batchSchema = z.object({
   findings: z.array(z.object({
@@ -40,11 +41,12 @@ export async function POST(request: Request): Promise<NextResponse> {
 
   try {
     await db.knowledgeSnippet.upsert({
-      where: { key: 'ai_findings' },
+      where: { key_appId: { key: 'ai_findings', appId: getCurrentAppId() } },
       create: {
         key: 'ai_findings',
         category: 'document',
         content: JSON.stringify(findings),
+        appId: getCurrentAppId(),
       },
       update: {
         content: JSON.stringify(findings),

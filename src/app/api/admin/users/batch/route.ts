@@ -1,10 +1,12 @@
 import { NextResponse } from 'next/server';
+import { PrismaClient } from '@/generated/prisma';
 import { createRawClient, type DbClient } from '@/lib/db';
 import { requireWriteAuth } from '@/lib/auth/guards';
 import { sessionIsPlatformAdmin } from '@/lib/auth/jwt';
 import { jsonError, jsonOk } from '@/lib/api/response';
 import { setSecret } from '@/lib/secrets';
 import { FUNCTIONAL_ROLES } from '@/domain/security/functional-roles';
+import { resolveDedicatedTenantDbUrl } from '@/domain/tenant/tenant-db-resolver';
 
 export const maxDuration = 30;
 
@@ -65,9 +67,12 @@ export async function POST(request: Request): Promise<NextResponse> {
   const scopeAppId = typeof (body as { appId?: unknown }).appId === 'string'
     ? (body as { appId: string }).appId : null;
 
+  // The target tenant may have its own dedicated database — onboard users
+  // there, not into the platform root DB. See tenant-db-resolver.ts.
+  const dbUrl = await resolveDedicatedTenantDbUrl(scopeTenantSlug, scopeAppId);
   let db: DbClient;
   try {
-    db = createRawClient() as unknown as DbClient;
+    db = (dbUrl ? new PrismaClient({ datasources: { db: { url: dbUrl } } }) : createRawClient()) as unknown as DbClient;
     await db.$queryRawUnsafe('SELECT 1 as ok');
   } catch (err) {
     console.error('[admin/users/batch] createRawClient error:', err instanceof Error ? err.message : String(err));
@@ -151,6 +156,8 @@ export async function POST(request: Request): Promise<NextResponse> {
       });
     }
   }
+
+  if (dbUrl) await (db as unknown as PrismaClient).$disconnect();
 
   const created = results.filter((r) => r.status === 'created').length;
   const updated = results.filter((r) => r.status === 'updated').length;

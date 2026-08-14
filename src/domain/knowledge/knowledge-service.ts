@@ -1,4 +1,5 @@
 import type { DbClient } from '@/lib/db';
+import { getCurrentAppId } from '@shared/lib/config/tenant';
 import {
   buildStructuredPromptFromSnippets,
   KNOWLEDGE_SEED_SNIPPETS,
@@ -15,7 +16,7 @@ export class KnowledgeService {
 
   async getSnippetByKey(key: string): Promise<KnowledgeSnippetDto | null> {
     try {
-      const row = await this.db.knowledgeSnippet.findUnique({ where: { key } });
+      const row = await this.db.knowledgeSnippet.findUnique({ where: { key_appId: { key, appId: getCurrentAppId() } } });
       if (row) {
         return { key: row.key, category: row.category, content: row.content };
       }
@@ -28,7 +29,7 @@ export class KnowledgeService {
 
   async getSnippetsByCategory(category: string): Promise<KnowledgeSnippetDto[]> {
     const rows = await this.db.knowledgeSnippet.findMany({
-      where: { category },
+      where: { category, appId: getCurrentAppId() },
       orderBy: { key: 'asc' },
     });
     if (rows.length) {
@@ -40,7 +41,7 @@ export class KnowledgeService {
   }
 
   async getAllSnippets(): Promise<KnowledgeSnippetDto[]> {
-    const rows = await this.db.knowledgeSnippet.findMany({ orderBy: { key: 'asc' } });
+    const rows = await this.db.knowledgeSnippet.findMany({ where: { appId: getCurrentAppId() }, orderBy: { key: 'asc' } });
     if (rows.length) {
       return rows.map((r) => ({ key: r.key, category: r.category, content: r.content }));
     }

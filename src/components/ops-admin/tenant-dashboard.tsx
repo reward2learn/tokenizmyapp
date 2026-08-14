@@ -987,9 +987,9 @@ export function TenantDashboard() {
           <Alert severity="warning" sx={{ mb: 2 }}>
             This deletes all rows in App Pages, Business Review Parts, Knowledge Snippets, Tasks, Roles,
             Monthly Targets, Levers, Action Items, Financial Projections, and Z-Reports — in{' '}
-            <strong>{clearDataSlug}</strong>&apos;s own dedicated database. None of these tables currently
-            track which app a row belongs to, so this clears every app sharing this tenant&apos;s database.
-            The tenant itself, its Vercel deployment, and user accounts are not affected.
+            <strong>{clearDataSlug}</strong>&apos;s own dedicated database, across every app sharing it.
+            To clear a single app&apos;s data only, use that app&apos;s own &quot;Delete Seeded Data&quot;
+            action instead. The tenant itself, its Vercel deployment, and user accounts are not affected.
           </Alert>
           <DialogContentText sx={{ mb: 1 }}>
             Type <strong>CLEAR ALL SEEDED DATA</strong> below to confirm:

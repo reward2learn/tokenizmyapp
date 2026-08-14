@@ -91,6 +91,8 @@ export function TenantInlineUserManager({ tenantSlug, tenantName, appId }: Props
       roleCode: editForm.roleCode || undefined,
       groupCodes: editForm.groupCodes,
       pin: editForm.pin || undefined,
+      tenantSlug,
+      ...(appId ? { appId } : {}),
     }).unwrap();
     setEditing(null);
     refetch();
@@ -100,7 +102,7 @@ export function TenantInlineUserManager({ tenantSlug, tenantName, appId }: Props
     if (!deleteConfirm) return;
     const user = users.find((u) => u.id === deleteConfirm);
     if (!user) return;
-    await deleteUser({ id: deleteConfirm, sub: user.sub }).unwrap();
+    await deleteUser({ id: deleteConfirm, sub: user.sub, tenantSlug, ...(appId ? { appId } : {}) }).unwrap();
     setDeleteConfirm(null);
     refetch();
   };

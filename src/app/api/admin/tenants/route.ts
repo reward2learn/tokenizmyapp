@@ -17,7 +17,7 @@ import { jsonError, jsonOk } from '@/lib/api/response';
 import { ensureTenantsTable } from '@/domain/tenant/tenant-service';
 import { ensureTenantConfigColumns } from '@/domain/tenant/tenant-config-service';
 import { deployTenant } from '@/domain/tenant/vercel-deploy-service';
-import { seedTenantDefaults, seedTemplateSecurityGroups } from '@/domain/tenant/tenant-seed-service';
+import { seedTenantDefaults, seedTemplateSecurityGroups, resolveTenantAdminEmail } from '@/domain/tenant/tenant-seed-service';
 import { inngest } from '@/lib/inngest';
 import { generateSchemaFromPrompt } from '@/domain/ai/schema-generator';
 import { compileToZModel } from '@/domain/ai/zmodel-compiler';
@@ -145,6 +145,33 @@ export async function POST(request: Request): Promise<NextResponse> {
     );
     const tenant = { id: tenantId, slug: parsed.data.slug, status: 'deploying' } as const;
 
+    // ── Phase 4: Neon database provisioning (if API key available) ──
+    // Runs BEFORE suite provisioning below — provisionSuiteApps() reads
+    // tenants.db_url to decide which database to seed each app's data into,
+    // so the tenant's own dedicated DB must exist first. Provisioning suite
+    // apps before this ran meant every app's first seed silently landed in
+    // the shared root DB instead of the tenant's own database.
+    // Best-effort: log errors but continue.
+    let neonResult: ProvisionedDatabase | null = null;
+    if (process.env.NEON_API_KEY) {
+      try {
+        console.log('[tenants] Phase 4: provisioning Neon database...');
+        neonResult = await provisionTenantDatabase(parsed.data.slug);
+        console.log('[tenants] Phase 4: Neon database provisioned');
+        // Persist the DB URL to the tenant record
+        await db.$executeRawUnsafe(
+          `UPDATE tenants SET db_url = $1, updated_at = CURRENT_TIMESTAMP WHERE slug = $2;`,
+          neonResult.pooledUrl,
+          parsed.data.slug,
+        );
+      } catch (err) {
+        console.error(
+          '[tenants] Phase 4: Neon provisioning failed:',
+          err instanceof Error ? err.message : String(err),
+        );
+      }
+    }
+
     // ── Suite Mode: materialize app pack ─────────────────────────
     if (parsed.data.templateMode === 'suite' && parsed.data.templates && parsed.data.templates.length > 0) {
       try {
@@ -219,28 +246,6 @@ export async function POST(request: Request): Promise<NextResponse> {
       }
     }
 
-    // ── Phase 4: Neon database provisioning (if API key available) ──
-    // Best-effort: log errors but continue.
-    let neonResult: ProvisionedDatabase | null = null;
-    if (process.env.NEON_API_KEY) {
-      try {
-        console.log('[tenants] Phase 4: provisioning Neon database...');
-        neonResult = await provisionTenantDatabase(parsed.data.slug);
-        console.log('[tenants] Phase 4: Neon database provisioned');
-        // Persist the DB URL to the tenant record
-        await db.$executeRawUnsafe(
-          `UPDATE tenants SET db_url = $1, updated_at = CURRENT_TIMESTAMP WHERE slug = $2;`,
-          neonResult.pooledUrl,
-          parsed.data.slug,
-        );
-      } catch (err) {
-        console.error(
-          '[tenants] Phase 4: Neon provisioning failed:',
-          err instanceof Error ? err.message : String(err),
-        );
-      }
-    }
-
     // ── Phase 6: Code generation (if schema was generated) ──────────
     // Best-effort: log errors but continue.
     let codegenResult: { outputDir: string; fileCount: number } | null = null;
@@ -294,6 +299,7 @@ export async function POST(request: Request): Promise<NextResponse> {
       template: parsed.data.template,
       primaryColor: parsed.data.primaryColor,
       secondaryColor: parsed.data.secondaryColor,
+      adminEmail: resolveTenantAdminEmail(parsed.data.metadata),
     };
 
     // Seed immediately. When a dedicated Neon DB was just provisioned, seed

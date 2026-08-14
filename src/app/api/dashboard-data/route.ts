@@ -14,6 +14,7 @@ import { z } from 'zod';
 import { createClient } from '@/lib/db';
 import { requireWriteAuth } from '@/lib/auth/guards';
 import { jsonError, jsonOk } from '@/lib/api/response';
+import { getCurrentAppId } from '@shared/lib/config/tenant';
 
 export const dynamic = 'force-dynamic';
 
@@ -36,7 +37,7 @@ export async function GET() {
   try {
     const db = createClient();
     const snippet = await db.knowledgeSnippet.findUnique({
-      where: { key: 'dashboard_data' },
+      where: { key_appId: { key: 'dashboard_data', appId: getCurrentAppId() } },
     });
     if (!snippet?.content) {
       return jsonOk(null);
@@ -65,11 +66,12 @@ export async function POST(request: Request): Promise<NextResponse> {
 
   try {
     await db.knowledgeSnippet.upsert({
-      where: { key: 'dashboard_data' },
+      where: { key_appId: { key: 'dashboard_data', appId: getCurrentAppId() } },
       create: {
         key: 'dashboard_data',
         category: 'document',
         content: JSON.stringify(parsed.data),
+        appId: getCurrentAppId(),
       },
       update: {
         content: JSON.stringify(parsed.data),

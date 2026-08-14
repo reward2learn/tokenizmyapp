@@ -1,5 +1,6 @@
 import type { DbClient } from '@/lib/db';
 import type { DailyZReport } from '@/generated/prisma';
+import { getCurrentAppId } from '@shared/lib/config/tenant';
 import {
   monthBounds,
   periodFromDate,
@@ -215,9 +216,11 @@ function buildProratedDayRow(
 
 export class ZReportService {
   private readonly sync: SyncMonthlyActuals;
+  private readonly appId: string;
 
   constructor(private readonly db: DbClient) {
     this.sync = new SyncMonthlyActuals(db);
+    this.appId = getCurrentAppId();
   }
 
   getSchema(deptId?: string): {
@@ -237,9 +240,10 @@ export class ZReportService {
     const date = toIsoDate(reportDate) || reportDate.slice(0, 10);
     return this.db.dailyZReport.findUnique({
       where: {
-        reportDate_department: {
+        reportDate_department_appId: {
           reportDate: new Date(`${date}T00:00:00.000Z`),
           department,
+          appId: this.appId,
         },
       },
     });
@@ -272,8 +276,8 @@ export class ZReportService {
     delete updateData.department;
 
     const saved = await this.db.dailyZReport.upsert({
-      where: { reportDate_department: { reportDate, department } },
-      create: { ...data, reportDate, department } as Parameters<DbClient['dailyZReport']['create']>[0]['data'],
+      where: { reportDate_department_appId: { reportDate, department, appId: this.appId } },
+      create: { ...data, reportDate, department, appId: this.appId } as Parameters<DbClient['dailyZReport']['create']>[0]['data'],
       update: updateData as Parameters<DbClient['dailyZReport']['update']>[0]['data'],
     });
 
@@ -287,6 +291,7 @@ export class ZReportService {
     const rows = await this.db.dailyZReport.findMany({
       where: {
         reportDate: { gte: new Date(`${start}T00:00:00.000Z`), lt: new Date(`${end}T00:00:00.000Z`) },
+        appId: this.appId,
       },
       orderBy: { reportDate: 'asc' },
     });
@@ -346,7 +351,7 @@ export class ZReportService {
 
       try {
         const existing = await this.db.dailyZReport.findFirst({
-          where: { reportDate: new Date(`${date}T00:00:00.000Z`) },
+          where: { reportDate: new Date(`${date}T00:00:00.000Z`), appId: this.appId },
           select: { reportDate: true, entrySource: true },
         });
 
@@ -393,6 +398,7 @@ export class ZReportService {
     const existingRows = await this.db.dailyZReport.findMany({
       where: {
         reportDate: { gte: new Date(`${start}T00:00:00.000Z`), lt: new Date(`${end}T00:00:00.000Z`) },
+        appId: this.appId,
       },
     });
 
@@ -467,7 +473,7 @@ export class ZReportService {
     const period = periodFromDate(date);
 
     const existing = await this.db.dailyZReport.findFirst({
-      where: { reportDate: new Date(`${date}T00:00:00.000Z`) },
+      where: { reportDate: new Date(`${date}T00:00:00.000Z`), appId: this.appId },
     });
 
     if (!existing) {
@@ -479,7 +485,7 @@ export class ZReportService {
     }
 
     await this.db.dailyZReport.deleteMany({
-      where: { reportDate: new Date(`${date}T00:00:00.000Z`) },
+      where: { reportDate: new Date(`${date}T00:00:00.000Z`), appId: this.appId },
     });
     await this.sync.resyncMonthlyActuals(period);
 
@@ -492,6 +498,7 @@ export class ZReportService {
       where: {
         reportDate: { gte: new Date(`${start}T00:00:00.000Z`), lt: new Date(`${end}T00:00:00.000Z`) },
         entrySource: { in: ['xlsx_daily', 'xlsx_prorate'] },
+        appId: this.appId,
       },
     });
     await this.sync.resyncMonthlyActuals(period);

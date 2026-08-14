@@ -75,11 +75,12 @@ export const adminApi = createApi({
     }),
     archiveAdminConversation: builder.mutation<
       ApiEnvelope<{ id: number; archived: boolean }>,
-      { id: number; archived: boolean }
+      { id: number; archived: boolean } & TenantAppScope
     >({
-      query: ({ id, archived }) => ({
-        url: `admin/conversations?id=${id}&archived=${archived}`,
+      query: ({ id, archived, tenantSlug, appId }) => ({
+        url: 'admin/conversations',
         method: 'PATCH',
+        params: { id, archived, tenantSlug, appId },
       }),
       invalidatesTags: ['AdminConversations'],
     }),
@@ -89,7 +90,7 @@ export const adminApi = createApi({
     }),
     updateAdminUser: builder.mutation<
       ApiEnvelope<{ id: string; updated: boolean }>,
-      { id: string; email?: string; isActive?: boolean; roleCode?: string | null; groupCodes?: string[]; pin?: string }
+      { id: string; email?: string; isActive?: boolean; roleCode?: string | null; groupCodes?: string[]; pin?: string } & TenantAppScope
     >({
       query: (body) => ({
         url: 'admin/users',
@@ -100,11 +101,12 @@ export const adminApi = createApi({
     }),
     deleteAdminUser: builder.mutation<
       ApiEnvelope<{ id: string; deleted: boolean }>,
-      { id: string; sub: string }
+      { id: string; sub: string } & TenantAppScope
     >({
-      query: ({ id }) => ({
-        url: `admin/users?id=${id}`,
+      query: ({ id, tenantSlug, appId }) => ({
+        url: 'admin/users',
         method: 'DELETE',
+        params: { id, tenantSlug, appId },
       }),
       invalidatesTags: ['AdminUsers'],
     }),
@@ -147,10 +149,11 @@ export const adminApi = createApi({
       invalidatesTags: ['AdminGroups'],
     }),
     /** POST /api/admin/clear-seed — clear all or selected seed tables.
-     *  tenantSlug targets that tenant's own dedicated database. */
+     *  tenantSlug targets that tenant's own dedicated database; appId further
+     *  scopes the clear to just that app's rows within the shared database. */
     clearSeed: builder.mutation<
       ApiEnvelope<{ deleted: Record<string, number>; message: string }>,
-      ({ mode: 'all'; confirm: string } | { mode: 'selected'; tables: string[]; confirm: string }) & { tenantSlug?: string }
+      ({ mode: 'all'; confirm: string } | { mode: 'selected'; tables: string[]; confirm: string }) & TenantAppScope
     >({
       query: (body) => ({
         url: 'admin/clear-seed',
@@ -159,9 +162,9 @@ export const adminApi = createApi({
       }),
       invalidatesTags: ['SeedData'],
     }),
-    /** GET /api/admin/clear-seed — row-count overview of seed tables, optionally for a specific tenant's own database */
-    getSeedOverview: builder.query<ApiEnvelope<{ counts: Record<string, number>; total: number; tenantSlug: string | null }>, { tenantSlug?: string } | void>({
-      query: (params) => ({ url: 'admin/clear-seed', params: { tenantSlug: params?.tenantSlug } }),
+    /** GET /api/admin/clear-seed — row-count overview of seed tables, optionally for a specific tenant/app's own database */
+    getSeedOverview: builder.query<ApiEnvelope<{ counts: Record<string, number>; total: number; tenantSlug: string | null; appId: string | null }>, TenantAppScope | void>({
+      query: (params) => ({ url: 'admin/clear-seed', params: { tenantSlug: params?.tenantSlug, appId: params?.appId } }),
       providesTags: ['SeedData'],
     }),
     /** GET /api/admin/ai-content — AI content generation status */

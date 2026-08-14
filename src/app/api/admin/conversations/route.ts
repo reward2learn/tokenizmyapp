@@ -1,9 +1,10 @@
 import { NextResponse } from 'next/server';
-import { createClient } from '@/lib/db';
+import { createClient, createClientForUrl } from '@/lib/db';
 import { requireWriteAuth, requireRead, requireWrite } from '@/lib/auth/guards';
 import { sessionIsPlatformAdmin } from '@/lib/auth/jwt';
 import { jsonError, jsonOk } from '@/lib/api/response';
 import { ensureConversationsColumns } from '@/lib/db-migrate';
+import { resolveDedicatedTenantDbUrl } from '@/domain/tenant/tenant-db-resolver';
 
 export const maxDuration = 30;
 
@@ -47,15 +48,24 @@ export async function GET(request: Request): Promise<NextResponse> {
   const tenantSlug = isPlatformAdmin ? url.searchParams.get('tenantSlug') : null;
   const appId = isPlatformAdmin ? url.searchParams.get('appId') : null;
 
-  try {
-    await ensureConversationsOnce();
-  } catch {
-    // Best-effort column ensure.
+  // Conversations are written by the live tenant app itself (see
+  // /api/chat/route.ts) using its own POSTGRES_URL — a tenant with a
+  // dedicated database must be read there, not the platform root DB.
+  const dbUrl = await resolveDedicatedTenantDbUrl(tenantSlug, appId);
+
+  if (!dbUrl) {
+    try {
+      await ensureConversationsOnce();
+    } catch {
+      // Best-effort column ensure.
+    }
   }
 
   let db;
   try {
-    db = createClient({ tier: guard.session.tier, sub: guard.session.sub });
+    db = dbUrl
+      ? createClientForUrl(dbUrl, { tier: guard.session.tier, sub: guard.session.sub })
+      : createClient({ tier: guard.session.tier, sub: guard.session.sub });
   } catch {
     return jsonError('Database unavailable', 503);
   }
@@ -99,6 +109,8 @@ export async function GET(request: Request): Promise<NextResponse> {
   } catch (err) {
     console.error('[admin/conversations] GET error:', err);
     return jsonError('Failed to load conversations', 500);
+  } finally {
+    if (dbUrl) await db.$disconnect();
   }
 }
 
@@ -120,20 +132,35 @@ export async function PATCH(request: Request): Promise<NextResponse> {
   }
   const archived = archiveParam === 'true';
 
+  // Cross-tenant browsing is a platform-admin-only capability; ignored for
+  // any other caller with plain conversations:write.
+  const isPlatformAdmin = sessionIsPlatformAdmin(guard.session);
+  const tenantSlug = isPlatformAdmin ? url.searchParams.get('tenantSlug') : null;
+  const appId = isPlatformAdmin ? url.searchParams.get('appId') : null;
+  // ids are per-database SERIAL sequences, so the right database must be
+  // targeted explicitly — see GET above.
+  const dbUrl = await resolveDedicatedTenantDbUrl(tenantSlug, appId);
+
   let db;
   try {
-    db = createClient({ tier: guard.session.tier, sub: guard.session.sub });
+    db = dbUrl
+      ? createClientForUrl(dbUrl, { tier: guard.session.tier, sub: guard.session.sub })
+      : createClient({ tier: guard.session.tier, sub: guard.session.sub });
   } catch {
     return jsonError('Database unavailable', 503);
   }
 
-  const existing = await db.conversation.findUnique({ where: { id: numId } });
-  if (!existing) return jsonError('Conversation not found', 404);
+  try {
+    const existing = await db.conversation.findUnique({ where: { id: numId } });
+    if (!existing) return jsonError('Conversation not found', 404);
 
-  const updated = await db.conversation.update({
-    where: { id: numId },
-    data: { archived },
-  });
+    const updated = await db.conversation.update({
+      where: { id: numId },
+      data: { archived },
+    });
 
-  return jsonOk({ id: updated.id, archived: updated.archived });
+    return jsonOk({ id: updated.id, archived: updated.archived });
+  } finally {
+    if (dbUrl) await db.$disconnect();
+  }
 }

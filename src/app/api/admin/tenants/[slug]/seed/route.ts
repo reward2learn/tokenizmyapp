@@ -10,7 +10,7 @@ import { createRawClient } from '@/lib/db';
 import { requireWriteAuth } from '@/lib/auth/guards';
 import { jsonError, jsonOk } from '@/lib/api/response';
 import { ensureTenantsTable } from '@/domain/tenant/tenant-service';
-import { seedTenantDefaults, seedTemplateSecurityGroups, seedTemplateBranding, cleanTenantSeed } from '@/domain/tenant/tenant-seed-service';
+import { seedTenantDefaults, seedTemplateSecurityGroups, seedTemplateBranding, cleanTenantSeed, resolveTenantAdminEmail } from '@/domain/tenant/tenant-seed-service';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 120; // 2 min timeout for seeding
@@ -60,6 +60,7 @@ export async function POST(
         template: tenant.template as string,
         primaryColor: (tenant.primary_color as string) || '#eb3d28',
         secondaryColor: (tenant.secondary_color as string) || '#0af9fe',
+        adminEmail: resolveTenantAdminEmail(tenant.metadata as Record<string, unknown>),
         db: seedDb,
       });
 
@@ -81,6 +82,7 @@ export async function POST(
         navItems: result.navItems,
         groups: groupsCount,
         settings: result.settings,
+        adminSeeded: result.adminSeeded,
         errors: result.errors || [],
       });
     } finally {

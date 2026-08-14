@@ -15,6 +15,7 @@ import { z } from 'zod';
 import { createClient } from '@/lib/db';
 import { requireSession, requireWriteAuth } from '@/lib/auth/guards';
 import { jsonError, jsonOk } from '@/lib/api/response';
+import { getCurrentAppId } from '@shared/lib/config/tenant';
 
 interface AiFinding {
   id: string;
@@ -49,7 +50,7 @@ export async function POST(request: Request): Promise<NextResponse> {
   try {
     // Read existing findings
     const existing = await db.knowledgeSnippet.findUnique({
-      where: { key: 'ai_findings' },
+      where: { key_appId: { key: 'ai_findings', appId: getCurrentAppId() } },
     });
 
     let findings: AiFinding[] = [];
@@ -75,11 +76,12 @@ export async function POST(request: Request): Promise<NextResponse> {
     findings.unshift(finding);
 
     await db.knowledgeSnippet.upsert({
-      where: { key: 'ai_findings' },
+      where: { key_appId: { key: 'ai_findings', appId: getCurrentAppId() } },
       create: {
         key: 'ai_findings',
         category: 'document',
         content: JSON.stringify(findings),
+        appId: getCurrentAppId(),
       },
       update: {
         content: JSON.stringify(findings),
@@ -104,7 +106,7 @@ export async function GET(request: Request): Promise<NextResponse> {
 
   try {
     const snippet = await db.knowledgeSnippet.findUnique({
-      where: { key: 'ai_findings' },
+      where: { key_appId: { key: 'ai_findings', appId: getCurrentAppId() } },
     });
 
     let findings: AiFinding[] = [];
@@ -141,7 +143,7 @@ export async function DELETE(request: Request): Promise<NextResponse> {
 
   try {
     const snippet = await db.knowledgeSnippet.findUnique({
-      where: { key: 'ai_findings' },
+      where: { key_appId: { key: 'ai_findings', appId: getCurrentAppId() } },
     });
 
     let findings: AiFinding[] = [];
@@ -164,11 +166,12 @@ export async function DELETE(request: Request): Promise<NextResponse> {
     }
 
     await db.knowledgeSnippet.upsert({
-      where: { key: 'ai_findings' },
+      where: { key_appId: { key: 'ai_findings', appId: getCurrentAppId() } },
       create: {
         key: 'ai_findings',
         category: 'document',
         content: JSON.stringify(findings),
+        appId: getCurrentAppId(),
       },
       update: {
         content: JSON.stringify(findings),

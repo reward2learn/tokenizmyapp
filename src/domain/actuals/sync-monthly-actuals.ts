@@ -1,4 +1,5 @@
 import type { DbClient } from '@/lib/db';
+import { getCurrentAppId } from '@shared/lib/config/tenant';
 import { monthBounds } from '@/domain/shared/date-utils';
 import { num, toIdrInt } from '@/domain/shared/number-utils';
 import {
@@ -41,10 +42,15 @@ export interface ScenarioPayload {
 }
 
 export class SyncMonthlyActuals {
-  constructor(private readonly db: DbClient) {}
+  private readonly appId: string;
+
+  constructor(private readonly db: DbClient) {
+    this.appId = getCurrentAppId();
+  }
 
   async aggregateZReportsForMonth(period: string): Promise<ZMonthAggregate | null> {
     const { start, end } = monthBounds(period);
+    const appId = this.appId;
     const rows = await this.db.$queryRaw<AggregateRow[]>`
       SELECT
         COUNT(DISTINCT report_date)::int AS days_count,
@@ -61,12 +67,14 @@ export class SyncMonthlyActuals {
         ROUND(AVG(avg_covers)) AS avg_spend
       FROM daily_z_reports d
       WHERE report_date >= ${start}::date AND report_date < ${end}::date
+        AND d.app_id = ${appId}
         AND (
           d.department != 'all_pos'
           OR NOT EXISTS (
             SELECT 1 FROM daily_z_reports d2
             WHERE d2.report_date = d.report_date
               AND d2.report_date >= ${start}::date AND d2.report_date < ${end}::date
+              AND d2.app_id = ${appId}
               AND d2.department != 'all_pos'
           )
         )`;
@@ -92,6 +100,7 @@ export class SyncMonthlyActuals {
   }
 
   async aggregateZReportKpisByMonth(): Promise<Record<string, { revenue: number | null; guests: number | null; days_count: number }>> {
+    const appId = this.appId;
     const rows = await this.db.$queryRaw<{ period: string; revenue: string | number; guests: number; days_count: number }[]>`
       SELECT
         TO_CHAR(DATE_TRUNC('month', report_date), 'YYYY-MM') AS period,
@@ -99,6 +108,7 @@ export class SyncMonthlyActuals {
         COALESCE(SUM(total_covers), 0)::int AS guests,
         COUNT(*)::int AS days_count
       FROM daily_z_reports
+      WHERE app_id = ${appId}
       GROUP BY 1
       ORDER BY 1`;
 
@@ -114,7 +124,7 @@ export class SyncMonthlyActuals {
   }
 
   async getManualInputs(period: string): Promise<Record<string, number>> {
-    const row = await this.db.monthlyActualInput.findUnique({ where: { period } });
+    const row = await this.db.monthlyActualInput.findUnique({ where: { period_appId: { period, appId: this.appId } } });
     if (!row?.inputs) return {};
     const raw = row.inputs;
     if (typeof raw === 'object' && !Array.isArray(raw)) {
@@ -130,6 +140,7 @@ export class SyncMonthlyActuals {
         period: { startsWith: `${year}-`, lt: period },
         dataType: 'actual',
         scenario: 'actual',
+        appId: this.appId,
       },
       orderBy: { period: 'asc' },
       select: { pnlLines: true },
@@ -166,10 +177,11 @@ export class SyncMonthlyActuals {
 
     await this.db.financialProjection.upsert({
       where: {
-        period_dataType_scenario: {
+        period_dataType_scenario_appId: {
           period,
           dataType: 'actual',
           scenario: 'actual',
+          appId: this.appId,
         },
       },
       create: {
@@ -184,6 +196,7 @@ export class SyncMonthlyActuals {
         guests: guests ?? 0,
         staffCost,
         pnlLines: pnlLines as unknown as object,
+        appId: this.appId,
       },
       update: {
         revenue,
@@ -208,7 +221,7 @@ export class SyncMonthlyActuals {
     if (agg || hasManual) return this.syncMonthlyActuals(period);
 
     await this.db.financialProjection.deleteMany({
-      where: { period, dataType: 'actual', scenario: 'actual' },
+      where: { period, dataType: 'actual', scenario: 'actual', appId: this.appId },
     });
     return null;
   }
@@ -219,18 +232,20 @@ export class SyncMonthlyActuals {
     const primary = await this.resyncMonthlyActuals(period);
     const [year] = String(period).split('-');
 
+    const appId = this.appId;
     const laterRows = await this.db.$queryRaw<{ period: string }[]>`
       SELECT DISTINCT period FROM (
-        SELECT period FROM monthly_actual_inputs WHERE period LIKE ${`${year}-%`} AND period > ${period}
+        SELECT period FROM monthly_actual_inputs WHERE period LIKE ${`${year}-%`} AND period > ${period} AND app_id = ${appId}
         UNION
         SELECT period FROM financial_projections
           WHERE period LIKE ${`${year}-%`} AND period > ${period}
-            AND data_type = 'actual' AND scenario = 'actual'
+            AND data_type = 'actual' AND scenario = 'actual' AND app_id = ${appId}
         UNION
         SELECT TO_CHAR(DATE_TRUNC('month', report_date), 'YYYY-MM') AS period
           FROM daily_z_reports
           WHERE TO_CHAR(DATE_TRUNC('month', report_date), 'YYYY') = ${year}
             AND TO_CHAR(DATE_TRUNC('month', report_date), 'YYYY-MM') > ${period}
+            AND app_id = ${appId}
       ) t
       ORDER BY period`;
 

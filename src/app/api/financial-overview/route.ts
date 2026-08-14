@@ -26,6 +26,7 @@ import {
 import { SyncMonthlyActuals } from '@/domain/actuals/sync-monthly-actuals';
 import { MonthlyActualsPrefill } from '@/domain/actuals/monthly-actuals-prefill';
 import { legacyError } from '@/lib/api/response';
+import { getCurrentAppId } from '@shared/lib/config/tenant';
 
 const monthlyActualsPostSchema = z.object({
   period: z.string().regex(/^\d{4}-\d{2}$/),
@@ -322,13 +323,14 @@ async function handleReports(url: URL): Promise<NextResponse> {
 
   try {
     if (resource === 'targets') {
-      const targets = await db.monthlyTarget.findMany({ orderBy: { month: 'asc' } });
+      const targets = await db.monthlyTarget.findMany({ where: { appId: getCurrentAppId() }, orderBy: { month: 'asc' } });
       return NextResponse.json({ success: true, data: targets });
     }
 
     let metrics;
     if (period === 'daily') {
       metrics = await db.dailyZReport.findMany({
+        where: { appId: getCurrentAppId() },
         orderBy: { reportDate: 'asc' },
         select: {
           reportDate: true,
@@ -361,12 +363,13 @@ async function handleReports(url: URL): Promise<NextResponse> {
             tax_10_amount: toJsonNumber(r.tax10Amount),
             service_7_amount: toJsonNumber(r.service7Amount),
           })),
-          targets: await db.monthlyTarget.findMany({ orderBy: { month: 'asc' } }),
+          targets: await db.monthlyTarget.findMany({ where: { appId: getCurrentAppId() }, orderBy: { month: 'asc' } }),
         },
       });
     }
 
     if (period === 'weekly') {
+      const appId = getCurrentAppId();
       const rows = await db.$queryRaw<
         {
           period_start: Date;
@@ -389,10 +392,11 @@ async function handleReports(url: URL): Promise<NextResponse> {
           SUM(dine_in_amount) AS direct_orders,
           SUM(tot_collection_amount) AS tot_collection_amount
         FROM daily_z_reports
+        WHERE app_id = ${appId}
         GROUP BY DATE_TRUNC('week', report_date)
         ORDER BY period_start ASC`;
 
-      const targets = await db.monthlyTarget.findMany({ orderBy: { month: 'asc' } });
+      const targets = await db.monthlyTarget.findMany({ where: { appId: getCurrentAppId() }, orderBy: { month: 'asc' } });
       return NextResponse.json({
         success: true,
         data: {
@@ -403,6 +407,7 @@ async function handleReports(url: URL): Promise<NextResponse> {
       });
     }
 
+    const appId = getCurrentAppId();
     const rows = await db.$queryRaw<
       {
         month: string;
@@ -425,10 +430,11 @@ async function handleReports(url: URL): Promise<NextResponse> {
           SUM(dine_in_amount) AS direct_orders,
           SUM(tot_collection_amount) AS tot_collection_amount
         FROM daily_z_reports
+        WHERE app_id = ${appId}
         GROUP BY DATE_TRUNC('month', report_date)
         ORDER BY month ASC`;
 
-    const targets = await db.monthlyTarget.findMany({ orderBy: { month: 'asc' } });
+    const targets = await db.monthlyTarget.findMany({ where: { appId: getCurrentAppId() }, orderBy: { month: 'asc' } });
     return NextResponse.json({
       success: true,
       data: {
