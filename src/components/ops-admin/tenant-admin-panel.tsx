@@ -14,6 +14,7 @@
 import { useState, useMemo, useEffect } from 'react';
 import { useAppDispatch, useAppSelector } from '@/store/hooks';
 import { setAdminSelectedTenant, setAdminSelectedApp, setAdminActiveSubtab, type AdminTenantSubtab } from '@/store/ui-slice';
+import Alert from '@mui/material/Alert';
 import Box from '@mui/material/Box';
 import Chip from '@mui/material/Chip';
 import FormControl from '@mui/material/FormControl';
@@ -22,6 +23,7 @@ import InputLabel from '@mui/material/InputLabel';
 import MenuItem from '@mui/material/MenuItem';
 import Paper from '@mui/material/Paper';
 import Select from '@mui/material/Select';
+import Snackbar from '@mui/material/Snackbar';
 import Stack from '@mui/material/Stack';
 import Tab from '@mui/material/Tab';
 import Tabs from '@mui/material/Tabs';
@@ -32,6 +34,7 @@ import { useTheme } from '@mui/material/styles';
 import ApartmentIcon from '@mui/icons-material/Apartment';
 import AutoFixHighIcon from '@mui/icons-material/AutoFixHigh';
 import ClearIcon from '@mui/icons-material/Clear';
+import EditIcon from '@mui/icons-material/Edit';
 
 import { useListTenantsQuery, type TenantEntry, type AppPackConfig } from '@/store/apis/tenant-api';
 import { getTemplate } from '@/domain/tenant/template-catalog';
@@ -45,6 +48,8 @@ import { TenantSecurityGroups } from './tenant-security-groups';
 import { TenantRoles } from './tenant-roles';
 import { TenantAIChat } from './tenant-ai-chat';
 import { TenantInlineUserManager } from './tenant-inline-user-manager';
+import { AppRow } from './app-row';
+import { AddAppButton } from './add-app-dialog';
 
 // ── Helpers ─────────────────────────────────────────────────
 
@@ -73,6 +78,7 @@ export function TenantAdminPanel() {
   const selectedAppId = useAppSelector((s) => s.ui.adminSelectedAppId);
   const activeSubtab = useAppSelector((s) => s.ui.adminActiveSubtab);
   const [editModalOpen, setEditModalOpen] = useState(false);
+  const [snackbar, setSnackbar] = useState<{ message: string; severity: 'success' | 'error' } | null>(null);
 
   // Fetch tenants
   const { data, isLoading, refetch } = useListTenantsQuery();
@@ -211,6 +217,11 @@ export function TenantAdminPanel() {
                 size="small"
                 color={selectedTenant.status === 'live' ? 'success' : selectedTenant.status === 'error' ? 'error' : 'default'}
               />
+              <Tooltip title="Edit tenant configuration">
+                <IconButton size="small" onClick={() => setEditModalOpen(true)} aria-label="Edit tenant">
+                  <EditIcon fontSize="small" />
+                </IconButton>
+              </Tooltip>
               <Tooltip title="Clear selection — back to all tenants">
                 <IconButton size="small" onClick={handleClearSelection} aria-label="Clear tenant selection">
                   <ClearIcon fontSize="small" />
@@ -231,65 +242,82 @@ export function TenantAdminPanel() {
           {/* Apps under this tenant */}
           {selectedTenant && (
             <Paper elevation={0} sx={{ mb: 3, p: 2, border: '1px solid', borderColor: 'divider', bgcolor: 'background.paper' }}>
-              <Typography variant="subtitle2" sx={{ fontWeight: 600, mb: 2, display: 'flex', alignItems: 'center', gap: 1 }}>
-                <ApartmentIcon fontSize="small" />
-                {isSuite && selectedAppPack
-                  ? `Suite Hierarchy — ${selectedAppPack.name} (${tenantApps.length} apps)`
-                  : 'Apps'}
-              </Typography>
+              <Stack direction="row" sx={{ alignItems: 'center', justifyContent: 'space-between', mb: 2 }}>
+                <Typography variant="subtitle2" sx={{ fontWeight: 600, display: 'flex', alignItems: 'center', gap: 1 }}>
+                  <ApartmentIcon fontSize="small" />
+                  {isSuite && selectedAppPack
+                    ? `Suite Hierarchy — ${selectedAppPack.name} (${tenantApps.length} apps)`
+                    : 'Apps'}
+                </Typography>
+                {isSuite && <AddAppButton tenantSlug={selectedTenant.slug} onSnackbar={setSnackbar} />}
+              </Stack>
               <Stack spacing={1}>
-                {tenantApps.map((app) => {
-                  const tpl = getTemplate(app.templateId);
-                  const isSelected = app.appId === selectedAppId;
-                  return (
-                    <Paper
+                {isSuite && selectedAppPack ? (
+                  selectedAppPack.apps.map((app) => (
+                    <AppRow
                       key={app.appId}
-                      variant="outlined"
-                      onClick={() => handleAppSelect(app.appId)}
-                      sx={{
-                        p: 1.5,
-                        bgcolor: isSelected ? 'action.selected' : 'action.hover',
-                        borderColor: isSelected ? 'primary.main' : 'divider',
-                        borderWidth: isSelected ? 2 : 1,
-                        cursor: 'pointer',
-                        '&:hover': { borderColor: 'primary.main' },
-                      }}
-                    >
-                      <Stack direction="row" sx={{ alignItems: 'center', justifyContent: 'space-between' }}>
-                        <Box>
-                          <Typography variant="body2" sx={{ fontWeight: isSelected ? 700 : 500 }}>
-                            {app.name}
-                          </Typography>
-                          <Typography variant="caption" color="text.secondary">
-                            {app.appId}{app.department !== '—' ? ` • ${app.department}` : ''} • {tpl.label}
-                          </Typography>
-                        </Box>
-                        <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
-                          {isSelected && (
-                            <Chip label="Selected" size="small" color="primary" variant="filled" />
-                          )}
-                          <Chip
-                            label={app.status}
-                            size="small"
-                            color={app.status === 'live' ? 'success' : app.status === 'error' ? 'error' : 'default'}
-                          />
-                          {app.appUrl && (
+                      tenantSlug={selectedTenant.slug}
+                      tenantName={selectedTenant.displayName}
+                      app={app}
+                      selected={app.appId === selectedAppId}
+                      onSelect={handleAppSelect}
+                      onSnackbar={setSnackbar}
+                    />
+                  ))
+                ) : (
+                  tenantApps.map((app) => {
+                    const tpl = getTemplate(app.templateId);
+                    const isSelected = app.appId === selectedAppId;
+                    return (
+                      <Paper
+                        key={app.appId}
+                        variant="outlined"
+                        onClick={() => handleAppSelect(app.appId)}
+                        sx={{
+                          p: 1.5,
+                          bgcolor: isSelected ? 'action.selected' : 'action.hover',
+                          borderColor: isSelected ? 'primary.main' : 'divider',
+                          borderWidth: isSelected ? 2 : 1,
+                          cursor: 'pointer',
+                          '&:hover': { borderColor: 'primary.main' },
+                        }}
+                      >
+                        <Stack direction="row" sx={{ alignItems: 'center', justifyContent: 'space-between' }}>
+                          <Box>
+                            <Typography variant="body2" sx={{ fontWeight: isSelected ? 700 : 500 }}>
+                              {app.name}
+                            </Typography>
+                            <Typography variant="caption" color="text.secondary">
+                              {app.appId}{app.department !== '—' ? ` • ${app.department}` : ''} • {tpl.label}
+                            </Typography>
+                          </Box>
+                          <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
+                            {isSelected && (
+                              <Chip label="Selected" size="small" color="primary" variant="filled" />
+                            )}
                             <Chip
-                              label="Open"
+                              label={app.status}
                               size="small"
-                              variant="outlined"
-                              component="a"
-                              href={app.appUrl}
-                              target="_blank"
-                              clickable
-                              onClick={(e) => e.stopPropagation()}
+                              color={app.status === 'live' ? 'success' : app.status === 'error' ? 'error' : 'default'}
                             />
-                          )}
+                            {app.appUrl && (
+                              <Chip
+                                label="Open"
+                                size="small"
+                                variant="outlined"
+                                component="a"
+                                href={app.appUrl}
+                                target="_blank"
+                                clickable
+                                onClick={(e) => e.stopPropagation()}
+                              />
+                            )}
+                          </Stack>
                         </Stack>
-                      </Stack>
-                    </Paper>
-                  );
-                })}
+                      </Paper>
+                    );
+                  })
+                )}
               </Stack>
             </Paper>
           )}
@@ -368,12 +396,17 @@ export function TenantAdminPanel() {
           open={editModalOpen}
           tenant={selectedTenant}
           onClose={() => setEditModalOpen(false)}
-          onSnackbar={(msg) => {
-            // Handle snackbar notifications
-            console.log(msg.message, msg.severity);
-          }}
+          onSnackbar={setSnackbar}
         />
       )}
+
+      <Snackbar open={Boolean(snackbar)} autoHideDuration={5000} onClose={() => setSnackbar(null)}>
+        {snackbar ? (
+          <Alert severity={snackbar.severity} onClose={() => setSnackbar(null)} sx={{ maxWidth: 480 }}>
+            {snackbar.message}
+          </Alert>
+        ) : undefined}
+      </Snackbar>
     </Box>
   );
 }

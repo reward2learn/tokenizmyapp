@@ -262,6 +262,68 @@ function getAppPack(tenant: TenantEntry | null): AppPackConfig | null {
   return (cfg.appPack as AppPackConfig) ?? null;
 }
 
+interface ConfigFieldsInput {
+  tenant: TenantEntry;
+  license: LicenseConfig;
+  googleOAuth: GoogleOAuthConfig;
+  dbConfig: DatabaseConfig;
+  envPairs: EnvPair[];
+  deployHookUrl: string;
+  vercelProjectId: string;
+  adminEmail: string;
+  pinSignInEnabled: boolean;
+}
+
+/**
+ * Shared field mapping for the tenant config blob — used by both the Save
+ * path (nested under `metadata.config`, see handleSave) and the Deploy path
+ * (flattened directly into `metadata`, see buildDeployPayload — the deploy
+ * route reads e.g. `body.metadata.hooks.deployHookUrl` off the flat shape).
+ * Each caller wraps this the way its own endpoint expects.
+ */
+function buildConfigFields(input: ConfigFieldsInput) {
+  const { tenant, license, googleOAuth, dbConfig, envPairs, deployHookUrl, vercelProjectId, adminEmail, pinSignInEnabled } = input;
+  const env: Record<string, string> = {};
+  for (const pair of envPairs) {
+    if (pair.key) env[pair.key] = pair.value;
+  }
+  return {
+    license: {
+      key: license.licenseKey || `rrb-${tenant.slug}`,
+      tier: license.licenseTier,
+      validUntil: license.validUntil,
+      features: license.features,
+    },
+    pins: [license.adminPin || process.env.NEXT_PUBLIC_DEFAULT_ADMIN_PIN || '454212'],
+    subscriptionTier: license.licenseTier,
+    apiKey: license.setupToken || '',
+    openaiApiKey: license.openaiApiKey || '',
+    googleAuth: {
+      enabled: !!googleOAuth.clientId,
+      clientId: googleOAuth.clientId,
+      clientSecret: googleOAuth.clientSecret,
+      projectId: googleOAuth.projectId,
+      authUri: googleOAuth.authUri,
+      redirectUris: googleOAuth.redirectUris,
+      gcpAccountEmail: googleOAuth.gcpAccountEmail,
+      supportEmail: googleOAuth.supportEmail,
+    },
+    database: {
+      databaseUrl: dbConfig.dbUrl || `postgresql://${tenant.slug}:***@pooled.neon.tech/${tenant.slug}`,
+      pooledUrl: dbConfig.pooledUrl,
+      directUrl: dbConfig.directUrl,
+    },
+    env,
+    hooks: { deployHookUrl: deployHookUrl || undefined },
+    vercelProjectId: vercelProjectId || undefined,
+    adminEmail: adminEmail || DEFAULT_PLATFORM_ADMIN_EMAIL,
+    auth: {
+      adminEmail: adminEmail || DEFAULT_PLATFORM_ADMIN_EMAIL,
+      pinSignInEnabled,
+    },
+  };
+}
+
 export function EditTenantModal({ open, tenant, onClose, onSnackbar }: EditTenantModalProps) {
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down('md'));
@@ -687,10 +749,7 @@ export function EditTenantModal({ open, tenant, onClose, onSnackbar }: EditTenan
   const buildDeployPayload = useCallback(() => {
     if (!tenant) return {};
 
-    const envVars: Record<string, string> = {};
-    for (const pair of envPairs) {
-      if (pair.key) envVars[pair.key] = pair.value;
-    }
+    const fields = buildConfigFields({ tenant, license, googleOAuth, dbConfig, envPairs, deployHookUrl, vercelProjectId, adminEmail, pinSignInEnabled });
 
     return {
       template: editTemplate,
@@ -700,40 +759,10 @@ export function EditTenantModal({ open, tenant, onClose, onSnackbar }: EditTenan
         amendmentReason: 'stepper-edit-and-deploy',
         primaryColor: editPrimaryColor,
         secondaryColor: editSecondaryColor,
-        license: {
-          key: license.licenseKey || `rrb-${tenant.slug}`,
-          tier: license.licenseTier,
-          validUntil: license.validUntil,
-          features: license.features,
-        },
-        pins: [license.adminPin || process.env.NEXT_PUBLIC_DEFAULT_ADMIN_PIN || '454212'],
-        subscriptionTier: license.licenseTier,
-        apiKey: license.setupToken || '',
-        googleAuth: {
-          enabled: !!googleOAuth.clientId,
-          clientId: googleOAuth.clientId,
-          clientSecret: googleOAuth.clientSecret,
-          projectId: googleOAuth.projectId,
-          authUri: googleOAuth.authUri,
-          redirectUris: googleOAuth.redirectUris,
-        },
-        database: {
-          databaseUrl: dbConfig.dbUrl || `postgresql://${tenant.slug}:***@pooled.neon.tech/${tenant.slug}`,
-          type: 'neon',
-          provider: 'postgresql',
-        },
-        env: envVars,
-        hooks: { deployHookUrl: deployHookUrl || undefined },
-        vercelProjectId: vercelProjectId || undefined,
-        supportEmail: googleOAuth.supportEmail,
-        adminEmail: adminEmail || DEFAULT_PLATFORM_ADMIN_EMAIL,
-        auth: {
-          adminEmail: adminEmail || DEFAULT_PLATFORM_ADMIN_EMAIL,
-          pinSignInEnabled,
-        },
+        ...fields,
       },
     };
-  }, [tenant, editTemplate, displayName, editPrimaryColor, editSecondaryColor, license, googleOAuth, dbConfig, envPairs, adminEmail, pinSignInEnabled]);
+  }, [tenant, editTemplate, displayName, editPrimaryColor, editSecondaryColor, license, googleOAuth, dbConfig, envPairs, deployHookUrl, vercelProjectId, adminEmail, pinSignInEnabled]);
 
   // ── Save handler ──────────────────────────────────────────
   const handleSave = useCallback(async () => {
@@ -748,39 +777,7 @@ export function EditTenantModal({ open, tenant, onClose, onSnackbar }: EditTenan
         secondaryColor: editSecondaryColor,
         vercelProjectId: vercelProjectId || undefined,
         metadata: {
-          config: {
-            license: {
-              key: license.licenseKey,
-              tier: license.licenseTier,
-              validUntil: license.validUntil,
-              features: license.features,
-            },
-            pins: [license.adminPin],
-            subscriptionTier: license.licenseTier,
-            apiKey: license.setupToken || '',
-            openaiApiKey: license.openaiApiKey || '',
-            googleAuth: {
-              clientId: googleOAuth.clientId,
-              clientSecret: googleOAuth.clientSecret,
-              projectId: googleOAuth.projectId,
-              authUri: googleOAuth.authUri,
-              redirectUris: googleOAuth.redirectUris,
-              gcpAccountEmail: googleOAuth.gcpAccountEmail,
-            },
-            database: {
-              databaseUrl: dbConfig.dbUrl,
-              pooledUrl: dbConfig.pooledUrl,
-              directUrl: dbConfig.directUrl,
-            },
-            env: Object.fromEntries(envPairs.filter((p) => p.key).map((p) => [p.key, p.value])),
-            hooks: { deployHookUrl: deployHookUrl || undefined },
-            vercelProjectId: vercelProjectId || undefined,
-            adminEmail: adminEmail || DEFAULT_PLATFORM_ADMIN_EMAIL,
-            auth: {
-              adminEmail: adminEmail || DEFAULT_PLATFORM_ADMIN_EMAIL,
-              pinSignInEnabled,
-            },
-          },
+          config: buildConfigFields({ tenant, license, googleOAuth, dbConfig, envPairs, deployHookUrl, vercelProjectId, adminEmail, pinSignInEnabled }),
         },
       };
 
@@ -795,7 +792,7 @@ export function EditTenantModal({ open, tenant, onClose, onSnackbar }: EditTenan
     } finally {
       setSaving(false);
     }
-  }, [tenant, displayName, editTemplate, editPrimaryColor, editSecondaryColor, license, googleOAuth, dbConfig, envPairs, updateTenant, onSnackbar]);
+  }, [tenant, displayName, editTemplate, editPrimaryColor, editSecondaryColor, license, googleOAuth, dbConfig, envPairs, deployHookUrl, vercelProjectId, adminEmail, pinSignInEnabled, updateTenant, onSnackbar]);
 
   // ── Flight Check run ───────────────────────────────────────
   const runFlightCheck = useCallback(async () => {

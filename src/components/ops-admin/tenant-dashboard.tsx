@@ -59,6 +59,9 @@ import {
   useLazyGetDeployStatusQuery,
   useLazyGetTenantDomainsQuery,
   useTriggerDeployHookMutation,
+  useSeedAppMutation,
+  useMigrateAppMutation,
+  useDeployAppMutation,
   type TenantEntry,
   type AppPackConfig,
   type SuiteAppInstance,
@@ -68,6 +71,9 @@ import { TenantWizard } from '@/components/ops-admin/tenant-wizard';
 import { TenantUserManager } from '@/components/ops-admin/tenant-user-manager';
 import { EditTenantModal } from '@/components/ops-admin/edit-tenant-modal';
 import { VercelConnectButton } from '@/components/ops-admin/vercel-connect-button';
+import { AppRow } from '@/components/ops-admin/app-row';
+import { AppActionsMenuButton } from '@/components/ops-admin/app-actions-menu';
+import { AddAppButton } from '@/components/ops-admin/add-app-dialog';
 
 /** Extract the AppPackConfig from a tenant's metadata (suite mode). */
 function getTenantAppPack(tenant: TenantEntry): AppPackConfig | null {
@@ -150,9 +156,6 @@ export function TenantDashboard() {
   // Expanded rows state — track which suite tenants are expanded
   const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set());
 
-  // Per-app three-dot menu state
-  const [appMenuAnchor, setAppMenuAnchor] = useState<{ tenantSlug: string; appId: string; el: HTMLElement } | null>(null);
-
   const toggleRow = (slug: string) => {
     setExpandedRows((prev) => {
       const next = new Set(prev);
@@ -161,10 +164,6 @@ export function TenantDashboard() {
       return next;
     });
   };
-
-  const handleAppMenuOpen = (tenantSlug: string, appId: string, el: HTMLElement) =>
-    setAppMenuAnchor({ tenantSlug, appId, el });
-  const handleAppMenuClose = () => setAppMenuAnchor(null);
 
   // Seed/migrate state
   const [seedTenant, { isLoading: isSeeding }] = useSeedTenantMutation();
@@ -417,96 +416,22 @@ export function TenantDashboard() {
   };
 
 
-  // ── Per-App Operations (suite mode) ───────────────────────
-  const [appOperating, setAppOperating] = useState<string | null>(null);
-
-  const handleAppSeed = async (tenantSlug: string, appId: string) => {
-    handleAppMenuClose();
-    const key = `${tenantSlug}__${appId}`;
-    setAppOperating(key);
-    try {
-      const res = await fetch(`/api/admin/tenants/${tenantSlug}/apps/${appId}`, { method: 'POST' });
-      const data = await res.json();
-      if (data.success) {
-        setSnackbar({ message: `✅ ${appId} seeded — ${data.data?.pages ?? 0} pages`, severity: 'success' });
-        refetch();
-      } else {
-        setSnackbar({ message: `❌ Seed failed: ${data.error}`, severity: 'error' });
-      }
-    } catch {
-      setSnackbar({ message: `❌ Failed to seed ${appId}`, severity: 'error' });
-    } finally {
-      setAppOperating(null);
-    }
-  };
-
-  const handleAppMigrate = async (tenantSlug: string, appId: string) => {
-    handleAppMenuClose();
-    const key = `${tenantSlug}__${appId}`;
-    setAppOperating(key);
-    try {
-      const res = await fetch(`/api/admin/tenants/${tenantSlug}/apps/${appId}`, { method: 'PATCH' });
-      const data = await res.json();
-      if (data.success) {
-        setSnackbar({ message: `✅ ${appId} schema synced`, severity: 'success' });
-        refetch();
-      } else {
-        setSnackbar({ message: `❌ Migration failed: ${data.error}`, severity: 'error' });
-      }
-    } catch {
-      setSnackbar({ message: `❌ Failed to migrate ${appId}`, severity: 'error' });
-    } finally {
-      setAppOperating(null);
-    }
-  };
-
-  const handleAppDeploy = async (tenantSlug: string, appId: string) => {
-    handleAppMenuClose();
-    const key = `${tenantSlug}__${appId}`;
-    setAppOperating(key);
-    try {
-      const res = await fetch(`/api/admin/tenants/${tenantSlug}/apps/${appId}`, { method: 'PUT' });
-      const data = await res.json();
-      if (data.success) {
-        setSnackbar({ message: `🚀 ${appId} deployed — ${data.data?.appUrl ?? 'building...'}`, severity: 'success' });
-        refetch();
-      } else {
-        setSnackbar({ message: `❌ Deploy failed: ${data.error}`, severity: 'error' });
-      }
-    } catch {
-      setSnackbar({ message: `❌ Failed to deploy ${appId}`, severity: 'error' });
-    } finally {
-      setAppOperating(null);
-    }
-  };
-
-  const handleAppCheckStatus = async (tenantSlug: string, appId: string) => {
-    handleAppMenuClose();
-    try {
-      const res = await fetch(`/api/admin/tenants/${tenantSlug}/apps/${appId}`);
-      const data = await res.json();
-      if (data.success) {
-        const app = data.data?.app;
-        setSnackbar({ message: `🔍 ${appId}: status=${app?.status ?? 'unknown'} — ${app?.appUrl ?? 'no URL'}`, severity: app?.status === 'live' ? 'success' : 'error' });
-      } else {
-        setSnackbar({ message: `❌ Status check failed: ${data.error}`, severity: 'error' });
-      }
-    } catch {
-      setSnackbar({ message: `❌ Failed to check status for ${appId}`, severity: 'error' });
-    }
-  };
+  // ── Bulk Suite Operations (loops the same per-app RTK mutations
+  // AppActionsMenu uses for a single app) ────────────────────
+  const [seedApp] = useSeedAppMutation();
+  const [migrateApp] = useMigrateAppMutation();
+  const [deployApp] = useDeployAppMutation();
 
   const handleBulkSuiteAction = async (tenantSlug: string, appPack: AppPackConfig, action: 'seed' | 'migrate' | 'deploy') => {
     handleMenuClose();
     const actionLabel = action === 'seed' ? 'Seeding' : action === 'migrate' ? 'Syncing' : 'Deploying';
     setSnackbar({ message: `${actionLabel} ${appPack.apps.length} apps...`, severity: 'success' });
+    const mutate = action === 'seed' ? seedApp : action === 'migrate' ? migrateApp : deployApp;
     for (const app of appPack.apps) {
       try {
-        const method = action === 'seed' ? 'POST' : action === 'migrate' ? 'PATCH' : 'PUT';
-        const res = await fetch(`/api/admin/tenants/${tenantSlug}/apps/${app.appId}`, { method });
-        const data = await res.json();
-        if (!data.success) {
-          console.warn(`[bulk-${action}] ${app.appId} failed:`, data.error);
+        const result = await mutate({ slug: tenantSlug, appId: app.appId }).unwrap();
+        if (!result.success) {
+          console.warn(`[bulk-${action}] ${app.appId} failed:`, result.error);
         }
       } catch (err) {
         console.warn(`[bulk-${action}] ${app.appId} error:`, err);
@@ -625,80 +550,22 @@ export function TenantDashboard() {
                   {/* Suite apps expandable section */}
                   {isSuite && isExpanded && (
                     <Box sx={{ mt: 2, pt: 2, borderTop: '1px solid', borderColor: 'divider' }}>
-                      <Typography variant="caption" sx={{ fontWeight: 600, color: 'text.secondary', display: 'block', mb: 1 }}>
-                        Suite Apps ({suite.apps.length})
-                      </Typography>
+                      <Stack direction="row" sx={{ alignItems: 'center', justifyContent: 'space-between', mb: 1 }}>
+                        <Typography variant="caption" sx={{ fontWeight: 600, color: 'text.secondary' }}>
+                          Suite Apps ({suite.apps.length})
+                        </Typography>
+                        <AddAppButton tenantSlug={t.slug} onSnackbar={setSnackbar} />
+                      </Stack>
                       <Stack spacing={1}>
-                        {suite.apps.map((app: SuiteAppInstance) => {
-                          const appKey = `${t.slug}__${app.appId}`;
-                          const isAppOperating = appOperating === appKey;
-                          return (
-                            <Paper key={app.appId} variant="outlined" sx={{ p: 1.5, bgcolor: 'action.hover' }}>
-                              <Stack direction="row" sx={{ alignItems: 'flex-start', justifyContent: 'space-between', gap: 1 }}>
-                                <Box sx={{ minWidth: 0, flex: 1 }}>
-                                  <Typography variant="body2" sx={{ fontWeight: 500, fontSize: '0.8rem' }}>
-                                    {app.name}
-                                  </Typography>
-                                  <Typography variant="caption" color="text.secondary" sx={{ display: 'block', fontSize: '0.7rem' }}>
-                                    {app.appId} • {app.templateId}
-                                  </Typography>
-                                </Box>
-                                <Stack direction="row" spacing={0}>
-                                  <Chip
-                                    label={app.status}
-                                    size="small"
-                                    color={app.status === 'live' ? 'success' : app.status === 'error' ? 'error' : 'default'}
-                                    sx={{ height: 20, fontSize: '0.65rem' }}
-                                  />
-                                  <IconButton
-                                    size="small"
-                                    onClick={(e) => handleAppMenuOpen(t.slug, app.appId, e.currentTarget)}
-                                    aria-label={`Actions for ${app.name}`}
-                                    disabled={isAppOperating}
-                                  >
-                                    <MoreVertIcon fontSize="small" />
-                                  </IconButton>
-                                </Stack>
-                              </Stack>
-                              {app.appUrl && (
-                                <Typography variant="caption" sx={{ display: 'block', mt: 0.5, fontSize: '0.7rem', color: 'primary.main' }}>
-                                  {app.appUrl}
-                                </Typography>
-                              )}
-                              <Menu
-                                anchorEl={appMenuAnchor?.tenantSlug === t.slug && appMenuAnchor?.appId === app.appId ? appMenuAnchor.el : null}
-                                open={appMenuAnchor?.tenantSlug === t.slug && appMenuAnchor?.appId === app.appId}
-                                onClose={handleAppMenuClose}
-                                transformOrigin={{ horizontal: 'right', vertical: 'top' }}
-                                anchorOrigin={{ horizontal: 'right', vertical: 'bottom' }}
-                              >
-                                <MenuItem onClick={() => { void handleAppSeed(t.slug, app.appId); }} disabled={isAppOperating}>
-                                  <ListItemIcon><PlayArrowIcon fontSize="small" /></ListItemIcon>
-                                  <ListItemText>{isAppOperating ? 'Seeding…' : 'Seed This App'}</ListItemText>
-                                </MenuItem>
-                                <MenuItem onClick={() => { void handleAppMigrate(t.slug, app.appId); }} disabled={isAppOperating}>
-                                  <ListItemIcon><BuildIcon fontSize="small" /></ListItemIcon>
-                                  <ListItemText>{isAppOperating ? 'Syncing…' : 'Sync DB Schema'}</ListItemText>
-                                </MenuItem>
-                                <MenuItem onClick={() => { void handleAppDeploy(t.slug, app.appId); }} disabled={isAppOperating}>
-                                  <ListItemIcon><CloudUploadIcon fontSize="small" /></ListItemIcon>
-                                  <ListItemText>{isAppOperating ? 'Deploying…' : 'Deploy This App'}</ListItemText>
-                                </MenuItem>
-                                <Divider />
-                                <MenuItem onClick={() => { void handleAppCheckStatus(t.slug, app.appId); }}>
-                                  <ListItemIcon><RefreshIcon fontSize="small" /></ListItemIcon>
-                                  <ListItemText>Check Status</ListItemText>
-                                </MenuItem>
-                                {app.appUrl && (
-                                  <MenuItem component="a" href={app.appUrl} target="_blank" onClick={handleAppMenuClose}>
-                                    <ListItemIcon><OpenInNewIcon fontSize="small" /></ListItemIcon>
-                                    <ListItemText>Open App</ListItemText>
-                                  </MenuItem>
-                                )}
-                              </Menu>
-                            </Paper>
-                          );
-                        })}
+                        {suite.apps.map((app: SuiteAppInstance) => (
+                          <AppRow
+                            key={app.appId}
+                            tenantSlug={t.slug}
+                            tenantName={t.displayName}
+                            app={app}
+                            onSnackbar={setSnackbar}
+                          />
+                        ))}
                       </Stack>
                     </Box>
                   )}
@@ -961,9 +828,12 @@ export function TenantDashboard() {
                           <TableCell sx={{ py: 0 }} colSpan={8}>
                             <Collapse in={isExpanded} timeout="auto" unmountOnExit>
                               <Box sx={{ m: 1 }}>
-                                <Typography variant="caption" sx={{ fontWeight: 700, color: 'text.secondary', mb: 1, display: 'block' }}>
-                                  Department Apps ({suite.apps.length})
-                                </Typography>
+                                <Stack direction="row" sx={{ alignItems: 'center', justifyContent: 'space-between', mb: 1 }}>
+                                  <Typography variant="caption" sx={{ fontWeight: 700, color: 'text.secondary' }}>
+                                    Department Apps ({suite.apps.length})
+                                  </Typography>
+                                  <AddAppButton tenantSlug={t.slug} onSnackbar={setSnackbar} />
+                                </Stack>
                                 <Table size="small" sx={{ bgcolor: 'background.default', borderRadius: 1 }}>
                                   <TableHead>
                                     <TableRow>
@@ -1005,44 +875,12 @@ export function TenantDashboard() {
                                             )}
                                           </TableCell>
                                           <TableCell align="right">
-                                            <IconButton
-                                              size="small"
-                                              onClick={(e) => handleAppMenuOpen(t.slug, app.appId, e.currentTarget)}
-                                              aria-label={`Actions for ${app.name}`}
-                                            >
-                                              <MoreVertIcon fontSize="small" />
-                                            </IconButton>
-                                            <Menu
-                                              anchorEl={appMenuAnchor?.tenantSlug === t.slug && appMenuAnchor?.appId === app.appId ? appMenuAnchor.el : null}
-                                              open={appMenuAnchor?.tenantSlug === t.slug && appMenuAnchor?.appId === app.appId}
-                                              onClose={handleAppMenuClose}
-                                              transformOrigin={{ horizontal: 'right', vertical: 'top' }}
-                                              anchorOrigin={{ horizontal: 'right', vertical: 'bottom' }}
-                                            >
-                                              <MenuItem onClick={() => { void handleAppSeed(t.slug, app.appId); }} disabled={appOperating === `${t.slug}__${app.appId}`}>
-                                                <ListItemIcon><PlayArrowIcon fontSize="small" /></ListItemIcon>
-                                                <ListItemText>{appOperating === `${t.slug}__${app.appId}` ? 'Seeding…' : 'Seed This App'}</ListItemText>
-                                              </MenuItem>
-                                              <MenuItem onClick={() => { void handleAppMigrate(t.slug, app.appId); }} disabled={appOperating === `${t.slug}__${app.appId}`}>
-                                                <ListItemIcon><BuildIcon fontSize="small" /></ListItemIcon>
-                                                <ListItemText>{appOperating === `${t.slug}__${app.appId}` ? 'Syncing…' : 'Sync DB Schema'}</ListItemText>
-                                              </MenuItem>
-                                              <MenuItem onClick={() => { void handleAppDeploy(t.slug, app.appId); }} disabled={appOperating === `${t.slug}__${app.appId}`}>
-                                                <ListItemIcon><CloudUploadIcon fontSize="small" /></ListItemIcon>
-                                                <ListItemText>{appOperating === `${t.slug}__${app.appId}` ? 'Deploying…' : 'Deploy This App'}</ListItemText>
-                                              </MenuItem>
-                                              <Divider />
-                                              <MenuItem onClick={() => { void handleAppCheckStatus(t.slug, app.appId); }}>
-                                                <ListItemIcon><RefreshIcon fontSize="small" /></ListItemIcon>
-                                                <ListItemText>Check Status</ListItemText>
-                                              </MenuItem>
-                                              {app.appUrl ? (
-                                                <MenuItem component="a" href={app.appUrl} target="_blank" onClick={handleAppMenuClose}>
-                                                  <ListItemIcon><OpenInNewIcon fontSize="small" /></ListItemIcon>
-                                                  <ListItemText>Open App</ListItemText>
-                                                </MenuItem>
-                                              ) : null}
-                                            </Menu>
+                                            <AppActionsMenuButton
+                                              tenantSlug={t.slug}
+                                              tenantName={t.displayName}
+                                              app={app}
+                                              onSnackbar={setSnackbar}
+                                            />
                                           </TableCell>
                                         </TableRow>
                                       );
