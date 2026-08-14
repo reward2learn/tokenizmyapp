@@ -347,6 +347,12 @@ export async function seedTenantDefaults(input: SeedTenantInput): Promise<{
       for (let i = 0; i < tplPage.blockTypes.length; i++) {
         const blockType = tplPage.blockTypes[i];
         const sectionId = `${tplPage.slug}:section:${i}`;
+        // doc_markdown requires a content source — the summary page renders the
+        // executive summary snippet (same source the root catalog uses).
+        const config =
+          blockType === 'doc_markdown'
+            ? { source: 'executive-summary', minTier: tplPage.authTier }
+            : { minTier: tplPage.authTier };
         await db.$executeRawUnsafe(
           `INSERT INTO page_sections (id, page_id, sort_order, block_type, config)
            VALUES ($1, $2, $3, CAST($4 AS "BlockType"), CAST($5 AS jsonb));`,
@@ -354,7 +360,7 @@ export async function seedTenantDefaults(input: SeedTenantInput): Promise<{
           pageId,
           i,
           blockType,
-          JSON.stringify({ minTier: tplPage.authTier }),
+          JSON.stringify(config),
         );
       }
 

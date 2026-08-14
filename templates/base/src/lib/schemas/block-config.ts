@@ -43,7 +43,8 @@ export const actionChecklistConfigSchema = z.object({
 });
 
 export const docMarkdownConfigSchema = z.object({
-  source: z.string(),
+  source: z.string().optional(),
+  markdown: z.string().optional(),
   title: z.string().optional(),
   minTier: minTierSchema,
 });

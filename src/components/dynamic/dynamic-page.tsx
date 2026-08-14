@@ -29,8 +29,15 @@ function BlockSection({
   index: number;
 }) {
   const Component = getBlockComponent(blockType);
-  const parsed = parseBlockConfig(blockType, config);
-  const minTier = 'minTier' in parsed ? (parsed.minTier as AuthTier | undefined) : undefined;
+  // Defensive: a malformed DB config must never crash the whole page.
+  // Fall back to rendering the block ungated when the config is invalid.
+  let parsed: { minTier?: AuthTier } | undefined;
+  try {
+    parsed = parseBlockConfig(blockType, config);
+  } catch {
+    parsed = undefined;
+  }
+  const minTier = parsed && 'minTier' in parsed ? (parsed.minTier as AuthTier | undefined) : undefined;
 
   const block = <Component config={config} />;
 

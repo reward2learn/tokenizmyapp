@@ -137,10 +137,17 @@ export async function GET(request: Request): Promise<NextResponse> {
       });
     }
 
-    // Snippet lookup — uses direct PrismaClient (no ZenStack policy filtering)
-    const row = await prisma.knowledgeSnippet.findUnique({
-      where: { key_appId: { key: resolved.key, appId: getCurrentAppId() } },
-    });
+    // Snippet lookup — uses direct PrismaClient (no ZenStack policy filtering).
+    // Try the normalized key first (legacy [.-] → _ convention), then the exact
+    // key (app-pack snippet keys contain hyphens, e.g. `packId-policy-key`).
+    const normalizedKey = resolved.key;
+    const row =
+      (await prisma.knowledgeSnippet.findUnique({
+        where: { key_appId: { key: normalizedKey, appId: getCurrentAppId() } },
+      })) ??
+      (await prisma.knowledgeSnippet.findUnique({
+        where: { key_appId: { key: source.trim(), appId: getCurrentAppId() } },
+      }));
     if (!row) {
       return NextResponse.json({ source, markdown: '', title: '', contentType: 'markdown', found: false });
     }

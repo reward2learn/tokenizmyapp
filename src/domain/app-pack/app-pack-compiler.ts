@@ -150,7 +150,15 @@ export function compileAppRows(
       navLabel: p.navLabel ?? null,
       showInNav: p.navLabel != null,
       tenantSlug,
-      sections: p.blockTypes.map((bt) => ({ blockType: bt, config: {} })),
+      sections: p.blockTypes.map((bt) => {
+        const config: Record<string, unknown> = {};
+        // doc_markdown requires a content source — point it at the app's first
+        // knowledge snippet (policies/guidance) so the block renders content.
+        if (bt === 'doc_markdown' && def.knowledgeSnippets.length > 0) {
+          config.source = `${packId}-${def.knowledgeSnippets[0]!.key}`;
+        }
+        return { blockType: bt, config };
+      }),
     };
   });
 

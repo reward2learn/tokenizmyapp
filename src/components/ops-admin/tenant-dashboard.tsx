@@ -47,6 +47,7 @@ import Collapse from '@mui/material/Collapse';
 import KeyboardArrowDownIcon from '@mui/icons-material/KeyboardArrowDown';
 import KeyboardArrowRightIcon from '@mui/icons-material/KeyboardArrowRight';
 import ApartmentIcon from '@mui/icons-material/Apartment';
+import AddBoxIcon from '@mui/icons-material/AddBox';
 import SyncIcon from '@mui/icons-material/Sync';
 import SelectAllIcon from '@mui/icons-material/SelectAll';
 import ExpandLessIcon from '@mui/icons-material/ExpandLess';
@@ -79,6 +80,7 @@ import { VercelConnectButton } from '@/components/ops-admin/vercel-connect-butto
 import { AppRow } from '@/components/ops-admin/app-row';
 import { AppActionsMenuButton } from '@/components/ops-admin/app-actions-menu';
 import { AddAppButton } from '@/components/ops-admin/add-app-dialog';
+import { CreateAppWizard } from '@/components/ops-admin/create-app-wizard';
 import { DEFAULT_TENANT } from '@shared/lib/config/tenant';
 
 /** Extract the AppPackConfig from a tenant's metadata (suite mode). */
@@ -156,6 +158,8 @@ export function TenantDashboard() {
   const [deleting, setDeleting] = useState<string | null>(null);
   const [userManager, setUserManager] = useState<{ slug: string; displayName: string } | null>(null);
   const [editor, setEditor] = useState<TenantEntry | null>(null);
+  // Create New App wizard state — tenant slug to create an app for.
+  const [createAppFor, setCreateAppFor] = useState<string | null>(null);
 
   // Three-dot menu state — track which row's menu is open
   const [menuAnchor, setMenuAnchor] = useState<{ slug: string; el: HTMLElement } | null>(null);
@@ -625,6 +629,12 @@ export function TenantDashboard() {
                       <ListItemIcon><PeopleIcon fontSize="small" /></ListItemIcon>
                       <ListItemText>Manage Users</ListItemText>
                     </MenuItem>
+                    {isSuite ? (
+                      <MenuItem onClick={() => { handleMenuClose(); setCreateAppFor(t.slug); }}>
+                        <ListItemIcon><AddBoxIcon fontSize="small" /></ListItemIcon>
+                        <ListItemText>Create New App</ListItemText>
+                      </MenuItem>
+                    ) : null}
                     <Divider />
                     {isSuite ? (
                       <>
@@ -793,6 +803,12 @@ export function TenantDashboard() {
                               <ListItemIcon><PeopleIcon fontSize="small" /></ListItemIcon>
                               <ListItemText>Manage Users</ListItemText>
                             </MenuItem>
+                            {isSuite ? (
+                              <MenuItem onClick={() => { handleMenuClose(); setCreateAppFor(t.slug); }}>
+                                <ListItemIcon><AddBoxIcon fontSize="small" /></ListItemIcon>
+                                <ListItemText>Create New App</ListItemText>
+                              </MenuItem>
+                            ) : null}
                             <Divider />
                             {isSuite ? (
                               <>
@@ -1053,6 +1069,14 @@ export function TenantDashboard() {
           tenantDisplayName={userManager.displayName}
         />
       )}
+
+      {/* Create New App Wizard */}
+      <CreateAppWizard
+        open={Boolean(createAppFor)}
+        onClose={() => setCreateAppFor(null)}
+        tenantSlug={createAppFor ?? ''}
+        onSnackbar={(msg) => setSnackbar(msg)}
+      />
 
       {/* Feedback Snackbar */}
       <Snackbar

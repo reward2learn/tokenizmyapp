@@ -390,6 +390,19 @@ export const tenantApi = createApi({
       invalidatesTags: (_result, _error, { slug }) => [{ type: 'Tenants', id: slug }],
     }),
 
+    /** POST — clone an existing suite app (identity + app-scoped content). */
+    duplicateApp: builder.mutation<
+      ApiEnvelope<{ duplicated: boolean; app: SuiteAppInstance; totalApps: number; copied?: Record<string, number> }>,
+      { slug: string; sourceAppId: string; appId: string; name: string; department?: string; templateId?: string; copyContent?: boolean }
+    >({
+      query: ({ slug, ...body }) => ({
+        url: `admin/tenants/${slug}/apps/duplicate`,
+        method: 'POST',
+        body,
+      }),
+      invalidatesTags: (_result, _error, { slug }) => [{ type: 'Tenants', id: slug }],
+    }),
+
     /** DELETE — remove an app from an existing suite. */
     removeAppFromSuite: builder.mutation<
       ApiEnvelope<{ removed: boolean; app: SuiteAppInstance; totalApps: number }>,
@@ -610,6 +623,7 @@ export const {
   useLazyGetAppDomainsQuery,
   useSetAppDomainMutation,
   useAddAppToSuiteMutation,
+  useDuplicateAppMutation,
   useRemoveAppFromSuiteMutation,
   useLazyGetTenantDomainsQuery,
   useGetTenantDomainsQuery,

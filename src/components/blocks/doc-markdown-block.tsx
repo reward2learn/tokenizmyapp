@@ -15,13 +15,15 @@ export interface DocMarkdownBlockProps {
 }
 
 export function DocMarkdownBlock({ config, initialMarkdown }: DocMarkdownBlockProps) {
-  const { source, title } = parseBlockConfig('doc_markdown', config);
-  const { data, isLoading, isError } = useGetDocumentQuery(source, {
-    skip: !!initialMarkdown,
+  const { source, title, markdown: configMarkdown } = parseBlockConfig('doc_markdown', config);
+  // Inline markdown (server-provided or stored in the section config by the AI
+  // workbook pipeline) takes precedence over the content API lookup.
+  const inlineMarkdown = initialMarkdown ?? configMarkdown;
+  const { data, isLoading, isError } = useGetDocumentQuery(source ?? '', {
+    skip: !!inlineMarkdown || !source,
   });
 
-  const body =
-    initialMarkdown ?? data?.markdown ?? '';
+  const body = inlineMarkdown ?? data?.markdown ?? '';
 
   return (
     <Box component="section" sx={{  mx: 'auto', px: 3, py: 5 }}>

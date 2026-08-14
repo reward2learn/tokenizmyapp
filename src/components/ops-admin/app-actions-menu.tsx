@@ -36,6 +36,7 @@ import TextField from '@mui/material/TextField';
 import Typography from '@mui/material/Typography';
 import BuildIcon from '@mui/icons-material/Build';
 import CloudUploadIcon from '@mui/icons-material/CloudUpload';
+import ContentCopyIcon from '@mui/icons-material/ContentCopy';
 import DeleteIcon from '@mui/icons-material/Delete';
 import DeleteSweepIcon from '@mui/icons-material/DeleteSweep';
 import EditIcon from '@mui/icons-material/Edit';
@@ -63,6 +64,7 @@ import {
 } from '@/store/apis/tenant-api';
 import { useClearSeedMutation } from '@/store/apis/admin-api';
 import { TenantInlineUserManager } from './tenant-inline-user-manager';
+import { CreateAppWizard } from './create-app-wizard';
 
 /** Extracts the API envelope's `error` string off an RTK Query error, without `any`. */
 function apiErrorMessage(err: unknown, fallback: string): string {
@@ -86,6 +88,7 @@ export interface AppActionsMenuProps {
 export function AppActionsMenu({ tenantSlug, tenantName, app, anchorEl, open, onClose, onSnackbar }: AppActionsMenuProps) {
   const [editOpen, setEditOpen] = useState(false);
   const [usersOpen, setUsersOpen] = useState(false);
+  const [duplicateOpen, setDuplicateOpen] = useState(false);
   const [removeConfirmOpen, setRemoveConfirmOpen] = useState(false);
   const [clearDataOpen, setClearDataOpen] = useState(false);
   const [clearConfirmText, setClearConfirmText] = useState('');
@@ -233,6 +236,10 @@ export function AppActionsMenu({ tenantSlug, tenantName, app, anchorEl, open, on
           <ListItemIcon><EditIcon fontSize="small" /></ListItemIcon>
           <ListItemText>Edit</ListItemText>
         </MenuItem>
+        <MenuItem onClick={() => { onClose(); setDuplicateOpen(true); }}>
+          <ListItemIcon><ContentCopyIcon fontSize="small" /></ListItemIcon>
+          <ListItemText>Duplicate</ListItemText>
+        </MenuItem>
         <MenuItem onClick={() => { onClose(); setUsersOpen(true); }}>
           <ListItemIcon><PeopleIcon fontSize="small" /></ListItemIcon>
           <ListItemText>Manage Users</ListItemText>
@@ -289,6 +296,14 @@ export function AppActionsMenu({ tenantSlug, tenantName, app, anchorEl, open, on
         onClose={() => setEditOpen(false)}
         tenantSlug={tenantSlug}
         app={app}
+        onSnackbar={onSnackbar}
+      />
+
+      <CreateAppWizard
+        open={duplicateOpen}
+        onClose={() => setDuplicateOpen(false)}
+        tenantSlug={tenantSlug}
+        sourceApp={app}
         onSnackbar={onSnackbar}
       />
 
