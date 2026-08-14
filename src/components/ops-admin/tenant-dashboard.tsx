@@ -69,6 +69,8 @@ import {
   type SuiteAppInstance,
 } from '@/store/apis/tenant-api';
 import { useClearSeedMutation } from '@/store/apis/admin-api';
+import { useAppDispatch } from '@/store/hooks';
+import { setAdminSelectedTenant } from '@/store/ui-slice';
 import { getTemplate } from '@/domain/tenant/template-catalog';
 import { TenantWizard } from '@/components/ops-admin/tenant-wizard';
 import { TenantUserManager } from '@/components/ops-admin/tenant-user-manager';
@@ -147,6 +149,7 @@ function TenantUrlLink({ tenant }: { tenant: TenantEntry }) {
 export function TenantDashboard() {
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down('md'));
+  const dispatch = useAppDispatch();
   const { data, isLoading, isError, refetch } = useListTenantsQuery();
   const [deleteTenant, { isLoading: isDeleting }] = useDeleteTenantMutation();
   const [deleting, setDeleting] = useState<string | null>(null);
@@ -519,7 +522,7 @@ export function TenantDashboard() {
               return (
                 <Paper key={t.id} variant="outlined" sx={{ p: 2 }}>
                   <Stack direction="row" sx={{ alignItems: 'flex-start', justifyContent: 'space-between', gap: 1 }}>
-                    <Box sx={{ minWidth: 0, flex: 1 }}>
+                    <Box sx={{ minWidth: 0, flex: 1, cursor: 'pointer' }} onClick={() => dispatch(setAdminSelectedTenant(t.slug))}>
                       <Stack direction="row" spacing={0.5} sx={{ alignItems: 'center' }}>
                         <Typography variant="body2" sx={{ fontWeight: 600 }}>
                           {t.displayName}
@@ -708,10 +711,14 @@ export function TenantDashboard() {
                           ) : null}
                         </TableCell>
                         <TableCell>
-                          <Stack direction="row" sx={{ gap: 0.5, alignItems: 'center' }}>
+                          <Stack
+                            direction="row"
+                            sx={{ gap: 0.5, alignItems: 'center', cursor: 'pointer', '&:hover .tenant-name': { textDecoration: 'underline' } }}
+                            onClick={() => dispatch(setAdminSelectedTenant(t.slug))}
+                          >
                             {isSuite ? <ApartmentIcon fontSize="small" color="primary" /> : null}
                             <Box>
-                              <Typography variant="body2" sx={{ fontWeight: 600 }}>
+                              <Typography variant="body2" className="tenant-name" sx={{ fontWeight: 600 }}>
                                 {t.displayName}
                               </Typography>
                               <Typography variant="caption" color="text.secondary">
