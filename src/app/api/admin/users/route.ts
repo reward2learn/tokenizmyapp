@@ -7,6 +7,7 @@ import { jsonError, jsonOk } from '@/lib/api/response';
 import { resolveCapabilitiesForSub } from '@/domain/security/security-service';
 import { setSecret, deleteSecret } from '@/lib/secrets';
 import { resolveDedicatedTenantDbUrl } from '@/domain/tenant/tenant-db-resolver';
+import { DEFAULT_PLATFORM_ADMIN_EMAIL } from '@/domain/security/functional-roles';
 
 export const maxDuration = 30;
 
@@ -263,11 +264,27 @@ export async function DELETE(request: Request): Promise<NextResponse> {
   }
 
   try {
-    // Fetch the sub before deleting so we can remove their PIN secret.
+    // Fetch the sub + identity fields before deleting — both to remove the
+    // PIN secret and to block deleting the platform's own default admin
+    // account, which would lock everyone out of this console.
     const user = await db.$queryRawUnsafe(
-      `SELECT sub FROM user_accounts WHERE id = $1;`,
+      `SELECT sub, email, role_code, tenant_slug FROM user_accounts WHERE id = $1;`,
       id,
-    ) as SubRow[];
+    ) as (SubRow & { email: string | null; role_code: string | null; tenant_slug: string | null })[];
+
+    const target = user[0];
+    if (
+      target &&
+      target.role_code === 'platform-admin' &&
+      target.tenant_slug === null &&
+      (target.email ?? '').toLowerCase() === DEFAULT_PLATFORM_ADMIN_EMAIL.toLowerCase()
+    ) {
+      return jsonError(
+        'Cannot delete the platform administrator\'s own default account — this would lock everyone out of this console.',
+        403,
+      );
+    }
+
     // Cascade deletes user_groups rows automatically.
     await db.$executeRawUnsafe(`DELETE FROM user_accounts WHERE id = $1;`, id);
     // Also delete the PIN secret so the user cannot re-authenticate via PIN.

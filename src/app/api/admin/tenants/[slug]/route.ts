@@ -9,6 +9,7 @@ import { requireWriteAuth } from '@/lib/auth/guards';
 import { jsonError, jsonOk } from '@/lib/api/response';
 import { ensureTenantsTable } from '@/domain/tenant/tenant-service';
 import { ensureTenantConfigColumns } from '@/domain/tenant/tenant-config-service';
+import { DEFAULT_TENANT } from '@shared/lib/config/tenant';
 
 // ── Helper: snake_case DB rows → camelCase TenantEntry ──
 
@@ -151,6 +152,13 @@ export async function DELETE(
   if (!guard.ok) return guard.response;
 
   const { slug } = await params;
+
+  if (slug === DEFAULT_TENANT.slug) {
+    return jsonError(
+      `Cannot delete "${DEFAULT_TENANT.slug}" — it is the platform administrator's own tenant app, not a managed tenant.`,
+      403,
+    );
+  }
 
   const db = createRawClient();
   try {

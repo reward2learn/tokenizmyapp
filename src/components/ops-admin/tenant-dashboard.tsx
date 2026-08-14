@@ -79,6 +79,7 @@ import { VercelConnectButton } from '@/components/ops-admin/vercel-connect-butto
 import { AppRow } from '@/components/ops-admin/app-row';
 import { AppActionsMenuButton } from '@/components/ops-admin/app-actions-menu';
 import { AddAppButton } from '@/components/ops-admin/add-app-dialog';
+import { DEFAULT_TENANT } from '@shared/lib/config/tenant';
 
 /** Extract the AppPackConfig from a tenant's metadata (suite mode). */
 function getTenantAppPack(tenant: TenantEntry): AppPackConfig | null {
@@ -669,13 +670,15 @@ export function TenantDashboard() {
                       <ListItemIcon><DeleteSweepIcon fontSize="small" color="error" /></ListItemIcon>
                       <ListItemText sx={{ color: 'error.main' }}>Delete Seeded Data</ListItemText>
                     </MenuItem>
-                    <MenuItem
-                      onClick={() => { handleMenuClose(); setConfirmDelete(t.slug); }}
-                      disabled={isDeleting && deleting === t.slug}
-                    >
-                      <ListItemIcon><DeleteIcon fontSize="small" color="error" /></ListItemIcon>
-                      <ListItemText sx={{ color: 'error.main' }}>Delete</ListItemText>
-                    </MenuItem>
+                    {t.slug !== DEFAULT_TENANT.slug && (
+                      <MenuItem
+                        onClick={() => { handleMenuClose(); setConfirmDelete(t.slug); }}
+                        disabled={isDeleting && deleting === t.slug}
+                      >
+                        <ListItemIcon><DeleteIcon fontSize="small" color="error" /></ListItemIcon>
+                        <ListItemText sx={{ color: 'error.main' }}>Delete</ListItemText>
+                      </MenuItem>
+                    )}
                   </Menu>
                 </Paper>
               );
@@ -835,13 +838,15 @@ export function TenantDashboard() {
                               <ListItemIcon><DeleteSweepIcon fontSize="small" color="error" /></ListItemIcon>
                               <ListItemText sx={{ color: 'error.main' }}>Delete Seeded Data</ListItemText>
                             </MenuItem>
-                            <MenuItem
-                              onClick={() => { handleMenuClose(); setConfirmDelete(t.slug); }}
-                              disabled={isDeleting && deleting === t.slug}
-                            >
-                              <ListItemIcon><DeleteIcon fontSize="small" color="error" /></ListItemIcon>
-                              <ListItemText sx={{ color: 'error.main' }}>Delete</ListItemText>
-                            </MenuItem>
+                            {t.slug !== DEFAULT_TENANT.slug && (
+                              <MenuItem
+                                onClick={() => { handleMenuClose(); setConfirmDelete(t.slug); }}
+                                disabled={isDeleting && deleting === t.slug}
+                              >
+                                <ListItemIcon><DeleteIcon fontSize="small" color="error" /></ListItemIcon>
+                                <ListItemText sx={{ color: 'error.main' }}>Delete</ListItemText>
+                              </MenuItem>
+                            )}
                           </Menu>
                         </TableCell>
                       </TableRow>

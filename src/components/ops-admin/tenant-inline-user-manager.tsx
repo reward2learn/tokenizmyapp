@@ -19,6 +19,7 @@ import TableCell from '@mui/material/TableCell';
 import TableHead from '@mui/material/TableHead';
 import TableRow from '@mui/material/TableRow';
 import TextField from '@mui/material/TextField';
+import Tooltip from '@mui/material/Tooltip';
 import Typography from '@mui/material/Typography';
 import FormControl from '@mui/material/FormControl';
 import InputLabel from '@mui/material/InputLabel';
@@ -38,12 +39,22 @@ import {
   useListRoleConfigsQuery,
 } from '@/store/apis/admin-api';
 import type { AdminUserView } from '@/app/api/admin/users/route';
-import { FUNCTIONAL_ROLES } from '@/domain/security/functional-roles';
+import { FUNCTIONAL_ROLES, DEFAULT_PLATFORM_ADMIN_EMAIL } from '@/domain/security/functional-roles';
 
 interface Props {
   tenantSlug: string;
   tenantName?: string;
   appId?: string | null;
+}
+
+/** The platform's own default admin account — deleting it would lock
+ *  everyone out of this console. Matches the guard in the DELETE route. */
+function isProtectedDefaultAdmin(u: AdminUserView): boolean {
+  return (
+    u.roleCode === 'platform-admin' &&
+    u.tenantSlug === null &&
+    (u.email ?? '').toLowerCase() === DEFAULT_PLATFORM_ADMIN_EMAIL.toLowerCase()
+  );
 }
 
 export function TenantInlineUserManager({ tenantSlug, tenantName, appId }: Props) {
@@ -182,11 +193,13 @@ export function TenantInlineUserManager({ tenantSlug, tenantName, appId }: Props
             ) : (
               users.map((u) => {
                 const hasPin = u.roleCode ? (pinStatus[u.roleCode] ?? false) : false;
+                const protectedAdmin = isProtectedDefaultAdmin(u);
                 return (
                   <TableRow key={u.id}>
                     <TableCell sx={{ fontWeight: 600 }}>
                       {u.name || u.sub}
                       {!u.isActive && <Chip label="disabled" size="small" color="error" variant="outlined" sx={{ ml: 1 }} />}
+                      {protectedAdmin && <Chip label="protected" size="small" color="info" variant="outlined" sx={{ ml: 1 }} />}
                     </TableCell>
                     <TableCell>{FUNCTIONAL_ROLES.find((r) => r.code === u.roleCode)?.name || u.roleCode || '—'}</TableCell>
                     <TableCell>{u.email || '—'}</TableCell>
@@ -196,7 +209,11 @@ export function TenantInlineUserManager({ tenantSlug, tenantName, appId }: Props
                     <TableCell align="right">
                       <Stack direction="row" spacing={0.5} sx={{ justifyContent: 'flex-end' }}>
                         <Button size="small" variant="outlined" onClick={() => openEdit(u)}>Edit</Button>
-                        <Button size="small" color="error" variant="text" onClick={() => setDeleteConfirm(u.id)} disabled={isDeleting}>Delete</Button>
+                        <Tooltip title={protectedAdmin ? "This is the platform administrator's own default account and can't be deleted." : ''}>
+                          <span>
+                            <Button size="small" color="error" variant="text" onClick={() => setDeleteConfirm(u.id)} disabled={isDeleting || protectedAdmin}>Delete</Button>
+                          </span>
+                        </Tooltip>
                       </Stack>
                     </TableCell>
                   </TableRow>

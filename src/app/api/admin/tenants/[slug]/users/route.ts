@@ -16,6 +16,7 @@ import { ensureTenantsTable } from '@/domain/tenant/tenant-service';
 import { ensureTenantUserColumn, type TenantUserRow, type TenantUserView } from '@/domain/tenant/tenant-user-service';
 import { resolveCapabilitiesForSub } from '@/domain/security/security-service';
 import { setSecret } from '@/lib/secrets';
+import { DEFAULT_PLATFORM_ADMIN_EMAIL } from '@/domain/security/functional-roles';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 30;
@@ -243,6 +244,24 @@ export async function DELETE(
   try {
     await ensureTenantsTable(db);
     await ensureTenantUserColumn(db);
+
+    // Block deleting the platform's own default admin account — this would
+    // lock everyone out of this console. Mirrors the guard in
+    // /api/admin/users DELETE.
+    const target = await db.$queryRawUnsafe(
+      `SELECT email, role_code FROM user_accounts WHERE id = $1 AND tenant_slug = $2 LIMIT 1;`,
+      id, slug,
+    ) as { email: string | null; role_code: string | null }[];
+    if (
+      target[0] &&
+      target[0].role_code === 'platform-admin' &&
+      (target[0].email ?? '').toLowerCase() === DEFAULT_PLATFORM_ADMIN_EMAIL.toLowerCase()
+    ) {
+      return jsonError(
+        'Cannot delete the platform administrator\'s own default account — this would lock everyone out of this console.',
+        403,
+      );
+    }
 
     // Only delete if the user belongs to this tenant
     const result = await db.$executeRawUnsafe(

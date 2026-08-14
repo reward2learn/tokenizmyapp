@@ -38,7 +38,16 @@ import {
   type TenantUserView,
 } from '@/store/apis/tenant-api';
 import { useListAdminGroupsQuery } from '@/store/apis/admin-api';
-import { FUNCTIONAL_ROLES } from '@/domain/security/functional-roles';
+import { FUNCTIONAL_ROLES, DEFAULT_PLATFORM_ADMIN_EMAIL } from '@/domain/security/functional-roles';
+
+/** The platform's own default admin account — deleting it would lock
+ *  everyone out of this console. Mirrors the guard in the DELETE route. */
+function isProtectedDefaultAdmin(u: TenantUserView): boolean {
+  return (
+    u.roleCode === 'platform-admin' &&
+    (u.email ?? '').toLowerCase() === DEFAULT_PLATFORM_ADMIN_EMAIL.toLowerCase()
+  );
+}
 
 // ── Props ──────────────────────────────────────────────
 
@@ -247,6 +256,7 @@ export function TenantUserManager({ open, onClose, tenantSlug, tenantDisplayName
                 <TableBody>
                   {users.map((user) => {
                     const roleName = resolveRoleName(user.roleCode);
+                    const protectedAdmin = isProtectedDefaultAdmin(user);
                     return (
                       <TableRow key={user.id}>
                         <TableCell>
@@ -322,14 +332,17 @@ export function TenantUserManager({ open, onClose, tenantSlug, tenantDisplayName
                                   <EditIcon fontSize="small" />
                                 </IconButton>
                               </Tooltip>
-                              <Tooltip title="Delete user">
-                                <IconButton
-                                  size="small"
-                                  color="error"
-                                  onClick={() => setDeleteConfirm(user.id)}
-                                >
-                                  <DeleteIcon fontSize="small" />
-                                </IconButton>
+                              <Tooltip title={protectedAdmin ? "This is the platform administrator's own default account and can't be deleted." : 'Delete user'}>
+                                <span>
+                                  <IconButton
+                                    size="small"
+                                    color="error"
+                                    onClick={() => setDeleteConfirm(user.id)}
+                                    disabled={protectedAdmin}
+                                  >
+                                    <DeleteIcon fontSize="small" />
+                                  </IconButton>
+                                </span>
                               </Tooltip>
                             </Stack>
                           )}
