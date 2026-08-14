@@ -97,9 +97,12 @@ model AppPage {
   showInNav   Boolean   @default(true) @map("show_in_nav")
   /// Tenant slug for multi-tenant isolation.
   tenantSlug  String?   @map("tenant_slug")
+  /// Suite-mode app id, when this page is scoped to a single app within a tenant.
+  appId       String?   @map("app_id")
   sections  PageSection[]
 
   @@index([tenantSlug])
+  @@index([tenantSlug, appId])
   @@map("app_pages")
 }
 

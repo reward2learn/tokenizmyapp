@@ -50,6 +50,7 @@ import { TenantAIChat } from './tenant-ai-chat';
 import { TenantInlineUserManager } from './tenant-inline-user-manager';
 import { AppRow } from './app-row';
 import { AddAppButton } from './add-app-dialog';
+import { TenantAppRowMenu } from './tenant-app-row-menu';
 
 // ── Helpers ─────────────────────────────────────────────────
 
@@ -336,6 +337,7 @@ export function TenantAdminPanel() {
                                 onClick={(e) => e.stopPropagation()}
                               />
                             )}
+                            <TenantAppRowMenu tenantSlug={selectedTenant.slug} onSnackbar={setSnackbar} />
                           </Stack>
                         </Stack>
                       </Paper>
