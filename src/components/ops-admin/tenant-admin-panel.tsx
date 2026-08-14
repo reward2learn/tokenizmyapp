@@ -12,6 +12,8 @@
  */
 
 import { useState, useMemo } from 'react';
+import { useAppDispatch, useAppSelector } from '@/store/hooks';
+import { setAdminSelectedTenant, setAdminActiveSubtab, type AdminTenantSubtab } from '@/store/ui-slice';
 import Box from '@mui/material/Box';
 import Chip from '@mui/material/Chip';
 import FormControl from '@mui/material/FormControl';
@@ -34,23 +36,12 @@ import { TenantDashboard } from './tenant-dashboard';
 import { TenantInfoTab } from './tenant-info-tab';
 import { NavigationManager } from './navigation-manager';
 import { BrandConfigTab } from './brand-config-tab';
-import { TenantUserManager } from './tenant-user-manager';
 import { AppPackTab } from './app-pack-tab';
 import { EditTenantModal } from './edit-tenant-modal';
-import { TenantAdminProvider } from './tenant-admin-context';
 import { TenantSecurityGroups } from './tenant-security-groups';
 import { TenantRoles } from './tenant-roles';
 import { TenantAIChat } from './tenant-ai-chat';
 import { TenantInlineUserManager } from './tenant-inline-user-manager';
-
-// ── Types ───────────────────────────────────────────────────
-
-type TenantSubtab = 'info' | 'navigation' | 'brand' | 'security' | 'accounts' | 'roles' | 'ai-chat' | 'app-pack';
-
-interface TenantAdminPanelProps {
-  /** Initial tab to show */
-  initialSubtab?: TenantSubtab;
-}
 
 // ── Helpers ─────────────────────────────────────────────────
 
@@ -68,37 +59,38 @@ function isSuiteTenant(tenant: TenantEntry): boolean {
 
 // ── Component ───────────────────────────────────────────────
 
-export function TenantAdminPanel({ initialSubtab = 'info' }: TenantAdminPanelProps) {
+export function TenantAdminPanel() {
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down('md'));
-  
-  // Tenant selection state
-  const [selectedTenantSlug, setSelectedTenantSlug] = useState<string | null>(null);
-  const [activeSubtab, setActiveSubtab] = useState<TenantSubtab>(initialSubtab);
+  const dispatch = useAppDispatch();
+
+  // Tenant selection state — lives in Redux (ui-slice) so every subtab reads
+  // the same selection instead of each holding its own local copy.
+  const selectedTenantSlug = useAppSelector((s) => s.ui.adminSelectedTenantSlug);
+  const activeSubtab = useAppSelector((s) => s.ui.adminActiveSubtab);
   const [editModalOpen, setEditModalOpen] = useState(false);
-  
+
   // Fetch tenants
   const { data, isLoading, refetch } = useListTenantsQuery();
   const tenants = data?.data?.tenants ?? [];
-  
+
   // Get selected tenant
   const selectedTenant = useMemo(() => {
     if (!selectedTenantSlug) return null;
     return tenants.find((t) => t.slug === selectedTenantSlug) ?? null;
   }, [tenants, selectedTenantSlug]);
-  
+
   // Check if selected tenant is a suite
   const selectedAppPack = selectedTenant ? getAppPack(selectedTenant) : null;
   const isSuite = selectedTenant ? isSuiteTenant(selectedTenant) : false;
-  
+
   // Handle tenant selection
   const handleTenantChange = (slug: string) => {
-    setSelectedTenantSlug(slug || null);
-    setActiveSubtab('info'); // Reset to info tab when switching tenants
+    dispatch(setAdminSelectedTenant(slug || null)); // also resets subtab to 'info'
   };
-  
+
   // Subtab definitions
-  const subtabs: Array<{ key: TenantSubtab; label: string; icon?: React.ReactNode }> = [
+  const subtabs: Array<{ key: AdminTenantSubtab; label: string; icon?: React.ReactNode }> = [
     { key: 'info', label: 'Tenant Info' },
     { key: 'navigation', label: 'Navigation' },
     { key: 'brand', label: 'Brand Config' },
@@ -188,22 +180,21 @@ export function TenantAdminPanel({ initialSubtab = 'info' }: TenantAdminPanelPro
         // No tenant selected — show dashboard with all tenants
         <TenantDashboard />
       ) : (
-        // Tenant selected — show subtabs wrapped in provider
-        <TenantAdminProvider selectedTenant={selectedTenant}>
+        // Tenant selected — show subtabs
         <Box>
           {/* Subtab Navigation */}
           <Paper elevation={0} sx={{ mb: 3, border: '1px solid', borderColor: 'divider', bgcolor: 'background.paper' }}>
             <Tabs
               value={activeSubtab}
-              onChange={(_, v) => setActiveSubtab(v as TenantSubtab)}
+              onChange={(_, v) => dispatch(setAdminActiveSubtab(v as AdminTenantSubtab))}
               variant={isMobile ? 'scrollable' : 'standard'}
               scrollButtons="auto"
               allowScrollButtonsMobile
             >
               {subtabs.map((subtab) => (
-                <Tab 
-                  key={subtab.key} 
-                  value={subtab.key} 
+                <Tab
+                  key={subtab.key}
+                  value={subtab.key}
                   label={
                     <Stack direction="row" spacing={0.5} sx={{ alignItems: 'center' }}>
                       {subtab.icon}
@@ -214,17 +205,17 @@ export function TenantAdminPanel({ initialSubtab = 'info' }: TenantAdminPanelPro
               ))}
             </Tabs>
           </Paper>
-          
+
           {/* Subtab Content */}
           <Box>
-            {activeSubtab === 'info' && (
-              <TenantInfoTab />
+            {activeSubtab === 'info' && selectedTenant && (
+              <TenantInfoTab tenantSlug={selectedTenant.slug} />
             )}
             {activeSubtab === 'navigation' && (
               <NavigationManager />
             )}
             {activeSubtab === 'brand' && (
-              <BrandConfigTab />
+              <BrandConfigTab tenantSlug={selectedTenant?.slug} />
             )}
             {activeSubtab === 'security' && selectedTenant && (
               <TenantSecurityGroups tenantSlug={selectedTenant.slug} tenantName={selectedTenant.displayName} />
@@ -294,7 +285,6 @@ export function TenantAdminPanel({ initialSubtab = 'info' }: TenantAdminPanelPro
             </Paper>
           )}
         </Box>
-        </TenantAdminProvider>
       )}
       
       {/* Edit Tenant Modal */}

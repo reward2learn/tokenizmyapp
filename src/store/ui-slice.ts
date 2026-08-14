@@ -3,6 +3,16 @@ import type { ForecastScenarioKey } from '@/domain/financial/financial-projectio
 
 export type ChartKpi = 'ebitda' | 'revenue' | 'net_income' | 'guests' | 'staff_cost';
 
+export type AdminTenantSubtab =
+  | 'info'
+  | 'navigation'
+  | 'brand'
+  | 'security'
+  | 'accounts'
+  | 'roles'
+  | 'ai-chat'
+  | 'app-pack';
+
 export interface UiState {
   drawerOpen: boolean;
   /** Right-side AI chat drawer (persistent — pushes content, never overlays). */
@@ -15,6 +25,10 @@ export interface UiState {
   selectedMonthPeriod: string | null;
   primaryColor?: string;
   secondaryColor?: string;
+  /** Platform-admin "Tenants" panel: slug of the tenant selected in the dropdown. */
+  adminSelectedTenantSlug: string | null;
+  /** Platform-admin "Tenants" panel: which subtab is active for the selected tenant. */
+  adminActiveSubtab: AdminTenantSubtab;
 }
 
 const initialState: UiState = {
@@ -28,6 +42,8 @@ const initialState: UiState = {
   selectedMonthPeriod: null,
   primaryColor: '#eb3d28',
   secondaryColor: '#0af9fe',
+  adminSelectedTenantSlug: null,
+  adminActiveSubtab: 'info',
 };
 
 export const uiSlice = createSlice({
@@ -69,6 +85,15 @@ export const uiSlice = createSlice({
       state.primaryColor = action.payload.primary;
       state.secondaryColor = action.payload.secondary;
     },
+    setAdminSelectedTenant(state, action: { payload: string | null }) {
+      state.adminSelectedTenantSlug = action.payload;
+      // Switching tenants resets the subtab so we don't land on e.g. "roles"
+      // for a tenant whose roles haven't loaded yet.
+      state.adminActiveSubtab = 'info';
+    },
+    setAdminActiveSubtab(state, action: { payload: AdminTenantSubtab }) {
+      state.adminActiveSubtab = action.payload;
+    },
   },
 });
 
@@ -82,4 +107,6 @@ export const {
   setChartScenario,
   setSelectedMonth,
   setThemeColors,
+  setAdminSelectedTenant,
+  setAdminActiveSubtab,
 } = uiSlice.actions;

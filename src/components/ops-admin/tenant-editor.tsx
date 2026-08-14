@@ -35,6 +35,7 @@ import DeleteIcon from '@mui/icons-material/Delete';
 import CloudUploadIcon from '@mui/icons-material/CloudUpload';
 import { listTemplates, getTemplate } from '@/domain/tenant/template-catalog';
 import { useUpdateTenantMutation, useDeployTenantMutation } from '@/store/apis/tenant-api';
+import type { AppPackConfig } from '@/store/apis/tenant-api';
 
 // ── Types ─────────────────────────────────────────────────────────────────
 
@@ -99,6 +100,12 @@ const DEFAULT_PINS: PinEntry[] = [
 
 // ── Metadata helpers ───────────────────────────────────────────────────────
 
+/** Extract appPack config from tenant metadata (for suite mode). */
+function getAppPack(metadata?: Record<string, unknown> | null): AppPackConfig | null {
+  const cfg = (metadata?.config ?? {}) as Record<string, unknown>;
+  return (cfg.appPack as AppPackConfig) ?? null;
+}
+
 function parseConfigFromMetadata(metadata?: Record<string, unknown> | null) {
   const config = (metadata?.config ?? {}) as Record<string, unknown>;
   const googleAuth = (config.googleAuth ?? {}) as Record<string, string>;
@@ -147,8 +154,8 @@ function getInitialFormState(tenant: TenantEditorProps['tenant']): FormData {
   const parsed = parseConfigFromMetadata(tenant.metadata);
   return {
     displayName: tenant.displayName,
-    template: tenant.template === 'suite' 
-      ? (tenant.appPack?.apps[0]?.templateId ?? 'default')
+    template: tenant.template === 'suite'
+      ? (getAppPack(tenant.metadata)?.apps[0]?.templateId ?? 'default')
       : tenant.template,
     status: tenant.status,
     primaryColor: tenant.primaryColor,
@@ -179,11 +186,9 @@ export function TenantEditor({ open, onClose, tenant }: TenantEditorProps) {
   const [updateTenant, { isLoading, isError, error }] = useUpdateTenantMutation();
 
   const templates = listTemplates();
-  // For suites, use the first app's template for display
-  const effectiveTemplate = tenant.templateMode === 'suite' 
-    ? (formData.templates?.[0] ?? formData.template)
-    : formData.template;
-  const selectedTemplate = getTemplate(effectiveTemplate);
+  // For suites, formData.template is already seeded from the first app's
+  // templateId in getInitialFormState — no separate suite-mode branch needed.
+  const selectedTemplate = getTemplate(formData.template);
 
   // Re-initialize form state whenever the dialog opens for a different tenant
   useEffect(() => {
