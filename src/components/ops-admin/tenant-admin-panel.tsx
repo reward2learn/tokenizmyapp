@@ -78,6 +78,10 @@ export function TenantAdminPanel() {
   const selectedAppId = useAppSelector((s) => s.ui.adminSelectedAppId);
   const activeSubtab = useAppSelector((s) => s.ui.adminActiveSubtab);
   const [editModalOpen, setEditModalOpen] = useState(false);
+  // Unified App Bundle is a tenant-level tool (Path A — one shared deployment),
+  // distinct from the per-app subtabs below — it must not require an app to be
+  // selected, and doesn't apply to any single app within a suite.
+  const [showAppBundle, setShowAppBundle] = useState(false);
   const [snackbar, setSnackbar] = useState<{ message: string; severity: 'success' | 'error' } | null>(null);
 
   // Fetch tenants
@@ -145,7 +149,6 @@ export function TenantAdminPanel() {
     { key: 'accounts', label: 'Accounts' },
     { key: 'roles', label: 'Roles' },
     { key: 'ai-chat', label: 'AI Chat' },
-    { key: 'app-pack', label: 'Unified App Bundle', icon: <AutoFixHighIcon fontSize="small" /> },
   ];
   
   return (
@@ -222,6 +225,16 @@ export function TenantAdminPanel() {
                   <EditIcon fontSize="small" />
                 </IconButton>
               </Tooltip>
+              <Tooltip title="Unified App Bundle — tenant-level, not per-app">
+                <IconButton
+                  size="small"
+                  onClick={() => setShowAppBundle((v) => !v)}
+                  aria-label="Toggle Unified App Bundle"
+                  color={showAppBundle ? 'primary' : 'default'}
+                >
+                  <AutoFixHighIcon fontSize="small" />
+                </IconButton>
+              </Tooltip>
               <Tooltip title="Clear selection — back to all tenants">
                 <IconButton size="small" onClick={handleClearSelection} aria-label="Clear tenant selection">
                   <ClearIcon fontSize="small" />
@@ -239,6 +252,17 @@ export function TenantAdminPanel() {
       ) : (
         // Tenant selected — show its apps, then subtabs
         <Box>
+          {/* Unified App Bundle — tenant-level tool, independent of app selection */}
+          {selectedTenant && showAppBundle && (
+            <Box sx={{ mb: 3 }}>
+              <AppPackTab
+                tenantSlug={selectedTenant.slug}
+                tenantName={selectedTenant.displayName}
+                onGenerated={() => refetch()}
+              />
+            </Box>
+          )}
+
           {/* Apps under this tenant */}
           {selectedTenant && (
             <Paper elevation={0} sx={{ mb: 3, p: 2, border: '1px solid', borderColor: 'divider', bgcolor: 'background.paper' }}>
@@ -376,13 +400,6 @@ export function TenantAdminPanel() {
                 )}
                 {activeSubtab === 'ai-chat' && selectedTenant && (
                   <TenantAIChat tenantSlug={selectedTenant.slug} tenantName={selectedTenant.displayName} appId={effectiveAppId} />
-                )}
-                {activeSubtab === 'app-pack' && selectedTenant && (
-                  <AppPackTab
-                    tenantSlug={selectedTenant.slug}
-                    tenantName={selectedTenant.displayName}
-                    onGenerated={() => refetch()}
-                  />
                 )}
               </Box>
             </>

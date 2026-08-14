@@ -7,7 +7,7 @@ import Stack from '@mui/material/Stack';
 import Typography from '@mui/material/Typography';
 import OpenInNewIcon from '@mui/icons-material/OpenInNew';
 import Button from '@mui/material/Button';
-import { useGetBrandConfigQuery } from '@shared/store/apis/brand-config-api';
+import { useGetAdminBrandConfigQuery } from '@/store/apis/admin-api';
 import { useGetTenantQuery, useUploadTenantFaviconMutation, useRemoveTenantFaviconMutation } from '@/store/apis/tenant-api';
 import { getClientTenantConfig } from '@shared/lib/config/tenant';
 import { getTemplate } from '@/domain/tenant/template-catalog';
@@ -28,11 +28,18 @@ function resolveTenant(slug: string | undefined): { slug: string; displayName: s
 
 export function TenantInfoTab({ tenantSlug, appId }: TenantInfoTabProps = {}) {
   const tenant = resolveTenant(tenantSlug);
-  const template = getTemplate(tenant.slug === 'tokenizmyapp' ? 'default' : tenant.slug);
-  const { data: brandData } = useGetBrandConfigQuery();
+  // Scoped to the selected tenant/app — an unscoped query would silently return
+  // whichever tenant the admin console itself is currently running under.
+  const { data: brandData } = useGetAdminBrandConfigQuery(
+    tenantSlug ? { tenantSlug, appId: appId ?? undefined } : undefined,
+  );
 
-  const brand = brandData?.data;
-  const effectiveTemplate = template?.label ?? brand?.tenantTemplate ?? 'default';
+  const brand = brandData?.data as
+    | { tenantDisplayName?: string; tenantTemplate?: string; brandPrimaryColor?: string; brandSecondaryColor?: string }
+    | undefined;
+  const templateId = brand?.tenantTemplate || 'default';
+  const template = getTemplate(templateId);
+  const effectiveTemplate = template.label;
 
   return (
     <Paper variant="outlined" sx={{ p: 3 }}>
@@ -48,7 +55,7 @@ export function TenantInfoTab({ tenantSlug, appId }: TenantInfoTabProps = {}) {
           <InfoRow
             label="Template"
             value={effectiveTemplate}
-            chip={effectiveTemplate !== 'default' ? effectiveTemplate : undefined}
+            chip={templateId !== 'default' ? effectiveTemplate : undefined}
           />
           <InfoRow label="App URL" value={`https://${tenant.slug}.vercel.app`} link={`https://${tenant.slug}.vercel.app`} />
 
