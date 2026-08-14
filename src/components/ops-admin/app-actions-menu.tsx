@@ -106,7 +106,15 @@ export function AppActionsMenu({ tenantSlug, tenantName, app, anchorEl, open, on
     onClose();
     try {
       const result = await seedApp({ slug: tenantSlug, appId: app.appId }).unwrap();
-      onSnackbar({ message: `✅ ${app.appId} seeded — ${result.data?.pages ?? 0} pages`, severity: 'success' });
+      const d = result.data;
+      // Verified (re-queried) counts, not insert-loop attempt counts — and a
+      // loud warning if this silently landed in the tenant's root/shared DB
+      // instead of the dedicated database the suite expects apps to share.
+      if (d?.dbTarget === 'root') {
+        onSnackbar({ message: `⚠️ ${app.appId} seeded to ROOT DB (no dedicated DB for this tenant) — ${d?.verifiedPages ?? d?.pages ?? 0} pages`, severity: 'error' });
+      } else {
+        onSnackbar({ message: `✅ ${app.appId} seeded (verified) — ${d?.verifiedPages ?? d?.pages ?? 0} pages`, severity: 'success' });
+      }
     } catch (err) {
       onSnackbar({ message: apiErrorMessage(err, `❌ Failed to seed ${app.appId}`), severity: 'error' });
     }

@@ -239,7 +239,19 @@ export function TenantDashboard() {
     handleMenuClose();
     try {
       const result = await seedTenant(slug).unwrap();
-      setSnackbar({ message: `Tenant seeded: ${result.data?.pages ?? 0} pages, ${result.data?.navItems ?? 0} nav items`, severity: 'success' });
+      const d = result.data;
+      // Flag it loudly if this silently landed in the root DB instead of the
+      // tenant's own dedicated one.
+      if (d?.dbTarget === 'root') {
+        setSnackbar({ message: `⚠️ Seeded to ROOT DB (no dedicated DB configured for "${slug}")`, severity: 'error' });
+      } else if (d?.scope === 'tenant-wide') {
+        // Suite tenant — page/nav content is each app's own responsibility
+        // (seeded per-app), so this run only touches tenant-wide data.
+        setSnackbar({ message: `Tenant-wide data seeded: admin account${d?.adminSeeded ? '' : ' (failed)'}, ${d?.groups ?? 0} security groups, branding — page/nav content is seeded per-app`, severity: d?.adminSeeded ? 'success' : 'error' });
+      } else {
+        // Show verified (re-queried) counts, not the insert-loop attempt counts.
+        setSnackbar({ message: `Tenant seeded (verified): ${d?.verifiedPages ?? d?.pages ?? 0} pages, ${d?.verifiedNavItems ?? d?.navItems ?? 0} nav items`, severity: 'success' });
+      }
     } catch {
       setSnackbar({ message: 'Failed to seed tenant', severity: 'error' });
     }

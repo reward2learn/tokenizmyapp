@@ -247,7 +247,7 @@ export const tenantApi = createApi({
 
     // ── Tenant Seed & Migrate ──────────────────────────
 
-    seedTenant: builder.mutation<ApiEnvelope<{ seeded: boolean; pages?: number; navItems?: number; groups?: number; settings?: boolean }>, string>({
+    seedTenant: builder.mutation<ApiEnvelope<{ seeded: boolean; scope?: 'tenant-wide' | 'full'; pages?: number; navItems?: number; verifiedPages?: number; verifiedNavItems?: number; dbTarget?: 'dedicated' | 'root'; groups?: number; settings?: boolean; adminSeeded?: boolean }>, string>({
       query: (slug) => ({
         url: `admin/tenants/${slug}/seed`,
         method: 'POST',
@@ -286,7 +286,7 @@ export const tenantApi = createApi({
     // Mirrors the tenant-level Seed/Migrate/Deploy/Status/Domain/Hooks
     // endpoints above, scoped to a single SuiteAppInstance within a suite.
 
-    seedApp: builder.mutation<ApiEnvelope<{ seeded: boolean; appId: string; pages?: number; navItems?: number }>, { slug: string; appId: string }>({
+    seedApp: builder.mutation<ApiEnvelope<{ seeded: boolean; appId: string; pages?: number; navItems?: number; verifiedPages?: number; verifiedNavItems?: number; dbTarget?: 'dedicated' | 'root' }>, { slug: string; appId: string }>({
       query: ({ slug, appId }) => ({
         url: `admin/tenants/${slug}/apps/${appId}`,
         method: 'POST',

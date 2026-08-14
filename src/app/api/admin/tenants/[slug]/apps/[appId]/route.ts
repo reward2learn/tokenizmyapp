@@ -149,13 +149,28 @@ export async function POST(
     // Update status to live
     await updateAppStatus(db, slug, appPack, appId, { status: 'live' });
 
-    console.log(`[app-seed] Seeded "${appId}" for tenant "${slug}": ${result.pages} pages, ${result.navItems} nav items`);
+    // result.pages/navItems are insert-loop counters — they prove a statement
+    // didn't throw, not that a row now actually exists for this app in its
+    // real database. Re-query the same connection the seed just wrote to.
+    const dbTarget: 'dedicated' | 'root' = dedicatedSeedClient ? 'dedicated' : 'root';
+    const verifyDb = seedDb as { $queryRawUnsafe: (sql: string, ...params: unknown[]) => Promise<{ count: bigint }[]> };
+    const [verifiedPagesRows, verifiedNavRows] = await Promise.all([
+      verifyDb.$queryRawUnsafe(`SELECT COUNT(*) AS count FROM app_pages WHERE tenant_slug = $1 AND app_id = $2;`, slug, appId),
+      verifyDb.$queryRawUnsafe(`SELECT COUNT(*) AS count FROM navigation_items WHERE tenant_slug = $1 AND app_id = $2;`, slug, appId),
+    ]);
+    const verifiedPages = Number(verifiedPagesRows[0]?.count ?? 0);
+    const verifiedNavItems = Number(verifiedNavRows[0]?.count ?? 0);
+
+    console.log(`[app-seed] Seeded "${appId}" for tenant "${slug}" (${dbTarget} DB): ${result.pages} pages attempted / ${verifiedPages} verified, ${result.navItems} nav items attempted / ${verifiedNavItems} verified`);
 
     return jsonOk({
       seeded: true,
       appId,
       pages: result.pages,
       navItems: result.navItems,
+      verifiedPages,
+      verifiedNavItems,
+      dbTarget,
       errors: result.errors || [],
     });
   } catch (err) {

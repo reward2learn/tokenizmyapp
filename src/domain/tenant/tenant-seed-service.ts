@@ -43,6 +43,14 @@ interface SeedTenantInput {
   adminEmail?: string;
   /** Override the DB to use a tenant-specific connection */
   db?: any;
+  /** Skip AppPage/PageSection/NavigationItem seeding — for a tenant-level
+   *  seed run against a SUITE tenant, where page/nav content is each app's
+   *  own responsibility (seeded via its own per-app Seed action). app_pages
+   *  is keyed by a GLOBAL slug, not (tenant, app) — an unscoped tenant-level
+   *  seed would upsert every app's already-seeded pages to app_id = NULL,
+   *  silently clobbering the per-app scoping. Only genuinely tenant-wide
+   *  data (branding, admin account, security groups) still gets seeded. */
+  skipContent?: boolean;
 }
 
 /**
@@ -284,10 +292,12 @@ export async function seedTenantDefaults(input: SeedTenantInput): Promise<{
   }
 
   // ── 2. Seed AppPage + PageSection ─────────────────────
+  // Skipped for a tenant-level seed against a suite tenant — see
+  // SeedTenantInput.skipContent.
   let pageCount = 0;
   const errors: string[] = [];
 
-  for (const tplPage of template.defaultPages) {
+  for (const tplPage of input.skipContent ? [] : template.defaultPages) {
     try {
       // Upsert page — include a generated ID for FK references.
       // NOTE: `slug` is a GLOBAL unique constraint, not composite with
@@ -358,25 +368,30 @@ export async function seedTenantDefaults(input: SeedTenantInput): Promise<{
   }
 
   // ── 3. Seed NavigationItem ────────────────────────────
+  // Skipped for a tenant-level seed against a suite tenant (see
+  // SeedTenantInput.skipContent) — an unscoped clear here would otherwise
+  // wipe every app's already-seeded nav items, not just the tenant's own.
   let navCount = 0;
 
-  // Clear existing nav items before re-seeding — scoped to this specific app
-  // when appId is set, so re-seeding one suite app never wipes a sibling
-  // app's (or the tenant's own) nav items when they share a database.
-  try {
-    if (input.appId) {
-      await db.$executeRawUnsafe(
-        `DELETE FROM navigation_items WHERE tenant_slug = $1 AND app_id = $2;`,
-        input.slug, input.appId,
-      );
-    } else {
-      await db.$executeRawUnsafe(`DELETE FROM navigation_items WHERE tenant_slug = $1;`, input.slug);
+  if (!input.skipContent) {
+    // Clear existing nav items before re-seeding — scoped to this specific app
+    // when appId is set, so re-seeding one suite app never wipes a sibling
+    // app's (or the tenant's own) nav items when they share a database.
+    try {
+      if (input.appId) {
+        await db.$executeRawUnsafe(
+          `DELETE FROM navigation_items WHERE tenant_slug = $1 AND app_id = $2;`,
+          input.slug, input.appId,
+        );
+      } else {
+        await db.$executeRawUnsafe(`DELETE FROM navigation_items WHERE tenant_slug = $1;`, input.slug);
+      }
+    } catch (err) {
+      console.warn(`[tenant-seed] Could not clear navigation_items:`, (err as Error).message);
     }
-  } catch (err) {
-    console.warn(`[tenant-seed] Could not clear navigation_items:`, (err as Error).message);
   }
 
-  for (let i = 0; i < template.defaultNavItems.length; i++) {
+  for (let i = 0; i < (input.skipContent ? 0 : template.defaultNavItems.length); i++) {
     const navItem = template.defaultNavItems[i];
     try {
       // Include generated ID and tenant_slug/app_id; cast auth_tier to the AuthTier enum

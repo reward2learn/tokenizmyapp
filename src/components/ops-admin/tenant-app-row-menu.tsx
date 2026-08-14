@@ -72,7 +72,20 @@ export function TenantAppRowMenu({ tenantSlug, onSnackbar }: TenantAppRowMenuPro
     close();
     try {
       const result = await seedTenant(tenantSlug).unwrap();
-      onSnackbar({ message: `✅ Seeded — ${result.data?.pages ?? 0} pages`, severity: 'success' });
+      const d = result.data;
+      // Verified (re-queried) counts, not insert-loop attempt counts — and a
+      // loud warning if this silently landed in the root DB instead of the
+      // tenant's own dedicated one. This tenant is never in suite mode (this
+      // menu only renders for single-template tenants — see
+      // tenant-admin-panel.tsx), so scope should always come back 'full',
+      // but branch defensively in case that ever changes.
+      if (d?.dbTarget === 'root') {
+        onSnackbar({ message: `⚠️ Seeded to ROOT DB (no dedicated DB configured) — ${d?.verifiedPages ?? d?.pages ?? 0} pages`, severity: 'error' });
+      } else if (d?.scope === 'tenant-wide') {
+        onSnackbar({ message: `Tenant-wide data seeded: admin account${d?.adminSeeded ? '' : ' (failed)'}, ${d?.groups ?? 0} security groups`, severity: d?.adminSeeded ? 'success' : 'error' });
+      } else {
+        onSnackbar({ message: `✅ Seeded (verified) — ${d?.verifiedPages ?? d?.pages ?? 0} pages`, severity: 'success' });
+      }
     } catch (err) {
       onSnackbar({ message: apiErrorMessage(err, '❌ Failed to seed tenant'), severity: 'error' });
     }
