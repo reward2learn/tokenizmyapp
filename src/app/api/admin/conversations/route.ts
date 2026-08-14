@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@/lib/db';
 import { requireWriteAuth, requireRead, requireWrite } from '@/lib/auth/guards';
+import { sessionIsPlatformAdmin } from '@/lib/auth/jwt';
 import { jsonError, jsonOk } from '@/lib/api/response';
 import { ensureConversationsColumns } from '@/lib/db-migrate';
 
@@ -25,6 +26,8 @@ export interface AdminConversationView {
   message_count: number;
   archived: boolean;
   created_at: string;
+  tenant_slug: string | null;
+  app_id: string | null;
 }
 
 export async function GET(request: Request): Promise<NextResponse> {
@@ -38,6 +41,11 @@ export async function GET(request: Request): Promise<NextResponse> {
   const includeArchived = url.searchParams.get('archived') === 'true';
   const owner = url.searchParams.get('owner');
   const limit = Math.min(parseInt(url.searchParams.get('limit') ?? '100', 10), 200);
+  // Cross-tenant browsing is a platform-admin-only capability; ignored for
+  // any other caller with plain conversations:read.
+  const isPlatformAdmin = sessionIsPlatformAdmin(guard.session);
+  const tenantSlug = isPlatformAdmin ? url.searchParams.get('tenantSlug') : null;
+  const appId = isPlatformAdmin ? url.searchParams.get('appId') : null;
 
   try {
     await ensureConversationsOnce();
@@ -57,6 +65,8 @@ export async function GET(request: Request): Promise<NextResponse> {
       where: {
         ...(includeArchived ? {} : { archived: false }),
         ...(owner ? { ownerSub: owner } : {}),
+        ...(tenantSlug ? { tenantSlug } : {}),
+        ...(appId ? { appId } : {}),
       },
       orderBy: { createdAt: 'desc' },
       take: limit,
@@ -68,6 +78,8 @@ export async function GET(request: Request): Promise<NextResponse> {
         messageCount: true,
         archived: true,
         createdAt: true,
+        tenantSlug: true,
+        appId: true,
       },
     });
 
@@ -79,6 +91,8 @@ export async function GET(request: Request): Promise<NextResponse> {
       message_count: r.messageCount,
       archived: r.archived,
       created_at: r.createdAt instanceof Date ? r.createdAt.toISOString() : String(r.createdAt),
+      tenant_slug: r.tenantSlug,
+      app_id: r.appId,
     }));
 
     return jsonOk({ conversations });

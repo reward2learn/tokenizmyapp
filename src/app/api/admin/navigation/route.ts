@@ -38,6 +38,8 @@ const createSchema = z.object({
   isVisible: z.boolean().optional(),
   // isDynamic is accepted but ignored — admin-created items are always dynamic
   isDynamic: z.boolean().optional(),
+  tenantSlug: z.string().max(50).optional(),
+  appId: z.string().max(50).optional(),
 });
 
 const updateSchema = z.object({
@@ -63,18 +65,33 @@ export async function GET(request: Request): Promise<NextResponse> {
   if (!guard.ok) return guard.response;
   // Allow any PIN/Google user to read navigation items
 
+  // Cross-tenant browsing is a platform-admin-only capability; ignored for
+  // any other caller so a tenant's own admin panel keeps seeing everything.
+  const { searchParams } = new URL(request.url);
+  const isPlatformAdmin = sessionIsPlatformAdmin(guard.session);
+  const tenantSlug = isPlatformAdmin ? searchParams.get('tenantSlug') : null;
+  const appId = isPlatformAdmin ? searchParams.get('appId') : null;
+
   const prisma = getClient();
   try {
     await ensureNavigationTable(prisma);
     const seeded = await seedMissingNavigationFromCatalog(prisma);
     if (seeded > 0) console.log(`[navigation] Seeded ${seeded} new item(s) from page catalog`);
 
+    const where: string[] = [];
+    const params: unknown[] = [];
+    if (tenantSlug) { params.push(tenantSlug); where.push(`tenant_slug = $${params.length}`); }
+    if (appId) { params.push(appId); where.push(`app_id = $${params.length}`); }
+    const whereClause = where.length ? `WHERE ${where.join(' AND ')}` : '';
+
     const items = await prisma.$queryRawUnsafe<Record<string, unknown>[]>(
       `SELECT id, parent_id AS "parentId", sort_order AS "sortOrder", title, path, icon,
               auth_tier AS "authTier", required_groups AS "requiredGroups",
               is_visible AS "isVisible", is_dynamic AS "isDynamic", is_default AS "isDefault",
+              tenant_slug AS "tenantSlug", app_id AS "appId",
               created_at AS "createdAt", updated_at AS "updatedAt"
-       FROM navigation_items ORDER BY sort_order ASC`,
+       FROM navigation_items ${whereClause} ORDER BY sort_order ASC`,
+      ...params,
     );
     // Build a tree structure for the UI
     const itemMap = new Map<string, Record<string, unknown>>();
@@ -110,15 +127,16 @@ export async function POST(request: Request): Promise<NextResponse> {
   const parsed = createSchema.safeParse(body);
   if (!parsed.success) return jsonError('Validation error: ' + JSON.stringify(parsed.error.flatten()), 400);
 
-  const { parentId, title, path, icon, authTier, requiredGroups, isVisible } = parsed.data;
+  const { parentId, title, path, icon, authTier, requiredGroups, isVisible, tenantSlug, appId } = parsed.data;
 
   const prisma = getClient();
   try {
     await ensureNavigationTable(prisma);
     await prisma.$executeRawUnsafe(
-      `INSERT INTO navigation_items (id, parent_id, sort_order, title, path, icon, auth_tier, required_groups, is_visible, is_dynamic)
-       VALUES (gen_random_uuid()::text, $1, (SELECT COALESCE(MAX(sort_order), 0) + 1 FROM navigation_items WHERE parent_id IS NULL), $2, $3, $4, CAST($5 AS "AuthTier"), $6, $7, TRUE)`,
+      `INSERT INTO navigation_items (id, parent_id, sort_order, title, path, icon, auth_tier, required_groups, is_visible, is_dynamic, tenant_slug, app_id)
+       VALUES (gen_random_uuid()::text, $1, (SELECT COALESCE(MAX(sort_order), 0) + 1 FROM navigation_items WHERE parent_id IS NULL), $2, $3, $4, CAST($5 AS "AuthTier"), $6, $7, TRUE, $8, $9)`,
       parentId ?? null, title, path ?? '', icon ?? '', authTier ?? 'public', requiredGroups ?? '', isVisible ?? true,
+      tenantSlug ?? null, appId ?? null,
     );
     return jsonOk({ created: true });
   } catch (err) {

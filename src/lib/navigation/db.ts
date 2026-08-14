@@ -36,12 +36,25 @@ export async function ensureNavigationTable(prisma: PrismaClient): Promise<void>
   for (const col of [
     'ADD COLUMN IF NOT EXISTS is_dynamic BOOLEAN NOT NULL DEFAULT FALSE',
     'ADD COLUMN IF NOT EXISTS is_default BOOLEAN NOT NULL DEFAULT FALSE',
+    // tenant_slug pre-existed via a separate, rarely-run migration path
+    // (tenant-seed-service.ts addTenantColumnsIfMissing) — re-declared here,
+    // idempotently, alongside the new app_id column so both land on every deploy.
+    'ADD COLUMN IF NOT EXISTS tenant_slug TEXT',
+    'ADD COLUMN IF NOT EXISTS app_id TEXT',
   ]) {
     try {
       await prisma.$executeRawUnsafe(`ALTER TABLE navigation_items ${col}`);
     } catch {
       /* column exists or older PG without IF NOT EXISTS */
     }
+  }
+
+  try {
+    await prisma.$executeRawUnsafe(
+      'CREATE INDEX IF NOT EXISTS idx_navigation_items_tenant_app ON navigation_items (tenant_slug, app_id)',
+    );
+  } catch {
+    /* index may already exist */
   }
 }
 

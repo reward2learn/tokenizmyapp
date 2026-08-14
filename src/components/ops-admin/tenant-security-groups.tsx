@@ -44,6 +44,7 @@ import type { AdminGroupView } from '@/app/api/admin/groups/route';
 interface TenantSecurityGroupsProps {
   tenantSlug: string;
   tenantName?: string;
+  appId?: string | null;
 }
 
 const CAPABILITIES = [
@@ -58,7 +59,10 @@ const CAPABILITIES = [
   { code: 'settings:write', label: 'Settings Write' },
 ];
 
-export function TenantSecurityGroups({ tenantSlug, tenantName }: TenantSecurityGroupsProps) {
+export function TenantSecurityGroups({ tenantSlug, tenantName, appId }: TenantSecurityGroupsProps) {
+  // Query is unscoped, matching this deployment's own admin panel behavior —
+  // the tenant/global split below uses the real tenant_slug/app_id columns
+  // rather than the old code-prefix heuristic, now that the server populates them.
   const { data, isLoading, isError, refetch } = useListAdminGroupsQuery();
   const [createGroup, { isLoading: isCreating }] = useCreateAdminGroupMutation();
   const [updateGroup, { isLoading: isUpdating }] = useUpdateAdminGroupMutation();
@@ -82,12 +86,15 @@ export function TenantSecurityGroups({ tenantSlug, tenantName }: TenantSecurityG
 
   const handleCreate = async () => {
     if (!newGroup.code.trim() || !newGroup.name.trim()) return;
-    // Prefix group code with tenant slug for scoping
+    // Prefix group code with tenant slug for a readable, unique code — actual
+    // scoping/filtering is done via the tenant_slug/app_id columns below.
     const scopedCode = `${tenantSlug}:${newGroup.code.trim().toLowerCase()}`;
-    await createGroup({ 
-      code: scopedCode, 
-      name: `[${tenantName || tenantSlug}] ${newGroup.name.trim()}`, 
-      description: newGroup.description.trim() 
+    await createGroup({
+      code: scopedCode,
+      name: `[${tenantName || tenantSlug}] ${newGroup.name.trim()}`,
+      description: newGroup.description.trim(),
+      tenantSlug,
+      ...(appId ? { appId } : {}),
     }).unwrap();
     setNewGroup({ code: '', name: '', description: '' });
     setCreateDialogOpen(false);
@@ -116,9 +123,9 @@ export function TenantSecurityGroups({ tenantSlug, tenantName }: TenantSecurityG
     refetch();
   };
 
-  // Filter groups for this tenant (prefixed with tenantSlug:)
-  const tenantGroups = groups.filter((g) => g.code.startsWith(`${tenantSlug}:`));
-  const globalGroups = groups.filter((g) => !g.code.includes(':'));
+  // Filter groups for this tenant (and app, when one is selected) via the real columns.
+  const tenantGroups = groups.filter((g) => g.tenantSlug === tenantSlug && (!appId || g.appId === appId));
+  const globalGroups = groups.filter((g) => !g.tenantSlug);
 
   return (
     <Paper variant="outlined" sx={{ p: 3 }}>

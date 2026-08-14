@@ -36,12 +36,15 @@ function isValidHex(c: string): boolean {
 }
 
 interface BrandConfigTabProps {
-  /** When provided, fetches brand config for this tenant slug */
+  /** When provided, fetches/writes brand config for this tenant slug instead of the deployment's own row */
   tenantSlug?: string;
+  /** Suite-mode app id — row becomes "{tenantSlug}__{appId}" instead of "{tenantSlug}" */
+  appId?: string | null;
 }
 
-export function BrandConfigTab({ tenantSlug }: BrandConfigTabProps = {}) {
-  const { data: brandData, isLoading } = useGetAdminBrandConfigQuery();
+export function BrandConfigTab({ tenantSlug, appId }: BrandConfigTabProps = {}) {
+  const scope = tenantSlug ? { tenantSlug, appId: appId ?? undefined } : undefined;
+  const { data: brandData, isLoading } = useGetAdminBrandConfigQuery(scope);
   const [updateBrandConfig, { isLoading: isSaving }] = useUpdateAdminBrandConfigMutation();
 
   const [config, setConfig] = useState<BrandConfig>({
@@ -99,7 +102,7 @@ export function BrandConfigTab({ tenantSlug }: BrandConfigTabProps = {}) {
         formData.append('brandLogoUrl', config.brandLogoUrl);
       }
 
-      const payload = await updateBrandConfig(formData).unwrap();
+      const payload = await updateBrandConfig({ data: formData, tenantSlug, appId: appId ?? undefined }).unwrap();
       if (payload.success) {
         setSuccess(true);
         setTimeout(() => setSuccess(false), 3000);
@@ -109,7 +112,7 @@ export function BrandConfigTab({ tenantSlug }: BrandConfigTabProps = {}) {
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     }
-  }, [config.tenantSlug, config.tenantDisplayName, config.tenantTemplate, config.brandLogoText, config.brandPrimaryColor, config.brandSecondaryColor, logoPreview, updateBrandConfig]);
+  }, [config.tenantSlug, config.tenantDisplayName, config.tenantTemplate, config.brandLogoText, config.brandPrimaryColor, config.brandSecondaryColor, logoPreview, updateBrandConfig, tenantSlug, appId]);
 
   const handleFileSelect = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];

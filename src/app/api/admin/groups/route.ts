@@ -15,6 +15,8 @@ export interface AdminGroupView {
   isSystem: boolean;
   permissions: string[];
   memberCount: number;
+  tenantSlug: string | null;
+  appId: string | null;
 }
 
 /** All valid capability codes (used to validate PATCH payloads). */
@@ -31,12 +33,20 @@ type GroupRow = {
   is_system: boolean;
   permissions: string[] | null;
   member_count: number;
+  tenant_slug: string | null;
+  app_id: string | null;
 };
 
 export async function GET(request: Request): Promise<NextResponse> {
   const guard = await requireWriteAuth(request);
   if (!guard.ok) return guard.response;
   if (!sessionIsPlatformAdmin(guard.session)) return jsonError('Platform admin only', 403);
+
+  // Cross-tenant browsing is a platform-admin-only capability (already gated
+  // above); tenantSlug/appId are ignored for any other caller.
+  const { searchParams } = new URL(request.url);
+  const tenantSlug = searchParams.get('tenantSlug');
+  const appId = searchParams.get('appId');
 
   // Use raw Prisma client (tables created by prisma db push during build)
   let db: ReturnType<typeof createRawClient>;
@@ -47,12 +57,22 @@ export async function GET(request: Request): Promise<NextResponse> {
   }
 
   try {
-    const rows = await db.$queryRawUnsafe(`SELECT sg.code, sg.name, sg.description, sg.is_system, sg.permissions,
+    const where: string[] = [];
+    const params: unknown[] = [];
+    if (tenantSlug) { params.push(tenantSlug); where.push(`sg.tenant_slug = $${params.length}`); }
+    if (appId) { params.push(appId); where.push(`sg.app_id = $${params.length}`); }
+    const whereClause = where.length ? `WHERE ${where.join(' AND ')}` : '';
+
+    const rows = await db.$queryRawUnsafe(
+      `SELECT sg.code, sg.name, sg.description, sg.is_system, sg.permissions, sg.tenant_slug, sg.app_id,
                 COUNT(ug.id)::int AS member_count
           FROM security_groups sg
           LEFT JOIN user_groups ug ON ug.group_id = sg.id
-          GROUP BY sg.code, sg.name, sg.description, sg.is_system, sg.permissions
-          ORDER BY sg.is_system DESC, sg.name ASC;`);
+          ${whereClause}
+          GROUP BY sg.code, sg.name, sg.description, sg.is_system, sg.permissions, sg.tenant_slug, sg.app_id
+          ORDER BY sg.is_system DESC, sg.name ASC;`,
+      ...params,
+    );
 
     const groups: AdminGroupView[] = (rows as GroupRow[]).map((r) => ({
       code: r.code,
@@ -61,6 +81,8 @@ export async function GET(request: Request): Promise<NextResponse> {
       isSystem: r.is_system,
       permissions: r.permissions ?? [],
       memberCount: r.member_count,
+      tenantSlug: r.tenant_slug,
+      appId: r.app_id,
     }));
 
     return jsonOk({ groups, defaults: DEFAULT_SECURITY_GROUPS.map((g) => g.code) });
@@ -82,11 +104,13 @@ export async function POST(request: Request): Promise<NextResponse> {
     return jsonError('Invalid JSON', 400);
   }
 
-  const { code, name, description, permissions } = (body ?? {}) as {
+  const { code, name, description, permissions, tenantSlug, appId } = (body ?? {}) as {
     code?: string;
     name?: string;
     description?: string;
     permissions?: string[];
+    tenantSlug?: string;
+    appId?: string;
   };
 
   if (!code || !name) return jsonError('code and name are required', 400);
@@ -106,15 +130,20 @@ export async function POST(request: Request): Promise<NextResponse> {
 
   try {
     await db.$executeRawUnsafe(
-      `INSERT INTO security_groups (code, name, description, is_system, permissions)
-       VALUES ($1, $2, $3, false, $4)
-       ON CONFLICT (code) DO UPDATE SET name = $2, description = $3, permissions = $4;`,
+      `INSERT INTO security_groups (code, name, description, is_system, permissions, tenant_slug, app_id)
+       VALUES ($1, $2, $3, false, $4, $5, $6)
+       ON CONFLICT (code) DO UPDATE SET name = $2, description = $3, permissions = $4, tenant_slug = $5, app_id = $6;`,
       code,
       name,
       description ?? null,
       perms,
+      tenantSlug ?? null,
+      appId ?? null,
     );
-    return jsonOk({ code, name, description: description ?? null, isSystem: false, permissions: perms, memberCount: 0 });
+    return jsonOk({
+      code, name, description: description ?? null, isSystem: false, permissions: perms, memberCount: 0,
+      tenantSlug: tenantSlug ?? null, appId: appId ?? null,
+    });
   } catch (err) {
     console.error('[admin/groups] POST error:', err);
     return jsonError('Failed to create group', 500);

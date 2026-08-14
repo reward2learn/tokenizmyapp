@@ -25,6 +25,17 @@ import { jsonError, jsonOk } from '@/lib/api/response';
 import { getAppSettings, updateAppSettings } from '@/domain/config/app-settings-service';
 import { getTenantConfig } from '@shared/lib/config/tenant';
 
+/** Cross-tenant browsing is a platform-admin-only capability; ignored for
+ * any other caller so a tenant's own admin panel keeps editing its own row. */
+function resolveScope(request: Request, isPlatformAdmin: boolean): { tenantSlug: string; appId?: string } {
+  const envTenant = getTenantConfig();
+  if (!isPlatformAdmin) return { tenantSlug: envTenant.slug };
+  const { searchParams } = new URL(request.url);
+  const tenantSlug = searchParams.get('tenantSlug') ?? envTenant.slug;
+  const appId = searchParams.get('appId') ?? undefined;
+  return { tenantSlug, appId };
+}
+
 export const dynamic = 'force-dynamic';
 export const maxDuration = 30;
 
@@ -45,14 +56,15 @@ export async function GET(request: Request): Promise<NextResponse> {
   if (!guard.ok) return guard.response;
   if (!sessionIsPlatformAdmin(guard.session)) return jsonError('Platform admin only', 403);
 
-  const envTenant = getTenantConfig();
+  const { tenantSlug: scopeTenantSlug, appId } = resolveScope(request, true);
   const db = createClient();
-  const settings = await getAppSettings(db, envTenant.slug);
+  const settings = await getAppSettings(db, scopeTenantSlug, appId);
 
   return jsonOk({
     tenantSlug: settings.tenantSlug,
     tenantDisplayName: settings.tenantDisplayName,
     tenantTemplate: settings.tenantTemplate,
+    appId: settings.appId,
     brandLogoText: settings.brandLogoText,
     brandLogoUrl: settings.brandLogoUrl,
     brandPrimaryColor: settings.brandPrimaryColor,
@@ -68,6 +80,8 @@ export async function PUT(request: Request): Promise<NextResponse> {
     const guard = await requireWriteAuth(request);
     if (!guard.ok) return guard.response;
     if (!sessionIsPlatformAdmin(guard.session)) return jsonError('Platform admin only', 403);
+
+    const scope = resolveScope(request, true);
 
     let tenantSlug: string | undefined;
     let tenantDisplayName: string | undefined;
@@ -144,7 +158,6 @@ export async function PUT(request: Request): Promise<NextResponse> {
     }
   }
 
-  const envTenant = getTenantConfig();
   const db = createClient();
   let settings;
   try {
@@ -156,7 +169,7 @@ export async function PUT(request: Request): Promise<NextResponse> {
       ...(brandLogoUrl !== undefined ? { brandLogoUrl } : {}),
       ...(brandPrimaryColor !== undefined ? { brandPrimaryColor } : {}),
       ...(brandSecondaryColor !== undefined ? { brandSecondaryColor } : {}),
-    }, envTenant.slug);
+    }, scope.tenantSlug, scope.appId);
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     console.error('brand-config PUT error:', msg, err instanceof Error ? err.stack : '');

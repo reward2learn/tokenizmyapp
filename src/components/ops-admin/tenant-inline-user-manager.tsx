@@ -43,10 +43,11 @@ import { FUNCTIONAL_ROLES } from '@/domain/security/functional-roles';
 interface Props {
   tenantSlug: string;
   tenantName?: string;
+  appId?: string | null;
 }
 
-export function TenantInlineUserManager({ tenantSlug, tenantName }: Props) {
-  const { data, isLoading, isError, refetch } = useListAdminUsersQuery();
+export function TenantInlineUserManager({ tenantSlug, tenantName, appId }: Props) {
+  const { data, isLoading, isError, refetch } = useListAdminUsersQuery({ tenantSlug, appId: appId ?? undefined });
   const [updateUser, { isLoading: isUpdating }] = useUpdateAdminUserMutation();
   const [deleteUser, { isLoading: isDeleting }] = useDeleteAdminUserMutation();
   const [createUsers, { isLoading: isCreating }] = useCreateAdminUsersMutation();
@@ -114,6 +115,8 @@ export function TenantInlineUserManager({ tenantSlug, tenantName }: Props) {
         pin: addForm.pin.trim() || undefined,
         isActive: addForm.isActive,
       }],
+      tenantSlug,
+      ...(appId ? { appId } : {}),
     }).unwrap();
     setAddOpen(false);
     setAddForm({ name: '', email: '', roleCode: '', pin: '', isActive: true });

@@ -7,13 +7,19 @@ import type { AdminUserView } from '@/app/api/admin/users/route';
 import type { BatchUserInput, BatchUserResult } from '@/app/api/admin/users/batch/route';
 import type { AdminGroupView } from '@/app/api/admin/groups/route';
 
+/** Cross-tenant browse scope — resolved server-side only for platform admins. */
+export interface TenantAppScope {
+  tenantSlug?: string;
+  appId?: string;
+}
+
 export const adminApi = createApi({
   reducerPath: 'adminApi',
   baseQuery,
   tagTypes: ['RoleConfig', 'AdminConversations', 'AdminUsers', 'AdminGroups', 'SeedData', 'AiContent', 'BrandConfig', 'Navigation', 'AppPack'],
   endpoints: (builder) => ({
-    listRoleConfigs: builder.query<ApiEnvelope<{ roles: RoleConfigView[] }>, void>({
-      query: () => 'admin/roles',
+    listRoleConfigs: builder.query<ApiEnvelope<{ roles: RoleConfigView[] }>, TenantAppScope | void>({
+      query: (scope) => ({ url: 'admin/roles', params: { tenantSlug: scope?.tenantSlug, appId: scope?.appId } }),
       providesTags: ['RoleConfig'],
     }),
     setRolePin: builder.mutation<ApiEnvelope<{ code: string; configured: boolean }>, { code: string; pin: string }>({
@@ -25,7 +31,7 @@ export const adminApi = createApi({
       invalidatesTags: ['RoleConfig'],
     }),
 
-    createRole: builder.mutation<ApiEnvelope<RoleConfigView>, { code: string; name: string; isPlatformAdmin?: boolean }>({
+    createRole: builder.mutation<ApiEnvelope<RoleConfigView>, { code: string; name: string; isPlatformAdmin?: boolean } & TenantAppScope>({
       query: (body) => ({
         url: 'admin/roles',
         method: 'PUT',
@@ -53,7 +59,7 @@ export const adminApi = createApi({
 
     listAdminConversations: builder.query<
       ApiEnvelope<{ conversations: AdminConversationView[] }>,
-      { archived?: boolean; owner?: string; limit?: number } | void
+      ({ archived?: boolean; owner?: string; limit?: number } & TenantAppScope) | void
     >({
       query: (params) => ({
         url: 'admin/conversations',
@@ -61,6 +67,8 @@ export const adminApi = createApi({
           ...(params?.archived ? { archived: 'true' } : {}),
           ...(params?.owner ? { owner: params.owner } : {}),
           ...(params?.limit ? { limit: params.limit } : {}),
+          ...(params?.tenantSlug ? { tenantSlug: params.tenantSlug } : {}),
+          ...(params?.appId ? { appId: params.appId } : {}),
         },
       }),
       providesTags: ['AdminConversations'],
@@ -75,8 +83,8 @@ export const adminApi = createApi({
       }),
       invalidatesTags: ['AdminConversations'],
     }),
-    listAdminUsers: builder.query<ApiEnvelope<{ users: AdminUserView[] }>, void>({
-      query: () => 'admin/users',
+    listAdminUsers: builder.query<ApiEnvelope<{ users: AdminUserView[] }>, TenantAppScope | void>({
+      query: (scope) => ({ url: 'admin/users', params: { tenantSlug: scope?.tenantSlug, appId: scope?.appId } }),
       providesTags: ['AdminUsers'],
     }),
     updateAdminUser: builder.mutation<
@@ -103,7 +111,7 @@ export const adminApi = createApi({
     /** POST /api/admin/users/batch — create/update users one-at-a-time or from a CSV upload */
     createAdminUsers: builder.mutation<
       ApiEnvelope<{ results: BatchUserResult[]; created: number; updated: number; skipped: number }>,
-      { users: BatchUserInput[] }
+      { users: BatchUserInput[] } & TenantAppScope
     >({
       query: (body) => ({
         url: 'admin/users/batch',
@@ -112,13 +120,13 @@ export const adminApi = createApi({
       }),
       invalidatesTags: ['AdminUsers', 'RoleConfig'],
     }),
-    listAdminGroups: builder.query<ApiEnvelope<{ groups: AdminGroupView[]; defaults: string[] }>, void>({
-      query: () => 'admin/groups',
+    listAdminGroups: builder.query<ApiEnvelope<{ groups: AdminGroupView[]; defaults: string[] }>, TenantAppScope | void>({
+      query: (scope) => ({ url: 'admin/groups', params: { tenantSlug: scope?.tenantSlug, appId: scope?.appId } }),
       providesTags: ['AdminGroups'],
     }),
     createAdminGroup: builder.mutation<
       ApiEnvelope<AdminGroupView>,
-      { code: string; name: string; description?: string; permissions?: string[] }
+      { code: string; name: string; description?: string; permissions?: string[] } & TenantAppScope
     >({
       query: (body) => ({
         url: 'admin/groups',
@@ -162,22 +170,28 @@ export const adminApi = createApi({
       invalidatesTags: ['AiContent'],
     }),
     /** GET /api/admin/brand-config — read brand config */
-    getAdminBrandConfig: builder.query<ApiEnvelope<unknown>, void>({
-      query: () => 'admin/brand-config',
+    getAdminBrandConfig: builder.query<ApiEnvelope<unknown>, TenantAppScope | void>({
+      query: (scope) => ({ url: 'admin/brand-config', params: { tenantSlug: scope?.tenantSlug, appId: scope?.appId } }),
       providesTags: ['BrandConfig'],
     }),
-    /** PUT /api/admin/brand-config — update brand config */
-    updateAdminBrandConfig: builder.mutation<ApiEnvelope<unknown>, FormData | Record<string, unknown>>({
-      query: (body) => ({
+    /** PUT /api/admin/brand-config — update brand config. tenantSlug/appId select
+     * which row to write (query param); any tenantSlug field inside `data` is
+     * itself a value being saved, not the row selector — see route.ts resolveScope. */
+    updateAdminBrandConfig: builder.mutation<
+      ApiEnvelope<unknown>,
+      { data: FormData | Record<string, unknown> } & TenantAppScope
+    >({
+      query: ({ data, tenantSlug, appId }) => ({
         url: 'admin/brand-config',
         method: 'PUT',
-        body,
+        body: data,
+        params: { tenantSlug, appId },
       }),
       invalidatesTags: ['BrandConfig'],
     }),
     /** GET /api/admin/navigation — list nav tree */
-    getNavigation: builder.query<ApiEnvelope<unknown>, void>({
-      query: () => 'admin/navigation',
+    getNavigation: builder.query<ApiEnvelope<unknown>, TenantAppScope | void>({
+      query: (scope) => ({ url: 'admin/navigation', params: { tenantSlug: scope?.tenantSlug, appId: scope?.appId } }),
       providesTags: ['Navigation'],
     }),
     /** POST /api/admin/navigation — create nav item */

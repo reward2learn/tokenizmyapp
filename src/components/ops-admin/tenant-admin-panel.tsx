@@ -11,9 +11,9 @@
  * - Shows suite hierarchy (tenant group → child apps)
  */
 
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { useAppDispatch, useAppSelector } from '@/store/hooks';
-import { setAdminSelectedTenant, setAdminActiveSubtab, type AdminTenantSubtab } from '@/store/ui-slice';
+import { setAdminSelectedTenant, setAdminSelectedApp, setAdminActiveSubtab, type AdminTenantSubtab } from '@/store/ui-slice';
 import Box from '@mui/material/Box';
 import Chip from '@mui/material/Chip';
 import FormControl from '@mui/material/FormControl';
@@ -70,6 +70,7 @@ export function TenantAdminPanel() {
   // Tenant selection state — lives in Redux (ui-slice) so every subtab reads
   // the same selection instead of each holding its own local copy.
   const selectedTenantSlug = useAppSelector((s) => s.ui.adminSelectedTenantSlug);
+  const selectedAppId = useAppSelector((s) => s.ui.adminSelectedAppId);
   const activeSubtab = useAppSelector((s) => s.ui.adminActiveSubtab);
   const [editModalOpen, setEditModalOpen] = useState(false);
 
@@ -102,13 +103,31 @@ export function TenantAdminPanel() {
     }];
   }, [selectedTenant, isSuite, selectedAppPack]);
 
+  // Single-template tenants have exactly one possible app — auto-select it so
+  // the subtabs don't sit behind an extra, pointless click. Suite tenants
+  // require an explicit pick since there's a real choice to make.
+  useEffect(() => {
+    if (!isSuite && tenantApps.length === 1 && selectedAppId !== tenantApps[0].appId) {
+      dispatch(setAdminSelectedApp(tenantApps[0].appId));
+    }
+  }, [isSuite, tenantApps, selectedAppId, dispatch]);
+
+  // The API only understands appId for real suite apps — a single-template
+  // tenant's synthetic "app" (its own slug) exists purely for the UI gating
+  // above and must never be sent as a filter (no row is actually stamped with it).
+  const effectiveAppId = isSuite ? selectedAppId : undefined;
+
   // Handle tenant selection
   const handleTenantChange = (slug: string) => {
-    dispatch(setAdminSelectedTenant(slug || null)); // also resets subtab to 'info'
+    dispatch(setAdminSelectedTenant(slug || null)); // also resets app + subtab
   };
 
   const handleClearSelection = () => {
     dispatch(setAdminSelectedTenant(null));
+  };
+
+  const handleAppSelect = (appId: string) => {
+    dispatch(setAdminSelectedApp(appId));
   };
 
   // Subtab definitions
@@ -221,18 +240,34 @@ export function TenantAdminPanel() {
               <Stack spacing={1}>
                 {tenantApps.map((app) => {
                   const tpl = getTemplate(app.templateId);
+                  const isSelected = app.appId === selectedAppId;
                   return (
-                    <Paper key={app.appId} variant="outlined" sx={{ p: 1.5, bgcolor: 'action.hover' }}>
+                    <Paper
+                      key={app.appId}
+                      variant="outlined"
+                      onClick={() => handleAppSelect(app.appId)}
+                      sx={{
+                        p: 1.5,
+                        bgcolor: isSelected ? 'action.selected' : 'action.hover',
+                        borderColor: isSelected ? 'primary.main' : 'divider',
+                        borderWidth: isSelected ? 2 : 1,
+                        cursor: 'pointer',
+                        '&:hover': { borderColor: 'primary.main' },
+                      }}
+                    >
                       <Stack direction="row" sx={{ alignItems: 'center', justifyContent: 'space-between' }}>
                         <Box>
-                          <Typography variant="body2" sx={{ fontWeight: 500 }}>
+                          <Typography variant="body2" sx={{ fontWeight: isSelected ? 700 : 500 }}>
                             {app.name}
                           </Typography>
                           <Typography variant="caption" color="text.secondary">
                             {app.appId}{app.department !== '—' ? ` • ${app.department}` : ''} • {tpl.label}
                           </Typography>
                         </Box>
-                        <Stack direction="row" spacing={1}>
+                        <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
+                          {isSelected && (
+                            <Chip label="Selected" size="small" color="primary" variant="filled" />
+                          )}
                           <Chip
                             label={app.status}
                             size="small"
@@ -247,6 +282,7 @@ export function TenantAdminPanel() {
                               href={app.appUrl}
                               target="_blank"
                               clickable
+                              onClick={(e) => e.stopPropagation()}
                             />
                           )}
                         </Stack>
@@ -258,61 +294,71 @@ export function TenantAdminPanel() {
             </Paper>
           )}
 
-          {/* Subtab Navigation */}
-          <Paper elevation={0} sx={{ mb: 3, border: '1px solid', borderColor: 'divider', bgcolor: 'background.paper' }}>
-            <Tabs
-              value={activeSubtab}
-              onChange={(_, v) => dispatch(setAdminActiveSubtab(v as AdminTenantSubtab))}
-              variant={isMobile ? 'scrollable' : 'standard'}
-              scrollButtons="auto"
-              allowScrollButtonsMobile
-            >
-              {subtabs.map((subtab) => (
-                <Tab
-                  key={subtab.key}
-                  value={subtab.key}
-                  label={
-                    <Stack direction="row" spacing={0.5} sx={{ alignItems: 'center' }}>
-                      {subtab.icon}
-                      <span>{subtab.label}</span>
-                    </Stack>
-                  }
-                />
-              ))}
-            </Tabs>
-          </Paper>
+          {!selectedAppId ? (
+            <Paper elevation={0} sx={{ p: 4, border: '1px dashed', borderColor: 'divider', textAlign: 'center' }}>
+              <Typography variant="body2" color="text.secondary">
+                Select an app above to manage its Navigation, Brand Config, Security Groups, Accounts, Roles, and AI Chat.
+              </Typography>
+            </Paper>
+          ) : (
+            <>
+              {/* Subtab Navigation */}
+              <Paper elevation={0} sx={{ mb: 3, border: '1px solid', borderColor: 'divider', bgcolor: 'background.paper' }}>
+                <Tabs
+                  value={activeSubtab}
+                  onChange={(_, v) => dispatch(setAdminActiveSubtab(v as AdminTenantSubtab))}
+                  variant={isMobile ? 'scrollable' : 'standard'}
+                  scrollButtons="auto"
+                  allowScrollButtonsMobile
+                >
+                  {subtabs.map((subtab) => (
+                    <Tab
+                      key={subtab.key}
+                      value={subtab.key}
+                      label={
+                        <Stack direction="row" spacing={0.5} sx={{ alignItems: 'center' }}>
+                          {subtab.icon}
+                          <span>{subtab.label}</span>
+                        </Stack>
+                      }
+                    />
+                  ))}
+                </Tabs>
+              </Paper>
 
-          {/* Subtab Content */}
-          <Box>
-            {activeSubtab === 'info' && selectedTenant && (
-              <TenantInfoTab tenantSlug={selectedTenant.slug} />
-            )}
-            {activeSubtab === 'navigation' && (
-              <NavigationManager />
-            )}
-            {activeSubtab === 'brand' && (
-              <BrandConfigTab tenantSlug={selectedTenant?.slug} />
-            )}
-            {activeSubtab === 'security' && selectedTenant && (
-              <TenantSecurityGroups tenantSlug={selectedTenant.slug} tenantName={selectedTenant.displayName} />
-            )}
-            {activeSubtab === 'accounts' && selectedTenant && (
-              <TenantInlineUserManager tenantSlug={selectedTenant.slug} tenantName={selectedTenant.displayName} />
-            )}
-            {activeSubtab === 'roles' && selectedTenant && (
-              <TenantRoles tenantSlug={selectedTenant.slug} tenantName={selectedTenant.displayName} />
-            )}
-            {activeSubtab === 'ai-chat' && selectedTenant && (
-              <TenantAIChat tenantSlug={selectedTenant.slug} tenantName={selectedTenant.displayName} />
-            )}
-            {activeSubtab === 'app-pack' && selectedTenant && (
-              <AppPackTab 
-                tenantSlug={selectedTenant.slug} 
-                tenantName={selectedTenant.displayName}
-                onGenerated={() => refetch()}
-              />
-            )}
-          </Box>
+              {/* Subtab Content */}
+              <Box>
+                {activeSubtab === 'info' && selectedTenant && (
+                  <TenantInfoTab tenantSlug={selectedTenant.slug} appId={effectiveAppId} />
+                )}
+                {activeSubtab === 'navigation' && selectedTenant && (
+                  <NavigationManager tenantSlug={selectedTenant.slug} appId={effectiveAppId} />
+                )}
+                {activeSubtab === 'brand' && selectedTenant && (
+                  <BrandConfigTab tenantSlug={selectedTenant.slug} appId={effectiveAppId} />
+                )}
+                {activeSubtab === 'security' && selectedTenant && (
+                  <TenantSecurityGroups tenantSlug={selectedTenant.slug} tenantName={selectedTenant.displayName} appId={effectiveAppId} />
+                )}
+                {activeSubtab === 'accounts' && selectedTenant && (
+                  <TenantInlineUserManager tenantSlug={selectedTenant.slug} tenantName={selectedTenant.displayName} appId={effectiveAppId} />
+                )}
+                {activeSubtab === 'roles' && selectedTenant && (
+                  <TenantRoles tenantSlug={selectedTenant.slug} tenantName={selectedTenant.displayName} appId={effectiveAppId} />
+                )}
+                {activeSubtab === 'ai-chat' && selectedTenant && (
+                  <TenantAIChat tenantSlug={selectedTenant.slug} tenantName={selectedTenant.displayName} appId={effectiveAppId} />
+                )}
+                {activeSubtab === 'app-pack' && selectedTenant && (
+                  <AppPackTab
+                    tenantSlug={selectedTenant.slug}
+                    tenantName={selectedTenant.displayName}
+                    onGenerated={() => refetch()}
+                  />
+                )}
+              </Box>
+            </>
+          )}
         </Box>
       )}
       

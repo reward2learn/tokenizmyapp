@@ -136,8 +136,9 @@ describe('/api/admin/users/batch', () => {
 
     const inserts = db.__calls.filter((c) => c.kind === 'execute' && c.sql.includes('INSERT INTO user_accounts'));
     expect(inserts).toHaveLength(2);
-    // First user: sub lowercased + trimmed email
-    expect(inserts[0].args).toEqual(['john@example.com', 'john@example.com', 'John Doe', 'operations', true]);
+    // First user: sub lowercased + trimmed email; trailing nulls are the
+    // tenant_slug/app_id scope, unset because this request has no scope.
+    expect(inserts[0].args).toEqual(['john@example.com', 'john@example.com', 'John Doe', 'operations', true, null, null]);
     expect(db.__existing).toHaveLength(2);
   });
 
@@ -154,7 +155,8 @@ describe('/api/admin/users/batch', () => {
       (c) => c.kind === 'execute' && c.sql.includes('UPDATE user_accounts'),
     );
     expect(updates).toHaveLength(1);
-    expect(updates[0].args).toEqual(['john@example.com', 'John Doe 2', 'ceo', true, 'id-existing']);
+    // Middle nulls are the tenant_slug/app_id scope, unset because this request has no scope.
+    expect(updates[0].args).toEqual(['john@example.com', 'John Doe 2', 'ceo', true, null, null, 'id-existing']);
   });
 
   it('skips invalid emails and unknown role codes with reasons', async () => {

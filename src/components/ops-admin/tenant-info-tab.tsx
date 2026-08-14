@@ -15,6 +15,8 @@ import { getTemplate } from '@/domain/tenant/template-catalog';
 interface TenantInfoTabProps {
   /** When provided, displays info for this tenant slug instead of the current client config */
   tenantSlug?: string;
+  /** Suite-mode app id selected from the tenant's Apps list (informational only — tenant info is not per-app). */
+  appId?: string | null;
 }
 
 /** Resolve tenant info — from prop or from current client config */
@@ -24,7 +26,7 @@ function resolveTenant(slug: string | undefined): { slug: string; displayName: s
   return getClientTenantConfig();
 }
 
-export function TenantInfoTab({ tenantSlug }: TenantInfoTabProps = {}) {
+export function TenantInfoTab({ tenantSlug, appId }: TenantInfoTabProps = {}) {
   const tenant = resolveTenant(tenantSlug);
   const template = getTemplate(tenant.slug === 'tokenizmyapp' ? 'default' : tenant.slug);
   const { data: brandData } = useGetBrandConfigQuery();
@@ -41,6 +43,7 @@ export function TenantInfoTab({ tenantSlug }: TenantInfoTabProps = {}) {
 
         <Stack spacing={1.5} sx={{ maxWidth: 500 }}>
           <InfoRow label="Slug" value={tenant.slug} />
+          {appId ? <InfoRow label="App" value={appId} chip={appId} /> : null}
           <InfoRow label="Display Name" value={brand?.tenantDisplayName ?? tenant.displayName} />
           <InfoRow
             label="Template"

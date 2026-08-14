@@ -43,15 +43,18 @@ import type { RoleConfigView } from '@/app/api/admin/roles/route';
 interface TenantRolesProps {
   tenantSlug: string;
   tenantName?: string;
+  appId?: string | null;
 }
 
 // Default platform roles
-const PLATFORM_ROLES = [
-  { code: 'platform-admin', name: 'Platform Admin', isPlatformAdmin: true },
-  { code: 'admin', name: 'Admin', isPlatformAdmin: true },
+const PLATFORM_ROLES: RoleConfigView[] = [
+  { code: 'platform-admin', name: 'Platform Admin', isPlatformAdmin: true, pinConfigured: false, tenantSlug: null, appId: null },
+  { code: 'admin', name: 'Admin', isPlatformAdmin: true, pinConfigured: false, tenantSlug: null, appId: null },
 ];
 
-export function TenantRoles({ tenantSlug, tenantName }: TenantRolesProps) {
+export function TenantRoles({ tenantSlug, tenantName, appId }: TenantRolesProps) {
+  // Unscoped fetch — the tenant/global split below uses the real
+  // tenant_slug/app_id columns rather than the old code-prefix heuristic.
   const { data, isLoading, isError, refetch } = useListRoleConfigsQuery();
   const [createRole, { isLoading: isCreating }] = useCreateRoleMutation();
   const [updateRole, { isLoading: isUpdating }] = useUpdateRoleMutation();
@@ -77,17 +80,19 @@ export function TenantRoles({ tenantSlug, tenantName }: TenantRolesProps) {
   // Combine platform roles with DB roles
   const allRoles = hasDbData ? dbRoles : PLATFORM_ROLES;
   
-  // Filter for tenant-specific roles (prefixed) and global roles
-  const tenantRoles = allRoles.filter((r) => r.code.startsWith(`${tenantSlug}:`));
-  const globalRoles = allRoles.filter((r) => !r.code.includes(':'));
+  // Filter for tenant-specific roles (and app, when one is selected) via the real columns.
+  const tenantRoles = allRoles.filter((r) => r.tenantSlug === tenantSlug && (!appId || r.appId === appId));
+  const globalRoles = allRoles.filter((r) => !r.tenantSlug);
 
   const handleCreate = async () => {
     if (!newRole.code.trim() || !newRole.name.trim()) return;
     const scopedCode = `${tenantSlug}:${newRole.code.trim().toLowerCase()}`;
-    await createRole({ 
-      code: scopedCode, 
+    await createRole({
+      code: scopedCode,
       name: `[${tenantName || tenantSlug}] ${newRole.name.trim()}`,
       isPlatformAdmin: false,
+      tenantSlug,
+      ...(appId ? { appId } : {}),
     }).unwrap();
     setNewRole({ code: '', name: '' });
     setCreateDialogOpen(false);

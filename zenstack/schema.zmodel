@@ -163,11 +163,16 @@ model Role {
   /// Display name shown in task views and the Admin UI.
   name        String
   isPlatformAdmin Boolean       @default(false) @map("is_platform_admin")
+  /// Tenant slug for multi-tenant isolation (tenant-scoped roles are code-prefixed "{tenantSlug}:{code}").
+  tenantSlug  String?          @map("tenant_slug")
+  /// Suite-mode app id, when this role is scoped to a single app within a tenant.
+  appId       String?          @map("app_id")
   tasks       TaskAssignment[]
   createdAt   DateTime         @default(now()) @map("created_at")
 
   @@allow('read', true)
   @@allow('create,update,delete', auth().tier == pin || auth().tier == google)
+  @@index([tenantSlug, appId])
   @@map("roles")
 }
 
@@ -181,6 +186,8 @@ model UserAccount {
   roleCode    String?       @map("role_code")
   /// Tenant slug for multi-tenant isolation.
   tenantSlug  String?       @map("tenant_slug")
+  /// Suite-mode app id, when this account is scoped to a single app within a tenant.
+  appId       String?       @map("app_id")
   isActive    Boolean       @default(true) @map("is_active")
   lastSeenAt  DateTime?     @map("last_seen_at")
   createdAt   DateTime      @default(now()) @map("created_at")
@@ -190,7 +197,7 @@ model UserAccount {
 
   @@allow('read', auth().tier == pin || auth().tier == google)
   @@allow('update', auth().tier == pin || auth().tier == google)
-  @@index([tenantSlug])
+  @@index([tenantSlug, appId])
   @@map("user_accounts")
 }
 
@@ -203,11 +210,16 @@ model SecurityGroup {
   isSystem    Boolean     @default(false) @map("is_system")
   /// Capability codes granted to members (e.g. "financials:write", "tasks:read").
   permissions String[]    @default([]) @map("permissions")
+  /// Tenant slug for multi-tenant isolation (tenant-scoped groups are code-prefixed "{tenantSlug}:{code}").
+  tenantSlug  String?     @map("tenant_slug")
+  /// Suite-mode app id, when this group is scoped to a single app within a tenant.
+  appId       String?     @map("app_id")
   createdAt   DateTime    @default(now()) @map("created_at")
   members     UserGroup[]
 
   @@allow('read', auth().tier == pin || auth().tier == google)
   @@allow('create,update,delete', auth().tier == pin || auth().tier == google)
+  @@index([tenantSlug, appId])
   @@map("security_groups")
 }
 
@@ -314,6 +326,8 @@ model NavigationItem {
   authTier      AuthTier          @default(public) @map("auth_tier")
   /// Tenant slug for multi-tenant isolation.
   tenantSlug    String?           @map("tenant_slug")
+  /// Suite-mode app id, when this item is scoped to a single app within a tenant.
+  appId         String?           @map("app_id")
   /// When false the item is treated as inactive/disabled (different from isVisible).
   isActive      Boolean           @default(true) @map("is_active")
   /// Comma-separated security group codes. Empty means no group restriction.
@@ -330,7 +344,7 @@ model NavigationItem {
   @@allow('read', true)
   @@allow('create,update,delete', auth().tier == pin || auth().tier == google)
   @@index([parentId, sortOrder])
-  @@index([tenantSlug])
+  @@index([tenantSlug, appId])
   @@map("navigation_items")
 }
 
@@ -361,13 +375,17 @@ model AppSetting {
   tenantTemplate      String   @default("default") @map("tenant_template")
   /// Arbitrary JSON metadata for tenant-specific configuration
   tenantMetadata      Json     @default("{}") @map("tenant_metadata")
+  /// Suite-mode app id (e.g. "hr", "sales-reporting"). Empty for single-app
+  /// tenants. The row id is "{tenantSlug}__{appId}" when set, "{tenantSlug}"
+  /// otherwise — same convention as google_oauth_config's "default:{appId}".
+  appId               String   @default("") @map("app_id")
   brandLogoText       String   @default("") @map("brand_logo_text")
   brandLogoUrl        String   @default("") @map("brand_logo_url")
   brandPrimaryColor   String   @default("#eb3d28") @map("brand_primary_color")
   brandSecondaryColor String   @default("#0af9fe") @map("brand_secondary_color")
   updatedAt           DateTime @updatedAt @map("updated_at")
 
-  @@index([tenantSlug], name: "idx_app_settings_tenant_slug")
+  @@index([tenantSlug, appId], name: "idx_app_settings_tenant_app")
   @@allow('all', true)
   @@map("app_settings")
 }
@@ -398,11 +416,18 @@ model Conversation {
   messages     Json     @default("[]")
   messageCount Int      @default(0) @map("message_count")
   archived     Boolean  @default(false) @map("archived")
+  /// Tenant slug for multi-tenant isolation. Not yet stamped by the live chat
+  /// route — populated only for conversations created/edited through the
+  /// platform-admin panel until per-deployment chat scoping is wired up.
+  tenantSlug   String?  @map("tenant_slug")
+  /// Suite-mode app id, when this conversation is scoped to a single app within a tenant.
+  appId        String?  @map("app_id")
   createdAt    DateTime @default(now()) @map("created_at")
   updatedAt    DateTime @updatedAt @map("updated_at")
 
   // Server-side only (/api/chat?resource=conversations) — session enforced in route handler
   @@allow('all', true)
+  @@index([tenantSlug, appId])
   @@map("conversations")
 }
 

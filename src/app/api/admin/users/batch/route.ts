@@ -58,6 +58,13 @@ export async function POST(request: Request): Promise<NextResponse> {
   if (!rawUsers || rawUsers.length === 0) return jsonError('users array is required', 400);
   if (rawUsers.length > MAX_BATCH) return jsonError(`Maximum ${MAX_BATCH} users per batch`, 400);
 
+  // Scope applied to every row in this batch — set when onboarding from the
+  // platform-admin panel with a tenant/app selected; omitted for tenant-local onboarding.
+  const scopeTenantSlug = typeof (body as { tenantSlug?: unknown }).tenantSlug === 'string'
+    ? (body as { tenantSlug: string }).tenantSlug : null;
+  const scopeAppId = typeof (body as { appId?: unknown }).appId === 'string'
+    ? (body as { appId: string }).appId : null;
+
   let db: DbClient;
   try {
     db = createRawClient() as unknown as DbClient;
@@ -105,25 +112,31 @@ export async function POST(request: Request): Promise<NextResponse> {
                name = COALESCE($2, name),
                role_code = COALESCE($3, role_code),
                is_active = $4,
+               tenant_slug = COALESCE($5, tenant_slug),
+               app_id = COALESCE($6, app_id),
                updated_at = CURRENT_TIMESTAMP
-           WHERE id = $5;`,
+           WHERE id = $7;`,
           email,
           name,
           roleCode,
           isActive,
+          scopeTenantSlug,
+          scopeAppId,
           existing[0].id,
         );
         if (pin) await setSecret(`USER_PIN_${sub}`, pin);
         results.push({ row: i + 1, email, status: 'updated' });
       } else {
         await db.$executeRawUnsafe(
-          `INSERT INTO user_accounts (id, sub, email, name, tier, role_code, is_active, created_at, updated_at)
-           VALUES (gen_random_uuid()::TEXT, $1, $2, $3, 'pin', $4, $5, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP);`,
+          `INSERT INTO user_accounts (id, sub, email, name, tier, role_code, is_active, tenant_slug, app_id, created_at, updated_at)
+           VALUES (gen_random_uuid()::TEXT, $1, $2, $3, 'pin', $4, $5, $6, $7, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP);`,
           sub,
           email,
           name,
           roleCode,
           isActive,
+          scopeTenantSlug,
+          scopeAppId,
         );
         if (pin) await setSecret(`USER_PIN_${sub}`, pin);
         results.push({ row: i + 1, email, status: 'created' });

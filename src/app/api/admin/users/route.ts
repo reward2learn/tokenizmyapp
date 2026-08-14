@@ -18,6 +18,8 @@ type UserAccountRow = {
   is_active: boolean;
   last_seen_at: Date | null;
   created_at: Date;
+  tenant_slug: string | null;
+  app_id: string | null;
 };
 
 type GroupCodeRow = { code: string };
@@ -37,12 +39,20 @@ export interface AdminUserView {
   taskIds: string[];
   lastSeenAt: string | null;
   createdAt: string;
+  tenantSlug: string | null;
+  appId: string | null;
 }
 
 export async function GET(request: Request): Promise<NextResponse> {
   const guard = await requireWriteAuth(request);
   if (!guard.ok) return guard.response;
   if (!sessionIsPlatformAdmin(guard.session)) return jsonError('Platform admin only', 403);
+
+  // Cross-tenant browsing is a platform-admin-only capability (already gated
+  // above); tenantSlug/appId are ignored for any other caller.
+  const { searchParams } = new URL(request.url);
+  const tenantSlug = searchParams.get('tenantSlug');
+  const appId = searchParams.get('appId');
 
   // Use raw Prisma client (tables created by prisma db push during build)
   let db: DbClient;
@@ -56,11 +66,20 @@ export async function GET(request: Request): Promise<NextResponse> {
   }
 
   try {
+    const where: string[] = [];
+    const params: unknown[] = [];
+    if (tenantSlug) { params.push(tenantSlug); where.push(`tenant_slug = $${params.length}`); }
+    if (appId) { params.push(appId); where.push(`app_id = $${params.length}`); }
+    const whereClause = where.length ? `WHERE ${where.join(' AND ')}` : '';
+
     const rows = await db.$queryRawUnsafe(
-      `SELECT id, sub, email, name, tier, role_code, is_active, last_seen_at, created_at
+      `SELECT id, sub, email, name, tier, role_code, is_active, last_seen_at, created_at, tenant_slug, app_id
        FROM user_accounts
+       ${whereClause}
        ORDER BY created_at DESC
-       LIMIT 200;`) as UserAccountRow[];
+       LIMIT 200;`,
+      ...params,
+    ) as UserAccountRow[];
 
     const users: AdminUserView[] = await Promise.all(
       rows.map(async (r) => ({
@@ -76,6 +95,8 @@ export async function GET(request: Request): Promise<NextResponse> {
         taskIds: await resolveAssignedTaskIds(db, r.id),
         lastSeenAt: r.last_seen_at ? r.last_seen_at.toISOString() : null,
         createdAt: r.created_at.toISOString(),
+        tenantSlug: r.tenant_slug,
+        appId: r.app_id,
       })),
     );
 

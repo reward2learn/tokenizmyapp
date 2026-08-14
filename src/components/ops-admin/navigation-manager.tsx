@@ -115,7 +115,13 @@ function collectDescendantIds(items: (FlatItem & { depth: number })[], parentId:
 
 // ── Component ──────────────────────────────────────────
 
-export function NavigationManager() {
+interface NavigationManagerProps {
+  /** Platform-admin cross-tenant browse scope. Omitted for a tenant's own admin panel. */
+  tenantSlug?: string;
+  appId?: string | null;
+}
+
+export function NavigationManager({ tenantSlug, appId }: NavigationManagerProps = {}) {
   const [items, setItems] = useState<NavItem[]>([]);
   const [flatItems, setFlatItems] = useState<(FlatItem & { depth: number })[]>([]);
   const [saving, setSaving] = useState(false);
@@ -153,8 +159,12 @@ export function NavigationManager() {
   const [dedupCandidates, setDedupCandidates] = useState<string[]>([]);
 
   // ── RTK Query: navigation ─────────────────────────────
-  // tenantSlug prop is forwarded conceptually — the API uses JWT cookie scoping
-  const { data: navData, isLoading: navLoading, isError: navError, error: navQueryError } = useGetNavigationQuery();
+  // Cross-tenant browsing (tenantSlug/appId) is enforced server-side to
+  // platform admins only — a tenant's own admin panel omits both and sees
+  // its own deployment's items exactly as before.
+  const { data: navData, isLoading: navLoading, isError: navError, error: navQueryError } = useGetNavigationQuery(
+    tenantSlug ? { tenantSlug, appId: appId ?? undefined } : undefined,
+  );
 
   useEffect(() => {
     if (navData?.success) {
@@ -220,6 +230,8 @@ export function NavigationManager() {
         authTier: newTier,
         icon: newIcon,
         requiredGroups: newRequiredGroups.join(','),
+        ...(tenantSlug ? { tenantSlug } : {}),
+        ...(appId ? { appId } : {}),
       }).unwrap();
       if (result.success) {
         setCreateDialogOpen(false);
@@ -238,7 +250,7 @@ export function NavigationManager() {
     } finally {
       setSaving(false);
     }
-  }, [newTitle, newPath, newParentId, newTier, newType, newRequiredGroups, newIcon, createNav]);
+  }, [newTitle, newPath, newParentId, newTier, newType, newRequiredGroups, newIcon, createNav, tenantSlug, appId]);
 
   // ── Edit ──────────────────────────────────────────────
   const openEdit = useCallback((item: FlatItem) => {

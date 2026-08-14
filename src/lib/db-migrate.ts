@@ -117,6 +117,9 @@ const CONVERSATIONS_COLUMNS_DDL = [
   `ALTER TABLE conversations ADD COLUMN IF NOT EXISTS archived BOOLEAN NOT NULL DEFAULT false;`,
   `ALTER TABLE conversations ADD COLUMN IF NOT EXISTS owner_sub TEXT;`,
   `ALTER TABLE conversations ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP WITHOUT TIME ZONE DEFAULT CURRENT_TIMESTAMP;`,
+  `ALTER TABLE conversations ADD COLUMN IF NOT EXISTS tenant_slug TEXT;`,
+  `ALTER TABLE conversations ADD COLUMN IF NOT EXISTS app_id TEXT;`,
+  `CREATE INDEX IF NOT EXISTS idx_conversations_tenant_app ON conversations (tenant_slug, app_id);`,
 ];
 
 export async function ensureConversationsColumns(db: DbClient): Promise<boolean> {
@@ -209,6 +212,25 @@ export const DEFAULT_SECURITY_GROUPS: {
 /** Add the permissions column to an already-created security_groups table. */
 const SECURITY_GROUPS_COLUMNS_DDL = [
   `ALTER TABLE security_groups ADD COLUMN IF NOT EXISTS permissions TEXT[] NOT NULL DEFAULT '{}';`,
+  `ALTER TABLE security_groups ADD COLUMN IF NOT EXISTS tenant_slug TEXT;`,
+  `ALTER TABLE security_groups ADD COLUMN IF NOT EXISTS app_id TEXT;`,
+  `CREATE INDEX IF NOT EXISTS idx_security_groups_tenant_app ON security_groups (tenant_slug, app_id);`,
+];
+
+/** Tenant/app scoping columns for user_accounts (tenant_slug pre-existed via a
+ * separate, rarely-run migration path — re-declared here, idempotently, so it
+ * lands on every deploy rather than only when tenant-migrate is hit). */
+const USER_ACCOUNTS_COLUMNS_DDL = [
+  `ALTER TABLE user_accounts ADD COLUMN IF NOT EXISTS tenant_slug TEXT;`,
+  `ALTER TABLE user_accounts ADD COLUMN IF NOT EXISTS app_id TEXT;`,
+  `CREATE INDEX IF NOT EXISTS idx_user_accounts_tenant_app ON user_accounts (tenant_slug, app_id);`,
+];
+
+/** Tenant/app scoping columns for roles. */
+const ROLES_COLUMNS_DDL = [
+  `ALTER TABLE roles ADD COLUMN IF NOT EXISTS tenant_slug TEXT;`,
+  `ALTER TABLE roles ADD COLUMN IF NOT EXISTS app_id TEXT;`,
+  `CREATE INDEX IF NOT EXISTS idx_roles_tenant_app ON roles (tenant_slug, app_id);`,
 ];
 
 export async function ensureSecurityTables(
@@ -226,6 +248,7 @@ export async function ensureSecurityTables(
   await withRetry(async () => {
     await runStatements(raw, SECURITY_TABLES_DDL);
     await runStatements(raw, SECURITY_GROUPS_COLUMNS_DDL);
+    await runStatements(raw, USER_ACCOUNTS_COLUMNS_DDL);
   });
 
   // Idempotent seed of default groups (with default permissions).
@@ -252,6 +275,7 @@ export async function ensureSecurityTables(
         created_at TIMESTAMP WITHOUT TIME ZONE DEFAULT CURRENT_TIMESTAMP
       );`,
     );
+    await runStatements(raw, ROLES_COLUMNS_DDL);
     for (const fr of FUNCTIONAL_ROLES) {
       await raw.$executeRawUnsafe(
         `INSERT INTO roles (id, code, name, is_platform_admin)

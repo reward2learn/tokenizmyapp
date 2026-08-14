@@ -43,6 +43,8 @@ export interface RoleConfigView {
   name: string;
   isPlatformAdmin: boolean;
   pinConfigured: boolean;
+  tenantSlug: string | null;
+  appId: string | null;
 }
 
 export async function GET(request: Request): Promise<NextResponse> {
@@ -61,7 +63,16 @@ export async function GET(request: Request): Promise<NextResponse> {
     return jsonError('Database unavailable', 503);
   }
 
-  const roles = await db.role.findMany({ orderBy: { code: 'asc' } });
+  // Cross-tenant browsing is a platform-admin-only capability (already gated
+  // above); tenantSlug/appId are ignored for any other caller.
+  const { searchParams } = new URL(request.url);
+  const tenantSlug = searchParams.get('tenantSlug');
+  const appId = searchParams.get('appId');
+  const where: { tenantSlug?: string; appId?: string } = {};
+  if (tenantSlug) where.tenantSlug = tenantSlug;
+  if (appId) where.appId = appId;
+
+  const roles = await db.role.findMany({ where, orderBy: { code: 'asc' } });
   const views: RoleConfigView[] = [];
   for (const role of roles) {
     const pinKey = pinKeyForRole(role);
@@ -71,6 +82,8 @@ export async function GET(request: Request): Promise<NextResponse> {
       name: role.name,
       isPlatformAdmin: role.isPlatformAdmin,
       pinConfigured,
+      tenantSlug: role.tenantSlug ?? null,
+      appId: role.appId ?? null,
     });
   }
   return jsonOk({ roles: views });
@@ -153,10 +166,12 @@ export async function PUT(request: Request): Promise<NextResponse> {
     return jsonError("Invalid JSON body", 400);
   }
 
-  const { code, name, isPlatformAdmin } = (body ?? {}) as {
+  const { code, name, isPlatformAdmin, tenantSlug, appId } = (body ?? {}) as {
     code?: string;
     name?: string;
     isPlatformAdmin?: boolean;
+    tenantSlug?: string;
+    appId?: string;
   };
 
   if (!code || typeof code !== "string" || code.trim().length < 2) {
@@ -174,9 +189,11 @@ export async function PUT(request: Request): Promise<NextResponse> {
     // Roles are just display names + isPlatformAdmin flag (no email/person data).
     // Person/sub mapping is now in user_accounts table (see security-service.ts).
     // PERSONS.ts is LEGACY for transitional PIN/role bridging only.
-    const roleData: { name: string; isPlatformAdmin: boolean } = {
+    const roleData: { name: string; isPlatformAdmin: boolean; tenantSlug?: string; appId?: string } = {
       name: name.trim(),
       isPlatformAdmin: isPlatformAdmin ?? false,
+      ...(tenantSlug !== undefined ? { tenantSlug } : {}),
+      ...(appId !== undefined ? { appId } : {}),
     };
 
     if (existing) {

@@ -35,13 +35,16 @@ import {
 interface TenantAIChatProps {
   tenantSlug: string;
   tenantName?: string;
+  appId?: string | null;
 }
 
-export function TenantAIChat({ tenantSlug, tenantName }: TenantAIChatProps) {
+export function TenantAIChat({ tenantSlug, tenantName, appId }: TenantAIChatProps) {
   const [showArchived, setShowArchived] = useState(false);
-  const { data, isLoading, isError, refetch } = useListAdminConversationsQuery({ 
+  const { data, isLoading, isError, refetch } = useListAdminConversationsQuery({
     limit: 100,
     archived: showArchived,
+    tenantSlug,
+    appId: appId ?? undefined,
   });
   const [archive, { isLoading: isArchiving }] = useArchiveAdminConversationMutation();
 
@@ -57,14 +60,10 @@ export function TenantAIChat({ tenantSlug, tenantName }: TenantAIChatProps) {
     return <Alert severity="error">Failed to load conversations for tenant {tenantSlug}.</Alert>;
   }
 
-  const conversations = data.data.conversations ?? [];
-  
-  // Filter conversations by tenant (if conversation metadata includes tenant slug)
-  const tenantConversations = conversations.filter((c) => {
-    // Check if conversation is scoped to this tenant via owner field
-    // Conversations are considered tenant-scoped if owner matches tenant pattern
-    return true; // Show all for now - tenant scoping happens at API level
-  });
+  // Server already scopes by tenantSlug/appId (see admin/conversations route).
+  // Existing conversations from before this column existed have tenant_slug
+  // NULL and won't appear here until the live chat route stamps them.
+  const tenantConversations = data.data.conversations ?? [];
 
   const handleArchive = async (id: number, archived: boolean) => {
     await archive({ id, archived }).unwrap();

@@ -27,6 +27,8 @@ export interface UiState {
   secondaryColor?: string;
   /** Platform-admin "Tenants" panel: slug of the tenant selected in the dropdown. */
   adminSelectedTenantSlug: string | null;
+  /** Platform-admin "Tenants" panel: appId selected from the tenant's Apps list. */
+  adminSelectedAppId: string | null;
   /** Platform-admin "Tenants" panel: which subtab is active for the selected tenant. */
   adminActiveSubtab: AdminTenantSubtab;
 }
@@ -43,6 +45,7 @@ const initialState: UiState = {
   primaryColor: '#eb3d28',
   secondaryColor: '#0af9fe',
   adminSelectedTenantSlug: null,
+  adminSelectedAppId: null,
   adminActiveSubtab: 'info',
 };
 
@@ -87,8 +90,13 @@ export const uiSlice = createSlice({
     },
     setAdminSelectedTenant(state, action: { payload: string | null }) {
       state.adminSelectedTenantSlug = action.payload;
-      // Switching tenants resets the subtab so we don't land on e.g. "roles"
-      // for a tenant whose roles haven't loaded yet.
+      // Switching tenants resets the app selection and subtab so we don't
+      // land on e.g. "roles" for an app that hasn't been chosen yet.
+      state.adminSelectedAppId = null;
+      state.adminActiveSubtab = 'info';
+    },
+    setAdminSelectedApp(state, action: { payload: string | null }) {
+      state.adminSelectedAppId = action.payload;
       state.adminActiveSubtab = 'info';
     },
     setAdminActiveSubtab(state, action: { payload: AdminTenantSubtab }) {
@@ -108,5 +116,6 @@ export const {
   setSelectedMonth,
   setThemeColors,
   setAdminSelectedTenant,
+  setAdminSelectedApp,
   setAdminActiveSubtab,
 } = uiSlice.actions;
