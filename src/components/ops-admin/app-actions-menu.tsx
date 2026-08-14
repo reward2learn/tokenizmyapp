@@ -37,6 +37,7 @@ import Typography from '@mui/material/Typography';
 import BuildIcon from '@mui/icons-material/Build';
 import CloudUploadIcon from '@mui/icons-material/CloudUpload';
 import DeleteIcon from '@mui/icons-material/Delete';
+import DeleteSweepIcon from '@mui/icons-material/DeleteSweep';
 import EditIcon from '@mui/icons-material/Edit';
 import LanguageIcon from '@mui/icons-material/Language';
 import MoreVertIcon from '@mui/icons-material/MoreVert';
@@ -60,6 +61,7 @@ import {
   useRemoveAppFromSuiteMutation,
   type SuiteAppInstance,
 } from '@/store/apis/tenant-api';
+import { useClearSeedMutation } from '@/store/apis/admin-api';
 import { TenantInlineUserManager } from './tenant-inline-user-manager';
 
 /** Extracts the API envelope's `error` string off an RTK Query error, without `any`. */
@@ -85,6 +87,8 @@ export function AppActionsMenu({ tenantSlug, tenantName, app, anchorEl, open, on
   const [editOpen, setEditOpen] = useState(false);
   const [usersOpen, setUsersOpen] = useState(false);
   const [removeConfirmOpen, setRemoveConfirmOpen] = useState(false);
+  const [clearDataOpen, setClearDataOpen] = useState(false);
+  const [clearConfirmText, setClearConfirmText] = useState('');
 
   const [seedApp, { isLoading: seeding }] = useSeedAppMutation();
   const [migrateApp, { isLoading: migrating }] = useMigrateAppMutation();
@@ -94,6 +98,7 @@ export function AppActionsMenu({ tenantSlug, tenantName, app, anchorEl, open, on
   const [triggerDeployHook, { isLoading: triggeringHook }] = useTriggerDeployHookMutation();
   const [fetchDomains, { isFetching: refreshingDomains }] = useLazyGetAppDomainsQuery();
   const [removeApp, { isLoading: removing }] = useRemoveAppFromSuiteMutation();
+  const [clearSeed, { isLoading: clearing }] = useClearSeedMutation();
 
   const busy = seeding || migrating || deploying || removing;
 
@@ -195,6 +200,18 @@ export function AppActionsMenu({ tenantSlug, tenantName, app, anchorEl, open, on
     }
   };
 
+  const handleClearData = async () => {
+    try {
+      const result = await clearSeed({ mode: 'all', confirm: 'CLEAR ALL SEEDED DATA', tenantSlug }).unwrap();
+      setClearDataOpen(false);
+      setClearConfirmText('');
+      const rows = Object.values(result.data?.deleted ?? {}).reduce((sum, n) => sum + (n > 0 ? n : 0), 0);
+      onSnackbar({ message: `🗑️ Cleared seeded data for "${tenantSlug}" — ${rows} rows deleted`, severity: 'success' });
+    } catch (err) {
+      onSnackbar({ message: apiErrorMessage(err, `❌ Failed to clear seeded data`), severity: 'error' });
+    }
+  };
+
   return (
     <>
       <Menu
@@ -249,6 +266,10 @@ export function AppActionsMenu({ tenantSlug, tenantName, app, anchorEl, open, on
           </MenuItem>
         )}
         <Divider />
+        <MenuItem onClick={() => { onClose(); setClearDataOpen(true); }} disabled={busy}>
+          <ListItemIcon><DeleteSweepIcon fontSize="small" color="error" /></ListItemIcon>
+          <ListItemText sx={{ color: 'error.main' }}>Delete Seeded Data</ListItemText>
+        </MenuItem>
         <MenuItem onClick={() => { onClose(); setRemoveConfirmOpen(true); }} disabled={busy}>
           <ListItemIcon><DeleteIcon fontSize="small" color="error" /></ListItemIcon>
           <ListItemText sx={{ color: 'error.main' }}>Remove from Suite</ListItemText>
@@ -285,6 +306,40 @@ export function AppActionsMenu({ tenantSlug, tenantName, app, anchorEl, open, on
           <Button onClick={() => setRemoveConfirmOpen(false)} disabled={removing}>Cancel</Button>
           <Button onClick={() => void handleRemove()} color="error" variant="contained" disabled={removing}>
             {removing ? 'Removing…' : 'Remove'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      <Dialog open={clearDataOpen} onClose={() => { setClearDataOpen(false); setClearConfirmText(''); }}>
+        <DialogTitle>Delete Seeded Data?</DialogTitle>
+        <DialogContent>
+          <Alert severity="warning" sx={{ mb: 2 }}>
+            This deletes all rows in App Pages, Business Review Parts, Knowledge Snippets, Tasks, Roles,
+            Monthly Targets, Levers, Action Items, Financial Projections, and Z-Reports — for the whole
+            tenant &quot;{tenantSlug}&quot;&apos;s own database, not just {app.name}. None of these tables
+            currently track which app a row belongs to, so this clears every app sharing this tenant&apos;s
+            database.
+          </Alert>
+          <DialogContentText sx={{ mb: 1 }}>
+            Type <strong>CLEAR ALL SEEDED DATA</strong> below to confirm:
+          </DialogContentText>
+          <TextField
+            fullWidth
+            size="small"
+            value={clearConfirmText}
+            onChange={(e) => setClearConfirmText(e.target.value)}
+            placeholder="CLEAR ALL SEEDED DATA"
+          />
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => { setClearDataOpen(false); setClearConfirmText(''); }} disabled={clearing}>Cancel</Button>
+          <Button
+            onClick={() => void handleClearData()}
+            color="error"
+            variant="contained"
+            disabled={clearing || clearConfirmText !== 'CLEAR ALL SEEDED DATA'}
+          >
+            {clearing ? 'Deleting…' : 'Delete'}
           </Button>
         </DialogActions>
       </Dialog>

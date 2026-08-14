@@ -25,6 +25,8 @@ import Typography from '@mui/material/Typography';
 import useMediaQuery from '@mui/material/useMediaQuery';
 import { useTheme } from '@mui/material/styles';
 import DeleteIcon from '@mui/icons-material/Delete';
+import DeleteSweepIcon from '@mui/icons-material/DeleteSweep';
+import TextField from '@mui/material/TextField';
 import EditIcon from '@mui/icons-material/Edit';
 import PeopleIcon from '@mui/icons-material/People';
 import OpenInNewIcon from '@mui/icons-material/OpenInNew';
@@ -66,6 +68,7 @@ import {
   type AppPackConfig,
   type SuiteAppInstance,
 } from '@/store/apis/tenant-api';
+import { useClearSeedMutation } from '@/store/apis/admin-api';
 import { getTemplate } from '@/domain/tenant/template-catalog';
 import { TenantWizard } from '@/components/ops-admin/tenant-wizard';
 import { TenantUserManager } from '@/components/ops-admin/tenant-user-manager';
@@ -184,6 +187,11 @@ export function TenantDashboard() {
   // Delete confirmation dialog state
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
 
+  // Delete Seeded Data confirmation dialog state
+  const [clearDataSlug, setClearDataSlug] = useState<string | null>(null);
+  const [clearConfirmText, setClearConfirmText] = useState('');
+  const [clearSeed, { isLoading: isClearingData }] = useClearSeedMutation();
+
   const tenants = data?.data?.tenants ?? [];
 
   const handleDelete = async (slug: string) => {
@@ -206,6 +214,22 @@ export function TenantDashboard() {
 
   const handleMenuOpen = (slug: string, el: HTMLElement) => setMenuAnchor({ slug, el });
   const handleMenuClose = () => setMenuAnchor(null);
+
+  const handleClearSeedData = async (slug: string) => {
+    try {
+      const result = await clearSeed({ mode: 'all', confirm: 'CLEAR ALL SEEDED DATA', tenantSlug: slug }).unwrap();
+      setClearDataSlug(null);
+      setClearConfirmText('');
+      const rows = Object.values(result.data?.deleted ?? {}).reduce((sum, n) => sum + (n > 0 ? n : 0), 0);
+      setSnackbar({ message: `🗑️ Cleared seeded data for "${slug}" — ${rows} rows deleted`, severity: 'success' });
+    } catch (err: unknown) {
+      const msg =
+        err && typeof err === 'object' && 'data' in err
+          ? String((err as { data: { error?: string } }).data?.error ?? 'Unknown error')
+          : 'Failed to clear seeded data';
+      setSnackbar({ message: msg, severity: 'error' });
+    }
+  };
 
   const handleSeed = async (slug: string) => {
     handleMenuClose();
@@ -638,6 +662,10 @@ export function TenantDashboard() {
                       <ListItemText>{refreshingDomains === t.slug ? 'Refreshing…' : 'Refresh Domains'}</ListItemText>
                     </MenuItem>
                     <Divider />
+                    <MenuItem onClick={() => { handleMenuClose(); setClearDataSlug(t.slug); }}>
+                      <ListItemIcon><DeleteSweepIcon fontSize="small" color="error" /></ListItemIcon>
+                      <ListItemText sx={{ color: 'error.main' }}>Delete Seeded Data</ListItemText>
+                    </MenuItem>
                     <MenuItem
                       onClick={() => { handleMenuClose(); setConfirmDelete(t.slug); }}
                       disabled={isDeleting && deleting === t.slug}
@@ -657,17 +685,14 @@ export function TenantDashboard() {
                 <TableRow>
                   <TableCell sx={{ width: 40 }}></TableCell>
                   <TableCell>Tenant</TableCell>
-                  <TableCell>Template</TableCell>
                   <TableCell>Status</TableCell>
                   <TableCell>License</TableCell>
-                  <TableCell>URL</TableCell>
                   <TableCell>Created</TableCell>
                   <TableCell align="right">Actions</TableCell>
                 </TableRow>
               </TableHead>
               <TableBody>
                 {tenants.map((t) => {
-                  const tpl = getTemplate(t.template);
                   const suite = getTenantAppPack(t);
                   const isExpanded = expandedRows.has(t.slug);
                   const isSuite = isSuiteTenant(t);
@@ -696,15 +721,6 @@ export function TenantDashboard() {
                           </Stack>
                         </TableCell>
                         <TableCell>
-                          {isSuite && suite ? (
-                            <Stack direction="row" sx={{ gap: 0.5, flexWrap: 'wrap' }}>
-                              <Chip icon={<ApartmentIcon />} label={`Suite (${suite.apps.length})`} size="small" color="primary" variant="outlined" />
-                            </Stack>
-                          ) : (
-                            <Chip label={tpl.label} size="small" variant="outlined" />
-                          )}
-                        </TableCell>
-                        <TableCell>
                           <Chip
                             label={t.status}
                             size="small"
@@ -717,9 +733,6 @@ export function TenantDashboard() {
                           ) : (
                             <Chip label="Unlicensed" size="small" color="warning" variant="outlined" />
                           )}
-                        </TableCell>
-                        <TableCell sx={{ maxWidth: 220 }}>
-                          <TenantUrlLink tenant={t} />
                         </TableCell>
                         <TableCell>
                           <Typography variant="caption" color="text.secondary">
@@ -811,6 +824,10 @@ export function TenantDashboard() {
                               <ListItemText>{refreshingDomains === t.slug ? 'Refreshing…' : 'Refresh Domains'}</ListItemText>
                             </MenuItem>
                             <Divider />
+                            <MenuItem onClick={() => { handleMenuClose(); setClearDataSlug(t.slug); }}>
+                              <ListItemIcon><DeleteSweepIcon fontSize="small" color="error" /></ListItemIcon>
+                              <ListItemText sx={{ color: 'error.main' }}>Delete Seeded Data</ListItemText>
+                            </MenuItem>
                             <MenuItem
                               onClick={() => { handleMenuClose(); setConfirmDelete(t.slug); }}
                               disabled={isDeleting && deleting === t.slug}
@@ -825,7 +842,7 @@ export function TenantDashboard() {
                       {/* ── Expanded Child Rows (suite apps) ── */}
                       {isSuite && suite ? (
                         <TableRow>
-                          <TableCell sx={{ py: 0 }} colSpan={8}>
+                          <TableCell sx={{ py: 0 }} colSpan={6}>
                             <Collapse in={isExpanded} timeout="auto" unmountOnExit>
                               <Box sx={{ m: 1 }}>
                                 <Stack direction="row" sx={{ alignItems: 'center', justifyContent: 'space-between', mb: 1 }}>
@@ -948,6 +965,45 @@ export function TenantDashboard() {
             disabled={isDeleting && deleting === confirmDelete}
           >
             {isDeleting && deleting === confirmDelete ? 'Deleting…' : 'Delete'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Delete Seeded Data Confirmation Dialog */}
+      <Dialog
+        open={Boolean(clearDataSlug)}
+        onClose={() => { setClearDataSlug(null); setClearConfirmText(''); }}
+        fullWidth
+      >
+        <DialogTitle>Delete Seeded Data?</DialogTitle>
+        <DialogContent>
+          <Alert severity="warning" sx={{ mb: 2 }}>
+            This deletes all rows in App Pages, Business Review Parts, Knowledge Snippets, Tasks, Roles,
+            Monthly Targets, Levers, Action Items, Financial Projections, and Z-Reports — in{' '}
+            <strong>{clearDataSlug}</strong>&apos;s own dedicated database. None of these tables currently
+            track which app a row belongs to, so this clears every app sharing this tenant&apos;s database.
+            The tenant itself, its Vercel deployment, and user accounts are not affected.
+          </Alert>
+          <DialogContentText sx={{ mb: 1 }}>
+            Type <strong>CLEAR ALL SEEDED DATA</strong> below to confirm:
+          </DialogContentText>
+          <TextField
+            fullWidth
+            size="small"
+            value={clearConfirmText}
+            onChange={(e) => setClearConfirmText(e.target.value)}
+            placeholder="CLEAR ALL SEEDED DATA"
+          />
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => { setClearDataSlug(null); setClearConfirmText(''); }} disabled={isClearingData}>Cancel</Button>
+          <Button
+            onClick={() => clearDataSlug && handleClearSeedData(clearDataSlug)}
+            color="error"
+            variant="contained"
+            disabled={isClearingData || clearConfirmText !== 'CLEAR ALL SEEDED DATA'}
+          >
+            {isClearingData ? 'Deleting…' : 'Delete'}
           </Button>
         </DialogActions>
       </Dialog>

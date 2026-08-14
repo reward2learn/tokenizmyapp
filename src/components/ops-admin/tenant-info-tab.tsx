@@ -2,12 +2,19 @@
 
 import Box from '@mui/material/Box';
 import Chip from '@mui/material/Chip';
+import CircularProgress from '@mui/material/CircularProgress';
+import IconButton from '@mui/material/IconButton';
 import Paper from '@mui/material/Paper';
 import Stack from '@mui/material/Stack';
+import Table from '@mui/material/Table';
+import TableBody from '@mui/material/TableBody';
+import TableCell from '@mui/material/TableCell';
+import TableRow from '@mui/material/TableRow';
 import Typography from '@mui/material/Typography';
 import OpenInNewIcon from '@mui/icons-material/OpenInNew';
+import RefreshIcon from '@mui/icons-material/Refresh';
 import Button from '@mui/material/Button';
-import { useGetAdminBrandConfigQuery } from '@/store/apis/admin-api';
+import { useGetAdminBrandConfigQuery, useGetSeedOverviewQuery } from '@/store/apis/admin-api';
 import { useGetTenantQuery, useUploadTenantFaviconMutation, useRemoveTenantFaviconMutation } from '@/store/apis/tenant-api';
 import { getClientTenantConfig } from '@shared/lib/config/tenant';
 import { getTemplate } from '@/domain/tenant/template-catalog';
@@ -90,7 +97,69 @@ export function TenantInfoTab({ tenantSlug, appId }: TenantInfoTabProps = {}) {
           ) : null}
         </Stack>
       </Stack>
+
+      <SeededDataOverview tenantSlug={tenant.slug} />
     </Paper>
+  );
+}
+
+const SEED_TABLE_LABELS: Record<string, string> = {
+  app_pages: 'App Pages',
+  page_sections: 'Page Sections',
+  business_review_parts: 'Business Review Parts',
+  knowledge_snippets: 'Knowledge Snippets',
+  tasks: 'Tasks',
+  task_assignments: 'Task Assignments',
+  roles: 'Roles',
+  monthly_targets: 'Monthly Targets',
+  levers: 'Levers',
+  action_items: 'Action Items',
+  financial_projections: 'Financial Projections',
+  daily_z_reports: 'Z-Reports',
+  navigation_items: 'Navigation Items',
+  daily_metrics: 'Daily Metrics',
+  monthly_actual_departments: 'Monthly Actuals (Departments)',
+  monthly_actual_inputs: 'Monthly Actuals (Inputs)',
+};
+
+/** Row-count overview of every seed table, for this tenant's own dedicated database. */
+function SeededDataOverview({ tenantSlug }: { tenantSlug: string }) {
+  const { data, isFetching, isError, refetch } = useGetSeedOverviewQuery({ tenantSlug });
+  const counts = data?.data?.counts ?? {};
+  const total = data?.data?.total ?? 0;
+  const rows = Object.entries(counts).filter(([, n]) => n >= 0);
+
+  return (
+    <Box sx={{ mt: 3, pt: 3, borderTop: 1, borderColor: 'divider' }}>
+      <Stack direction="row" sx={{ alignItems: 'center', justifyContent: 'space-between', mb: 1.5 }}>
+        <Typography variant="subtitle2" sx={{ fontWeight: 700 }}>
+          Seeded Data Overview {total > 0 ? `— ${total} rows total` : ''}
+        </Typography>
+        <IconButton size="small" onClick={() => refetch()} disabled={isFetching} aria-label="Refresh seed data counts">
+          {isFetching ? <CircularProgress size={16} /> : <RefreshIcon fontSize="small" />}
+        </IconButton>
+      </Stack>
+      {isError ? (
+        <Typography variant="caption" color="error">Failed to load seeded data counts.</Typography>
+      ) : rows.length === 0 && !isFetching ? (
+        <Typography variant="caption" color="text.secondary">No seed tables found in this tenant&apos;s database.</Typography>
+      ) : (
+        <Table size="small" sx={{ maxWidth: 500 }}>
+          <TableBody>
+            {rows.map(([table, count]) => (
+              <TableRow key={table}>
+                <TableCell sx={{ border: 0, py: 0.5, pl: 0 }}>
+                  <Typography variant="caption" color="text.secondary">{SEED_TABLE_LABELS[table] ?? table}</Typography>
+                </TableCell>
+                <TableCell align="right" sx={{ border: 0, py: 0.5, pr: 0 }}>
+                  <Chip label={count} size="small" variant="outlined" color={count > 0 ? 'default' : undefined} />
+                </TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+      )}
+    </Box>
   );
 }
 

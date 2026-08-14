@@ -146,14 +146,23 @@ export const adminApi = createApi({
       }),
       invalidatesTags: ['AdminGroups'],
     }),
-    /** POST /api/admin/clear-seed — clear all or selected seed tables */
-    clearSeed: builder.mutation<ApiEnvelope<{ deleted: Record<string, number>; message: string }>, { mode: 'all'; confirm: string } | { mode: 'selected'; tables: string[]; confirm: string }>({
+    /** POST /api/admin/clear-seed — clear all or selected seed tables.
+     *  tenantSlug targets that tenant's own dedicated database. */
+    clearSeed: builder.mutation<
+      ApiEnvelope<{ deleted: Record<string, number>; message: string }>,
+      ({ mode: 'all'; confirm: string } | { mode: 'selected'; tables: string[]; confirm: string }) & { tenantSlug?: string }
+    >({
       query: (body) => ({
         url: 'admin/clear-seed',
         method: 'POST',
         body,
       }),
       invalidatesTags: ['SeedData'],
+    }),
+    /** GET /api/admin/clear-seed — row-count overview of seed tables, optionally for a specific tenant's own database */
+    getSeedOverview: builder.query<ApiEnvelope<{ counts: Record<string, number>; total: number; tenantSlug: string | null }>, { tenantSlug?: string } | void>({
+      query: (params) => ({ url: 'admin/clear-seed', params: { tenantSlug: params?.tenantSlug } }),
+      providesTags: ['SeedData'],
     }),
     /** GET /api/admin/ai-content — AI content generation status */
     getAiContent: builder.query<ApiEnvelope<unknown>, void>({
@@ -292,6 +301,8 @@ export const {
   useCreateAdminGroupMutation,
   useUpdateAdminGroupMutation,
   useClearSeedMutation,
+  useGetSeedOverviewQuery,
+  useLazyGetSeedOverviewQuery,
   useGetAiContentQuery,
   useGenerateAiContentMutation,
   useGetAdminBrandConfigQuery,
