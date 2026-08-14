@@ -95,6 +95,8 @@ export function CreateAppWizard({ open, onClose, tenantSlug, sourceApp, onSnackb
   const templates = listTemplates();
   const tenant = tenantsData?.data?.tenants?.find((t) => t.slug === tenantSlug);
   const suiteApps: SuiteAppInstance[] = tenant?.appPack?.apps ?? [];
+  // No apps yet → duplicate mode is unavailable until the first app exists.
+  const hasApps = suiteApps.length > 0;
 
   const appId = slugify(name);
   const appIdConflict = suiteApps.some((a) => a.appId === appId);
@@ -214,19 +216,26 @@ export function CreateAppWizard({ open, onClose, tenantSlug, sourceApp, onSnackb
               </Paper>
               <Paper
                 variant="outlined"
-                sx={{ p: 1.5, cursor: 'pointer', borderColor: mode === 'duplicate' ? 'primary.main' : 'divider' }}
-                onClick={() => handleModeChange('duplicate')}
+                sx={{
+                  p: 1.5,
+                  cursor: hasApps ? 'pointer' : 'not-allowed',
+                  opacity: hasApps ? 1 : 0.55,
+                  borderColor: mode === 'duplicate' ? 'primary.main' : 'divider',
+                }}
+                onClick={() => { if (hasApps) handleModeChange('duplicate'); }}
               >
                 <FormControlLabel
                   value="duplicate"
-                  control={<Radio />}
+                  control={<Radio disabled={!hasApps} />}
                   label={
                     <Stack direction="row" spacing={1.5} sx={{ alignItems: 'center' }}>
-                      <ListItemIcon><ContentCopyIcon color="primary" /></ListItemIcon>
+                      <ListItemIcon><ContentCopyIcon color={hasApps ? 'primary' : 'disabled'} /></ListItemIcon>
                       <Box>
                         <Typography variant="body2" sx={{ fontWeight: 600 }}>Duplicate an existing app</Typography>
                         <Typography variant="caption" color="text.secondary">
-                          Clone an app already in this tenant — pages, nav, knowledge base and data.
+                          {hasApps
+                            ? 'Clone an app already in this tenant — pages, nav, knowledge base and data.'
+                            : 'No apps yet — create the first app above, then you can duplicate it here.'}
                         </Typography>
                       </Box>
                     </Stack>

@@ -629,12 +629,10 @@ export function TenantDashboard() {
                       <ListItemIcon><PeopleIcon fontSize="small" /></ListItemIcon>
                       <ListItemText>Manage Users</ListItemText>
                     </MenuItem>
-                    {isSuite ? (
-                      <MenuItem onClick={() => { handleMenuClose(); setCreateAppFor(t.slug); }}>
-                        <ListItemIcon><AddBoxIcon fontSize="small" /></ListItemIcon>
-                        <ListItemText>Create New App</ListItemText>
-                      </MenuItem>
-                    ) : null}
+                    <MenuItem onClick={() => { handleMenuClose(); setCreateAppFor(t.slug); }}>
+                      <ListItemIcon><AddBoxIcon fontSize="small" /></ListItemIcon>
+                      <ListItemText>Create New App</ListItemText>
+                    </MenuItem>
                     <Divider />
                     {isSuite ? (
                       <>
@@ -803,12 +801,10 @@ export function TenantDashboard() {
                               <ListItemIcon><PeopleIcon fontSize="small" /></ListItemIcon>
                               <ListItemText>Manage Users</ListItemText>
                             </MenuItem>
-                            {isSuite ? (
-                              <MenuItem onClick={() => { handleMenuClose(); setCreateAppFor(t.slug); }}>
-                                <ListItemIcon><AddBoxIcon fontSize="small" /></ListItemIcon>
-                                <ListItemText>Create New App</ListItemText>
-                              </MenuItem>
-                            ) : null}
+                            <MenuItem onClick={() => { handleMenuClose(); setCreateAppFor(t.slug); }}>
+                              <ListItemIcon><AddBoxIcon fontSize="small" /></ListItemIcon>
+                              <ListItemText>Create New App</ListItemText>
+                            </MenuItem>
                             <Divider />
                             {isSuite ? (
                               <>

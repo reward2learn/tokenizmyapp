@@ -72,8 +72,19 @@ export async function POST(
     ) as Record<string, unknown>[];
     if (rows.length === 0) return jsonError('Tenant not found', 404);
 
-    const appPack = getAppPack(rows[0]);
-    if (!appPack) return jsonError('Tenant is not in suite mode', 400);
+    let appPack = getAppPack(rows[0]);
+    if (!appPack) {
+      // Single-app tenant → auto-convert to suite mode when the first app is
+      // added. The tenant itself becomes the suite container; its existing
+      // single-app experience is replaced by the suite app list.
+      appPack = {
+        packId: `${slug}-suite`,
+        name: `${String(rows[0].display_name ?? slug)} Suite`,
+        description: `Multi-app suite created for ${slug}`,
+        apps: [],
+        ceoOverview: { purpose: '', kpis: [] },
+      };
+    }
 
     // Check if appId already exists
     if (appPack.apps.some((a) => a.appId === appId)) {
