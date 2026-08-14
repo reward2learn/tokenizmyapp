@@ -316,11 +316,16 @@ export async function ensureSecurityTables(
   // This guarantees that DEFAULT_PLATFORM_ADMIN_EMAIL always has a user_accounts
   // row with role_code = 'platform-admin'. Called on every ensureSecurityTables().
   await withRetry(async () => {
+    // id is generated inline (gen_random_uuid()::TEXT) rather than omitted —
+    // this table's id column has no DB-level default when created via
+    // `prisma db push` (ZenStack's `@default(cuid())` is applied by the
+    // Prisma client, not written into Postgres as a column DEFAULT), so a
+    // raw INSERT that skips id hits a NOT NULL violation on the primary key.
     await raw.$executeRawUnsafe(
-      `INSERT INTO user_accounts (sub, name, email, tier, role_code, last_seen_at, updated_at)
-       VALUES ('admin', 'Platform Admin', $1, 'google', 'platform-admin', 
+      `INSERT INTO user_accounts (id, sub, name, email, tier, role_code, last_seen_at, updated_at)
+       VALUES (gen_random_uuid()::TEXT, 'admin', 'Platform Admin', $1, 'google', 'platform-admin',
                CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
-       ON CONFLICT (sub) DO UPDATE 
+       ON CONFLICT (sub) DO UPDATE
          SET email = COALESCE($1, user_accounts.email),
              role_code = COALESCE('platform-admin', user_accounts.role_code),
              last_seen_at = CURRENT_TIMESTAMP,

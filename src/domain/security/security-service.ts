@@ -111,9 +111,13 @@ export async function backfillKnownAccounts(
   known: { sub: string; name: string; tier: string; roleCode?: string | null }[],
 ): Promise<void> {
   for (const k of known) {
+    // id is generated inline — this table's id column has no DB-level
+    // default when created via `prisma db push` (see db-migrate.ts's
+    // ensureSecurityTables for the same fix), so omitting it here would
+    // hit a NOT NULL violation on the primary key.
     await db.$queryRawUnsafe(
-      `INSERT INTO user_accounts (sub, name, tier, role_code, last_seen_at, updated_at)
-       VALUES ($1, $2, $3, $4, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+      `INSERT INTO user_accounts (id, sub, name, tier, role_code, last_seen_at, updated_at)
+       VALUES (gen_random_uuid()::TEXT, $1, $2, $3, $4, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
        ON CONFLICT (sub) DO UPDATE
          SET name = COALESCE($2, user_accounts.name),
              tier = $3,

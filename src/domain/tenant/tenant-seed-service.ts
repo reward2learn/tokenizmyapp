@@ -66,7 +66,23 @@ export async function addTenantColumnsIfMissing(db: any): Promise<void> {
     `ALTER TABLE navigation_items ADD COLUMN IF NOT EXISTS app_id TEXT;`,
     `ALTER TABLE navigation_items ADD COLUMN IF NOT EXISTS is_active BOOLEAN DEFAULT true;`,
 
-    // user_accounts — tenant/app isolation
+    // user_accounts — tenant/app isolation (also ensures the table exists at
+    // all for tenant databases that never had ensureSecurityTables() run
+    // against them — that function targets the platform's own root DB only,
+    // not a tenant's dedicated one, so a fresh tenant DB has no user_accounts
+    // table until this creates it).
+    `CREATE TABLE IF NOT EXISTS user_accounts (
+      id TEXT PRIMARY KEY DEFAULT gen_random_uuid(),
+      sub TEXT NOT NULL UNIQUE,
+      email TEXT,
+      name TEXT,
+      tier TEXT NOT NULL DEFAULT 'google',
+      role_code TEXT,
+      is_active BOOLEAN NOT NULL DEFAULT true,
+      last_seen_at TIMESTAMP WITHOUT TIME ZONE,
+      created_at TIMESTAMP WITHOUT TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP WITHOUT TIME ZONE DEFAULT CURRENT_TIMESTAMP
+    );`,
     `ALTER TABLE user_accounts ADD COLUMN IF NOT EXISTS tenant_slug TEXT;`,
     `ALTER TABLE user_accounts ADD COLUMN IF NOT EXISTS app_id TEXT;`,
 
