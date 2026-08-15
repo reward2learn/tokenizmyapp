@@ -35,7 +35,7 @@ import { jsonError } from '@/lib/api/response';
 import { extractExcelData, type ExcelData } from '@/domain/excel/excel-extractor';
 import { buildGenerationPrompt, buildDataSummary } from '@/domain/ai-content/prompt-builder';
 import { generateAndSave, OPENAI_QUOTA_MARKER, type ProgressEvent } from '@/domain/ai-content/content-generator';
-import { getCurrentAppId } from '@shared/lib/config/tenant';
+import { getCurrentAppId, getTenantConfig } from '@shared/lib/config/tenant';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 120; // 2 min timeout for OpenAI calls
@@ -121,32 +121,57 @@ function sseStream(run: (emit: (event: ProgressEvent) => void) => Promise<void>)
 
 /**
  * Resolve the June 2026 workbook — try disk first, then the base64
- * cached copy stored by the reseed pipeline in knowledge_snippets.
+ * cached copy stored in knowledge_snippets.
+ *
+ * Tenant isolation: tries the current tenant slug as appId first,
+ * then falls back to the generic empty-appId record (single-app tenant).
  */
 async function resolveWorkbook(): Promise<ExcelData> {
-  // Try disk
+  // ── 1. Try disk (auto-detect) ────────────────────────────────
   try {
     return extractExcelData();
   } catch {
-    // not on disk
+    // not on disk — continue to DB cache
   }
 
-  // Try DB cache
-  try {
-    const db = createClient();
-    const cached = await db.knowledgeSnippet.findUnique({
-      where: { key_appId: { key: 'workbook_data', appId: getCurrentAppId() } },
-    });
-    if (cached?.content) {
-      return extractExcelData(Buffer.from(cached.content, 'base64'));
+  // ── 2. Try DB cache with tenant isolation ─────────────────────
+  const tenantConfig = getTenantConfig();
+  const tenantSlug = tenantConfig.slug;
+
+  // Helper to try a specific appId
+  async function tryAppId(appId: string): Promise<ExcelData | null> {
+    try {
+      const db = createClient();
+      const cached = await db.knowledgeSnippet.findUnique({
+        where: { key_appId: { key: 'workbook_data', appId } },
+      });
+      if (cached?.content) {
+        return extractExcelData(Buffer.from(cached.content, 'base64'));
+      }
+      return null;
+    } catch {
+      return null;
     }
-  } catch {
-    // DB unavailable
   }
 
+  // Try 1: current tenant slug (for multi-tenant setups)
+  if (tenantSlug && tenantSlug !== 'tokenizmyapp') {
+    const tenantData = await tryAppId(tenantSlug);
+    if (tenantData) return tenantData;
+  }
+
+  // Try 2: empty appId (for single-app / tokenizmyapp tenant)
+  const defaultData = await tryAppId('');
+  if (defaultData) return defaultData;
+
+  // Try 3: tokenizmyapp explicitly (root config app)
+  const rootData = await tryAppId('tokenizmyapp');
+  if (rootData) return rootData;
+
+  // ── 3. Fallback error ─────────────────────────────────────────
   throw new Error(
     'Workbook file not found on disk and no cached copy in database. ' +
-    'Upload the June 2026 workbook via the Config page first.',
+    'Upload the June 2026 workbook via the Config > Workbook Upload page first.',
   );
 }
 
