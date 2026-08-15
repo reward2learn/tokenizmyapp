@@ -58,6 +58,19 @@ export interface AppPackConfig {
   };
 }
 
+/** Editable subset of the tenant's Google OAuth config (Edit App modal — GCP Credentials step). */
+export interface GoogleOAuthConfigPatch {
+  enabled?: boolean;
+  clientId?: string;
+  clientSecret?: string;
+  projectId?: string;
+  authUri?: string;
+  tokenUri?: string;
+  gcpAccountEmail?: string;
+  supportEmail?: string;
+  redirectUris?: string[];
+}
+
 export interface TenantUserView {
   id: string;
   sub: string;
@@ -326,12 +339,27 @@ export const tenantApi = createApi({
     /** PATCH — edit this app's name/department/template/colors/deploy hook. */
     editApp: builder.mutation<
       ApiEnvelope<{ app: SuiteAppInstance }>,
-      { slug: string; appId: string; name?: string; department?: string; templateId?: string; primaryColor?: string; secondaryColor?: string; deployHookUrl?: string | null }
+      { slug: string; appId: string; name?: string; department?: string; templateId?: string; primaryColor?: string; secondaryColor?: string; deployHookUrl?: string | null; googleAuth?: GoogleOAuthConfigPatch }
     >({
       query: ({ slug, appId, ...body }) => ({
         url: `admin/tenants/${slug}/apps/${appId}/edit`,
         method: 'PATCH',
         body,
+      }),
+      invalidatesTags: ['Tenants'],
+    }),
+
+    /** POST — "Vercel Save & Push": push all required env vars (Google OAuth
+     *  creds, DB URL, PINs, custom env, NEXT_PUBLIC_*) to this app's own
+     *  Vercel project from the tenant's saved config. Requires the app to be
+     *  deployed (vercelProjectId set). */
+    pushAppEnvVars: builder.mutation<
+      ApiEnvelope<{ projectId: string; envCount: number; keys: string[] }>,
+      { slug: string; appId: string }
+    >({
+      query: ({ slug, appId }) => ({
+        url: `admin/tenants/${slug}/apps/${appId}/vercel-env`,
+        method: 'POST',
       }),
       invalidatesTags: ['Tenants'],
     }),
@@ -619,6 +647,7 @@ export const {
   useLazyGetAppStatusQuery,
   useLazyRefreshAppStatusQuery,
   useEditAppMutation,
+  usePushAppEnvVarsMutation,
   useGetAppDomainsQuery,
   useLazyGetAppDomainsQuery,
   useSetAppDomainMutation,

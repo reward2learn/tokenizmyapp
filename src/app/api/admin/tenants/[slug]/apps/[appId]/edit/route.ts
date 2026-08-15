@@ -47,6 +47,8 @@ export async function PATCH(
       primaryColor?: string;
       secondaryColor?: string;
       deployHookUrl?: string | null;
+      /** Editable GCP credentials from the Edit App modal's Google OAuth step — merged into metadata.config.googleAuth. */
+      googleAuth?: Record<string, unknown>;
     };
 
     if (body.templateId) {
@@ -81,6 +83,25 @@ export async function PATCH(
     };
 
     await saveAppPack(db, slug, appPack);
+
+    // Optional: patch the tenant's shared Google OAuth config (editable GCP
+    // credentials from the Edit App modal's Google OAuth step). Merged into
+    // metadata.config.googleAuth — an empty clientSecret keeps the existing
+    // secret (prevents accidental blanking from a cleared input field).
+    if (body.googleAuth && typeof body.googleAuth === 'object') {
+      const meta = (rows[0].metadata ?? {}) as Record<string, unknown>;
+      const cfg = (meta.config ?? {}) as Record<string, unknown>;
+      const existingGa = (cfg.googleAuth ?? {}) as Record<string, unknown>;
+      const patch = { ...body.googleAuth };
+      if (!patch.clientSecret) delete patch.clientSecret;
+      const mergedGa = { ...existingGa, ...patch };
+      await db.$executeRawUnsafe(
+        `UPDATE tenants SET metadata = jsonb_set(COALESCE(metadata, '{}'), '{config,googleAuth}', $1::jsonb), updated_at = CURRENT_TIMESTAMP WHERE slug = $2;`,
+        JSON.stringify(mergedGa),
+        slug,
+      );
+      console.log(`[app-edit] Updated tenant googleAuth for "${slug}" (via app "${appId}")`);
+    }
 
     console.log(`[app-edit] Updated "${appId}" for tenant "${slug}"`);
 

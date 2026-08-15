@@ -244,10 +244,14 @@ async function upsertEnvVar(
   return false;
 }
 
-export async function syncEnvVars(
-  projectId: string,
-  input: DeployTenantInput,
-): Promise<number> {
+/**
+ * Build the full env-var map for a tenant/app Vercel project from the deploy
+ * input (tenant identity, DB URL, shared platform secrets, and the tenant's
+ * saved metadata.config — Google OAuth creds, database, PINs, custom env).
+ * Exported so the per-app "Vercel Save & Push" flow pushes the exact same set
+ * without duplicating the mapping logic.
+ */
+export function buildEnvVarsForProject(input: DeployTenantInput): Record<string, string> {
   const appUrl = `https://${input.slug}.vercel.app`;
 
   const envVars: Record<string, string> = {
@@ -305,6 +309,15 @@ export async function syncEnvVars(
   for (const [key, value] of Object.entries(configVars)) {
     if (value) envVars[key] = value;
   }
+
+  return envVars;
+}
+
+export async function syncEnvVars(
+  projectId: string,
+  input: DeployTenantInput,
+): Promise<number> {
+  const envVars = buildEnvVarsForProject(input);
 
   // Upsert each env var — the function handles token/teamId fallback internally
   let envCount = 0;

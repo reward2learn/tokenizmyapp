@@ -69,7 +69,9 @@ import {
   useListTenantsQuery,
   useEditAppMutation,
   useProvisionGoogleOAuthMutation,
+  usePushAppEnvVarsMutation,
   type SuiteAppInstance,
+  type GoogleOAuthConfigPatch,
 } from '@/store/apis/tenant-api';
 import { useListRoleConfigsQuery } from '@/store/apis/admin-api';
 
@@ -151,12 +153,24 @@ export function EditAppModal({ open, onClose, tenantSlug, app, onSnackbar }: Edi
   const [provisioningOAuth, setProvisioningOAuth] = useState(false);
   const [provisionOAuthResult, setProvisionOAuthResult] = useState<Record<string, unknown> | null>(null);
   const [provisionOAuthError, setProvisionOAuthError] = useState<string | null>(null);
+  // Editable GCP credentials (Google OAuth step) — persisted to the tenant
+  // config via editApp.googleAuth and pushed to this app's Vercel project by
+  // "Vercel Save & Push".
+  const [oauthClientId, setOauthClientId] = useState('');
+  const [oauthClientSecret, setOauthClientSecret] = useState('');
+  const [oauthProjectId, setOauthProjectId] = useState('');
+  const [oauthGcpEmail, setOauthGcpEmail] = useState('reward2learn@gmail.com');
+  const [oauthSupportEmail, setOauthSupportEmail] = useState('');
+  const [oauthAuthUri, setOauthAuthUri] = useState('https://accounts.google.com/o/oauth2/auth');
+  const [oauthTokenUri, setOauthTokenUri] = useState('https://oauth2.googleapis.com/token');
+  const [pushingEnv, setPushingEnv] = useState(false);
   const [flightChecks, setFlightChecks] = useState<CheckItem[]>([]);
   const [flightRunning, setFlightRunning] = useState(false);
 
   const { data: tenantsData } = useListTenantsQuery();
   const [editApp] = useEditAppMutation();
   const [provisionGoogleOAuth] = useProvisionGoogleOAuthMutation();
+  const [pushAppEnvVars] = usePushAppEnvVarsMutation();
   const { data: rolesData, isLoading: rolesLoading } = useListRoleConfigsQuery();
 
   const templates = listTemplates();
@@ -176,13 +190,11 @@ export function EditAppModal({ open, onClose, tenantSlug, app, onSnackbar }: Edi
   const features = (licenseCfg.features as string[]) || [];
   const setupToken = String((cfg.apiKey as string) || '');
   const openaiApiKey = String((cfg.openaiApiKey as string) || '');
-  const oauthClientId = String((oauthCfg.clientId as string) || '');
-  const oauthProjectId = String((oauthCfg.projectId as string) || '');
   const oauthRedirectUris = useMemo(
     () => (oauthCfg.redirectUris as string[]) || [],
     [oauthCfg.redirectUris],
   );
-  const oauthGcpEmail = String((oauthCfg.gcpAccountEmail as string) || 'reward2learn@gmail.com');
+
   const dbUrl = String((dbCfg.databaseUrl as string) || (dbCfg.pooledUrl as string) || tenant?.dbUrl || '');
   const dbDirectUrl = String((dbCfg.directUrl as string) || '');
   const envPairs: EnvPair[] = Object.entries(envCfg).map(([k, v]) => ({ key: k, value: v }));
@@ -216,6 +228,13 @@ export function EditAppModal({ open, onClose, tenantSlug, app, onSnackbar }: Edi
     setFlightChecks([]);
     setProvisionOAuthResult(null);
     setProvisionOAuthError(null);
+    setOauthClientId(String((oauthCfg.clientId as string) || ''));
+    setOauthClientSecret(String((oauthCfg.clientSecret as string) || ''));
+    setOauthProjectId(String((oauthCfg.projectId as string) || ''));
+    setOauthGcpEmail(String((oauthCfg.gcpAccountEmail as string) || 'reward2learn@gmail.com'));
+    setOauthSupportEmail(String((oauthCfg.supportEmail as string) || ''));
+    setOauthAuthUri(String((oauthCfg.authUri as string) || 'https://accounts.google.com/o/oauth2/auth'));
+    setOauthTokenUri(String((oauthCfg.tokenUri as string) || 'https://oauth2.googleapis.com/token'));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, app.appId]);
 
@@ -233,7 +252,7 @@ export function EditAppModal({ open, onClose, tenantSlug, app, onSnackbar }: Edi
       const allRedirectUris = [...new Set([...oauthRedirectUris, ...newAppRedirectUris])];
       const result = await provisionGoogleOAuth({
         slug: tenantSlug,
-        email: oauthGcpEmail,
+        email: oauthGcpEmail.trim() || 'reward2learn@gmail.com',
         redirectUris: allRedirectUris,
       }).unwrap();
       if (result.data) {
@@ -287,21 +306,36 @@ export function EditAppModal({ open, onClose, tenantSlug, app, onSnackbar }: Edi
     setFlightRunning(false);
   }, [name, app, appUrl, vercelName, dbUrl, oauthClientId, oauthRedirectUris, newAppRedirectUris, licenseKey, adminEmail, openaiApiKey]);
 
-  // ── Save (PATCH app-scoped fields only) ─────────────────────
+  // ── Save (PATCH app-scoped fields + editable GCP credentials) ──
+  const persistApp = useCallback(async () => {
+    const googleAuth: GoogleOAuthConfigPatch = {
+      enabled: true,
+      clientId: oauthClientId.trim(),
+      clientSecret: oauthClientSecret.trim(),
+      projectId: oauthProjectId.trim(),
+      authUri: oauthAuthUri.trim(),
+      tokenUri: oauthTokenUri.trim(),
+      gcpAccountEmail: oauthGcpEmail.trim(),
+      supportEmail: oauthSupportEmail.trim(),
+    };
+    await editApp({
+      slug: tenantSlug,
+      appId: app.appId,
+      name: name.trim() || app.name,
+      department: department.trim() || app.department,
+      templateId,
+      primaryColor,
+      secondaryColor,
+      deployHookUrl: deployHookUrl.trim() || null,
+      googleAuth,
+    }).unwrap();
+  }, [editApp, tenantSlug, app, name, department, templateId, primaryColor, secondaryColor, deployHookUrl, oauthClientId, oauthClientSecret, oauthProjectId, oauthAuthUri, oauthTokenUri, oauthGcpEmail, oauthSupportEmail]);
+
   const handleSave = async () => {
-    if (!valid || saving) return;
+    if (!valid || saving || pushingEnv) return;
     setSaving(true);
     try {
-      await editApp({
-        slug: tenantSlug,
-        appId: app.appId,
-        name: name.trim() || app.name,
-        department: department.trim() || app.department,
-        templateId,
-        primaryColor,
-        secondaryColor,
-        deployHookUrl: deployHookUrl.trim() || null,
-      }).unwrap();
+      await persistApp();
       onSnackbar({ message: `✅ ${app.name} updated`, severity: 'success' });
       onClose();
     } catch (err) {
@@ -311,6 +345,38 @@ export function EditAppModal({ open, onClose, tenantSlug, app, onSnackbar }: Edi
       onSnackbar({ message: `❌ ${msg}`, severity: 'error' });
     } finally {
       setSaving(false);
+    }
+  };
+
+  // ── Save + Push (Summary step): persist config, then push ALL required
+  //    env vars (GOOGLE_CLIENT_ID/SECRET/PROJECT_ID, DB URL, PINs, custom
+  //    env, NEXT_PUBLIC_*) to this app's own Vercel project. ─────────────
+  const handleSaveAndPush = async () => {
+    if (!valid || saving || pushingEnv) return;
+    setSaving(true);
+    try {
+      await persistApp();
+      onSnackbar({ message: `✅ ${app.name} saved`, severity: 'success' });
+      setPushingEnv(true);
+      try {
+        const envRes = await pushAppEnvVars({ slug: tenantSlug, appId: app.appId }).unwrap();
+        const envCount = envRes.data?.envCount ?? 0;
+        onSnackbar({ message: `✅ ${envCount} env vars pushed to Vercel (${vercelName})`, severity: 'success' });
+        onClose();
+      } catch (envErr) {
+        const msg = envErr && typeof envErr === 'object' && 'data' in envErr
+          ? String((envErr as { data?: { error?: string } }).data?.error || 'Env push failed')
+          : 'Env push failed';
+        onSnackbar({ message: `❌ Config saved, but env push failed: ${msg}`, severity: 'error' });
+      }
+    } catch (err) {
+      const msg = err && typeof err === 'object' && 'data' in err
+        ? String((err as { data?: { error?: string } }).data?.error || 'Failed to save')
+        : 'Failed to save';
+      onSnackbar({ message: `❌ ${msg}`, severity: 'error' });
+    } finally {
+      setSaving(false);
+      setPushingEnv(false);
     }
   };
 
@@ -569,28 +635,79 @@ export function EditAppModal({ open, onClose, tenantSlug, app, onSnackbar }: Edi
           registered in the existing GCP OAuth client for Google sign-in to work.
         </Typography>
 
-        {/* Tenant's existing OAuth config (read-only, with secret reveal toggle) */}
+        {/* Tenant's Google OAuth config — EDITABLE GCP credentials */}
         <Paper variant="outlined" sx={{ p: 2 }}>
-          <Typography variant="subtitle2" sx={{ fontWeight: 600, mb: 1 }}>Inherited Tenant OAuth Config</Typography>
-          <Stack spacing={0.5}>
-            <SummaryRow label="GCP Project ID" value={oauthProjectId || '(not set)'} />
-            <SummaryRow label="Client ID" value={oauthClientId ? oauthClientId.slice(0, 30) + '...' : '⚠️ not set'} />
-            <SummaryRow label="Client Secret" value={oauthCfg.clientSecret ? '✅ configured' : '⚠️ not set'} />
-            <SummaryRow label="GCP Email" value={oauthGcpEmail} />
-          </Stack>
-          {oauthCfg.clientSecret ? (
-            <Box sx={{ mt: 1 }}>
-              <FormControlLabel
-                control={<Checkbox checked={showSecret} onChange={(e) => setShowSecret(e.target.checked)} size="small" />}
-                label={<Typography variant="caption">Reveal client secret value</Typography>}
+          <Typography variant="subtitle2" sx={{ fontWeight: 600, mb: 0.5 }}>GCP Credentials (editable)</Typography>
+          <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 2 }}>
+            Saved to the tenant config and pushed to this app&apos;s Vercel project as{' '}
+            <strong>GOOGLE_CLIENT_ID</strong> / <strong>GOOGLE_CLIENT_SECRET</strong> /{' '}
+            <strong>GOOGLE_PROJECT_ID</strong> by the &quot;Vercel Save &amp; Push&quot; button on the
+            Summary step. Leave the secret blank to keep the existing value.
+          </Typography>
+          <Stack spacing={1.5}>
+            <TextField
+              label="GCP Project ID"
+              value={oauthProjectId}
+              onChange={(e) => setOauthProjectId(e.target.value)}
+              fullWidth
+              size="small"
+              placeholder="redruby-fpa"
+            />
+            <TextField
+              label="Client ID"
+              value={oauthClientId}
+              onChange={(e) => setOauthClientId(e.target.value)}
+              fullWidth
+              size="small"
+              placeholder="1234-abc.apps.googleusercontent.com"
+              slotProps={{ input: { sx: { fontFamily: 'monospace', fontSize: '0.8rem' } } }}
+            />
+            <TextField
+              label="Client Secret"
+              value={oauthClientSecret}
+              onChange={(e) => setOauthClientSecret(e.target.value)}
+              fullWidth
+              size="small"
+              type={showSecret ? 'text' : 'password'}
+              placeholder={oauthClientSecret ? '•••••••• (keep existing)' : 'Paste client secret'}
+              slotProps={{ input: { sx: { fontFamily: 'monospace', fontSize: '0.8rem' } } }}
+            />
+            <FormControlLabel
+              control={<Checkbox checked={showSecret} onChange={(e) => setShowSecret(e.target.checked)} size="small" />}
+              label={<Typography variant="caption">Reveal client secret</Typography>}
+            />
+            <TextField
+              label="GCP Account Email"
+              value={oauthGcpEmail}
+              onChange={(e) => setOauthGcpEmail(e.target.value)}
+              fullWidth
+              size="small"
+              placeholder="reward2learn@gmail.com"
+            />
+            <TextField
+              label="Support Email"
+              value={oauthSupportEmail}
+              onChange={(e) => setOauthSupportEmail(e.target.value)}
+              fullWidth
+              size="small"
+            />
+            <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5}>
+              <TextField
+                label="Auth URI"
+                value={oauthAuthUri}
+                onChange={(e) => setOauthAuthUri(e.target.value)}
+                fullWidth
+                size="small"
               />
-              {showSecret ? (
-                <Typography variant="caption" sx={{ display: 'block', fontFamily: 'monospace', wordBreak: 'break-all', color: 'text.secondary', px: 1, py: 0.5, bgcolor: 'background.default', borderRadius: 1 }}>
-                  {String(oauthCfg.clientSecret)}
-                </Typography>
-              ) : null}
-            </Box>
-          ) : null}
+              <TextField
+                label="Token URI"
+                value={oauthTokenUri}
+                onChange={(e) => setOauthTokenUri(e.target.value)}
+                fullWidth
+                size="small"
+              />
+            </Stack>
+          </Stack>
         </Paper>
 
         {/* This app's redirect URIs */}
@@ -934,6 +1051,15 @@ export function EditAppModal({ open, onClose, tenantSlug, app, onSnackbar }: Edi
         Review the changes to this app and the tenant configuration it inherits, then save.
       </Typography>
 
+      <Alert severity="info" icon={<RocketLaunchIcon />} sx={{ fontSize: '0.8rem' }}>
+        <AlertTitle sx={{ fontSize: '0.85rem', fontWeight: 700 }}>Vercel Save &amp; Push</AlertTitle>
+        Use <strong>Vercel Save &amp; Push</strong> (bottom-right) to persist the config and push all
+        required environment variables — <strong>GOOGLE_CLIENT_ID</strong>,{' '}
+        <strong>GOOGLE_CLIENT_SECRET</strong>, <strong>GOOGLE_PROJECT_ID</strong>, database URL, PINs,
+        custom env and NEXT_PUBLIC_* — to this app&apos;s Vercel project (
+        <strong>{vercelName}</strong>). The app must already be deployed on Vercel.
+      </Alert>
+
       {/* App Identity */}
       <Paper variant="outlined" sx={{ p: 2 }}>
         <Typography variant="subtitle2" sx={{ fontWeight: 600, mb: 1 }}>App Identity</Typography>
@@ -990,6 +1116,7 @@ export function EditAppModal({ open, onClose, tenantSlug, app, onSnackbar }: Edi
           <SummaryRow label="Features" value={features.length > 0 ? features.join(', ') : 'none'} />
           <SummaryRow label="OpenAI API Key" value={openaiApiKey ? '✅ configured' : '⚠️ not set'} />
           <SummaryRow label="Google OAuth" value={oauthClientId ? '✅ configured' : '⚠️ not set'} />
+          <SummaryRow label="OAuth Client ID" value={oauthClientId ? oauthClientId.slice(0, 40) + '...' : '⚠️ not set'} />
           <SummaryRow label="Redirect URIs" value={`${newAppRedirectUris.length} URIs (${newAppRedirectUris.filter((u) => oauthRedirectUris.includes(u)).length} registered)`} />
           <SummaryRow label="Database" value={dbUrl ? '✅ shared tenant DB' : '⚠️ not configured'} />
           <SummaryRow label="Custom Env Vars" value={envPairs.length > 0 ? envPairs.map((p) => p.key).join(', ') : 'none'} />
@@ -1084,17 +1211,30 @@ export function EditAppModal({ open, onClose, tenantSlug, app, onSnackbar }: Edi
 
         <Box sx={{ flex: 1 }} />
         {isSummaryStep ? (
-          <Button
-            variant="contained"
-            color="primary"
-            size="large"
-            onClick={() => void handleSave()}
-            disabled={!valid || saving}
-            startIcon={saving ? <CircularProgress size={20} color="inherit" /> : <CloudUploadIcon />}
-            sx={{ fontWeight: 700, minWidth: { xs: '100%', sm: 220 } }}
-          >
-            {saving ? 'SAVING...' : 'Save Changes'}
-          </Button>
+          <>
+            <Button
+              variant="outlined"
+              color="primary"
+              size="large"
+              onClick={() => void handleSave()}
+              disabled={!valid || saving || pushingEnv}
+              startIcon={saving && !pushingEnv ? <CircularProgress size={20} color="inherit" /> : <CloudUploadIcon />}
+              sx={{ fontWeight: 700, minWidth: { xs: '100%', sm: 180 } }}
+            >
+              {saving && !pushingEnv ? 'SAVING...' : 'Save Changes'}
+            </Button>
+            <Button
+              variant="contained"
+              color="primary"
+              size="large"
+              onClick={() => void handleSaveAndPush()}
+              disabled={!valid || saving || pushingEnv}
+              startIcon={saving ? <CircularProgress size={20} color="inherit" /> : <RocketLaunchIcon />}
+              sx={{ fontWeight: 700, minWidth: { xs: '100%', sm: 240 } }}
+            >
+              {saving ? (pushingEnv ? 'PUSHING ENV...' : 'SAVING...') : 'Vercel Save & Push'}
+            </Button>
+          </>
         ) : (
           <Button variant="contained" onClick={() => setActiveStep((s) => s + 1)} disabled={saving} sx={{ fontWeight: 600 }}>
             Continue
