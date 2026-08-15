@@ -115,7 +115,6 @@ export async function ensureVercelProject(input: { slug: string; projectId?: str
             teamId,
             // SDK's UpdateProjectRequestBody omits gitRepository — cast like the git path does.
             requestBody: {
-              rootDirectory: '.',
               gitRepository: { type: 'github' as const, repo: GIT_REPO },
             } as any,
           })
@@ -136,7 +135,6 @@ export async function ensureVercelProject(input: { slug: string; projectId?: str
         requestBody: {
           name: slug,
           framework: 'nextjs',
-          rootDirectory: '.',
           gitRepository: { type: 'github' as const, repo: GIT_REPO },
           buildCommand: 'zenstack generate --schema zenstack/schema.zmodel && npx prisma db push --schema=zenstack/prisma/schema.prisma --skip-generate --accept-data-loss && next build',
           installCommand: 'bun install',
@@ -391,7 +389,7 @@ const GIT_REPO_TYPE = 'github';
 /**
  * Ensure a Vercel project exists and is linked to the GitHub repo.
  * Creates the project if not found, and links it to the Git repository
- * with rootDirectory set to "website".
+ * linked to the GitHub repo.
  */
 export async function ensureVercelProjectWithGit(input: { slug: string; projectId?: string }): Promise<{ projectId: string; created: boolean }> {
   const client = await getVercelClient();
@@ -424,7 +422,6 @@ export async function ensureVercelProjectWithGit(input: { slug: string; projectI
           idOrName: existing.id,
           teamId,
           requestBody: {
-            rootDirectory: '.',
             gitRepository: { type: 'github' as const, repo: REPO },
           } as any,
         })
@@ -442,7 +439,6 @@ export async function ensureVercelProjectWithGit(input: { slug: string; projectI
         requestBody: {
           name: slug,
           framework: 'nextjs',
-          rootDirectory: '.',
           gitRepository: { type: 'github' as const, repo: REPO },
           buildCommand: 'zenstack generate --schema zenstack/schema.zmodel && npx prisma db push --schema=zenstack/prisma/schema.prisma --skip-generate --accept-data-loss && next build',
           installCommand: 'bun install',
