@@ -590,6 +590,12 @@ export const tenantApi = createApi({
       invalidatesTags: (_result, _error, { slug }) => [{ type: 'Tenants', id: slug }],
     }),
 
+    fetchGoogleOAuthClientInfo: builder.query<ApiEnvelope<Record<string, unknown>>, { slug: string }>({
+      query: ({ slug }) => ({
+        url: `admin/tenants/${slug}/provision/google-oauth/client-info`,
+      }),
+    }),
+
     provisionNeon: builder.mutation<ApiEnvelope<NeonProvisionResult>, { slug: string }>({
       query: ({ slug }) => ({
         url: `admin/tenants/${slug}/provision/neon`,
@@ -689,6 +695,8 @@ export const {
   useTriggerDeployHookMutation,
   useTestVercelWebhookMutation,
   useProvisionGoogleOAuthMutation,
+  useFetchGoogleOAuthClientInfoQuery,
+  useLazyFetchGoogleOAuthClientInfoQuery,
   useProvisionNeonMutation,
   useTestNeonConnectionMutation,
   useCheckRedirectsMutation,

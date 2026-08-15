@@ -35,6 +35,8 @@ export interface GoogleOAuthClientResult {
   clientSecretJson: string;
   /** Which strategy produced the result. */
   strategy: 'rest-api' | 'gcloud-cli' | 'env-fallback' | 'pre-existing';
+  /** True when the existing client's redirect URIs were updated via the Google API. */
+  apiUpdated?: boolean;
 }
 
 export interface GoogleProjectResult {
@@ -51,6 +53,20 @@ export interface TenantGoogleConfig {
   logoPath?: string;
 }
 
+/**
+ * An already-saved Google OAuth client (e.g. from the tenant's metadata.config.googleAuth).
+ * When provided, provisioning uses this client instead of creating/falling back —
+ * the redirect URIs are merged and (when API access exists) updated in GCP.
+ */
+export interface ExistingOAuthConfig {
+  clientId: string;
+  clientSecret: string;
+  projectId: string;
+  authUri?: string;
+  tokenUri?: string;
+  redirectUris?: string[];
+}
+
 // ── Config ─────────────────────────────────────────────────────
 
 const OAUTH_TOKEN_URL = 'https://oauth2.googleapis.com/token';
@@ -62,10 +78,51 @@ const OAUTH_AUTH_URL = 'https://accounts.google.com/o/oauth2/auth';
  */
 export async function provisionGoogleOAuth(
   config: TenantGoogleConfig,
+  existingConfig?: ExistingOAuthConfig,
 ): Promise<GoogleOAuthClientResult> {
   const { slug, displayName, redirectUris, adminEmail } = config;
 
   console.log(`[google-cloud] Provisioning OAuth for tenant "${slug}" (${displayName})`);
+
+  // ── Strategy 0: Tenant's existing saved client ──────────
+  if (existingConfig?.clientId && existingConfig?.clientSecret) {
+    const mergedUris = [...new Set([...(existingConfig.redirectUris || []), ...redirectUris])];
+    console.log(`[google-cloud] Using existing tenant client ${existingConfig.clientId} (project ${existingConfig.projectId}) — ${mergedUris.length} redirect URIs`);
+
+    // Best-effort: register the merged URIs in GCP when API access exists
+    let apiUpdated = false;
+    if (existingConfig.projectId) {
+      apiUpdated = await updateGoogleOAuthClientRedirectUris(
+        existingConfig.clientId,
+        existingConfig.projectId,
+        mergedUris,
+      );
+    }
+
+    const clientSecretJson = buildClientSecretJson(
+      {
+        client_id: existingConfig.clientId,
+        client_secret: existingConfig.clientSecret,
+        display_name: displayName,
+        redirect_uris: mergedUris,
+      },
+      existingConfig.projectId,
+    );
+
+    return {
+      clientId: existingConfig.clientId,
+      clientSecret: existingConfig.clientSecret,
+      projectId: existingConfig.projectId,
+      projectName: displayName,
+      redirectUris: mergedUris,
+      clientEmail: adminEmail,
+      authUri: existingConfig.authUri || OAUTH_AUTH_URL,
+      tokenUri: existingConfig.tokenUri || OAUTH_TOKEN_URL,
+      clientSecretJson,
+      strategy: 'pre-existing',
+      apiUpdated,
+    };
+  }
 
   // ── Strategy A: REST API via Service Account ─────────────
   const saResult = await tryStrategyServiceAccount(config);
@@ -719,6 +776,123 @@ function envVarFallback(config: TenantGoogleConfig): GoogleOAuthClientResult | n
   };
 }
 
+// ── Google OAuth Client Info (REST API fetch/update) ─────────
+
+export interface GoogleOAuthClientInfo {
+  clientId: string;
+  projectId: string;
+  projectNumber?: string;
+  displayName?: string;
+  redirectUris: string[];
+  source: 'google-api' | 'saved-config';
+  fetchedAt: string;
+}
+
+/**
+ * Fetch the CURRENT OAuth client data (redirect URIs, display name) from Google
+ * via the OAuth 2.0 API:
+ *   GET https://oauth2.googleapis.com/v1/projects/{projectNumber}/oauthClients/{clientId}
+ * Requires a service account with roles/oauthconfig.editor on the project
+ * (secrets table key "GOOGLE_CLOUD_SERVICE_ACCOUNT" or env GOOGLE_CLOUD_SERVICE_ACCOUNT_JSON).
+ * Returns null when no API access is available.
+ */
+export async function fetchGoogleOAuthClientInfo(
+  clientId: string,
+  projectId: string,
+): Promise<GoogleOAuthClientInfo | null> {
+  const auth = await getServiceAccountToken();
+  if (!auth) {
+    console.warn(`[google-cloud] Cannot fetch client info for ${clientId}: no service account configured`);
+    return null;
+  }
+
+  try {
+    // Resolve project number (required by the oauthClients endpoint)
+    const projRes = await fetch(
+      `https://cloudresourcemanager.googleapis.com/v1/projects/${encodeURIComponent(projectId)}`,
+      { headers: { Authorization: `Bearer ${auth.accessToken}` } },
+    );
+    if (!projRes.ok) {
+      console.warn(`[google-cloud] Project lookup failed for ${projectId}: ${projRes.status}`);
+      return null;
+    }
+    const proj = (await projRes.json()) as { projectNumber?: string; projectId?: string; name?: string };
+
+    const res = await fetch(
+      `https://oauth2.googleapis.com/v1/projects/${encodeURIComponent(proj.projectNumber || projectId)}/oauthClients/${encodeURIComponent(clientId)}`,
+      { headers: { Authorization: `Bearer ${auth.accessToken}` } },
+    );
+    if (!res.ok) {
+      const errText = await res.text().catch(() => '');
+      console.warn(`[google-cloud] OAuth client fetch failed for ${clientId}: ${res.status} ${errText.slice(0, 200)}`);
+      return null;
+    }
+    const client = (await res.json()) as { clientId?: string; displayName?: string; redirectUris?: string[] };
+
+    return {
+      clientId: client.clientId || clientId,
+      projectId,
+      projectNumber: proj.projectNumber,
+      displayName: client.displayName,
+      redirectUris: client.redirectUris || [],
+      source: 'google-api',
+      fetchedAt: new Date().toISOString(),
+    };
+  } catch (err) {
+    console.warn('[google-cloud] Client info fetch error:', err instanceof Error ? err.message : String(err));
+    return null;
+  }
+}
+
+/**
+ * Best-effort update of an existing OAuth client's redirect URIs via the OAuth 2.0 API:
+ *   PATCH https://oauth2.googleapis.com/v1/projects/{projectNumber}/oauthClients/{clientId}?updateMask=redirectUris
+ * Requires a service account with roles/oauthconfig.editor on the project.
+ * Returns true when the PATCH succeeded.
+ */
+export async function updateGoogleOAuthClientRedirectUris(
+  clientId: string,
+  projectId: string,
+  redirectUris: string[],
+): Promise<boolean> {
+  const auth = await getServiceAccountToken();
+  if (!auth) {
+    console.warn(`[google-cloud] Cannot update ${clientId}: no service account configured — register URIs manually in GCP Console`);
+    return false;
+  }
+
+  try {
+    const projRes = await fetch(
+      `https://cloudresourcemanager.googleapis.com/v1/projects/${encodeURIComponent(projectId)}`,
+      { headers: { Authorization: `Bearer ${auth.accessToken}` } },
+    );
+    if (!projRes.ok) return false;
+    const proj = (await projRes.json()) as { projectNumber?: string };
+
+    const res = await fetch(
+      `https://oauth2.googleapis.com/v1/projects/${encodeURIComponent(proj.projectNumber || projectId)}/oauthClients/${encodeURIComponent(clientId)}?updateMask=redirectUris`,
+      {
+        method: 'PATCH',
+        headers: {
+          Authorization: `Bearer ${auth.accessToken}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ redirectUris }),
+      },
+    );
+    if (!res.ok) {
+      const errText = await res.text().catch(() => '');
+      console.warn(`[google-cloud] OAuth client update failed for ${clientId}: ${res.status} ${errText.slice(0, 200)}`);
+      return false;
+    }
+    console.log(`[google-cloud] OAuth client ${clientId} redirect URIs updated via API (${redirectUris.length} URIs)`);
+    return true;
+  } catch (err) {
+    console.warn('[google-cloud] OAuth client update error:', err instanceof Error ? err.message : String(err));
+    return false;
+  }
+}
+
 // ── Formatting ────────────────────────────────────────────────
 
 /**
@@ -756,7 +930,7 @@ export async function saveClientSecretJson(result: GoogleOAuthClientResult): Pro
   const { tmpdir } = await import('node:os');
   const { writeFile, mkdir } = await import('node:fs/promises');
   const { existsSync } = await import('node:fs');
-  const { dirname, join } = await import('node:path');
+  const { join } = await import('node:path');
 
   const isVercel = !!process.env.VERCEL;
   const baseDir = isVercel ? tmpdir() : process.cwd();
@@ -838,7 +1012,7 @@ export async function provisionGoogleOAuthPerApp(
     const db = createClient();
 
     const encryptedSecret = encrypt(oauth.clientSecret);
-    await (db as any).googleOAuthConfig.upsert({
+    await (db as unknown as { googleOAuthConfig: { upsert: (args: unknown) => Promise<unknown> } }).googleOAuthConfig.upsert({
       where: { id: configId },
       create: {
         id: configId,

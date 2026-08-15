@@ -46,6 +46,7 @@ import Typography from '@mui/material/Typography';
 import AutoFixHighIcon from '@mui/icons-material/AutoFixHigh';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import CloudIcon from '@mui/icons-material/Cloud';
+import CloudDownloadIcon from '@mui/icons-material/CloudDownload';
 import CloudUploadIcon from '@mui/icons-material/CloudUpload';
 import CloseIcon from '@mui/icons-material/Close';
 import DnsIcon from '@mui/icons-material/Dns';
@@ -69,6 +70,7 @@ import {
   useListTenantsQuery,
   useEditAppMutation,
   useProvisionGoogleOAuthMutation,
+  useLazyFetchGoogleOAuthClientInfoQuery,
   usePushAppEnvVarsMutation,
   type SuiteAppInstance,
   type GoogleOAuthConfigPatch,
@@ -154,6 +156,8 @@ export function EditAppModal({ open, onClose, tenantSlug, app, onSnackbar }: Edi
   const [provisioningOAuth, setProvisioningOAuth] = useState(false);
   const [provisionOAuthResult, setProvisionOAuthResult] = useState<Record<string, unknown> | null>(null);
   const [provisionOAuthError, setProvisionOAuthError] = useState<string | null>(null);
+  const [gcpClientInfo, setGcpClientInfo] = useState<Record<string, unknown> | null>(null);
+  const [fetchingGcpInfo, setFetchingGcpInfo] = useState(false);
   // Editable GCP credentials (Google OAuth step) — persisted to the tenant
   // config via editApp.googleAuth and pushed to this app's Vercel project by
   // "Vercel Save & Push".
@@ -191,6 +195,7 @@ export function EditAppModal({ open, onClose, tenantSlug, app, onSnackbar }: Edi
   const { data: tenantsData } = useListTenantsQuery();
   const [editApp] = useEditAppMutation();
   const [provisionGoogleOAuth] = useProvisionGoogleOAuthMutation();
+  const [fetchGoogleOAuthClientInfo] = useLazyFetchGoogleOAuthClientInfoQuery();
   const [pushAppEnvVars] = usePushAppEnvVarsMutation();
   const { data: rolesData, isLoading: rolesLoading } = useListRoleConfigsQuery();
 
@@ -256,6 +261,7 @@ export function EditAppModal({ open, onClose, tenantSlug, app, onSnackbar }: Edi
     setFlightChecks([]);
     setProvisionOAuthResult(null);
     setProvisionOAuthError(null);
+    setGcpClientInfo(null);
     setOauthClientId(String((oauthCfg.clientId as string) || ''));
     setOauthClientSecret(String((oauthCfg.clientSecret as string) || ''));
     setOauthProjectId(String((oauthCfg.projectId as string) || ''));
@@ -315,6 +321,26 @@ export function EditAppModal({ open, onClose, tenantSlug, app, onSnackbar }: Edi
       setProvisioningOAuth(false);
     }
   }, [vercelName, oauthRedirectUris, newAppRedirectUris, oauthGcpEmail, tenantSlug, provisionGoogleOAuth, onSnackbar]);
+
+  // ── Fetch current OAuth client data from Google (SDK/REST) ──
+  const handleFetchGcpClientInfo = useCallback(async () => {
+    setFetchingGcpInfo(true);
+    setGcpClientInfo(null);
+    try {
+      const result = await fetchGoogleOAuthClientInfo({ slug: tenantSlug }).unwrap();
+      if (result.data) {
+        setGcpClientInfo(result.data as unknown as Record<string, unknown>);
+        onSnackbar({ message: '🌐 Fetched current GCP OAuth client data', severity: 'success' });
+      }
+    } catch (err) {
+      const msg = err && typeof err === 'object' && 'data' in err
+        ? String((err as { data?: { error?: string } }).data?.error || 'Failed to fetch GCP client info')
+        : 'Failed to fetch GCP client info';
+      onSnackbar({ message: `❌ ${msg}`, severity: 'error' });
+    } finally {
+      setFetchingGcpInfo(false);
+    }
+  }, [tenantSlug, fetchGoogleOAuthClientInfo, onSnackbar]);
 
   // ── Flight Check (app-scoped) ───────────────────────────────
   const runFlightCheck = useCallback(async () => {
@@ -948,6 +974,15 @@ export function EditAppModal({ open, onClose, tenantSlug, app, onSnackbar }: Edi
               >
                 {provisioningOAuth ? 'Adding...' : 'Auto-add Redirect URIs'}
               </Button>
+              <Button
+                variant="outlined"
+                size="small"
+                onClick={() => void handleFetchGcpClientInfo()}
+                disabled={fetchingGcpInfo}
+                startIcon={fetchingGcpInfo ? <CircularProgress size={16} color="inherit" /> : <CloudDownloadIcon />}
+              >
+                {fetchingGcpInfo ? 'Fetching...' : 'Fetch from GCP'}
+              </Button>
             </Stack>
           )}
         </Paper>
@@ -981,6 +1016,14 @@ export function EditAppModal({ open, onClose, tenantSlug, app, onSnackbar }: Edi
           <Alert severity="error">
             <AlertTitle>❌ OAuth Provisioning Failed</AlertTitle>
             {provisionOAuthError}
+          </Alert>
+        )}
+        {gcpClientInfo && (
+          <Alert severity="info">
+            <AlertTitle>🌐 Current GCP OAuth Client Data</AlertTitle>
+            <Typography variant="body2" sx={{ fontFamily: 'monospace', fontSize: '0.75rem', whiteSpace: 'pre-wrap' }}>
+              {JSON.stringify(gcpClientInfo, null, 2)}
+            </Typography>
           </Alert>
         )}
       </Stack>
