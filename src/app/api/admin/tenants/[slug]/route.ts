@@ -102,8 +102,8 @@ export async function PUT(
     await ensureTenantsTable(db);
     await ensureTenantConfigColumns(db);
     const existingRows = await db.$queryRawUnsafe(
-      `SELECT id FROM tenants WHERE slug = $1 LIMIT 1;`, slug,
-    ) as { id: string }[];
+      `SELECT id, metadata FROM tenants WHERE slug = $1 LIMIT 1;`, slug,
+    ) as { id: string; metadata: Record<string, unknown> | null }[];
     if (existingRows.length === 0) return jsonError('Tenant not found', 404);
 
     // Build SET clause from parsed data
@@ -119,7 +119,24 @@ export async function PUT(
     if (parsed.data.vercelProjectId !== undefined) { updates.push(`vercel_project_id = $${idx++}`); values.push(parsed.data.vercelProjectId); }
     if (parsed.data.dbUrl !== undefined) { updates.push(`db_url = $${idx++}`); values.push(parsed.data.dbUrl); }
     if (parsed.data.apiKey !== undefined) { updates.push(`api_key = $${idx++}`); values.push(parsed.data.apiKey); }
-    if (parsed.data.metadata !== undefined) { updates.push(`metadata = $${idx++}::jsonb`); values.push(JSON.stringify(parsed.data.metadata)); }
+    if (parsed.data.metadata !== undefined) {
+      // Merge instead of replace — the client sends a partial config blob
+      // (only the fields it edits). A full overwrite here silently destroys
+      // keys the client did not send, most critically metadata.config.appPack
+      // (the suite app list) and googleAuth.
+      const existingMeta = (existingRows[0].metadata ?? {}) as Record<string, unknown>;
+      const incomingMeta = parsed.data.metadata;
+      const mergedMeta: Record<string, unknown> = {
+        ...existingMeta,
+        ...incomingMeta,
+        config: {
+          ...((existingMeta.config ?? {}) as Record<string, unknown>),
+          ...((incomingMeta.config ?? {}) as Record<string, unknown>),
+        },
+      };
+      updates.push(`metadata = $${idx++}::jsonb`);
+      values.push(JSON.stringify(mergedMeta));
+    }
 
     if (updates.length > 0) {
       updates.push(`updated_at = CURRENT_TIMESTAMP`);
@@ -164,8 +181,8 @@ export async function DELETE(
   try {
     await ensureTenantsTable(db);
     const existingRows = await db.$queryRawUnsafe(
-      `SELECT id FROM tenants WHERE slug = $1 LIMIT 1;`, slug,
-    ) as { id: string }[];
+      `SELECT id, metadata FROM tenants WHERE slug = $1 LIMIT 1;`, slug,
+    ) as { id: string; metadata: Record<string, unknown> | null }[];
     if (existingRows.length === 0) return jsonError('Tenant not found', 404);
 
     // Hard delete — permanently remove the tenant row

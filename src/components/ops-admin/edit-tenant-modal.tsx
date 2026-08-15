@@ -323,6 +323,10 @@ function buildConfigFields(input: ConfigFieldsInput) {
       adminEmail: adminEmail || DEFAULT_PLATFORM_ADMIN_EMAIL,
       pinSignInEnabled,
     },
+    // Preserve the suite app list — buildConfigFields only edits the fields
+    // the modal exposes; dropping appPack here would wipe every suite app
+    // on the next Save (the PUT route now merges, but keep the payload whole).
+    appPack: getAppPack(tenant) ?? undefined,
   };
 }
 
@@ -677,17 +681,19 @@ export function EditTenantModal({ open, tenant, onClose, onSnackbar }: EditTenan
         setProvisionOAuthResult(result as unknown as Record<string, unknown>);
         // Auto-fill returned credentials — route wraps in jsonOk so result.data has the fields
         const dd = result.data || {};
-        if (dd.clientId) handleOAuthChange('clientId', dd.clientId);
-        if (dd.clientSecret) handleOAuthChange('clientSecret', dd.clientSecret);
-        if (dd.projectId) handleOAuthChange('projectId', dd.projectId);
-        
         const strategy = dd.strategy || 'unknown';
         if (strategy === 'env-fallback') {
+          // Strategy C returned the platform's own shared GOOGLE_CLIENT_*
+          // credentials — never auto-fill those into this tenant's config,
+          // or the tenant silently inherits the factory's OAuth identity.
           onSnackbar({
-            message: `⚠️ Using shared OAuth credentials. Create a dedicated OAuth client via GCP Console for production.`,
+            message: `⚠️ Shared OAuth credentials returned (no dedicated client created). Create a dedicated OAuth client via GCP Console for production.`,
             severity: 'success',
           });
         } else {
+          if (dd.clientId) handleOAuthChange('clientId', dd.clientId);
+          if (dd.clientSecret) handleOAuthChange('clientSecret', dd.clientSecret);
+          if (dd.projectId) handleOAuthChange('projectId', dd.projectId);
           onSnackbar({ message: `✅ GCP project + OAuth credentials created for ${tenant.slug}`, severity: 'success' });
         }
       } else {
