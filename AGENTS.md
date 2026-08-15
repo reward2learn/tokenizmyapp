@@ -35,6 +35,8 @@ bun run dev          # Starts on localhost:3000
 | `NEXT_PUBLIC_TENANT_SLUG` | Always `tokenizmyapp` for this app |
 | `POSTGRES_URL` | Neon database connection |
 | `ENCRYPTION_KEY` | JWT + AES-256-GCM encryption |
+| `GOOGLE_RELAY_SECRET` | Shared HMAC secret for the Google OAuth relay (factory + every tenant app). Enables dynamic per-app Google sign-in — Google removed the OAuth client API, so apps sign in via the factory's single registered callback instead of per-app redirect URIs |
+| `GOOGLE_RELAY_REDIRECT_URI` | Factory relay callback pushed to tenant apps (default `https://tokenizmyapp.vercel.app/api/auth/google-relay-callback`). Set to override the factory domain |
 
 ## Code layout
 

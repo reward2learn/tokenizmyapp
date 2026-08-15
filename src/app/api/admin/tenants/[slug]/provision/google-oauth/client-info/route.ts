@@ -46,6 +46,8 @@ export async function GET(
     }
 
     // No API access — return the saved config's redirect URIs as the best-known state
+    const relayEnabled = Boolean(process.env.GOOGLE_RELAY_REDIRECT_URI && process.env.GOOGLE_RELAY_SECRET);
+    const relayUri = process.env.GOOGLE_RELAY_REDIRECT_URI ?? null;
     return jsonOk({
       success: true,
       slug,
@@ -54,7 +56,14 @@ export async function GET(
       redirectUris: Array.isArray(savedGoogle?.redirectUris) ? (savedGoogle.redirectUris as string[]) : [],
       source: 'saved-config',
       apiUnavailable: true,
-      note: 'Google removed the OAuth client management API — redirect URIs can no longer be fetched programmatically. Verify them in the GCP Console (https://console.cloud.google.com/auth/clients?project=' + projectId + '). Showing the saved config as best-known state.',
+      relay: {
+        enabled: relayEnabled,
+        redirectUri: relayUri,
+        secretConfigured: Boolean(process.env.GOOGLE_RELAY_SECRET),
+      },
+      note: relayEnabled
+        ? 'Google removed the OAuth client management API — redirect URIs can no longer be fetched programmatically. Relay mode is ACTIVE: apps sign in through the factory relay (' + relayUri + '), so no per-app URIs need registration — only the relay URI itself must be registered in the GCP Console (once). Showing the saved config as best-known state.'
+        : 'Google removed the OAuth client management API — redirect URIs can no longer be fetched programmatically. Verify them in the GCP Console (https://console.cloud.google.com/auth/clients?project=' + projectId + '). Showing the saved config as best-known state.',
       fetchedAt: new Date().toISOString(),
     });
   } catch (err) {

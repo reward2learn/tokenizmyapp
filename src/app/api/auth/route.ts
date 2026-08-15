@@ -11,6 +11,11 @@ import {
   getGoogleOAuthCredentials,
   getGoogleOAuthPublicConfig,
 } from '@/lib/auth/google-oauth';
+import {
+  getRelaySecret,
+  signRelayState,
+  verifyRelayTicket,
+} from '@/lib/auth/google-relay';
 import { sessionIsPlatformAdmin, signSession } from '@/lib/auth/jwt';
 import { resolveRoleForEmail } from '@/domain/seed/seed-runner';
 import {
@@ -65,6 +70,8 @@ export async function GET(request: Request) {
       return handleGoogleRedirect(request, url);
     case 'google-callback':
       return handleGoogleCallback(request, url);
+    case 'google-relay-finish':
+      return handleGoogleRelayFinish(request, url);
     case 'me':
       return handleMe(request);
     case 'logout':
@@ -125,8 +132,25 @@ async function handleGoogleRedirect(request: Request, url: URL): Promise<NextRes
 
   const redirectTo = url.searchParams.get('redirect') || '/';
   const nonce = Math.random().toString(36).slice(2) + Date.now().toString(36);
-  const state = `${redirectTo}::${nonce}`;
   const origin = getOrigin(request);
+
+  // Relay mode: tenant apps funnel Google sign-in through the factory's single
+  // registered callback — no per-app redirect URI registration needed (Google
+  // removed the OAuth client management API, so per-app registration is no
+  // longer possible programmatically). Legacy path stays for apps whose own
+  // callback URIs are registered (the factory itself, local dev).
+  const relayRedirectUri = process.env.GOOGLE_RELAY_REDIRECT_URI;
+  const relaySecret = getRelaySecret();
+  if (relayRedirectUri && relaySecret) {
+    const state = signRelayState(
+      { appUrl: origin, redirectTo, nonce, clientId: config.clientId },
+      relaySecret,
+    );
+    const authUrl = buildGoogleAuthUrl(config, { redirectUri: relayRedirectUri, state });
+    return NextResponse.redirect(authUrl);
+  }
+
+  const state = `${redirectTo}::${nonce}`;
   const redirectUri = `${origin}/api/auth/callback/google`;
 
   const authUrl = buildGoogleAuthUrl(config, { redirectUri, state });
@@ -190,38 +214,84 @@ async function handleGoogleCallback(request: Request, url: URL): Promise<NextRes
       picture?: string;
     };
 
-    const db = createBaseClient();
-    const matchedRole = await resolveRoleForEmail(user.email, db);
-    const dbPlatformAdmin = matchedRole?.isPlatformAdmin ?? false;
-    const dbRoleCode = matchedRole?.code;
-    const { groups, permissions } = await resolveSessionGroups({
-      sub: user.id,
-      email: user.email,
-      name: user.name,
-      tier: 'google',
-      roleCode: dbRoleCode,
-    });
-    const platformAdmin =
-      (matchedRole?.isPlatformAdmin ?? false) ||
-      dbPlatformAdmin ||
-      groups.includes('platform-admin');
-    const token = await signSession({
-      sub: user.id,
-      tier: 'google',
-      email: user.email,
-      name: user.name,
-      picture: user.picture,
-      roleCode: dbRoleCode,
-      platformAdmin,
-      groups,
-      permissions,
-    });
+    const token = await buildGoogleSessionToken(user);
 
     const response = NextResponse.redirect(new URL(`${redirectTo}?auth=success`, origin));
     setSessionCookie(response, token);
     return response;
   } catch (err) {
     console.error('[auth/google-callback] Error:', err instanceof Error ? err.message : err);
+    return NextResponse.redirect(new URL(`${redirectTo}?auth=error`, origin));
+  }
+}
+
+/** Mint the session JWT for a Google-authenticated user (shared by the
+ *  direct callback and the relay-finish path). */
+async function buildGoogleSessionToken(user: {
+  id: string;
+  email?: string;
+  name?: string;
+  picture?: string;
+}): Promise<string> {
+  const db = createBaseClient();
+  const matchedRole = await resolveRoleForEmail(user.email, db);
+  const dbPlatformAdmin = matchedRole?.isPlatformAdmin ?? false;
+  const dbRoleCode = matchedRole?.code;
+  const { groups, permissions } = await resolveSessionGroups({
+    sub: user.id,
+    email: user.email,
+    name: user.name,
+    tier: 'google',
+    roleCode: dbRoleCode,
+  });
+  const platformAdmin =
+    (matchedRole?.isPlatformAdmin ?? false) ||
+    dbPlatformAdmin ||
+    groups.includes('platform-admin');
+  return signSession({
+    sub: user.id,
+    tier: 'google',
+    email: user.email,
+    name: user.name,
+    picture: user.picture,
+    roleCode: dbRoleCode,
+    platformAdmin,
+    groups,
+    permissions,
+  });
+}
+
+/**
+ * Relay finish — runs on the tenant app after the factory relay exchanged the
+ * Google code. Verifies the short-lived HMAC ticket (identity + redirect are
+ * signed by the factory), then mints this app's own session cookie.
+ */
+async function handleGoogleRelayFinish(request: Request, url: URL): Promise<NextResponse> {
+  const ticket = url.searchParams.get('ticket') ?? '';
+  const secret = getRelaySecret();
+  if (!secret) {
+    console.error('[auth/google-relay-finish] GOOGLE_RELAY_SECRET not set');
+    return NextResponse.redirect(new URL('/?auth=error', getOrigin(request)));
+  }
+  const payload = verifyRelayTicket(ticket, secret);
+  if (!payload) {
+    console.error('[auth/google-relay-finish] invalid or expired ticket');
+    return NextResponse.redirect(new URL('/?auth=error', getOrigin(request)));
+  }
+  const redirectTo = payload.redirectTo || '/';
+  const origin = getOrigin(request);
+  try {
+    const token = await buildGoogleSessionToken({
+      id: payload.sub,
+      email: payload.email,
+      name: payload.name,
+      picture: payload.picture,
+    });
+    const response = NextResponse.redirect(new URL(`${redirectTo}?auth=success`, origin));
+    setSessionCookie(response, token);
+    return response;
+  } catch (err) {
+    console.error('[auth/google-relay-finish] Error:', err instanceof Error ? err.message : err);
     return NextResponse.redirect(new URL(`${redirectTo}?auth=error`, origin));
   }
 }

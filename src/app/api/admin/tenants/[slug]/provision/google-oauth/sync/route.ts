@@ -82,6 +82,8 @@ export async function POST(
     const info = await fetchGoogleOAuthClientInfo(clientId, projectId);
 
     if (!info) {
+      const relayEnabled = Boolean(process.env.GOOGLE_RELAY_REDIRECT_URI && process.env.GOOGLE_RELAY_SECRET);
+      const relayUri = process.env.GOOGLE_RELAY_REDIRECT_URI ?? null;
       return jsonOk({
         success: true,
         slug,
@@ -90,7 +92,14 @@ export async function POST(
         source: 'saved-config',
         apiUnavailable: true,
         savedUris: [...knownUris],
-        guidance: 'Google removed the OAuth client management API — live GCP fetch/PATCH is no longer possible for any credential. Redirect URIs can only be managed in the GCP Console: https://console.cloud.google.com/auth/clients?project=' + projectId + '. The saved config below is the source of truth — verify these URIs are registered in the console.',
+        relay: {
+          enabled: relayEnabled,
+          redirectUri: relayUri,
+          secretConfigured: Boolean(process.env.GOOGLE_RELAY_SECRET),
+        },
+        guidance: relayEnabled
+          ? 'Google removed the OAuth client management API — live GCP fetch/PATCH is no longer possible for any credential. Relay mode is ACTIVE: tenant apps sign in through the factory relay (' + relayUri + '), so per-app URI registration is no longer needed — only the relay URI must be registered in the GCP Console (once). The saved config is the source of truth for the DB.'
+          : 'Google removed the OAuth client management API — live GCP fetch/PATCH is no longer possible for any credential. Redirect URIs can only be managed in the GCP Console: https://console.cloud.google.com/auth/clients?project=' + projectId + '. The saved config below is the source of truth — verify these URIs are registered in the console.',
         fetchedAt: new Date().toISOString(),
       });
     }

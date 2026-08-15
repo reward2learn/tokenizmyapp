@@ -73,14 +73,16 @@ export async function getGoogleOAuthPublicConfig(): Promise<GoogleOAuthPublicCon
   };
 }
 
-export async function getGoogleOAuthCredentials(): Promise<GoogleOAuthCredentials | null> {
-  // Prefer this app's own GOOGLE_* env credentials when present. The
+export async function getGoogleOAuthCredentials(options?: { preferDb?: boolean }): Promise<GoogleOAuthCredentials | null> {
+  // Default: prefer this app's own GOOGLE_* env credentials. The
   // google_oauth_config row is a singleton (id 'default') living in the
   // factory's SHARED database — preferring it first would leak the factory's
   // client id to every tenant app that shares the DB (my-finance-review,
   // redrubybali, ...). Tenant deployments carry their own credentials in env.
+  // preferDb: true swaps the order (used by the factory's relay, which must
+  // exchange codes issued against the SHARED client, not the factory's own).
   const fromEnv = credentialsFromEnv();
-  if (fromEnv) return fromEnv;
+  if (!options?.preferDb && fromEnv) return fromEnv;
 
   try {
     const db = createClient();
@@ -99,7 +101,37 @@ export async function getGoogleOAuthCredentials(): Promise<GoogleOAuthCredential
     console.error('[google-oauth] DB load failed, trying env fallback:', err instanceof Error ? err.message : err);
   }
 
-  return credentialsFromEnv();
+  return fromEnv;
+}
+
+/**
+ * Resolve credentials that match a specific Google client id — used by the
+ * relay so the code exchange always uses the exact client the tenant app
+ * started the flow with. Env first (factory's own client), then the shared
+ * DB singleton (client id of the provisioned tenant apps).
+ */
+export async function getGoogleOAuthCredentialsForClient(clientId: string): Promise<GoogleOAuthCredentials | null> {
+  const fromEnv = credentialsFromEnv();
+  if (fromEnv && fromEnv.clientId === clientId) return fromEnv;
+
+  try {
+    const db = createClient();
+    const row = await db.googleOAuthConfig.findUnique({ where: { id: CONFIG_ID } });
+    if (row && row.clientId === clientId) {
+      const clientSecret = decrypt(row.encryptedSecret, row.iv, row.authTag);
+      return {
+        clientId: row.clientId,
+        projectId: row.projectId,
+        authUri: row.authUri,
+        tokenUri: row.tokenUri,
+        clientSecret,
+      };
+    }
+  } catch (err) {
+    console.error('[google-oauth] getGoogleOAuthCredentialsForClient DB load failed:', err instanceof Error ? err.message : err);
+  }
+
+  return null;
 }
 
 export async function setGoogleOAuthConfig(input: GoogleOAuthInput): Promise<void> {

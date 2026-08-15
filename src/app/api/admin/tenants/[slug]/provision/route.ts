@@ -28,6 +28,7 @@ import {
   saveClientSecretJson,
 } from '@/domain/tenant/google-cloud-service';
 import { setGoogleOAuthConfig } from '@/lib/auth/google-oauth';
+import { DEFAULT_RELAY_REDIRECT_URI } from '@/lib/auth/google-relay';
 import { inngest } from '@/lib/inngest';
 import type { AppPackConfig } from '@/store/apis/tenant-api';
 
@@ -100,6 +101,15 @@ export async function POST(
 
   const steps: StepResult[] = [];
   const envVars: Record<string, string> = {};
+
+  // Relay env vars — included for every new tenant/app so Google sign-in works
+  // without registering per-app redirect URIs (Google removed that API).
+  if (process.env.GOOGLE_RELAY_SECRET) {
+    envVars.GOOGLE_RELAY_SECRET = process.env.GOOGLE_RELAY_SECRET;
+    envVars.GOOGLE_RELAY_REDIRECT_URI =
+      process.env.GOOGLE_RELAY_REDIRECT_URI || DEFAULT_RELAY_REDIRECT_URI;
+  }
+
   const db = createClient({ tier: guard.session.tier, sub: guard.session.sub });
 
   try {

@@ -5,6 +5,7 @@
  * fallback) is handled by vercel-sdk-client.ts.
  */
 import { getVercelClient, withTeamId, withTeamId404Null, TEAM_ID, resolveBearerToken, VERCEL_API } from './vercel-sdk-client';
+import { DEFAULT_RELAY_REDIRECT_URI } from '@/lib/auth/google-relay';
 import type { UpdateProjectRequestBody } from '@vercel/sdk/models/updateprojectbranchmatcher.js';
 
 
@@ -304,6 +305,16 @@ export function buildEnvVarsForProject(input: DeployTenantInput): Record<string,
     if (value) {
       envVars[key] = value;
     }
+  }
+
+  // Google OAuth relay: when the factory has the shared relay secret configured,
+  // every deployed app gets the relay URI + HMAC secret so Google sign-in works
+  // WITHOUT registering per-app redirect URIs (Google removed that API). New
+  // apps are fully dynamic; existing apps pick this up on their next re-deploy.
+  if (process.env.GOOGLE_RELAY_SECRET) {
+    envVars.GOOGLE_RELAY_SECRET = process.env.GOOGLE_RELAY_SECRET;
+    envVars.GOOGLE_RELAY_REDIRECT_URI =
+      process.env.GOOGLE_RELAY_REDIRECT_URI || DEFAULT_RELAY_REDIRECT_URI;
   }
 
   // Dedicated platform-admin email for tenant Google sign-in mapping.
