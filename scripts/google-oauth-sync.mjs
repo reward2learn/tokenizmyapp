@@ -79,6 +79,11 @@ async function resolveServiceAccount() {
   if (typeof args.sa === 'string' && existsSync(args.sa)) {
     return JSON.parse(readFileSync(args.sa, 'utf8'));
   }
+  // Project-scoped env var first (e.g. GOOGLE_CLOUD_SERVICE_ACCOUNT_JSON__REDRUBY_FPA)
+  const suffix = slug.toUpperCase().replace(/[^A-Z0-9]/g, '_');
+  if (env[`GOOGLE_CLOUD_SERVICE_ACCOUNT_JSON__${suffix}`]) {
+    return JSON.parse(env[`GOOGLE_CLOUD_SERVICE_ACCOUNT_JSON__${suffix}`]);
+  }
   if (env.GOOGLE_CLOUD_SERVICE_ACCOUNT_JSON) {
     return JSON.parse(env.GOOGLE_CLOUD_SERVICE_ACCOUNT_JSON);
   }

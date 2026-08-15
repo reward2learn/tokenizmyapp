@@ -158,26 +158,58 @@ export async function provisionGoogleOAuth(
 // ── Strategy A: REST API via Service Account ─────────────────
 
 /**
+ * Normalize a GCP project ID into an env/secret key suffix:
+ * "redruby-fpa" -> "REDRUBY_FPA"
+ */
+function projectKeySuffix(projectId: string): string {
+  return projectId.toUpperCase().replace(/[^A-Z0-9]/g, '_');
+}
+
+/**
  * Get a Google Cloud access token from a service account.
- * The service account JSON can come from:
- *   1. secrets table (key: "GOOGLE_CLOUD_SERVICE_ACCOUNT")
- *   2. Environment variable: GOOGLE_CLOUD_SERVICE_ACCOUNT_JSON
+ * The service account JSON can come from (project-scoped first when a
+ * projectId is given, so multiple projects can each have their own SA):
+ *   1. secrets table key "GOOGLE_CLOUD_SERVICE_ACCOUNT__{PROJECT}" (e.g.
+ *      GOOGLE_CLOUD_SERVICE_ACCOUNT__REDRUBY_FPA)
+ *   2. env var GOOGLE_CLOUD_SERVICE_ACCOUNT_JSON__{PROJECT}
+ *   3. secrets table key "GOOGLE_CLOUD_SERVICE_ACCOUNT" (generic)
+ *   4. env var GOOGLE_CLOUD_SERVICE_ACCOUNT_JSON (generic)
  *
  * Returns null if no service account is configured.
  */
-async function getServiceAccountToken(): Promise<{ accessToken: string; projectId: string } | null> {
+async function getServiceAccountToken(projectId?: string): Promise<{ accessToken: string; projectId: string } | null> {
   let saJson: string | null = null;
   let source = 'none';
 
-  // Try secrets table first
-  try {
-    saJson = await getSecretPlaintext('GOOGLE_CLOUD_SERVICE_ACCOUNT');
-    if (saJson) source = 'secrets_table';
-  } catch {
-    // Secret might not exist — fall through
+  const suffix = projectId ? projectKeySuffix(projectId) : null;
+
+  // 1. Project-scoped secrets table key
+  if (suffix) {
+    try {
+      saJson = await getSecretPlaintext(`GOOGLE_CLOUD_SERVICE_ACCOUNT__${suffix}`);
+      if (saJson) source = `secrets_table__${suffix}`;
+    } catch {
+      // Secret might not exist — fall through
+    }
   }
 
-  // Try env var next
+  // 2. Project-scoped env var
+  if (!saJson && suffix) {
+    saJson = process.env[`GOOGLE_CLOUD_SERVICE_ACCOUNT_JSON__${suffix}`] ?? null;
+    if (saJson) source = `env_var__${suffix}`;
+  }
+
+  // 3. Generic secrets table key
+  if (!saJson) {
+    try {
+      saJson = await getSecretPlaintext('GOOGLE_CLOUD_SERVICE_ACCOUNT');
+      if (saJson) source = 'secrets_table';
+    } catch {
+      // Secret might not exist — fall through
+    }
+  }
+
+  // 4. Generic env var
   if (!saJson) {
     saJson = process.env.GOOGLE_CLOUD_SERVICE_ACCOUNT_JSON ?? null;
     if (saJson) source = 'env_var';
@@ -791,9 +823,9 @@ export interface GoogleAccessToken {
  *   2. gcloud CLI (local dev, when installed + authenticated)
  * Returns null when neither is available.
  */
-export async function getGoogleAccessToken(): Promise<GoogleAccessToken | null> {
-  // 1. Service account (pure SDK path)
-  const sa = await getServiceAccountToken();
+export async function getGoogleAccessToken(projectId?: string): Promise<GoogleAccessToken | null> {
+  // 1. Service account (pure SDK path) — project-scoped when projectId given
+  const sa = await getServiceAccountToken(projectId);
   if (sa) return { ...sa, source: 'service-account' };
 
   // 2. gcloud CLI path
@@ -838,7 +870,7 @@ export async function fetchGoogleOAuthClientInfo(
   clientId: string,
   projectId: string,
 ): Promise<GoogleOAuthClientInfo | null> {
-  const auth = await getGoogleAccessToken();
+  const auth = await getGoogleAccessToken(projectId);
   if (!auth) {
     console.warn(`[google-cloud] Cannot fetch client info for ${clientId}: no service account or gcloud auth available`);
     return null;
@@ -893,7 +925,7 @@ export async function updateGoogleOAuthClientRedirectUris(
   projectId: string,
   redirectUris: string[],
 ): Promise<boolean> {
-  const auth = await getGoogleAccessToken();
+  const auth = await getGoogleAccessToken(projectId);
   if (!auth) {
     console.warn(`[google-cloud] Cannot update ${clientId}: no service account or gcloud auth available — register URIs manually in GCP Console`);
     return false;
