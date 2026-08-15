@@ -103,11 +103,32 @@ export async function ensureVercelProject(input: { slug: string; projectId?: str
     client.projects.getProject({ idOrName: slug, teamId })
   );
   if (existing) {
-    console.log(`[vercel-deploy] Project "${slug}" already exists: ${existing.id}`);
+    // Link to Git repo if not already linked — required for git-source
+    // deployments to build from the shared repo.
+    const link = (existing as { link?: unknown; gitRepository?: unknown }).link ?? (existing as { gitRepository?: unknown }).gitRepository;
+    if (!link) {
+      console.log(`[vercel-deploy] Linking existing project "${slug}" to Git repo...`);
+      try {
+        await withTeamId((teamId) =>
+          client.projects.updateProject({
+            idOrName: existing.id,
+            teamId,
+            // SDK's UpdateProjectRequestBody omits gitRepository — cast like the git path does.
+            requestBody: {
+              rootDirectory: '.',
+              gitRepository: { type: 'github' as const, repo: GIT_REPO },
+            } as any,
+          })
+        );
+        console.log(`[vercel-deploy] Project "${slug}" linked to ${GIT_REPO}`);
+      } catch (err) {
+        console.warn(`[vercel-deploy] Git link warning for "${slug}":`, err instanceof Error ? err.message : err);
+      }
+    }
     return { projectId: existing.id, created: false };
   }
 
-  // 2. Create new project
+  // 2. Create new project — git-linked so deployments build from the repo
   try {
     const created = await withTeamId((teamId) =>
       client.projects.createProject({
@@ -115,6 +136,8 @@ export async function ensureVercelProject(input: { slug: string; projectId?: str
         requestBody: {
           name: slug,
           framework: 'nextjs',
+          rootDirectory: '.',
+          gitRepository: { type: 'github' as const, repo: GIT_REPO },
           buildCommand: 'zenstack generate --schema zenstack/schema.zmodel && npx prisma db push --schema=zenstack/prisma/schema.prisma --skip-generate --accept-data-loss && next build',
           installCommand: 'bun install',
           outputDirectory: '.next',
@@ -275,6 +298,31 @@ export async function syncEnvVars(
   return envCount;
 }
 
+/**
+ * Resolve the GitHub repo ID used for git-source deployments.
+ *
+ * Chain: VERCEL_GIT_REPO_ID env var → the platform project's linked repo →
+ * known fallback for reward2learn/tokenizmyapp.
+ *
+ * NOTE: Vercel only injects VERCEL_GIT_* variables at BUILD time, so they are
+ * undefined inside serverless functions at runtime. Relying on the env var
+ * alone silently produced empty projects (createDeployment with repoId: ''
+ * fails with 400 and the error was swallowed). The platform project lookup
+ * covers the common case; the constant is the last resort.
+ */
+async function resolveGitRepoId(client: Awaited<ReturnType<typeof getVercelClient>>): Promise<string> {
+  if (process.env.VERCEL_GIT_REPO_ID) return process.env.VERCEL_GIT_REPO_ID;
+  try {
+    const platform = await withTeamId404Null((teamId) =>
+      client.projects.getProject({ idOrName: 'tokenizmyapp', teamId })
+    );
+    const p = platform as { link?: { repoId?: number | string }; gitRepository?: { repoId?: number | string } } | null;
+    const repoId = p?.link?.repoId ?? p?.gitRepository?.repoId;
+    if (repoId) return String(repoId);
+  } catch { /* fall through to fallback */ }
+  return '1310805947'; // reward2learn/tokenizmyapp
+}
+
 export async function deployTenant(input: DeployTenantInput): Promise<DeployTenantResult> {
   const appUrl = `https://${input.slug}.vercel.app`;
   const client = await getVercelClient();
@@ -305,8 +353,11 @@ export async function deployTenant(input: DeployTenantInput): Promise<DeployTena
     console.warn(`[vercel-deploy] Domain assignment warning:`, err instanceof Error ? err.message : err);
   }
 
-  // Trigger deployment
+  // Trigger deployment — git-source from the shared repo's main branch.
+  // repoId must be a real GitHub repo ID (VERCEL_GIT_REPO_ID is build-time
+  // only, so resolve it dynamically instead of trusting the env var).
   try {
+    const repoId = await resolveGitRepoId(client);
     await withTeamId((teamId) =>
       client.deployments.createDeployment({
         teamId,
@@ -314,7 +365,7 @@ export async function deployTenant(input: DeployTenantInput): Promise<DeployTena
           name: input.slug,
           project: projectId,
           target: 'production',
-          gitSource: { type: 'github', repoId: process.env.VERCEL_GIT_REPO_ID || '' } as any,
+          gitSource: { type: 'github', repoId, ref: 'main' } as any,
         },
       })
     );
@@ -465,6 +516,7 @@ export async function deployTenantWithGit(input: DeployTenantInput): Promise<Dep
 
   // Trigger Git-based deployment
   try {
+    const repoId = await resolveGitRepoId(client);
     await withTeamId((teamId) =>
       client.deployments.createDeployment({
         teamId,
@@ -472,7 +524,7 @@ export async function deployTenantWithGit(input: DeployTenantInput): Promise<Dep
           name: input.slug,
           project: projectId,
           target: 'production',
-          gitSource: { type: 'github' as const, repoId: input.slug, ref: 'main' } as any,
+          gitSource: { type: 'github' as const, repoId, ref: 'main' } as any,
         },
       })
     );
