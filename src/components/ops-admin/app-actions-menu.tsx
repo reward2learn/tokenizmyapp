@@ -13,27 +13,19 @@
  */
 import { useState } from 'react';
 import Alert from '@mui/material/Alert';
-import Box from '@mui/material/Box';
 import Button from '@mui/material/Button';
-import Chip from '@mui/material/Chip';
-import CircularProgress from '@mui/material/CircularProgress';
 import Dialog from '@mui/material/Dialog';
 import DialogActions from '@mui/material/DialogActions';
 import DialogContent from '@mui/material/DialogContent';
 import DialogContentText from '@mui/material/DialogContentText';
 import DialogTitle from '@mui/material/DialogTitle';
 import Divider from '@mui/material/Divider';
-import FormControl from '@mui/material/FormControl';
 import IconButton from '@mui/material/IconButton';
-import InputLabel from '@mui/material/InputLabel';
 import ListItemIcon from '@mui/material/ListItemIcon';
 import ListItemText from '@mui/material/ListItemText';
 import Menu from '@mui/material/Menu';
 import MenuItem from '@mui/material/MenuItem';
-import Select from '@mui/material/Select';
-import Stack from '@mui/material/Stack';
 import TextField from '@mui/material/TextField';
-import Typography from '@mui/material/Typography';
 import BuildIcon from '@mui/icons-material/Build';
 import CloudUploadIcon from '@mui/icons-material/CloudUpload';
 import ContentCopyIcon from '@mui/icons-material/ContentCopy';
@@ -49,14 +41,12 @@ import RefreshIcon from '@mui/icons-material/Refresh';
 import RocketLaunchIcon from '@mui/icons-material/RocketLaunch';
 import VerifiedIcon from '@mui/icons-material/Verified';
 
-import { listTemplates, getTemplate } from '@/domain/tenant/template-catalog';
 import {
   useSeedAppMutation,
   useMigrateAppMutation,
   useDeployAppMutation,
   useLazyGetAppStatusQuery,
   useLazyRefreshAppStatusQuery,
-  useEditAppMutation,
   useLazyGetAppDomainsQuery,
   useTriggerDeployHookMutation,
   useRemoveAppFromSuiteMutation,
@@ -65,6 +55,7 @@ import {
 import { useClearSeedMutation } from '@/store/apis/admin-api';
 import { TenantInlineUserManager } from './tenant-inline-user-manager';
 import { CreateAppWizard } from './create-app-wizard';
+import { EditAppModal } from './edit-app-modal';
 
 /** Extracts the API envelope's `error` string off an RTK Query error, without `any`. */
 function apiErrorMessage(err: unknown, fallback: string): string {
@@ -291,7 +282,7 @@ export function AppActionsMenu({ tenantSlug, tenantName, app, anchorEl, open, on
         </MenuItem>
       </Menu>
 
-      <AppEditDialog
+      <EditAppModal
         open={editOpen}
         onClose={() => setEditOpen(false)}
         tenantSlug={tenantSlug}
@@ -404,109 +395,5 @@ export function AppActionsMenuButton({ tenantSlug, tenantName, app, onSnackbar }
         onSnackbar={onSnackbar}
       />
     </>
-  );
-}
-
-// ── Edit dialog ────────────────────────────────────────────
-
-interface AppEditDialogProps {
-  open: boolean;
-  onClose: () => void;
-  tenantSlug: string;
-  app: SuiteAppInstance;
-  onSnackbar: (msg: { message: string; severity: 'success' | 'error' }) => void;
-}
-
-function AppEditDialog({ open, onClose, tenantSlug, app, onSnackbar }: AppEditDialogProps) {
-  const [name, setName] = useState(app.name);
-  const [department, setDepartment] = useState(app.department);
-  const [templateId, setTemplateId] = useState(app.templateId);
-  const [primaryColor, setPrimaryColor] = useState(app.primaryColor || getTemplate(app.templateId).defaultColors.primary);
-  const [secondaryColor, setSecondaryColor] = useState(app.secondaryColor || getTemplate(app.templateId).defaultColors.secondary);
-  const [deployHookUrl, setDeployHookUrl] = useState(app.deployHookUrl || '');
-  const [editApp, { isLoading }] = useEditAppMutation();
-  const templates = listTemplates();
-
-  const handleSave = async () => {
-    try {
-      await editApp({
-        slug: tenantSlug,
-        appId: app.appId,
-        name: name.trim() || app.name,
-        department: department.trim() || app.department,
-        templateId,
-        primaryColor,
-        secondaryColor,
-        deployHookUrl: deployHookUrl.trim() || null,
-      }).unwrap();
-      onSnackbar({ message: `✅ ${app.name} updated`, severity: 'success' });
-      onClose();
-    } catch (err) {
-      onSnackbar({ message: apiErrorMessage(err, '❌ Failed to update app'), severity: 'error' });
-    }
-  };
-
-  return (
-    <Dialog open={open} onClose={onClose} maxWidth="sm" fullWidth>
-      <DialogTitle sx={{ fontWeight: 700 }}>Edit App: {app.name}</DialogTitle>
-      <DialogContent>
-        <Stack spacing={2.5} sx={{ mt: 1 }}>
-          <TextField label="Name" value={name} onChange={(e) => setName(e.target.value)} fullWidth size="small" />
-          <TextField label="Department" value={department} onChange={(e) => setDepartment(e.target.value)} fullWidth size="small" />
-          <FormControl fullWidth size="small">
-            <InputLabel>Template</InputLabel>
-            <Select value={templateId} label="Template" onChange={(e) => setTemplateId(e.target.value)}>
-              {templates.map((t) => (
-                <MenuItem key={t.id} value={t.id}>{t.label}</MenuItem>
-              ))}
-            </Select>
-          </FormControl>
-          <Stack direction="row" spacing={2}>
-            <Box sx={{ flex: 1 }}>
-              <TextField
-                label="Primary Color" value={primaryColor} onChange={(e) => setPrimaryColor(e.target.value)}
-                fullWidth size="small"
-                slotProps={{ input: { startAdornment: <Box sx={{ width: 20, height: 20, borderRadius: 0.5, bgcolor: primaryColor, border: '1px solid', borderColor: 'divider', mr: 1 }} /> } }}
-              />
-            </Box>
-            <Box sx={{ flex: 1 }}>
-              <TextField
-                label="Secondary Color" value={secondaryColor} onChange={(e) => setSecondaryColor(e.target.value)}
-                fullWidth size="small"
-                slotProps={{ input: { startAdornment: <Box sx={{ width: 20, height: 20, borderRadius: 0.5, bgcolor: secondaryColor, border: '1px solid', borderColor: 'divider', mr: 1 }} /> } }}
-              />
-            </Box>
-          </Stack>
-          <TextField
-            label="Deploy Hook URL"
-            value={deployHookUrl}
-            onChange={(e) => setDeployHookUrl(e.target.value)}
-            fullWidth
-            size="small"
-            placeholder="https://api.vercel.com/v1/integrations/deploy/prj_xxx/hook_xxx"
-            helperText="This app's own Vercel Deploy Hook — create one in the app's Vercel project settings."
-            slotProps={{ input: { sx: { fontFamily: 'monospace', fontSize: '0.8rem' } } }}
-          />
-          {app.vercelProjectId ? (
-            <Typography variant="caption" color="text.secondary">
-              Vercel Project: <Chip label={app.vercelProjectId} size="small" variant="outlined" sx={{ fontFamily: 'monospace' }} />
-            </Typography>
-          ) : (
-            <Alert severity="info" sx={{ fontSize: '0.8rem' }}>Not deployed yet — Vercel project ID will appear here after the first deploy.</Alert>
-          )}
-        </Stack>
-      </DialogContent>
-      <DialogActions sx={{ px: 3, pb: 2 }}>
-        <Button onClick={onClose} disabled={isLoading}>Cancel</Button>
-        <Button
-          variant="contained"
-          onClick={() => void handleSave()}
-          disabled={isLoading}
-          startIcon={isLoading ? <CircularProgress size={18} color="inherit" /> : undefined}
-        >
-          {isLoading ? 'Saving…' : 'Save Changes'}
-        </Button>
-      </DialogActions>
-    </Dialog>
   );
 }
