@@ -213,6 +213,7 @@ model UserAccount {
   @@allow('read', auth().tier == pin || auth().tier == google)
   @@allow('update', auth().tier == pin || auth().tier == google)
   @@index([tenantSlug, appId])
+  @@index([tenantSlug], map: "idx_user_accounts_tenant_slug")
   @@map("user_accounts")
 }
 
@@ -367,6 +368,7 @@ model NavigationItem {
   @@allow('create,update,delete', auth().tier == pin || auth().tier == google)
   @@index([parentId, sortOrder])
   @@index([tenantSlug, appId])
+  @@index([tenantSlug], map: "idx_navigation_items_tenant_slug")
   @@map("navigation_items")
 }
 
@@ -608,6 +610,7 @@ model MonthlyActualDepartment {
   appId          String   @default("") @map("app_id")
 
   @@id([period, department, appId])
+  @@index([appId], map: "idx_monthly_actual_departments_app_id")
   @@allow('all', true)
   @@map("monthly_actual_departments")
 }
