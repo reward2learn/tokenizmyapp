@@ -39,6 +39,6 @@ export async function sendTenantCleanupNotification(
     console.log(`[tenant-notifications] ✅ Cleanup successful for ${tenantSlug}`);
   }
 
-  // TODO: Integrate with real notification system (e.g. send to admin Slack channel,
+  // TODO: Integrate with real notification system (e.g. send to admin Slack channel. Implementation pending.
   // email to platform owner, or persist to notifications table)
 }

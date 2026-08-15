@@ -562,7 +562,7 @@ async function extractColorsFromImageBase64(_base64Data: string): Promise<string
   // A proper implementation would decode the image pixels
   
   // Placeholder: return empty array — the CSS color extraction is the primary method
-  // TODO: Implement proper color extraction from image pixels (Phase 10+)
+  // TODO: Implement proper color extraction from image pixels (Phase 10+). Implementation pending.)
   return [];
 }
 
