@@ -118,7 +118,14 @@ export function TenantSecurityGroups({ tenantSlug, tenantName, appId }: TenantSe
 
   const handleSavePerms = async () => {
     if (!editing) return;
-    await updateGroup({ code: editing.code, permissions: editing.permissions }).unwrap();
+    // Editing is only ever offered for tenant groups (see the Edit IconButton
+    // below) — this tenant's own dedicated database is where the row lives.
+    await updateGroup({
+      code: editing.code,
+      permissions: editing.permissions,
+      tenantSlug,
+      ...(appId ? { appId } : {}),
+    }).unwrap();
     setEditing(null);
     refetch();
   };

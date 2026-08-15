@@ -310,23 +310,30 @@ export async function PATCH(
     // suite-provisioning.ts). Running this against the root `db` client
     // above would silently migrate the platform's own DB and never touch
     // where this app's actual data lives.
-    const { addTenantColumnsIfMissing } = await import('@/domain/tenant/tenant-seed-service');
+    const { addTenantColumnsIfMissing, seedTemplateSecurityGroups } = await import('@/domain/tenant/tenant-seed-service');
     const tenantDbUrl = tenant.db_url as string | null;
     const migrateClient = tenantDbUrl
       ? new PrismaClient({ datasources: { db: { url: tenantDbUrl } } })
       : null;
+    let groupsSynced = 0;
     try {
       await addTenantColumnsIfMissing(migrateClient ?? db);
+
+      // Push the current global security-group catalog into the shared
+      // tenant database this app lives in — idempotent, and never touches
+      // tenant-specific custom groups (created via the Security Groups tab).
+      groupsSynced = await seedTemplateSecurityGroups(migrateClient ?? db, app.templateId);
     } finally {
       if (migrateClient) await migrateClient.$disconnect();
     }
 
-    console.log(`[app-migrate] Schema sync complete for "${appId}" in tenant "${slug}"`);
+    console.log(`[app-migrate] Schema sync complete for "${appId}" in tenant "${slug}" — ${groupsSynced} security groups synced`);
 
     return jsonOk({
       migrated: true,
       appId,
       templateId: app.templateId,
+      groupsSynced,
     });
   } catch (err) {
     return jsonError('Failed to migrate app: ' + (err as Error).message, 500);

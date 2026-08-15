@@ -1,10 +1,13 @@
 import { NextResponse } from 'next/server';
-import { createRawClient } from '@/lib/db';
+import { PrismaClient } from '@/generated/prisma';
+import { createRawClient, type DbClient } from '@/lib/db';
 import { requireWriteAuth } from '@/lib/auth/guards';
 import { sessionIsPlatformAdmin } from '@/lib/auth/jwt';
 import { jsonError, jsonOk } from '@/lib/api/response';
 import { DEFAULT_SECURITY_GROUPS } from '@/lib/db-migrate';
 import { CAPABILITY_AREAS, capability, ALL_CAPABILITIES } from '@/domain/security/capabilities';
+import { resolveDedicatedTenantDbUrl } from '@/domain/tenant/tenant-db-resolver';
+import { addTenantColumnsIfMissing } from '@/domain/tenant/tenant-seed-service';
 
 export const maxDuration = 30;
 
@@ -37,6 +40,37 @@ type GroupRow = {
   app_id: string | null;
 };
 
+/** Resolve the DB connection for a group request — a tenant's own dedicated
+ *  database when tenantSlug/appId resolve to one (its live app only ever
+ *  reads its own database, so a tenant-scoped group has no effect unless it
+ *  lives there), otherwise the platform's root DB for global-catalog
+ *  browsing. Self-heals security_groups/user_groups so a tenant DB that
+ *  predates this table gets it created on first use. */
+async function resolveGroupsDb(
+  tenantSlug: string | null | undefined,
+  appId: string | null | undefined,
+): Promise<{ db: DbClient; dedicated: PrismaClient | null } | { error: NextResponse }> {
+  const dbUrl = await resolveDedicatedTenantDbUrl(tenantSlug, appId);
+  let db: DbClient;
+  let dedicated: PrismaClient | null = null;
+  try {
+    if (dbUrl) {
+      dedicated = new PrismaClient({ datasources: { db: { url: dbUrl } } });
+      db = dedicated as unknown as DbClient;
+    } else {
+      db = createRawClient() as unknown as DbClient;
+    }
+  } catch {
+    return { error: jsonError('Database unavailable', 503) };
+  }
+  try {
+    await addTenantColumnsIfMissing(db);
+  } catch {
+    // Best-effort — individual queries below still guard themselves.
+  }
+  return { db, dedicated };
+}
+
 export async function GET(request: Request): Promise<NextResponse> {
   const guard = await requireWriteAuth(request);
   if (!guard.ok) return guard.response;
@@ -48,13 +82,9 @@ export async function GET(request: Request): Promise<NextResponse> {
   const tenantSlug = searchParams.get('tenantSlug');
   const appId = searchParams.get('appId');
 
-  // Use raw Prisma client (tables created by prisma db push during build)
-  let db: ReturnType<typeof createRawClient>;
-  try {
-    db = createRawClient();
-  } catch {
-    return jsonError('Database unavailable', 503);
-  }
+  const resolved = await resolveGroupsDb(tenantSlug, appId);
+  if ('error' in resolved) return resolved.error;
+  const { db, dedicated } = resolved;
 
   try {
     const where: string[] = [];
@@ -89,6 +119,8 @@ export async function GET(request: Request): Promise<NextResponse> {
   } catch (err) {
     console.error('[admin/groups] GET error:', err);
     return jsonError('Failed to load groups', 500);
+  } finally {
+    if (dedicated) await dedicated.$disconnect();
   }
 }
 
@@ -120,13 +152,9 @@ export async function POST(request: Request): Promise<NextResponse> {
 
   const perms = normalizePermissions(permissions);
 
-  // Use raw Prisma client
-  let db: ReturnType<typeof createRawClient>;
-  try {
-    db = createRawClient();
-  } catch {
-    return jsonError('Database unavailable', 503);
-  }
+  const resolved = await resolveGroupsDb(tenantSlug, appId);
+  if ('error' in resolved) return resolved.error;
+  const { db, dedicated } = resolved;
 
   try {
     await db.$executeRawUnsafe(
@@ -147,6 +175,8 @@ export async function POST(request: Request): Promise<NextResponse> {
   } catch (err) {
     console.error('[admin/groups] POST error:', err);
     return jsonError('Failed to create group', 500);
+  } finally {
+    if (dedicated) await dedicated.$disconnect();
   }
 }
 
@@ -162,24 +192,22 @@ export async function PATCH(request: Request): Promise<NextResponse> {
     return jsonError('Invalid JSON', 400);
   }
 
-  const { code, name, description, permissions } = (body ?? {}) as {
+  const { code, name, description, permissions, tenantSlug, appId } = (body ?? {}) as {
     code?: string;
     name?: string;
     description?: string;
     permissions?: string[];
+    tenantSlug?: string;
+    appId?: string;
   };
 
   if (!code) return jsonError('code is required', 400);
 
   const perms = normalizePermissions(permissions);
 
-  let db;
-  try {
-    db = createRawClient();
-    // ensureSecurityTables skipped — tables from prisma db push
-  } catch {
-    return jsonError('Database unavailable', 503);
-  }
+  const resolved = await resolveGroupsDb(tenantSlug, appId);
+  if ('error' in resolved) return resolved.error;
+  const { db, dedicated } = resolved;
 
   try {
     const affected = await db.$executeRawUnsafe(
@@ -198,6 +226,8 @@ export async function PATCH(request: Request): Promise<NextResponse> {
   } catch (err) {
     console.error('[admin/groups] PATCH error:', err);
     return jsonError('Failed to update group', 500);
+  } finally {
+    if (dedicated) await dedicated.$disconnect();
   }
 }
 

@@ -333,7 +333,7 @@ export const tenantApi = createApi({
       invalidatesTags: ['Tenants'],
     }),
 
-    migrateApp: builder.mutation<ApiEnvelope<{ migrated: boolean; appId: string; templateId: string }>, { slug: string; appId: string }>({
+    migrateApp: builder.mutation<ApiEnvelope<{ migrated: boolean; appId: string; templateId: string; groupsSynced?: number }>, { slug: string; appId: string }>({
       query: ({ slug, appId }) => ({
         url: `admin/tenants/${slug}/apps/${appId}`,
         method: 'PATCH',

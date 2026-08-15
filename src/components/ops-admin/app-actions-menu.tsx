@@ -117,8 +117,9 @@ export function AppActionsMenu({ tenantSlug, tenantName, app, anchorEl, open, on
   const handleMigrate = async () => {
     onClose();
     try {
-      await migrateApp({ slug: tenantSlug, appId: app.appId }).unwrap();
-      onSnackbar({ message: `✅ ${app.appId} schema synced`, severity: 'success' });
+      const result = await migrateApp({ slug: tenantSlug, appId: app.appId }).unwrap();
+      const groupsSynced = result.data?.groupsSynced;
+      onSnackbar({ message: `✅ ${app.appId} schema synced${groupsSynced !== undefined ? ` — ${groupsSynced} security groups` : ''}`, severity: 'success' });
     } catch (err) {
       onSnackbar({ message: apiErrorMessage(err, `❌ Failed to sync ${app.appId}`), severity: 'error' });
     }

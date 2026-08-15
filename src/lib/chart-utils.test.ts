@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   parseMonthQueryParam,
   resolveDefaultMonthIndex,
@@ -14,7 +14,15 @@ describe('chart-utils month helpers', () => {
     expect(parseMonthQueryParam(null)).toBeNull();
   });
 
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   it('resolves default month index to current calendar month when present', () => {
+    // Pin the clock to July 2026 (local time) so the assertion is deterministic
+    // regardless of when the suite runs.
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date(2026, 6, 15, 12));
     const julLabels = ['Jan 2026', 'Jul 2026', 'Aug 2026'];
     expect(resolveDefaultMonthIndex(julLabels)).toBe(1);
     expect(resolveDefaultMonthIndex(['Jan 2026'])).toBe(0);

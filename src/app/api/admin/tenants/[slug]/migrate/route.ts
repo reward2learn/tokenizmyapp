@@ -10,7 +10,7 @@ import { createRawClient } from '@/lib/db';
 import { requireWriteAuth } from '@/lib/auth/guards';
 import { jsonError, jsonOk } from '@/lib/api/response';
 import { ensureTenantsTable } from '@/domain/tenant/tenant-service';
-import { addTenantColumnsIfMissing } from '@/domain/tenant/tenant-seed-service';
+import { addTenantColumnsIfMissing, seedTemplateSecurityGroups } from '@/domain/tenant/tenant-seed-service';
 import { ensureTenantConfigColumns } from '@/domain/tenant/tenant-config-service';
 
 export const dynamic = 'force-dynamic';
@@ -34,8 +34,8 @@ export async function POST(
 
     // 2. Check tenant exists
     const rows = await db.$queryRawUnsafe(
-      `SELECT id, db_url FROM tenants WHERE slug = $1 LIMIT 1;`, slug,
-    ) as { id: string; db_url: string | null }[];
+      `SELECT id, db_url, template FROM tenants WHERE slug = $1 LIMIT 1;`, slug,
+    ) as { id: string; db_url: string | null; template: string }[];
     if (rows.length === 0) return jsonError('Tenant not found', 404);
     results.tenantExists = 'ok';
 
@@ -46,12 +46,22 @@ export async function POST(
     const migrateClient = tenantDbUrl
       ? new PrismaClient({ datasources: { db: { url: tenantDbUrl } } })
       : null;
+    let groupsSynced = 0;
     try {
       await addTenantColumnsIfMissing(migrateClient ?? db);
+      results.tenantColumns = 'ok';
+
+      // Push the current global security-group catalog (platform-admin,
+      // ops-admin, finance, viewer) into this tenant's own database — an
+      // idempotent upsert, so it also fixes tenants whose dedicated DB
+      // predates security_groups/user_groups (see addTenantColumnsIfMissing
+      // above) or whose catalog is stale relative to the latest definitions.
+      // Never touches tenant-specific custom groups.
+      groupsSynced = await seedTemplateSecurityGroups(migrateClient ?? db, rows[0].template);
+      results.securityGroups = `${groupsSynced} synced`;
     } finally {
       if (migrateClient) await migrateClient.$disconnect();
     }
-    results.tenantColumns = 'ok';
 
     // 4. Ensure tenant config columns (api_key, etc.) — these live on the
     // `tenants` registry row itself, which always lives in the root DB.

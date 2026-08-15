@@ -131,5 +131,6 @@ export function resolveMonthIndex(labels: string[], selectedLabel: string | null
     const idx = labels.indexOf(selectedLabel);
     if (idx >= 0) return idx;
   }
-  return resolveDefaultMonthIndex(labels);
+  // Unmatched/stale selection → first available month (deterministic).
+  return 0;
 }

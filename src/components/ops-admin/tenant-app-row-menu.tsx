@@ -94,8 +94,9 @@ export function TenantAppRowMenu({ tenantSlug, onSnackbar }: TenantAppRowMenuPro
   const handleMigrate = async () => {
     close();
     try {
-      await migrateTenant(tenantSlug).unwrap();
-      onSnackbar({ message: '✅ Schema synced', severity: 'success' });
+      const result = await migrateTenant(tenantSlug).unwrap();
+      const groupsResult = result.data?.results?.securityGroups;
+      onSnackbar({ message: groupsResult ? `✅ Schema synced — security groups: ${groupsResult}` : '✅ Schema synced', severity: 'success' });
     } catch (err) {
       onSnackbar({ message: apiErrorMessage(err, '❌ Failed to sync schema'), severity: 'error' });
     }

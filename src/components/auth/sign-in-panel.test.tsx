@@ -42,11 +42,30 @@ function renderPanel() {
 
 describe('SignInPanel', () => {
   beforeEach(() => {
+    // The panel renders the PIN form only when list-pin-users returns
+    // PIN-configured accounts (user list comes from user_accounts + roles).
     vi.stubGlobal(
       'fetch',
-      vi.fn().mockResolvedValue(
-        mockFetchResponse({ ok: true, success: true }),
-      ),
+      vi.fn().mockImplementation((input: RequestInfo | URL) => {
+        // fetchBaseQuery hands fetch a Request object — read .url from it.
+        const url = typeof input === 'string' ? input : (input as Request).url;
+        if (url.includes('action=list-pin-users')) {
+          return Promise.resolve(
+            mockFetchResponse({
+              success: true,
+              data: {
+                users: [
+                  { sub: 'u-1', name: 'Budi', role: 'owner', pinConfigured: true },
+                  { sub: 'u-2', name: 'Sari', role: 'manager', pinConfigured: true },
+                ],
+                lastUsedName: null,
+                lastUsedSub: null,
+              },
+            }),
+          );
+        }
+        return Promise.resolve(mockFetchResponse({ ok: true, success: true }));
+      }),
     );
   });
 
@@ -55,11 +74,12 @@ describe('SignInPanel', () => {
     vi.unstubAllGlobals();
   });
 
-  it('renders PIN and Google options for pin tier', () => {
+  it('renders PIN and Google options for pin tier', async () => {
     renderPanel();
     expect(screen.getByTestId('sign-in-panel')).toBeInTheDocument();
     expect(screen.getByText('Ops Sign-In')).toBeInTheDocument();
     expect(screen.getByText('Sign in with Google')).toBeInTheDocument();
-    expect(screen.getByTestId('pin-input')).toBeInTheDocument();
+    // The PIN form renders after list-pin-users resolves (async user list).
+    expect(await screen.findByTestId('pin-input')).toBeInTheDocument();
   });
 });

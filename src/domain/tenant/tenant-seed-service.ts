@@ -94,6 +94,36 @@ export async function addTenantColumnsIfMissing(db: any): Promise<void> {
     `ALTER TABLE user_accounts ADD COLUMN IF NOT EXISTS tenant_slug TEXT;`,
     `ALTER TABLE user_accounts ADD COLUMN IF NOT EXISTS app_id TEXT;`,
 
+    // security_groups / user_groups — also ensures these tables exist at all
+    // for tenant databases that never had ensureSecurityTables() run against
+    // them (that function targets the platform's own root DB only, same gap
+    // as user_accounts above). Without this, a tenant's own dedicated
+    // database has nowhere to persist tenant-scoped security groups created
+    // via the admin console, and the group never reaches the tenant's live
+    // app (which only ever reads its own dedicated DB). Must run after
+    // user_accounts above — user_groups references it by FK.
+    `CREATE TABLE IF NOT EXISTS security_groups (
+      id TEXT PRIMARY KEY DEFAULT gen_random_uuid(),
+      code TEXT NOT NULL UNIQUE,
+      name TEXT NOT NULL,
+      description TEXT,
+      is_system BOOLEAN NOT NULL DEFAULT false,
+      permissions TEXT[] NOT NULL DEFAULT '{}',
+      created_at TIMESTAMP WITHOUT TIME ZONE DEFAULT CURRENT_TIMESTAMP
+    );`,
+    `ALTER TABLE security_groups ADD COLUMN IF NOT EXISTS tenant_slug TEXT;`,
+    `ALTER TABLE security_groups ADD COLUMN IF NOT EXISTS app_id TEXT;`,
+    `CREATE INDEX IF NOT EXISTS idx_security_groups_tenant_app ON security_groups (tenant_slug, app_id);`,
+    `CREATE TABLE IF NOT EXISTS user_groups (
+      id TEXT PRIMARY KEY DEFAULT gen_random_uuid(),
+      user_id TEXT NOT NULL REFERENCES user_accounts (id) ON DELETE CASCADE,
+      group_id TEXT NOT NULL REFERENCES security_groups (id) ON DELETE CASCADE,
+      created_at TIMESTAMP WITHOUT TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE (user_id, group_id)
+    );`,
+    `CREATE INDEX IF NOT EXISTS idx_user_groups_user ON user_groups (user_id);`,
+    `CREATE INDEX IF NOT EXISTS idx_user_groups_group ON user_groups (group_id);`,
+
     // roles — tenant/app isolation (also ensures the table exists at all for
     // tenant databases provisioned before this table was part of the schema)
     `CREATE TABLE IF NOT EXISTS roles (

@@ -265,8 +265,12 @@ export function TenantDashboard() {
   const handleMigrate = async (slug: string) => {
     handleMenuClose();
     try {
-      await migrateTenant(slug).unwrap();
-      setSnackbar({ message: 'Tenant migration completed', severity: 'success' });
+      const result = await migrateTenant(slug).unwrap();
+      const groupsResult = result.data?.results?.securityGroups;
+      setSnackbar({
+        message: groupsResult ? `Tenant migration completed — security groups: ${groupsResult}` : 'Tenant migration completed',
+        severity: 'success',
+      });
     } catch {
       setSnackbar({ message: 'Failed to migrate tenant', severity: 'error' });
     }

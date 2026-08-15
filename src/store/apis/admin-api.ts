@@ -139,7 +139,7 @@ export const adminApi = createApi({
     }),
     updateAdminGroup: builder.mutation<
       ApiEnvelope<{ code: string; updated: boolean }>,
-      { code: string; name?: string; description?: string; permissions?: string[] }
+      { code: string; name?: string; description?: string; permissions?: string[] } & TenantAppScope
     >({
       query: (body) => ({
         url: 'admin/groups',
