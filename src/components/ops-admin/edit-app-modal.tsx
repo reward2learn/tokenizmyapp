@@ -240,7 +240,11 @@ export function EditAppModal({ open, onClose, tenantSlug, app, onSnackbar }: Edi
 
   // ── Derived identity (stable — app already exists) ───────
   const vercelName = `${tenantSlug}-${app.appId}`;
-  const appUrl = app.appUrl || `https://${vercelName}.vercel.app`;
+  // Deployment URLs (team-scoped, e.g. "...-5h46xywpz-ilishaps-projects.vercel.app")
+  // are transient — always display the stable alias for this app.
+  const appUrl = app.appUrl && !app.appUrl.includes('-ilishaps-projects.vercel.app')
+    ? app.appUrl
+    : `https://${vercelName}.vercel.app`;
   const valid = !!name.trim();
 
   // This app's redirect URIs — must be registered in the tenant's GCP OAuth

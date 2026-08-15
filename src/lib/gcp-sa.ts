@@ -17,13 +17,21 @@
  *   const sa = getTenantGoogleSa()  // falls back to generic SA
  */
 
+import { createSign } from 'node:crypto';
+
 // ── SA Resolution ──────────────────────────────────────────────
-function getTenantGoogleSa(slug?: string): any {
+export interface GoogleServiceAccount {
+  client_email: string;
+  private_key: string;
+  project_id?: string;
+}
+
+function getTenantGoogleSa(slug?: string): GoogleServiceAccount {
   // 1. Project-scoped: GOOGLE_CLOUD_SERVICE_ACCOUNT_JSON__{SLUG_UPPER}
   const suffix = (slug || 'tokenizmyapp')
     .toUpperCase()
     .replace(/[^A-Z0-9]/g, '_')
-  const projectScoped = process.env[`GOOGLE_CLOUD_SERVICE_ACCOUNT_JSON_${suffix}`]
+  const projectScoped = process.env[`GOOGLE_CLOUD_SERVICE_ACCOUNT_JSON__${suffix}`]
   if (projectScoped) {
     return JSON.parse(projectScoped)
   }
@@ -46,12 +54,15 @@ function b64(obj: unknown): string {
   return raw
 }
 
-async function getAccessToken(sa: any): Promise<string> {
+async function getAccessToken(
+  sa: GoogleServiceAccount,
+  scope: string = 'https://www.googleapis.com/auth/cloud-platform',
+): Promise<string> {
   const now = Math.floor(Date.now() / 1000)
   const header = { alg: 'RS256', typ: 'JWT' }
   const claims = {
     iss: sa.client_email,
-    scope: 'https://www.googleapis.com/auth/cloud-platform',
+    scope,
     aud: 'https://oauth2.googleapis.com/token',
     exp: now + 3600,
     iat: now,
@@ -82,7 +93,7 @@ async function getAccessToken(sa: any): Promise<string> {
  * @param slug - Tenant slug (e.g., 'redrubybali', 'tokenizmyapp')
  *   If undefined, uses the current tenant from context or falls back to generic SA.
  */
-export function getTenantSa(slug?: string): any {
+export function getTenantSa(slug?: string): GoogleServiceAccount {
   return getTenantGoogleSa(slug)
 }
 
@@ -95,10 +106,7 @@ export async function getTenantAccessToken(
   slug?: string,
   scopes: string = 'https://www.googleapis.com/auth/cloud-platform',
 ): Promise<string> {
-  const sa = getTenantGoogleSa(slug)
-  // Override the scope if different from default
-  sa._scopes = scopes
-  return getAccessToken(sa)
+  return getAccessToken(getTenantGoogleSa(slug), scopes)
 }
 
 /**

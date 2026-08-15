@@ -16,6 +16,8 @@ export const dynamic = 'force-dynamic';
 
 const VERCEL_API = 'https://api.vercel.com';
 const TEAM_ID = process.env.VERCEL_TEAM_ID || 'team_uKNaNEyjHVW7vooXeUfNJ3LW';
+/** Team-scoped .vercel.app URLs (deployments, preview aliases) are transient — never stored as appUrl. */
+const TEAM_URL_MARKER = '-ilishaps-projects.vercel.app';
 
 function getAppPack(tenant: Record<string, unknown>): AppPackConfig | null {
   const meta = (tenant.metadata ?? {}) as Record<string, unknown>;
@@ -99,7 +101,11 @@ export async function GET(
     }
 
     const mappedStatus = mapVercelState(latest.state);
-    const resolvedAppUrl = latest.url ? `https://${latest.url}` : app.appUrl;
+    // Deployment URLs change on every push — never store them as the
+    // canonical appUrl. Keep the stable project alias / custom domain.
+    const deploymentUrl = latest.url ? `https://${latest.url}` : undefined;
+    const aliasUrl = `https://${slug}-${appId}.vercel.app`;
+    const resolvedAppUrl = app.appUrl && !app.appUrl.includes(TEAM_URL_MARKER) ? app.appUrl : aliasUrl;
 
     appPack.apps[idx] = { ...app, status: mappedStatus, appUrl: resolvedAppUrl };
     await saveAppPack(db, slug, appPack);
@@ -108,6 +114,7 @@ export async function GET(
       appId,
       status: mappedStatus,
       appUrl: resolvedAppUrl,
+      deploymentUrl,
       vercelState: latest.state,
       note: latest.state === 'ERROR' ? 'Deployment build failed — check the Vercel dashboard for details.' : undefined,
     });
