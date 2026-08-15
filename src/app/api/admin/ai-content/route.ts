@@ -36,9 +36,15 @@ import { extractExcelData, type ExcelData } from '@/domain/excel/excel-extractor
 import { buildGenerationPrompt, buildDataSummary } from '@/domain/ai-content/prompt-builder';
 import { generateAndSave, OPENAI_QUOTA_MARKER, type ProgressEvent } from '@/domain/ai-content/content-generator';
 import { getCurrentAppId, getTenantConfig } from '@shared/lib/config/tenant';
+import { withTimeout } from '@/lib/with-timeout';
 
 export const dynamic = 'force-dynamic';
-export const maxDuration = 120; // 2 min timeout for AI provider calls
+// The three AI calls (business review, executive summary, dashboard data)
+// now run concurrently (see content-generator.ts) rather than summed
+// sequentially, but a single slow model/provider can still approach 120s on
+// its own — this raises the ceiling as a safety margin. Actual max is
+// whatever the deployment's Vercel plan allows; excess is silently capped.
+export const maxDuration = 300;
 
 // ── Schema ──────────────────────────────────────────────
 
@@ -222,16 +228,18 @@ export async function GET(request: Request): Promise<NextResponse> {
     };
 
     try {
-      const snippet = await db.knowledgeSnippet.findUnique({
-        where: { key_appId: { key: 'executive_summary', appId: getCurrentAppId() } },
-      });
-      existingContent.executiveSummary = snippet?.content
-        ? snippet.content.slice(0, 500) + '...'
+      const snippet = await withTimeout(
+        db.knowledgeSnippet.findUnique({ where: { key_appId: { key: 'executive_summary', appId: getCurrentAppId() } } }),
+        8000,
+        'Existing executive summary lookup',
+      );
+      existingContent.executiveSummary = snippet && typeof snippet === 'object' && 'content' in snippet
+        ? (snippet as { content: string }).content.slice(0, 500) + '...'
         : null;
-      const partCount = await db.businessReviewPart.count();
-      existingContent.reviewParts = partCount;
-    } catch {
-      // DB might not be available
+      const partCount = await withTimeout(db.businessReviewPart.count(), 8000, 'Business review part count');
+      existingContent.reviewParts = partCount as number;
+    } catch (err) {
+      console.error('[ai-content] GET existing-content lookup failed:', err instanceof Error ? err.message : err);
     }
 
     return NextResponse.json({
@@ -298,13 +306,18 @@ export async function POST(request: Request): Promise<Response> {
         const appId = getCurrentAppId(); // e.g. "hr", "sales-reporting", or ""
         const combinedAppId = tenantSlug && appId ? `${tenantSlug}_${appId}` : null;
 
-        // Helper to try a specific appId
+        // Helper to try a specific appId — timeout-guarded so a single stuck
+        // DB connection (invisible to Vercel's "External APIs" trace, since
+        // Postgres isn't HTTP) can't silently eat the whole 120s function
+        // budget; up to 5 of these run sequentially below.
         async function tryAppId(appId: string) {
-          const cached = await db.knowledgeSnippet.findUnique({
-            where: { key_appId: { key: 'workbook_data', appId } },
-          });
-          if (cached?.content) {
-            return Buffer.from(cached.content, 'base64');
+          const cached = await withTimeout(
+            db.knowledgeSnippet.findUnique({ where: { key_appId: { key: 'workbook_data', appId } } }),
+            8000,
+            `Workbook cache lookup (appId="${appId}")`,
+          );
+          if (cached && typeof cached === 'object' && 'content' in cached) {
+            return Buffer.from((cached as { content: string }).content, 'base64');
           }
           return null;
         }
@@ -339,8 +352,11 @@ export async function POST(request: Request): Promise<Response> {
         if (buffers.length > 0) {
           source = buffers;
         }
-      } catch {
-        // DB unavailable
+      } catch (err) {
+        // DB unavailable, or one of the timeout-guarded lookups above hung —
+        // logged (not silently swallowed) so Vercel function logs show
+        // exactly which stage failed instead of just a bare 120s timeout.
+        console.error('[ai-content] Workbook cache lookup failed:', err instanceof Error ? err.message : err);
       }
     }
   }

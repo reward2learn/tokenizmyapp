@@ -20,6 +20,7 @@ import { extractExcelData, extractExcelDataFromBuffers } from '@/domain/excel/ex
 import { buildGenerationPrompt, buildDashboardPrompt } from '@/domain/ai-content/prompt-builder';
 import { resolveActiveAiConfig, type ActiveAiConfig } from '@/lib/ai-providers';
 import type { DbClient } from '@/lib/db';
+import { withTimeout } from '@/lib/with-timeout';
 import { getCurrentAppId } from '@shared/lib/config/tenant';
 import { parseReviewParts } from '@/domain/ai-content/parse-review-parts';
 import type { ReviewPart } from '@/domain/ai-content/parse-review-parts';
@@ -186,6 +187,62 @@ async function callAiProviderForDocument(
   return parsed[documentType] ?? '';
 }
 
+interface DashboardData {
+  actionPhases: unknown;
+  targetRows: unknown;
+  levers: unknown;
+}
+
+/**
+ * Generate structured dashboard JSON (action plan, targets, levers) — kept
+ * separate from callAiProviderForDocument because this returns raw JSON,
+ * not a markdown document keyed by documentType. Called concurrently with
+ * the business review / executive summary calls in generateAndSave(), not
+ * sequentially after them, to keep total wall-clock time bounded by the
+ * slowest single call.
+ */
+async function generateDashboardData(
+  data: import('@/domain/excel/excel-extractor').ExcelData,
+  additionalContext: string | undefined,
+  ai: ActiveAiConfig,
+): Promise<DashboardData | null> {
+  const dashboardPrompt = buildDashboardPrompt(data, additionalContext);
+
+  const response = await fetch(ai.provider.chatCompletionsUrl, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${ai.apiKey}`,
+    },
+    body: JSON.stringify({
+      model: ai.model,
+      messages: [
+        {
+          role: 'system',
+          content: 'You are a precise financial analyst. You ALWAYS return only valid JSON with exactly the keys requested. Return ONLY a JSON object with keys "actionPhases", "targetRows", and "levers".',
+        },
+        {
+          role: 'user',
+          content: dashboardPrompt,
+        },
+      ],
+      temperature: 0.3,
+      max_tokens: 16384,
+      response_format: { type: 'json_object' },
+    }),
+  });
+
+  if (!response.ok) return null;
+
+  const result = await response.json();
+  const reply = result.choices?.[0]?.message?.content ?? '';
+  if (!reply) return null;
+
+  const parsed = JSON.parse(reply);
+  if (!parsed.actionPhases || !parsed.targetRows || !parsed.levers) return null;
+  return parsed as DashboardData;
+}
+
 // ── Content parsing helpers ─────────────────────────────
 // (parseReviewParts imported from parse-review-parts.ts)
 // ── DB save helpers ─────────────────────────────────────
@@ -324,7 +381,12 @@ export async function generateAndSave(
       pct: 35,
     });
 
-    const ai = await resolveActiveAiConfig(model);
+    // Timeout-guarded — this does up to 3 sequential DB lookups (active
+    // provider, its key, its model), and a stuck Postgres connection here
+    // wouldn't show as an "External API" in Vercel's request trace (it's
+    // not HTTP), making a real hang here indistinguishable from any other
+    // cause without this. Fails fast instead of eating the function budget.
+    const ai = await withTimeout(resolveActiveAiConfig(model), 15000, 'Resolving active AI provider');
     if (!ai) {
       const errorMsg =
         'No AI provider configured. Set one up in Config > AI Provider (OpenAI, Vercel AI Gateway, or OpenCode Zen).';
@@ -337,28 +399,30 @@ export async function generateAndSave(
       return { success: false, error: errorMsg, prompt };
     }
 
-    // ── 4. Call AI in two phases ─────────────────────────
-    // Phase 1: Generate Business Review
+    // ── 4. Call AI for all three documents CONCURRENTLY ──
+    // These three prompts are fully independent (none depends on another's
+    // output), so running them sequentially inside one serverless function
+    // just sums three ~30-90s calls — comfortably enough to blow past the
+    // route's 120s maxDuration on a live deploy (seen in production as a
+    // Vercel FUNCTION_INVOCATION_TIMEOUT). Firing them together bounds wall
+    // clock to the slowest single call instead of the sum of all three.
     onProgress?.({
       step: 'openai',
-      message: 'Generating Business Review from financial data (phase 1 of 2)...',
+      message: `Generating Business Review, Executive Summary, and Dashboard data concurrently via ${ai.provider.label}...`,
       pct: 40,
     });
 
-    const businessReview = await callAiProviderForDocument(
-      prompt, ai, 'businessReview', onProgress,
-    );
+    const dashboardPromise = generateDashboardData(data, additionalContext, ai)
+      .catch((err) => {
+        // Non-critical — dashboard just shows hardcoded fallbacks if this fails.
+        console.error('[content-generator] Dashboard data generation failed:', err);
+        return null;
+      });
 
-    // Phase 2: Generate Executive Summary
-    onProgress?.({
-      step: 'openai',
-      message: 'Generating Executive Summary from financial data (phase 2 of 2)...',
-      pct: 55,
-    });
-
-    const executiveSummary = await callAiProviderForDocument(
-      prompt, ai, 'executiveSummary', onProgress,
-    );
+    const [businessReview, executiveSummary] = await Promise.all([
+      callAiProviderForDocument(prompt, ai, 'businessReview', onProgress),
+      callAiProviderForDocument(prompt, ai, 'executiveSummary', onProgress),
+    ]);
 
     const content: AiGeneratedContent = {
       businessReview,
@@ -370,71 +434,22 @@ export async function generateAndSave(
       providerLabel: ai.provider.label,
     };
 
-    // Phase 3: Generate Dashboard Data (action plan, targets, levers)
-    onProgress?.({
-      step: 'openai',
-      message: 'Generating Dashboard data from financial analysis (phase 3 of 3)...',
-      pct: 65,
-    });
-
-    try {
-      const dashboardPrompt = buildDashboardPrompt(data, additionalContext);
-
-      // Call the provider directly (not through callAiProviderForDocument)
-      // because dashboard data returns structured JSON, not a markdown string.
-      const dashResponse = await fetch(ai.provider.chatCompletionsUrl, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${ai.apiKey}`,
+    const dashboardData = await dashboardPromise;
+    if (dashboardData) {
+      // Save to knowledge_snippets so the dashboard blocks can read it
+      await db.knowledgeSnippet.upsert({
+        where: { key_appId: { key: 'dashboard_data', appId: getCurrentAppId() } },
+        create: {
+          key: 'dashboard_data',
+          category: 'document',
+          content: JSON.stringify(dashboardData),
+          appId: getCurrentAppId(),
         },
-        body: JSON.stringify({
-          model: ai.model,
-          messages: [
-            {
-              role: 'system',
-              content: 'You are a precise financial analyst. You ALWAYS return only valid JSON with exactly the keys requested. Return ONLY a JSON object with keys "actionPhases", "targetRows", and "levers".',
-            },
-            {
-              role: 'user',
-              content: dashboardPrompt,
-            },
-          ],
-          temperature: 0.3,
-          max_tokens: 16384,
-          response_format: { type: 'json_object' },
-        }),
+        update: {
+          content: JSON.stringify(dashboardData),
+          category: 'document',
+        },
       });
-
-      if (dashResponse.ok) {
-        const dashResult = await dashResponse.json();
-        const dashReply = dashResult.choices?.[0]?.message?.content ?? '';
-        if (dashReply) {
-          try {
-            const parsed = JSON.parse(dashReply);
-            if (parsed.actionPhases && parsed.targetRows && parsed.levers) {
-              // Save to knowledge_snippets so the dashboard blocks can read it
-              await db.knowledgeSnippet.upsert({
-                where: { key_appId: { key: 'dashboard_data', appId: getCurrentAppId() } },
-                create: {
-                  key: 'dashboard_data',
-                  category: 'document',
-                  content: JSON.stringify(parsed),
-                  appId: getCurrentAppId(),
-                },
-                update: {
-                  content: JSON.stringify(parsed),
-                  category: 'document',
-                },
-              });
-            }
-          } catch {
-            // non-critical — dashboard just shows hardcoded fallbacks
-          }
-        }
-      }
-    } catch {
-      // non-critical
     }
 
     onProgress?.({
