@@ -77,6 +77,13 @@ function extractConfigEnvVars(metadata: Record<string, unknown> | undefined | nu
   const auth = fromEither('auth');
   env['PIN_SIGN_IN_ENABLED'] = auth.pinSignInEnabled !== false ? 'true' : 'false';
 
+  // Custom env vars — the tenant modal saves config.env (object); legacy
+  // flows used config.envVars (array). Support both so "Vercel Save & Push"
+  // always pushes the tenant's custom vars.
+  const envObj = (config.env ?? {}) as Record<string, string>;
+  for (const [k, v] of Object.entries(envObj)) {
+    if (k && v) env[k] = v;
+  }
   const envVars = (config.envVars ?? []) as Array<{ key: string; value: string }>;
   for (const ev of envVars) {
     if (ev.key) {

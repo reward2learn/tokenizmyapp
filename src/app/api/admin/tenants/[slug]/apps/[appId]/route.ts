@@ -225,6 +225,13 @@ export async function PUT(
     const tpl = getTemplate(app.templateId);
     const tenantDbUrl = tenant.db_url as string | null;
 
+    // Merge the app-scoped config over the tenant config so the deploy
+    // pushes THIS app's effective env vars (Google OAuth creds, custom env,
+    // DB, PINs) — not just the shared identity metadata.
+    const tenantMeta = (tenant.metadata ?? {}) as Record<string, unknown>;
+    const tenantCfg = (tenantMeta.config ?? {}) as Record<string, unknown>;
+    const appCfg = (app.config ?? {}) as Record<string, unknown>;
+
     const result = await deployTenant({
       slug: appSlug,
       displayName: app.name,
@@ -232,7 +239,12 @@ export async function PUT(
       primaryColor: tpl.defaultColors.primary,
       secondaryColor: tpl.defaultColors.secondary,
       dbUrl: tenantDbUrl ? { pooled: tenantDbUrl } : null,
-      metadata: { parentSlug: slug, appId, department: app.department },
+      metadata: {
+        parentSlug: slug,
+        appId,
+        department: app.department,
+        config: { ...tenantCfg, ...appCfg },
+      },
       projectId: app.vercelProjectId ?? undefined,
     });
 

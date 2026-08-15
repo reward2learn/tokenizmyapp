@@ -72,6 +72,7 @@ import {
   usePushAppEnvVarsMutation,
   type SuiteAppInstance,
   type GoogleOAuthConfigPatch,
+  type AppScopedConfig,
 } from '@/store/apis/tenant-api';
 import { useListRoleConfigsQuery } from '@/store/apis/admin-api';
 
@@ -164,6 +165,26 @@ export function EditAppModal({ open, onClose, tenantSlug, app, onSnackbar }: Edi
   const [oauthAuthUri, setOauthAuthUri] = useState('https://accounts.google.com/o/oauth2/auth');
   const [oauthTokenUri, setOauthTokenUri] = useState('https://oauth2.googleapis.com/token');
   const [pushingEnv, setPushingEnv] = useState(false);
+  // ── Editable per-app config state (steps 3-12) — prepopulated from
+  //    app.config overrides ?? tenant config; saved per app_id. ──
+  const [licenseKey, setLicenseKey] = useState('');
+  const [licenseTier, setLicenseTier] = useState('premium');
+  const [validUntil, setValidUntil] = useState('');
+  const [setupToken, setSetupToken] = useState('');
+  const [features, setFeatures] = useState<string[]>([]);
+  const [openaiApiKey, setOpenaiApiKey] = useState('');
+  const [dbUrl, setDbUrl] = useState('');
+  const [dbDirectUrl, setDbDirectUrl] = useState('');
+  const [envPairs, setEnvPairs] = useState<EnvPair[]>([]);
+  const [adminEmail, setAdminEmail] = useState(DEFAULT_PLATFORM_ADMIN_EMAIL);
+  const [pinSignInEnabled, setPinSignInEnabled] = useState(true);
+  const [pins, setPins] = useState<string[]>([]);
+  const [rolesEnabled, setRolesEnabled] = useState<string[]>([]);
+  // Row editors
+  const [newEnvKey, setNewEnvKey] = useState('');
+  const [newEnvValue, setNewEnvValue] = useState('');
+  const [newFeature, setNewFeature] = useState('');
+  const [newPin, setNewPin] = useState('');
   const [flightChecks, setFlightChecks] = useState<CheckItem[]>([]);
   const [flightRunning, setFlightRunning] = useState(false);
 
@@ -175,31 +196,38 @@ export function EditAppModal({ open, onClose, tenantSlug, app, onSnackbar }: Edi
 
   const templates = listTemplates();
   const tenant = tenantsData?.data?.tenants?.find((t) => t.slug === tenantSlug);
-  const rolesList = rolesData?.data?.roles || [];
+  const rolesList = useMemo(() => rolesData?.data?.roles || [], [rolesData]);
 
-  // ── Tenant config (shared defaults this app inherits) ──
-  const cfg = ((tenant?.metadata as Record<string, unknown>)?.config ?? {}) as Record<string, unknown>;
-  const licenseCfg = (cfg.license ?? {}) as Record<string, unknown>;
-  const oauthCfg = (cfg.googleAuth ?? {}) as Record<string, unknown>;
-  const dbCfg = (cfg.database ?? {}) as Record<string, unknown>;
-  const envCfg = (cfg.env ?? {}) as Record<string, string>;
-  const authCfg = (cfg.auth ?? {}) as Record<string, unknown>;
-  const licenseKey = String((licenseCfg.key as string) || '');
-  const licenseTier = String((licenseCfg.tier as string) || 'premium');
-  const validUntil = String((licenseCfg.validUntil as string) || '');
-  const features = (licenseCfg.features as string[]) || [];
-  const setupToken = String((cfg.apiKey as string) || '');
-  const openaiApiKey = String((cfg.openaiApiKey as string) || '');
+  // ── Tenant config (shared defaults this app inherits) — memoized so the
+  //    summary diff memo gets stable references. ──
+  const cfg = useMemo(
+    () => ((tenant?.metadata as Record<string, unknown>)?.config ?? {}) as Record<string, unknown>,
+    [tenant],
+  );
+  const licenseCfg = useMemo(() => (cfg.license ?? {}) as Record<string, unknown>, [cfg]);
+  const oauthCfg = useMemo(() => (cfg.googleAuth ?? {}) as Record<string, unknown>, [cfg]);
+  const dbCfg = useMemo(() => (cfg.database ?? {}) as Record<string, unknown>, [cfg]);
+  const envCfg = useMemo(() => (cfg.env ?? {}) as Record<string, string>, [cfg]);
+  const authCfg = useMemo(() => (cfg.auth ?? {}) as Record<string, unknown>, [cfg]);
+  // Tenant-level originals — the defaults this app inherits (used to
+  // prepopulate the editable state and to compute the summary diff).
+  const origLicenseKey = String((licenseCfg.key as string) || '');
+  const origLicenseTier = String((licenseCfg.tier as string) || 'premium');
+  const origValidUntil = String((licenseCfg.validUntil as string) || '');
+  const origFeatures = useMemo(() => (licenseCfg.features as string[]) || [], [licenseCfg]);
+  const origSetupToken = String((cfg.apiKey as string) || '');
+  const origOpenaiApiKey = String((cfg.openaiApiKey as string) || '');
   const oauthRedirectUris = useMemo(
     () => (oauthCfg.redirectUris as string[]) || [],
     [oauthCfg.redirectUris],
   );
-
-  const dbUrl = String((dbCfg.databaseUrl as string) || (dbCfg.pooledUrl as string) || tenant?.dbUrl || '');
-  const dbDirectUrl = String((dbCfg.directUrl as string) || '');
-  const envPairs: EnvPair[] = Object.entries(envCfg).map(([k, v]) => ({ key: k, value: v }));
-  const adminEmail = String((authCfg.adminEmail as string) || (cfg.adminEmail as string) || DEFAULT_PLATFORM_ADMIN_EMAIL);
-  const pinSignInEnabled = authCfg.pinSignInEnabled !== false;
+  const origDbUrl = String((dbCfg.databaseUrl as string) || (dbCfg.pooledUrl as string) || tenant?.dbUrl || '');
+  const origDbDirectUrl = String((dbCfg.directUrl as string) || '');
+  const origAdminEmail = String((authCfg.adminEmail as string) || (cfg.adminEmail as string) || DEFAULT_PLATFORM_ADMIN_EMAIL);
+  const origPinSignInEnabled = authCfg.pinSignInEnabled !== false;
+  const origPins = ((cfg.pins as string[]) || []).filter((p): p is string => !!p);
+  // This app's own saved overrides (app.config) — wins over tenant defaults.
+  const appCfg = useMemo(() => (app.config ?? {}) as AppScopedConfig, [app.config]);
 
   // ── Derived identity (stable — app already exists) ───────
   const vercelName = `${tenantSlug}-${app.appId}`;
@@ -235,6 +263,24 @@ export function EditAppModal({ open, onClose, tenantSlug, app, onSnackbar }: Edi
     setOauthSupportEmail(String((oauthCfg.supportEmail as string) || ''));
     setOauthAuthUri(String((oauthCfg.authUri as string) || 'https://accounts.google.com/o/oauth2/auth'));
     setOauthTokenUri(String((oauthCfg.tokenUri as string) || 'https://oauth2.googleapis.com/token'));
+    // Editable per-app config — app.config overrides ?? tenant defaults
+    setLicenseKey(String(appCfg.license?.key || origLicenseKey));
+    setLicenseTier(String(appCfg.license?.tier || origLicenseTier));
+    setValidUntil(String(appCfg.license?.validUntil || origValidUntil));
+    setFeatures((appCfg.license?.features as string[]) || origFeatures);
+    setSetupToken(String(appCfg.apiKey || origSetupToken));
+    setOpenaiApiKey(String(appCfg.openaiApiKey || origOpenaiApiKey));
+    setDbUrl(String(appCfg.database?.databaseUrl || appCfg.database?.pooledUrl || origDbUrl));
+    setDbDirectUrl(String(appCfg.database?.directUrl || origDbDirectUrl));
+    setEnvPairs(Object.entries(appCfg.env ?? envCfg).map(([k, v]) => ({ key: k, value: v })));
+    setAdminEmail(String(appCfg.auth?.adminEmail || origAdminEmail));
+    setPinSignInEnabled(appCfg.auth?.pinSignInEnabled ?? origPinSignInEnabled);
+    setPins(appCfg.pins || origPins);
+    setRolesEnabled(appCfg.roles?.enabled ?? rolesList.map((r) => r.code));
+    setNewEnvKey('');
+    setNewEnvValue('');
+    setNewFeature('');
+    setNewPin('');
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, app.appId]);
 
@@ -306,17 +352,47 @@ export function EditAppModal({ open, onClose, tenantSlug, app, onSnackbar }: Edi
     setFlightRunning(false);
   }, [name, app, appUrl, vercelName, dbUrl, oauthClientId, oauthRedirectUris, newAppRedirectUris, licenseKey, adminEmail, openaiApiKey]);
 
-  // ── Save (PATCH app-scoped fields + editable GCP credentials) ──
+  // ── Save (PATCH app-scoped fields + editable GCP credentials + the full
+  //    per-app config snapshot — stored per app_id in the appPack AND
+  //    mirrored into the tenant DB's app_settings row "{slug}__{appId}"). ──
   const persistApp = useCallback(async () => {
+    // Empty strings are dropped (JSON.stringify omits undefined) so cleared
+    // fields never blank out previously saved tenant/app values; an empty
+    // clientSecret keeps the existing secret.
     const googleAuth: GoogleOAuthConfigPatch = {
-      enabled: true,
-      clientId: oauthClientId.trim(),
-      clientSecret: oauthClientSecret.trim(),
-      projectId: oauthProjectId.trim(),
-      authUri: oauthAuthUri.trim(),
-      tokenUri: oauthTokenUri.trim(),
-      gcpAccountEmail: oauthGcpEmail.trim(),
-      supportEmail: oauthSupportEmail.trim(),
+      enabled: !!oauthClientId.trim() || !!oauthClientSecret.trim(),
+      clientId: oauthClientId.trim() || undefined,
+      clientSecret: oauthClientSecret.trim() || undefined,
+      projectId: oauthProjectId.trim() || undefined,
+      authUri: oauthAuthUri.trim() || undefined,
+      tokenUri: oauthTokenUri.trim() || undefined,
+      gcpAccountEmail: oauthGcpEmail.trim() || undefined,
+      supportEmail: oauthSupportEmail.trim() || undefined,
+    };
+    const appConfig: AppScopedConfig = {
+      license: {
+        key: licenseKey.trim(),
+        tier: licenseTier.trim() || 'premium',
+        validUntil: validUntil.trim(),
+        features,
+      },
+      apiKey: setupToken.trim(),
+      openaiApiKey: openaiApiKey.trim(),
+      googleAuth,
+      database: {
+        databaseUrl: dbUrl.trim(),
+        pooledUrl: dbUrl.trim(),
+        directUrl: dbDirectUrl.trim(),
+      },
+      env: Object.fromEntries(
+        envPairs.filter((p) => p.key.trim()).map((p) => [p.key.trim(), p.value]),
+      ),
+      auth: {
+        adminEmail: adminEmail.trim() || DEFAULT_PLATFORM_ADMIN_EMAIL,
+        pinSignInEnabled,
+      },
+      pins: pins.filter((p) => p.trim()),
+      roles: { enabled: rolesEnabled },
     };
     await editApp({
       slug: tenantSlug,
@@ -328,16 +404,17 @@ export function EditAppModal({ open, onClose, tenantSlug, app, onSnackbar }: Edi
       secondaryColor,
       deployHookUrl: deployHookUrl.trim() || null,
       googleAuth,
+      config: appConfig,
     }).unwrap();
-  }, [editApp, tenantSlug, app, name, department, templateId, primaryColor, secondaryColor, deployHookUrl, oauthClientId, oauthClientSecret, oauthProjectId, oauthAuthUri, oauthTokenUri, oauthGcpEmail, oauthSupportEmail]);
+  }, [editApp, tenantSlug, app, name, department, templateId, primaryColor, secondaryColor, deployHookUrl, oauthClientId, oauthClientSecret, oauthProjectId, oauthAuthUri, oauthTokenUri, oauthGcpEmail, oauthSupportEmail, licenseKey, licenseTier, validUntil, features, setupToken, openaiApiKey, dbUrl, dbDirectUrl, envPairs, adminEmail, pinSignInEnabled, pins, rolesEnabled]);
 
-  const handleSave = async () => {
+  const handleSave = async (stayOpen = false) => {
     if (!valid || saving || pushingEnv) return;
     setSaving(true);
     try {
       await persistApp();
       onSnackbar({ message: `✅ ${app.name} updated`, severity: 'success' });
-      onClose();
+      if (!stayOpen) onClose();
     } catch (err) {
       const msg = err && typeof err === 'object' && 'data' in err
         ? String((err as { data?: { error?: string } }).data?.error || 'Failed to save')
@@ -385,6 +462,18 @@ export function EditAppModal({ open, onClose, tenantSlug, app, onSnackbar }: Edi
     const origPrimary = app.primaryColor || getTemplate(app.templateId).defaultColors.primary;
     const origSecondary = app.secondaryColor || getTemplate(app.templateId).defaultColors.secondary;
     const origHook = app.deployHookUrl || '';
+    // Effective originals = app.config overrides ?? tenant defaults
+    const effKey = String(appCfg.license?.key || origLicenseKey);
+    const effTier = String(appCfg.license?.tier || origLicenseTier);
+    const effValid = String(appCfg.license?.validUntil || origValidUntil);
+    const effFeatures = (appCfg.license?.features as string[]) || origFeatures;
+    const effOpenai = String(appCfg.openaiApiKey || origOpenaiApiKey);
+    const effOauthId = String(appCfg.googleAuth?.clientId || oauthCfg.clientId || '');
+    const effDb = String(appCfg.database?.databaseUrl || appCfg.database?.pooledUrl || origDbUrl);
+    const effEnv = appCfg.env ?? envCfg;
+    const effAdmin = String(appCfg.auth?.adminEmail || origAdminEmail);
+    const effPin = appCfg.auth?.pinSignInEnabled ?? origPinSignInEnabled;
+    const effRoles = appCfg.roles?.enabled ?? rolesList.map((r) => r.code);
     const out: ChangeItem[] = [];
     if ((name.trim() || app.name) !== app.name) out.push({ label: 'Name', from: app.name, to: name.trim() });
     if ((department.trim() || app.department) !== app.department) out.push({ label: 'Department', from: app.department || '(none)', to: department.trim() || '(none)' });
@@ -392,8 +481,21 @@ export function EditAppModal({ open, onClose, tenantSlug, app, onSnackbar }: Edi
     if (primaryColor !== origPrimary) out.push({ label: 'Primary Color', from: origPrimary, to: primaryColor });
     if (secondaryColor !== origSecondary) out.push({ label: 'Secondary Color', from: origSecondary, to: secondaryColor });
     if (deployHookUrl.trim() !== origHook) out.push({ label: 'Deploy Hook URL', from: origHook || '(none)', to: deployHookUrl.trim() || '(none)' });
+    if ((licenseKey.trim() || effKey) !== effKey) out.push({ label: 'License Key', from: effKey || '(none)', to: licenseKey.trim() || '(none)' });
+    if ((licenseTier.trim() || effTier) !== effTier) out.push({ label: 'License Tier', from: effTier, to: licenseTier.trim() || effTier });
+    if ((validUntil.trim() || effValid) !== effValid) out.push({ label: 'Valid Until', from: effValid || '(none)', to: validUntil.trim() || '(none)' });
+    if (JSON.stringify(features) !== JSON.stringify(effFeatures)) out.push({ label: 'Features', from: effFeatures.join(', ') || '(none)', to: features.join(', ') || '(none)' });
+    if ((openaiApiKey.trim() || effOpenai) !== effOpenai) out.push({ label: 'OpenAI Key', from: effOpenai ? '✅ configured' : '(none)', to: openaiApiKey.trim() ? '✅ configured' : '(none)' });
+    if ((oauthClientId.trim() || effOauthId) !== effOauthId) out.push({ label: 'OAuth Client ID', from: effOauthId ? effOauthId.slice(0, 30) + '...' : '(none)', to: oauthClientId.trim() ? oauthClientId.trim().slice(0, 30) + '...' : '(none)' });
+    if ((dbUrl.trim() || effDb) !== effDb) out.push({ label: 'Database URL', from: effDb ? '✅ configured' : '(none)', to: dbUrl.trim() ? '✅ configured' : '(none)' });
+    const envKeys = Object.keys(Object.fromEntries(envPairs.filter((p) => p.key.trim()).map((p) => [p.key.trim(), p.value])));
+    const effEnvKeys = Object.keys(effEnv);
+    if (JSON.stringify(envKeys) !== JSON.stringify(effEnvKeys)) out.push({ label: 'Env Vars', from: effEnvKeys.join(', ') || '(none)', to: envKeys.join(', ') || '(none)' });
+    if ((adminEmail.trim() || effAdmin) !== effAdmin) out.push({ label: 'Admin Email', from: effAdmin, to: adminEmail.trim() || effAdmin });
+    if (pinSignInEnabled !== effPin) out.push({ label: 'PIN Sign-in', from: effPin ? 'Enabled' : 'Disabled', to: pinSignInEnabled ? 'Enabled' : 'Disabled' });
+    if (JSON.stringify(rolesEnabled) !== JSON.stringify(effRoles)) out.push({ label: 'Roles', from: `${effRoles.length} enabled`, to: `${rolesEnabled.length} enabled` });
     return out;
-  }, [app, name, department, templateId, primaryColor, secondaryColor, deployHookUrl]);
+  }, [app, name, department, templateId, primaryColor, secondaryColor, deployHookUrl, appCfg, origLicenseKey, origLicenseTier, origValidUntil, origFeatures, origOpenaiApiKey, oauthCfg, origDbUrl, envCfg, origAdminEmail, origPinSignInEnabled, rolesList, licenseKey, licenseTier, validUntil, features, openaiApiKey, oauthClientId, dbUrl, envPairs, adminEmail, pinSignInEnabled, rolesEnabled]);
 
   // ── Step renderers ──────────────────────────────────────────
 
@@ -557,64 +659,140 @@ export function EditAppModal({ open, onClose, tenantSlug, app, onSnackbar }: Edi
     </Stack>
   );
 
-  // Step 3: License — inherited from tenant
+  // Step 3: License — editable (prefilled from app.config ?? tenant config)
   const renderStepLicense = () => (
     <Stack spacing={3}>
       <Stack direction="row" spacing={1.5} sx={{ alignItems: 'center' }}>
         <KeyIcon color="primary" />
         <Typography variant="subtitle1" sx={{ fontWeight: 600 }}>License</Typography>
       </Stack>
-      <Typography variant="body2" color="text.secondary">
-        Inherited from the tenant — one license covers every app in the suite.
-      </Typography>
-      <Paper variant="outlined" sx={{ p: 2 }}>
-        <Stack spacing={0.5}>
-          <SummaryRow label="License Key" value={licenseKey ? licenseKey.slice(0, 25) + '...' : '⚠️ not set'} />
-          <SummaryRow label="Tier" value={licenseTier.toUpperCase()} />
-          <SummaryRow label="Valid Until" value={validUntil || '⚠️ not set'} />
-          <SummaryRow label="Setup Token" value={setupToken ? '✅ configured' : '⚠️ not set'} />
-          <SummaryRow label="Admin PIN" value="✅ tenant-level" />
-          <SummaryRow label="OpenAI API Key" value={openaiApiKey ? '✅ configured' : '⚠️ not set'} />
+      <Alert severity="info" sx={{ fontSize: '0.8rem' }}>
+        Prefilled from the tenant&apos;s license — change values here to override them for this app only.
+        Saved per app_id and pushed to this app&apos;s Vercel project.
+      </Alert>
+      <Stack spacing={1.5}>
+        <TextField
+          label="License Key"
+          value={licenseKey}
+          onChange={(e) => setLicenseKey(e.target.value)}
+          fullWidth
+          size="small"
+          placeholder="rrb-{tenant-slug}"
+          slotProps={{ input: { sx: { fontFamily: 'monospace', fontSize: '0.8rem' } } }}
+        />
+        <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5}>
+          <TextField
+            label="Tier"
+            value={licenseTier}
+            onChange={(e) => setLicenseTier(e.target.value)}
+            fullWidth
+            size="small"
+            placeholder="premium"
+          />
+          <TextField
+            label="Valid Until"
+            value={validUntil}
+            onChange={(e) => setValidUntil(e.target.value)}
+            fullWidth
+            size="small"
+            placeholder="2027-12-31"
+          />
         </Stack>
-      </Paper>
+        <TextField
+          label="Setup Token"
+          value={setupToken}
+          onChange={(e) => setSetupToken(e.target.value)}
+          fullWidth
+          size="small"
+          slotProps={{ input: { sx: { fontFamily: 'monospace', fontSize: '0.8rem' } } }}
+        />
+      </Stack>
     </Stack>
   );
 
-  // Step 4: Features — inherited from tenant
+  // Step 4: Features — editable (prefilled from app.config ?? tenant config)
   const renderStepFeatures = () => (
     <Stack spacing={3}>
       <Stack direction="row" spacing={1.5} sx={{ alignItems: 'center' }}>
         <AutoFixHighIcon color="primary" />
         <Typography variant="subtitle1" sx={{ fontWeight: 600 }}>Features</Typography>
       </Stack>
-      <Typography variant="body2" color="text.secondary">
-        Inherited from the tenant&apos;s feature flags — every app in the suite gets the same capabilities.
-      </Typography>
+      <Alert severity="info" sx={{ fontSize: '0.8rem' }}>
+        Prefilled from the tenant&apos;s feature flags — add/remove features to override them for this app only.
+      </Alert>
       <Paper variant="outlined" sx={{ p: 2 }}>
         <Stack direction="row" sx={{ gap: 0.5, flexWrap: 'wrap' }}>
           {features.length > 0 ? features.map((f) => (
-            <Chip key={f} label={f} size="small" variant="outlined" color="primary" />
+            <Chip
+              key={f}
+              label={f}
+              size="small"
+              variant="outlined"
+              color="primary"
+              onDelete={() => setFeatures((prev) => prev.filter((x) => x !== f))}
+            />
           )) : (
             <Typography variant="body2" color="text.secondary">No features configured.</Typography>
           )}
         </Stack>
       </Paper>
+      <Stack direction="row" spacing={1}>
+        <TextField
+          label="Add feature"
+          value={newFeature}
+          onChange={(e) => setNewFeature(e.target.value)}
+          size="small"
+          fullWidth
+          placeholder="e.g. ai-chat"
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' && newFeature.trim()) {
+              setFeatures((prev) => [...prev, newFeature.trim()]);
+              setNewFeature('');
+            }
+          }}
+        />
+        <Button
+          variant="outlined"
+          size="small"
+          onClick={() => {
+            if (newFeature.trim()) {
+              setFeatures((prev) => [...prev, newFeature.trim()]);
+              setNewFeature('');
+            }
+          }}
+          disabled={!newFeature.trim()}
+        >
+          Add
+        </Button>
+      </Stack>
     </Stack>
   );
 
-  // Step 5: OpenAI API-Keys — inherited from tenant
+  // Step 5: OpenAI API-Keys — editable (prefilled from app.config ?? tenant config)
   const renderStepOpenAi = () => (
     <Stack spacing={3}>
       <Stack direction="row" spacing={1.5} sx={{ alignItems: 'center' }}>
         <KeyIcon color="primary" />
         <Typography variant="subtitle1" sx={{ fontWeight: 600 }}>OpenAI API Key</Typography>
       </Stack>
-      <Typography variant="body2" color="text.secondary">
-        Inherited from the tenant — one key for every suite app&apos;s AI features.
-      </Typography>
-      <Paper variant="outlined" sx={{ p: 2 }}>
-        <SummaryRow label="OpenAI API Key" value={openaiApiKey ? '✅ configured' : '⚠️ not set'} />
-      </Paper>
+      <Alert severity="info" sx={{ fontSize: '0.8rem' }}>
+        Prefilled from the tenant&apos;s key — change it to use a different key for this app only.
+        Pushed to this app&apos;s Vercel project as <strong>OPENAI_API_KEY</strong>.
+      </Alert>
+      <TextField
+        label="OpenAI API Key"
+        value={openaiApiKey}
+        onChange={(e) => setOpenaiApiKey(e.target.value)}
+        fullWidth
+        size="small"
+        type={showSecret ? 'text' : 'password'}
+        placeholder="sk-..."
+        slotProps={{ input: { sx: { fontFamily: 'monospace', fontSize: '0.8rem' } } }}
+      />
+      <FormControlLabel
+        control={<Checkbox checked={showSecret} onChange={(e) => setShowSecret(e.target.checked)} size="small" />}
+        label={<Typography variant="caption">Reveal API key</Typography>}
+      />
     </Stack>
   );
 
@@ -809,7 +987,7 @@ export function EditAppModal({ open, onClose, tenantSlug, app, onSnackbar }: Edi
     );
   };
 
-  // Step 7: Database — shared tenant DB
+  // Step 7: Database — editable (prefilled from app.config ?? tenant config)
   const renderStepDatabase = () => (
     <Stack spacing={3}>
       <Stack direction="row" spacing={1.5} sx={{ alignItems: 'center' }}>
@@ -818,38 +996,115 @@ export function EditAppModal({ open, onClose, tenantSlug, app, onSnackbar }: Edi
       </Stack>
       <Alert severity="info" sx={{ fontSize: '0.8rem' }}>
         This app shares the tenant&apos;s existing database, scoped by the synthetic key{' '}
-        <strong>{vercelName}</strong>. No separate database is provisioned per app.
+        <strong>{vercelName}</strong>. Prefilled from the tenant — change the URLs to point this app
+        at a different database (pushed as <strong>POSTGRES_URL</strong> /{' '}
+        <strong>POSTGRES_URL_NON_POOLING</strong>).
       </Alert>
-      <Paper variant="outlined" sx={{ p: 2 }}>
-        <Stack spacing={0.5}>
-          <SummaryRow label="Pooled URL" value={dbUrl ? (dbUrl.length > 60 ? dbUrl.slice(0, 60) + '...' : dbUrl) : '⚠️ not configured'} />
-          <SummaryRow label="Direct URL" value={dbDirectUrl ? (dbDirectUrl.length > 60 ? dbDirectUrl.slice(0, 60) + '...' : dbDirectUrl) : '⚠️ not configured'} />
-        </Stack>
-      </Paper>
+      <Stack spacing={1.5}>
+        <TextField
+          label="Pooled URL"
+          value={dbUrl}
+          onChange={(e) => setDbUrl(e.target.value)}
+          fullWidth
+          size="small"
+          placeholder="postgresql://user:***@pooled.neon.tech/db"
+          slotProps={{ input: { sx: { fontFamily: 'monospace', fontSize: '0.75rem' } } }}
+        />
+        <TextField
+          label="Direct URL"
+          value={dbDirectUrl}
+          onChange={(e) => setDbDirectUrl(e.target.value)}
+          fullWidth
+          size="small"
+          placeholder="postgresql://user:***@ep-xxx.aws.neon.tech/db"
+          slotProps={{ input: { sx: { fontFamily: 'monospace', fontSize: '0.75rem' } } }}
+        />
+      </Stack>
     </Stack>
   );
 
-  // Step 8: Custom Env — inherited from tenant
+  // Step 8: Custom Env — editable rows (prefilled from app.config ?? tenant config)
   const renderStepEnv = () => (
     <Stack spacing={3}>
       <Stack direction="row" spacing={1.5} sx={{ alignItems: 'center' }}>
         <CloudIcon color="primary" />
         <Typography variant="subtitle1" sx={{ fontWeight: 600 }}>Custom Env Vars</Typography>
       </Stack>
-      <Typography variant="body2" color="text.secondary">
-        Inherited from the tenant&apos;s shared env vars — pushed to this app&apos;s Vercel project on deploy.
-      </Typography>
+      <Alert severity="info" sx={{ fontSize: '0.8rem' }}>
+        Prefilled from the tenant&apos;s shared env vars — add/remove/edit to override them for this app
+        only. Pushed to this app&apos;s Vercel project by &quot;Vercel Save &amp; Push&quot;.
+      </Alert>
       <Paper variant="outlined" sx={{ p: 2 }}>
         {envPairs.length > 0 ? (
-          <Stack spacing={0.5}>
-            {envPairs.map((p) => (
-              <SummaryRow key={p.key} label={p.key} value={p.value.length > 40 ? p.value.slice(0, 40) + '...' : p.value} />
+          <Stack spacing={1}>
+            {envPairs.map((pair, index) => (
+              <Stack key={index} direction="row" spacing={1} sx={{ alignItems: 'center' }}>
+                <TextField
+                  label="Key"
+                  value={pair.key}
+                  onChange={(e) => {
+                    const u = [...envPairs];
+                    u[index].key = e.target.value;
+                    setEnvPairs(u);
+                  }}
+                  size="small"
+                  sx={{ flex: 1 }}
+                  slotProps={{ input: { sx: { fontFamily: 'monospace', fontSize: '0.75rem' } } }}
+                />
+                <TextField
+                  label="Value"
+                  value={pair.value}
+                  onChange={(e) => {
+                    const u = [...envPairs];
+                    u[index].value = e.target.value;
+                    setEnvPairs(u);
+                  }}
+                  size="small"
+                  sx={{ flex: 2 }}
+                  slotProps={{ input: { sx: { fontFamily: 'monospace', fontSize: '0.75rem' } } }}
+                />
+                <IconButton size="small" onClick={() => setEnvPairs((prev) => prev.filter((_, i) => i !== index))} aria-label="remove env var">
+                  <CloseIcon fontSize="small" />
+                </IconButton>
+              </Stack>
             ))}
           </Stack>
         ) : (
           <Typography variant="body2" color="text.secondary">No custom env vars configured.</Typography>
         )}
       </Paper>
+      <Stack direction="row" spacing={1}>
+        <TextField
+          label="New key"
+          value={newEnvKey}
+          onChange={(e) => setNewEnvKey(e.target.value)}
+          size="small"
+          sx={{ flex: 1 }}
+          slotProps={{ input: { sx: { fontFamily: 'monospace', fontSize: '0.75rem' } } }}
+        />
+        <TextField
+          label="New value"
+          value={newEnvValue}
+          onChange={(e) => setNewEnvValue(e.target.value)}
+          size="small"
+          sx={{ flex: 2 }}
+          slotProps={{ input: { sx: { fontFamily: 'monospace', fontSize: '0.75rem' } } }}
+        />
+        <Button
+          variant="outlined"
+          size="small"
+          onClick={() => {
+            if (newEnvKey.trim()) {
+              setEnvPairs((prev) => [...prev, { key: newEnvKey.trim(), value: newEnvValue }]);
+              setNewEnvKey('');
+              setNewEnvValue('');
+            }
+          }}
+          disabled={!newEnvKey.trim()}
+        >
+          Add
+        </Button>
+      </Stack>
     </Stack>
   );
 
@@ -881,16 +1136,17 @@ export function EditAppModal({ open, onClose, tenantSlug, app, onSnackbar }: Edi
     </Stack>
   );
 
-  // Step 10: Functional Roles — inherited from tenant
+  // Step 10: Functional Roles — editable selection (subset of tenant catalog)
   const renderStepRoles = () => (
     <Stack spacing={3}>
       <Stack direction="row" spacing={1.5} sx={{ alignItems: 'center' }}>
         <PeopleIcon color="primary" />
         <Typography variant="subtitle1" sx={{ fontWeight: 600 }}>Functional Roles</Typography>
       </Stack>
-      <Typography variant="body2" color="text.secondary">
-        The tenant&apos;s role catalog is shared across the suite — this app inherits it.
-      </Typography>
+      <Alert severity="info" sx={{ fontSize: '0.8rem' }}>
+        The tenant&apos;s role catalog is shared across the suite. Check the roles this app should
+        enable — unchecked roles are disabled for this app only (saved per app_id).
+      </Alert>
       {rolesLoading ? (
         <Box sx={{ display: 'flex', justifyContent: 'center', py: 3 }}><CircularProgress size={24} /></Box>
       ) : rolesList.length === 0 ? (
@@ -899,22 +1155,42 @@ export function EditAppModal({ open, onClose, tenantSlug, app, onSnackbar }: Edi
         </Paper>
       ) : (
         <Stack spacing={1}>
-          {rolesList.map((role) => (
-            <Paper key={role.code} variant="outlined" sx={{ p: 1.5, borderLeft: 4, borderLeftColor: role.isPlatformAdmin ? 'primary.main' : 'grey.300' }}>
-              <Stack direction="row" spacing={1} sx={{ alignItems: 'center', flexWrap: 'wrap' }}>
-                <Typography variant="body2" sx={{ fontWeight: 600 }}>{role.name}</Typography>
-                <Typography variant="caption" sx={{ fontFamily: 'monospace', color: 'text.secondary' }}>({role.code})</Typography>
-                {role.isPlatformAdmin ? <Chip label="Platform Admin" size="small" color="primary" variant="outlined" /> : null}
-                <Chip
-                  icon={role.pinConfigured ? <CheckCircleIcon /> : <KeyIcon />}
-                  label={role.pinConfigured ? 'PIN Configured' : 'No PIN'}
-                  size="small"
-                  color={role.pinConfigured ? 'success' : 'warning'}
-                  variant={role.pinConfigured ? 'filled' : 'outlined'}
-                />
-              </Stack>
-            </Paper>
-          ))}
+          {rolesList.map((role) => {
+            const enabled = rolesEnabled.includes(role.code);
+            return (
+              <Paper key={role.code} variant="outlined" sx={{ p: 1.5, borderLeft: 4, borderLeftColor: role.isPlatformAdmin ? 'primary.main' : 'grey.300' }}>
+                <Stack direction="row" spacing={1} sx={{ alignItems: 'center', flexWrap: 'wrap' }}>
+                  <FormControlLabel
+                    control={
+                      <Checkbox
+                        checked={enabled}
+                        onChange={(e) => {
+                          setRolesEnabled((prev) => e.target.checked
+                            ? [...prev, role.code]
+                            : prev.filter((c) => c !== role.code));
+                        }}
+                        size="small"
+                      />
+                    }
+                    label={
+                      <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
+                        <Typography variant="body2" sx={{ fontWeight: 600 }}>{role.name}</Typography>
+                        <Typography variant="caption" sx={{ fontFamily: 'monospace', color: 'text.secondary' }}>({role.code})</Typography>
+                      </Stack>
+                    }
+                  />
+                  {role.isPlatformAdmin ? <Chip label="Platform Admin" size="small" color="primary" variant="outlined" /> : null}
+                  <Chip
+                    icon={role.pinConfigured ? <CheckCircleIcon /> : <KeyIcon />}
+                    label={role.pinConfigured ? 'PIN Configured' : 'No PIN'}
+                    size="small"
+                    color={role.pinConfigured ? 'success' : 'warning'}
+                    variant={role.pinConfigured ? 'filled' : 'outlined'}
+                  />
+                </Stack>
+              </Paper>
+            );
+          })}
         </Stack>
       )}
     </Stack>
@@ -942,22 +1218,83 @@ export function EditAppModal({ open, onClose, tenantSlug, app, onSnackbar }: Edi
     </Stack>
   );
 
-  // Step 12: Admin & Auth — inherited from tenant
+  // Step 12: Admin & Auth — editable (prefilled from app.config ?? tenant config)
   const renderStepAuth = () => (
     <Stack spacing={3}>
       <Stack direction="row" spacing={1.5} sx={{ alignItems: 'center' }}>
         <VerifiedUserIcon color="primary" />
         <Typography variant="subtitle1" sx={{ fontWeight: 600 }}>Admin & Authentication</Typography>
       </Stack>
-      <Typography variant="body2" color="text.secondary">
-        Inherited from the tenant — one admin email and auth policy for every app in the suite.
-      </Typography>
-      <Paper variant="outlined" sx={{ p: 2 }}>
-        <Stack spacing={0.5}>
-          <SummaryRow label="Admin Email" value={adminEmail} />
-          <SummaryRow label="PIN Sign-in" value={pinSignInEnabled ? '✅ Enabled' : '❌ Disabled'} />
-        </Stack>
-      </Paper>
+      <Alert severity="info" sx={{ fontSize: '0.8rem' }}>
+        Prefilled from the tenant — change values to override them for this app only. Pushed to this
+        app&apos;s Vercel project as <strong>PLATFORM_ADMIN_EMAIL</strong> /{' '}
+        <strong>PIN_SIGN_IN_ENABLED</strong>.
+      </Alert>
+      <Stack spacing={1.5}>
+        <TextField
+          label="Admin Email"
+          value={adminEmail}
+          onChange={(e) => setAdminEmail(e.target.value)}
+          fullWidth
+          size="small"
+          placeholder={DEFAULT_PLATFORM_ADMIN_EMAIL}
+        />
+        <FormControlLabel
+          control={<Checkbox checked={pinSignInEnabled} onChange={(e) => setPinSignInEnabled(e.target.checked)} size="small" />}
+          label={<Typography variant="body2">PIN Sign-in enabled</Typography>}
+        />
+        <Paper variant="outlined" sx={{ p: 2 }}>
+          <Typography variant="subtitle2" sx={{ fontWeight: 600, mb: 1 }}>Admin PINs</Typography>
+          {pins.length > 0 ? (
+            <Stack spacing={1}>
+              {pins.map((pin, index) => (
+                <Stack key={index} direction="row" spacing={1} sx={{ alignItems: 'center' }}>
+                  <TextField
+                    label={`PIN ${index + 1}`}
+                    value={pin}
+                    onChange={(e) => {
+                      const u = [...pins];
+                      u[index] = e.target.value;
+                      setPins(u);
+                    }}
+                    size="small"
+                    fullWidth
+                    slotProps={{ input: { sx: { fontFamily: 'monospace', fontSize: '0.8rem' } } }}
+                  />
+                  <IconButton size="small" onClick={() => setPins((prev) => prev.filter((_, i) => i !== index))} aria-label="remove pin">
+                    <CloseIcon fontSize="small" />
+                  </IconButton>
+                </Stack>
+              ))}
+            </Stack>
+          ) : (
+            <Typography variant="body2" color="text.secondary">No PINs configured.</Typography>
+          )}
+          <Stack direction="row" spacing={1} sx={{ mt: 1.5 }}>
+            <TextField
+              label="New PIN"
+              value={newPin}
+              onChange={(e) => setNewPin(e.target.value)}
+              size="small"
+              fullWidth
+              slotProps={{ input: { sx: { fontFamily: 'monospace', fontSize: '0.8rem' } } }}
+            />
+            <Button
+              variant="outlined"
+              size="small"
+              onClick={() => {
+                if (newPin.trim()) {
+                  setPins((prev) => [...prev, newPin.trim()]);
+                  setNewPin('');
+                }
+              }}
+              disabled={!newPin.trim()}
+            >
+              Add
+            </Button>
+          </Stack>
+        </Paper>
+      </Stack>
     </Stack>
   );
 
@@ -1108,9 +1445,9 @@ export function EditAppModal({ open, onClose, tenantSlug, app, onSnackbar }: Edi
 
       <Divider />
 
-      {/* Inherited tenant config */}
+      {/* Effective config */}
       <Paper variant="outlined" sx={{ p: 2 }}>
-        <Typography variant="subtitle2" sx={{ fontWeight: 600, mb: 1 }}>Inherited Tenant Config (read-only)</Typography>
+        <Typography variant="subtitle2" sx={{ fontWeight: 600, mb: 1 }}>Effective Config (app overrides tenant)</Typography>
         <Stack spacing={0.5}>
           <SummaryRow label="License" value={`${licenseTier.toUpperCase()}${licenseKey ? ' ✅' : ' ⚠️'}`} />
           <SummaryRow label="Features" value={features.length > 0 ? features.join(', ') : 'none'} />
@@ -1210,36 +1547,33 @@ export function EditAppModal({ open, onClose, tenantSlug, app, onSnackbar }: Edi
         )}
 
         <Box sx={{ flex: 1 }} />
-        {isSummaryStep ? (
-          <>
-            <Button
-              variant="outlined"
-              color="primary"
-              size="large"
-              onClick={() => void handleSave()}
-              disabled={!valid || saving || pushingEnv}
-              startIcon={saving && !pushingEnv ? <CircularProgress size={20} color="inherit" /> : <CloudUploadIcon />}
-              sx={{ fontWeight: 700, minWidth: { xs: '100%', sm: 180 } }}
-            >
-              {saving && !pushingEnv ? 'SAVING...' : 'Save Changes'}
-            </Button>
-            <Button
-              variant="contained"
-              color="primary"
-              size="large"
-              onClick={() => void handleSaveAndPush()}
-              disabled={!valid || saving || pushingEnv}
-              startIcon={saving ? <CircularProgress size={20} color="inherit" /> : <RocketLaunchIcon />}
-              sx={{ fontWeight: 700, minWidth: { xs: '100%', sm: 240 } }}
-            >
-              {saving ? (pushingEnv ? 'PUSHING ENV...' : 'SAVING...') : 'Vercel Save & Push'}
-            </Button>
-          </>
-        ) : (
-          <Button variant="contained" onClick={() => setActiveStep((s) => s + 1)} disabled={saving} sx={{ fontWeight: 600 }}>
+        <Button
+          variant="outlined"
+          color="primary"
+          size="large"
+          onClick={() => void handleSave(!isSummaryStep)}
+          disabled={!valid || saving || pushingEnv}
+          startIcon={saving && !pushingEnv ? <CircularProgress size={20} color="inherit" /> : <CloudUploadIcon />}
+          sx={{ fontWeight: 700, minWidth: { xs: '100%', sm: 180 } }}
+        >
+          {saving && !pushingEnv ? 'SAVING...' : 'Save Changes'}
+        </Button>
+        <Button
+          variant="contained"
+          color="primary"
+          size="large"
+          onClick={() => void handleSaveAndPush()}
+          disabled={!valid || saving || pushingEnv}
+          startIcon={saving ? <CircularProgress size={20} color="inherit" /> : <RocketLaunchIcon />}
+          sx={{ fontWeight: 700, minWidth: { xs: '100%', sm: 240 } }}
+        >
+          {saving ? (pushingEnv ? 'PUSHING ENV...' : 'SAVING...') : 'Vercel Save & Push'}
+        </Button>
+        {!isSummaryStep ? (
+          <Button variant="text" color="primary" size="large" onClick={() => setActiveStep((s) => s + 1)} disabled={saving} sx={{ fontWeight: 600 }}>
             Continue
           </Button>
-        )}
+        ) : null}
       </DialogActions>
     </Dialog>
   );

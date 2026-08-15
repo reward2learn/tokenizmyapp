@@ -6,12 +6,12 @@
  */
 
 import { NextResponse } from 'next/server';
-import { createRawClient } from '@/lib/db';
+import { createRawClient, createClientForUrl } from '@/lib/db';
 import { requireWriteAuth } from '@/lib/auth/guards';
 import { jsonError, jsonOk } from '@/lib/api/response';
 import { ensureTenantsTable } from '@/domain/tenant/tenant-service';
 import { getTemplate } from '@/domain/tenant/template-catalog';
-import type { AppPackConfig } from '@/store/apis/tenant-api';
+import type { AppPackConfig, AppScopedConfig } from '@/store/apis/tenant-api';
 
 export const dynamic = 'force-dynamic';
 
@@ -49,6 +49,9 @@ export async function PATCH(
       deployHookUrl?: string | null;
       /** Editable GCP credentials from the Edit App modal's Google OAuth step — merged into metadata.config.googleAuth. */
       googleAuth?: Record<string, unknown>;
+      /** App-scoped config overrides — stored on this app's appPack entry AND
+       *  mirrored into the tenant DB's app_settings row "{slug}__{appId}". */
+      config?: AppScopedConfig;
     };
 
     if (body.templateId) {
@@ -80,6 +83,11 @@ export async function PATCH(
       primaryColor: body.primaryColor !== undefined ? body.primaryColor : current.primaryColor,
       secondaryColor: body.secondaryColor !== undefined ? body.secondaryColor : current.secondaryColor,
       deployHookUrl: body.deployHookUrl !== undefined ? body.deployHookUrl : current.deployHookUrl,
+      // App-scoped config: deep-merge over the app's existing config so
+      // partial saves never drop previously saved app-level values.
+      config: body.config
+        ? { ...(current.config ?? {}), ...body.config }
+        : current.config,
     };
 
     await saveAppPack(db, slug, appPack);
@@ -101,6 +109,31 @@ export async function PATCH(
         slug,
       );
       console.log(`[app-edit] Updated tenant googleAuth for "${slug}" (via app "${appId}")`);
+    }
+
+    // Mirror the app-scoped config into the TENANT's own database
+    // (app_settings row "{slug}__{appId}", tenant_metadata JSONB) so the
+    // deployed app can read its per-app config at runtime via
+    // getAppSettings(db, slug, appId). Best-effort — the tenant DB may be
+    // unreachable from the factory; the appPack copy above is authoritative.
+    if (body.config && rows[0].db_url) {
+      try {
+        const { updateAppSettings } = await import('@/domain/config/app-settings-service');
+        const tenantDb = createClientForUrl(String(rows[0].db_url));
+        try {
+          await updateAppSettings(
+            tenantDb,
+            { tenantMetadata: { config: appPack.apps[idx].config } },
+            slug,
+            appId,
+          );
+          console.log(`[app-edit] Mirrored app config for "${appId}" into tenant DB app_settings`);
+        } finally {
+          await tenantDb.$disconnect();
+        }
+      } catch (err) {
+        console.warn(`[app-edit] Could not mirror app config to tenant DB: ${err instanceof Error ? err.message : err}`);
+      }
     }
 
     console.log(`[app-edit] Updated "${appId}" for tenant "${slug}"`);

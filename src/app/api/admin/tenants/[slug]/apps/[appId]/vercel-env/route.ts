@@ -64,6 +64,17 @@ export async function POST(
     const tpl = getTemplate(app.templateId);
     const tenantDbUrl = tenant.db_url as string | null;
 
+    // Merge the app-scoped config over the tenant config: keys in
+    // app.config (license, openaiApiKey, googleAuth, database, env, auth,
+    // pins) override the tenant-level defaults for THIS app's project only.
+    const tenantMeta = (tenant.metadata ?? {}) as Record<string, unknown>;
+    const tenantCfg = (tenantMeta.config ?? {}) as Record<string, unknown>;
+    const appCfg = (app.config ?? {}) as Record<string, unknown>;
+    const mergedMeta = {
+      ...tenantMeta,
+      config: { ...tenantCfg, ...appCfg },
+    };
+
     const input = {
       slug: `${slug}-${appId}`,
       displayName: app.name,
@@ -71,9 +82,10 @@ export async function POST(
       primaryColor: tpl.defaultColors.primary,
       secondaryColor: tpl.defaultColors.secondary,
       dbUrl: tenantDbUrl ? { pooled: tenantDbUrl } : null,
-      // Full tenant metadata (incl. metadata.config.googleAuth etc.) so the
-      // env map includes the tenant's Google OAuth creds, DB, PINs, custom env.
-      metadata: { ...(tenant.metadata as Record<string, unknown>), appId },
+      // Full merged metadata (tenant config + this app's overrides) so the
+      // env map includes Google OAuth creds, DB, PINs, custom env — with this
+      // app's own values winning.
+      metadata: { ...mergedMeta, appId },
     };
 
     const envVars = buildEnvVarsForProject(input);
