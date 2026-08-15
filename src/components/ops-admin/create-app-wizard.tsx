@@ -11,7 +11,7 @@
  * (tenants.metadata.config — the shared tenant-level defaults per
  * docs/TENANT-APP-CONFIG-SEPARATION-ROADMAP.md). The only real outputs are:
  *   • a new app_id (slugified from the app name)
- *   • a new Vercel project name ({tenantSlug}__{appId})
+ *   • a new Vercel project name ({tenantSlug}-{appId})
  * The new app shares the tenant's existing database via the synthetic
  * `${tenantSlug}__${appId}` scope key (docs/TENANT-EDIT-WIZARD-DATA-MAP.md §6),
  * and gets its own Vercel project on deploy.
@@ -230,7 +230,7 @@ export function CreateAppWizard({ open, onClose, tenantSlug, sourceApp, onSnackb
 
   // ── Derived identity ────────────────────────────────────────
   const appId = slugify(name);
-  const vercelName = `${tenantSlug}__${appId}`;
+  const vercelName = `${tenantSlug}-${appId}`;
   const appIdConflict = suiteApps.some((a) => a.appId === appId);
   const valid =
     !!name.trim() &&

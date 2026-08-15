@@ -821,7 +821,7 @@ export async function provisionGoogleOAuthPerApp(
   redirectUris: string[],
 ): Promise<GoogleOAuthPerAppResult> {
   const config = {
-    slug: `${tenantSlug}__${appId}`,
+    slug: `${tenantSlug}-${appId}`,
     displayName: appName,
     redirectUris,
     adminEmail: 'reward2learn@gmail.com', // default — configurable later

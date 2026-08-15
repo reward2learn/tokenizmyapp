@@ -190,7 +190,7 @@ export function EditAppModal({ open, onClose, tenantSlug, app, onSnackbar }: Edi
   const pinSignInEnabled = authCfg.pinSignInEnabled !== false;
 
   // ── Derived identity (stable — app already exists) ───────
-  const vercelName = `${tenantSlug}__${app.appId}`;
+  const vercelName = `${tenantSlug}-${app.appId}`;
   const appUrl = app.appUrl || `https://${vercelName}.vercel.app`;
   const valid = !!name.trim();
 

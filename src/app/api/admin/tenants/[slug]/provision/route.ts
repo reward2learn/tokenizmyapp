@@ -46,7 +46,7 @@ const provisionSchema = z.object({
   redirectUris: z.array(z.string().url()).optional(),
   /**
    * Suite mode: custom domains / redirect URIs keyed by appId.
-   * Apps omitted from the map fall back to defaultRedirectUris(slug__appId).
+   * Apps omitted from the map fall back to defaultRedirectUris(slug-appId).
    */
   perAppRedirectUris: z.record(z.string().min(1), z.array(z.string().url()).min(1)).optional(),
   logoPath: z.string().optional(),
@@ -71,7 +71,7 @@ function getAppPack(tenant: { metadata?: unknown }): AppPackConfig | null {
   return (cfg.appPack as AppPackConfig) ?? null;
 }
 
-/** Default redirect URIs for a Vercel app slug (parent or `parent__appId`). */
+/** Default redirect URIs for a Vercel app slug (parent or `parent-appId`). */
 function defaultRedirectUris(appSlug: string): string[] {
   return [
     `https://${appSlug}.vercel.app`,
@@ -127,7 +127,7 @@ export async function POST(
 
           for (const app of appPack.apps) {
             try {
-              const appSlug = `${slug}__${app.appId}`;
+              const appSlug = `${slug}-${app.appId}`;
               // Prefer explicit per-app URIs (custom domains); never reuse
               // flat redirectUris — that list cannot describe N hosts.
               const redirectUris =

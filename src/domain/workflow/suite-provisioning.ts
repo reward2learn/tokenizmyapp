@@ -154,7 +154,7 @@ export async function provisionSuiteApps(
           // Update status to provisioning
           await updateAppStatus(db, parentSlug, appPack, app.appId, { status: 'provisioning' });
 
-          const appSlug = `${parentSlug}__${app.appId}`;
+          const appSlug = `${parentSlug}-${app.appId}`;
           const tpl = getTemplate(app.templateId);
 
           // Step 1: Deploy to Vercel — its own project, but pointed at the
@@ -278,7 +278,7 @@ export async function redeploySuiteApps(
       try {
         await updateAppStatus(db, parentSlug, appPack, app.appId, { status: 'deploying' });
 
-        const appSlug = `${parentSlug}__${app.appId}`;
+        const appSlug = `${parentSlug}-${app.appId}`;
         const tpl = getTemplate(app.templateId);
 
         const deployResult = await deployTenant({

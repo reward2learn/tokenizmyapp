@@ -222,7 +222,7 @@ export interface DeploySuiteAppResult {
  * Deploy all apps in a suite to individual Vercel projects.
  *
  * Each app gets its own Vercel project with:
- * - Unique slug: `{parentSlug}__{appId}`
+ * - Unique slug: `{parentSlug}-{appId}`
  * - App-specific env vars (NEXT_PUBLIC_TENANT_SLUG, template, colors)
  * - Shared env vars from the parent tenant (ENCRYPTION_KEY, OPENAI_API_KEY, etc.)
  *
@@ -255,7 +255,7 @@ export async function deploySuiteApps(
       const { deployTenant } = await import('@/domain/tenant/vercel-deploy-service');
       const { getTemplate } = await import('@/domain/tenant/template-catalog');
 
-      const appSlug = `${parentSlug}__${app.appId}`;
+      const appSlug = `${parentSlug}-${app.appId}`;
       const tpl = getTemplate(app.templateId);
 
       const result = await deployTenant({

@@ -221,7 +221,7 @@ export async function PUT(
     // Deploy using the vercel-deploy-service — pointed at the TENANT's own
     // database (not a new one of its own; see suite-provisioning.ts).
     const { deployTenant } = await import('@/domain/tenant/vercel-deploy-service');
-    const appSlug = `${slug}__${appId}`;
+    const appSlug = `${slug}-${appId}`;
     const tpl = getTemplate(app.templateId);
     const tenantDbUrl = tenant.db_url as string | null;
 
