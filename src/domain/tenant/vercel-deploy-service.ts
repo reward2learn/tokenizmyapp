@@ -4,7 +4,7 @@
  * Uses @vercel/sdk for all Vercel API calls. Token resolution (OAuth + env var
  * fallback) is handled by vercel-sdk-client.ts.
  */
-import { getVercelClient, withTeamId, withTeamId404Null, TEAM_ID } from './vercel-sdk-client';
+import { getVercelClient, withTeamId, withTeamId404Null, TEAM_ID, resolveBearerToken, VERCEL_API } from './vercel-sdk-client';
 import type { UpdateProjectRequestBody } from '@vercel/sdk/models/updateprojectbranchmatcher.js';
 
 
@@ -168,6 +168,27 @@ export async function ensureVercelProject(input: { slug: string; projectId?: str
       );
       if (retry) {
         return { projectId: retry.id, created: false };
+      }
+      // 3c. Final fallback: list all projects and find by name
+      // The SDK's getProject by name can return 404 even when the project exists
+      // (recently created, team-scoped token, API propagation delay). Listing all
+      // projects and matching by name is more reliable.
+      try {
+        const bearer = await resolveBearerToken();
+        const listRes = await fetch(
+          `${VERCEL_API}/v10/projects?teamId=${TEAM_ID}&limit=100`,
+          { headers: { Authorization: `Bearer ${bearer}` } },
+        );
+        if (listRes.ok) {
+          const listData = await listRes.json() as { projects?: Array<{ id: string; name: string }> };
+          const found = listData.projects?.find((p) => p.name === slug);
+          if (found) {
+            console.log(`[vercel-deploy] Found project "${slug}" via project list: ${found.id}`);
+            return { projectId: found.id, created: false };
+          }
+        }
+      } catch (listErr) {
+        console.warn(`[vercel-deploy] Project list fallback failed:`, listErr instanceof Error ? listErr.message : listErr);
       }
       throw new Error(
         `Project "${slug}" already exists on Vercel (409) but could not be found by ` +
@@ -471,6 +492,27 @@ export async function ensureVercelProjectWithGit(input: { slug: string; projectI
       );
       if (found) {
         return { projectId: found.id, created: false };
+      }
+      // 3c. Final fallback: list all projects and find by name
+      // The SDK's getProject by name can return 404 even when the project exists
+      // (recently created, team-scoped token, API propagation delay). Listing all
+      // projects and matching by name is more reliable.
+      try {
+        const bearer = await resolveBearerToken();
+        const listRes = await fetch(
+          `${VERCEL_API}/v10/projects?teamId=${TEAM_ID}&limit=100`,
+          { headers: { Authorization: `Bearer ${bearer}` } },
+        );
+        if (listRes.ok) {
+          const listData = await listRes.json() as { projects?: Array<{ id: string; name: string }> };
+          const found = listData.projects?.find((p) => p.name === slug);
+          if (found) {
+            console.log(`[vercel-deploy] Found project "${slug}" via project list: ${found.id}`);
+            return { projectId: found.id, created: false };
+          }
+        }
+      } catch (listErr) {
+        console.warn(`[vercel-deploy] Project list fallback failed:`, listErr instanceof Error ? listErr.message : listErr);
       }
       throw new Error(
         `Project "${slug}" already exists on Vercel (409) but could not be found by ` +

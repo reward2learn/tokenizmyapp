@@ -27,7 +27,7 @@ import { runMigrations } from '@/domain/tenant/migration-runner';
 import { generateTenantCode, injectTenantConfig, cleanupTenantCode } from '@/domain/tenant/codegen-service';
 import { deployViaCli } from '@/domain/tenant/vercel-cli-service';
 import { materializeAppPackForTenant, buildSuitePrompt } from '@/domain/app-pack/app-pack-tenant-materializer';
-import { provisionSuiteApps, redeploySuiteApps } from '@/domain/workflow/suite-provisioning';
+import { provisionSuiteApps } from '@/domain/workflow/suite-provisioning';
 
 export const dynamic = 'force-dynamic';
 

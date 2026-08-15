@@ -233,6 +233,7 @@ export async function PUT(
       secondaryColor: tpl.defaultColors.secondary,
       dbUrl: tenantDbUrl ? { pooled: tenantDbUrl } : null,
       metadata: { parentSlug: slug, appId, department: app.department },
+      projectId: app.vercelProjectId ?? undefined,
     });
 
     // Update app with deployment info

@@ -16,6 +16,7 @@ import { requireWriteAuth } from '@/lib/auth/guards';
 import { jsonError, jsonOk } from '@/lib/api/response';
 import { deployTenant, deployTenantWithGit, ensureVercelProject } from '@/domain/tenant/vercel-deploy-service';
 import { seedTenantAdminDefaults } from '@/domain/tenant/tenant-service';
+import { redeploySuiteApps } from '@/domain/workflow/suite-provisioning';
 import { DEFAULT_PLATFORM_ADMIN_EMAIL } from '@/domain/security/persons';
 
 const VERCEL_API = 'https://api.vercel.com';
@@ -222,6 +223,34 @@ export async function POST(
       console.error(`[deploy] Background polling failed for ${slug}:`, pollErr);
     });
 
+    // Step 5: Suite mode — re-deploy every suite app server-side (non-blocking).
+    //         The tenant-level project above is the suite container; each app
+    //         has its OWN Vercel project that must be re-deployed too.
+    //         redeploySuiteApps skips Neon (apps already have DBs) and
+    //         re-deploys each app's own project, updating per-app status
+    //         (deploying → live/error) on metadata.config.appPack.
+    const suiteCfg = (metadata.config as Record<string, unknown> | undefined) ?? undefined;
+    const suiteAppPack = suiteCfg?.appPack as { apps?: unknown[] } | undefined;
+    const isSuiteTenant = !!suiteAppPack && Array.isArray(suiteAppPack.apps) && suiteAppPack.apps.length > 0;
+    const suiteRedeploy: { triggered: boolean; totalApps?: number } = { triggered: false };
+    if (isSuiteTenant) {
+      suiteRedeploy.triggered = true;
+      suiteRedeploy.totalApps = suiteAppPack!.apps!.length;
+      redeploySuiteApps(slug)
+        .then((res) => {
+          console.log(
+            `[deploy] Suite re-deploy complete for "${slug}": ${res.successful.length}/${res.totalApps} apps succeeded` +
+            (res.errors.length ? `, ${res.errors.length} failed` : ''),
+          );
+        })
+        .catch((suiteErr) => {
+          console.error(
+            `[deploy] Suite re-deploy failed for "${slug}":`,
+            suiteErr instanceof Error ? suiteErr.message : String(suiteErr),
+          );
+        });
+    }
+
     return jsonOk({
       deployed: true,
       projectId: result.projectId,
@@ -234,6 +263,7 @@ export async function POST(
       deployMode: useGit ? 'git' : 'standard',
       gitRepo: useGit ? (process.env.VERCEL_GIT_REPO || 'reward2learn/Rosalita') : undefined,
       adminSeed,
+      suiteRedeploy,
       note: useGit
         ? 'Git-based deployment triggered from main branch. Tenant status will update to live when ready.'
         : 'Deployment is building in the background. Tenant status will update to live when ready.',

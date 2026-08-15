@@ -10,9 +10,9 @@
 import { Vercel } from '@vercel/sdk';
 import { VercelError } from '@vercel/sdk/models/vercelerror.js';
 import { getSecret, setSecret } from '@/lib/secrets';
-import { decrypt, encrypt } from '@/lib/crypto';
+import { decrypt } from '@/lib/crypto';
 
-const VERCEL_API = 'https://api.vercel.com';
+export const VERCEL_API = 'https://api.vercel.com';
 export const TEAM_ID = process.env.VERCEL_TEAM_ID || 'team_uKNaNEyjHVW7vooXeUfNJ3LW';
 
 // ── OAuth token helpers ─────────────────────────────────────────
@@ -83,7 +83,7 @@ async function refreshAccessToken(refreshToken: string): Promise<VercelOAuthToke
   }
 }
 
-async function resolveBearerToken(): Promise<string> {
+export async function resolveBearerToken(): Promise<string> {
   const stored = await readStoredTokens();
   if (stored) {
     if (Date.now() > stored.expiresAt - 300_000) {
