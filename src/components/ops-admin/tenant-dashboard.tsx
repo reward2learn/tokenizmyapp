@@ -92,7 +92,8 @@ function getTenantAppPack(tenant: TenantEntry): AppPackConfig | null {
 /** Check if a tenant is in suite mode. */
 function isSuiteTenant(tenant: TenantEntry): boolean {
   const cfg = (tenant.metadata?.config ?? {}) as Record<string, unknown>;
-  return cfg.templateMode === 'suite' && !!cfg.appPack;
+  const appPack = cfg.appPack as { apps?: unknown[] } | undefined;
+  return !!appPack && Array.isArray(appPack.apps) && appPack.apps.length > 0;
 }
 
 const STATUS_COLORS: Record<string, 'info' | 'warning' | 'success' | 'error'> = {

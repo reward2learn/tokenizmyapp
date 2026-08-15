@@ -46,7 +46,8 @@ export async function POST(
     // groups — never page/nav content.
     const metadata = (tenant.metadata ?? {}) as Record<string, unknown>;
     const cfg = (metadata.config ?? {}) as Record<string, unknown>;
-    const isSuite = cfg.templateMode === 'suite' && !!cfg.appPack;
+    const appPack = cfg.appPack as { apps?: unknown[] } | undefined;
+    const isSuite = !!appPack && Array.isArray(appPack.apps) && appPack.apps.length > 0;
 
     // Tenants with their own dedicated database must be seeded there — the
     // tenant's own live app reads from that same URL via its own

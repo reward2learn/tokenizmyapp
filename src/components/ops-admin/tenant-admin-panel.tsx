@@ -63,7 +63,8 @@ function getAppPack(tenant: TenantEntry | null): AppPackConfig | null {
 
 function isSuiteTenant(tenant: TenantEntry): boolean {
   const cfg = (tenant.metadata?.config ?? {}) as Record<string, unknown>;
-  return cfg.templateMode === 'suite' && !!cfg.appPack;
+  const appPack = cfg.appPack as { apps?: unknown[] } | undefined;
+  return !!appPack && Array.isArray(appPack.apps) && appPack.apps.length > 0;
 }
 
 // ── Component ───────────────────────────────────────────────
