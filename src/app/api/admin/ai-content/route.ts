@@ -123,8 +123,13 @@ function sseStream(run: (emit: (event: ProgressEvent) => void) => Promise<void>)
  * Resolve the June 2026 workbook — try disk first, then the base64
  * cached copy stored in knowledge_snippets.
  *
- * Tenant isolation: tries the current tenant slug as appId first,
- * then falls back to the generic empty-appId record (single-app tenant).
+ * Multi-tenant + suite-mode aware: tries the following appId combinations
+ * in order, using the current tenant slug and suite app_id:
+ *   1. tenantSlug + appId (e.g. "redrubybali_hr") — full suite mode
+ *   2. tenantSlug only — multi-tenant without suite app
+ *   3. appId only (e.g. "hr") — suite mode without tenant isolation
+ *   4. empty string '' — single-app tokenizmyapp tenant
+ *   5. 'tokenizmyapp' explicitly — root config app fallback
  */
 async function resolveWorkbook(): Promise<ExcelData> {
   // ── 1. Try disk (auto-detect) ────────────────────────────────
@@ -134,9 +139,13 @@ async function resolveWorkbook(): Promise<ExcelData> {
     // not on disk — continue to DB cache
   }
 
-  // ── 2. Try DB cache with tenant isolation ─────────────────────
+  // ── 2. Try DB cache with multi-tenant + suite-mode awareness ─────
   const tenantConfig = getTenantConfig();
   const tenantSlug = tenantConfig.slug;
+  const appId = getCurrentAppId(); // e.g. "hr", "sales-reporting", or ""
+
+  // Build the combined appId: "tenantSlug_appId" for suite mode
+  const combinedAppId = tenantSlug && appId ? `${tenantSlug}_${appId}` : null;
 
   // Helper to try a specific appId
   async function tryAppId(appId: string): Promise<ExcelData | null> {
@@ -154,17 +163,30 @@ async function resolveWorkbook(): Promise<ExcelData> {
     }
   }
 
-  // Try 1: current tenant slug (for multi-tenant setups)
+  // Try order: suite-mode combos first, then fallbacks
+  // 1. Combined: tenantSlug + appId (e.g. "redrubybali_hr")
+  if (combinedAppId) {
+    const combinedData = await tryAppId(combinedAppId);
+    if (combinedData) return combinedData;
+  }
+
+  // 2. Tenant slug only (multi-tenant, no suite app)
   if (tenantSlug && tenantSlug !== 'tokenizmyapp') {
     const tenantData = await tryAppId(tenantSlug);
     if (tenantData) return tenantData;
   }
 
-  // Try 2: empty appId (for single-app / tokenizmyapp tenant)
+  // 3. AppId only (suite mode, e.g. "hr") — no tenant isolation
+  if (appId) {
+    const appOnlyData = await tryAppId(appId);
+    if (appOnlyData) return appOnlyData;
+  }
+
+  // 4. Empty appId (single-app / tokenizmyapp)
   const defaultData = await tryAppId('');
   if (defaultData) return defaultData;
 
-  // Try 3: tokenizmyapp explicitly (root config app)
+  // 5. tokenizmyapp explicitly (root config app)
   const rootData = await tryAppId('tokenizmyapp');
   if (rootData) return rootData;
 
@@ -270,23 +292,51 @@ export async function POST(request: Request): Promise<Response> {
       // Not on disk — resolve via DB cache (uploaded during reseed)
       try {
         const db = createClient(dbSession);
-        // Read primary cached workbook
-        const cached = await db.knowledgeSnippet.findUnique({
-          where: { key_appId: { key: 'workbook_data', appId: getCurrentAppId() } },
-        });
-        if (cached?.content) {
-          const buffers: Buffer[] = [Buffer.from(cached.content, 'base64')];
-          // Read additional cached workbooks
-          for (let i = 1; i < 10; i++) {
-            const extra = await db.knowledgeSnippet.findUnique({
-              where: { key_appId: { key: `workbook_data_${i}`, appId: getCurrentAppId() } },
-            });
-            if (extra?.content) {
-              buffers.push(Buffer.from(extra.content, 'base64'));
-            } else {
-              break;
-            }
+        // Try DB cache with multi-tenant + suite-mode awareness — same logic as GET handler
+        const tenantConfig = getTenantConfig();
+        const tenantSlug = tenantConfig.slug;
+        const appId = getCurrentAppId(); // e.g. "hr", "sales-reporting", or ""
+        const combinedAppId = tenantSlug && appId ? `${tenantSlug}_${appId}` : null;
+
+        // Helper to try a specific appId
+        async function tryAppId(appId: string) {
+          const cached = await db.knowledgeSnippet.findUnique({
+            where: { key_appId: { key: 'workbook_data', appId } },
+          });
+          if (cached?.content) {
+            return Buffer.from(cached.content, 'base64');
           }
+          return null;
+        }
+
+        // Try combined tenant+appId first (e.g. "redrubybali_hr")
+        let buffers: Buffer[] = [];
+        if (combinedAppId) {
+          const cached = await tryAppId(combinedAppId);
+          if (cached) buffers = [cached];
+        }
+        // Try tenant slug only
+        if (!buffers.length && tenantSlug && tenantSlug !== 'tokenizmyapp') {
+          const cached = await tryAppId(tenantSlug);
+          if (cached) buffers = [cached];
+        }
+        // Try appId only
+        if (!buffers.length && appId) {
+          const cached = await tryAppId(appId);
+          if (cached) buffers = [cached];
+        }
+        // Try empty appId (single-app tokenizmyapp)
+        if (!buffers.length) {
+          const cached = await tryAppId('');
+          if (cached) buffers = [cached];
+        }
+        // Try tokenizmyapp explicitly
+        if (!buffers.length) {
+          const cached = await tryAppId('tokenizmyapp');
+          if (cached) buffers = [cached];
+        }
+
+        if (buffers.length > 0) {
           source = buffers;
         }
       } catch {
