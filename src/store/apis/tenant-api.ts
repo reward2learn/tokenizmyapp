@@ -380,7 +380,7 @@ export const tenantApi = createApi({
     /** POST — add a new app to an existing suite. */
     addAppToSuite: builder.mutation<
       ApiEnvelope<{ added: boolean; app: SuiteAppInstance; totalApps: number }>,
-      { slug: string; appId: string; name: string; department?: string; templateId: string }
+      { slug: string; appId: string; name: string; department?: string; templateId: string; primaryColor?: string; secondaryColor?: string; deployHookUrl?: string }
     >({
       query: ({ slug, ...body }) => ({
         url: `admin/tenants/${slug}/apps`,

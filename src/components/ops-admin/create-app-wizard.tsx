@@ -196,7 +196,10 @@ export function CreateAppWizard({ open, onClose, tenantSlug, sourceApp, onSnackb
 
   const templates = listTemplates();
   const tenant = tenantsData?.data?.tenants?.find((t) => t.slug === tenantSlug);
-  const suiteApps: SuiteAppInstance[] = tenant?.appPack?.apps ?? [];
+  const tenantMeta = (tenant?.metadata ?? {}) as Record<string, unknown>;
+  const tenantCfg = (tenantMeta.config ?? {}) as Record<string, unknown>;
+  const tenantAppPack = tenantCfg.appPack as { apps?: SuiteAppInstance[] } | undefined;
+  const suiteApps: SuiteAppInstance[] = tenantAppPack?.apps ?? [];
   const hasApps = suiteApps.length > 0;
   const rolesList = rolesData?.data?.roles || [];
 
@@ -356,12 +359,15 @@ export function CreateAppWizard({ open, onClose, tenantSlug, sourceApp, onSnackb
           copyContent: true,
         }).unwrap();
       } else {
+        const tpl = getTemplate(templateId);
         await addApp({
           slug: tenantSlug,
           appId,
           name: name.trim(),
           department: department.trim() || undefined,
           templateId,
+          primaryColor: tpl.defaultColors.primary,
+          secondaryColor: tpl.defaultColors.secondary,
         }).unwrap();
       }
       mark('create', 'success', `${mode === 'duplicate' ? 'Duplicated' : 'Created'} "${name.trim()}" (${appId})`);

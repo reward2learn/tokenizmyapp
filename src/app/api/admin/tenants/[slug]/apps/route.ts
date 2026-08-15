@@ -50,9 +50,12 @@ export async function POST(
       name: string;
       department: string;
       templateId: string;
+      primaryColor?: string;
+      secondaryColor?: string;
+      deployHookUrl?: string;
     };
 
-    const { appId, name, department, templateId } = body;
+    const { appId, name, department, templateId, primaryColor, secondaryColor, deployHookUrl } = body;
 
     // Validate required fields
     if (!appId || !name || !templateId) {
@@ -101,6 +104,9 @@ export async function POST(
       vercelProjectId: null,
       appUrl: null,
       dbUrl: null,
+      ...(primaryColor ? { primaryColor } : {}),
+      ...(secondaryColor ? { secondaryColor } : {}),
+      ...(deployHookUrl ? { deployHookUrl } : {}),
     };
 
     // Add to appPack
