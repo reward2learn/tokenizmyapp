@@ -47,6 +47,7 @@ import AutoFixHighIcon from '@mui/icons-material/AutoFixHigh';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import CloudIcon from '@mui/icons-material/Cloud';
 import CloudDownloadIcon from '@mui/icons-material/CloudDownload';
+import CloudSyncIcon from '@mui/icons-material/CloudSync';
 import CloudUploadIcon from '@mui/icons-material/CloudUpload';
 import CloseIcon from '@mui/icons-material/Close';
 import DnsIcon from '@mui/icons-material/Dns';
@@ -71,6 +72,7 @@ import {
   useEditAppMutation,
   useProvisionGoogleOAuthMutation,
   useLazyFetchGoogleOAuthClientInfoQuery,
+  useSyncGoogleOAuthClientMutation,
   usePushAppEnvVarsMutation,
   type SuiteAppInstance,
   type GoogleOAuthConfigPatch,
@@ -158,6 +160,7 @@ export function EditAppModal({ open, onClose, tenantSlug, app, onSnackbar }: Edi
   const [provisionOAuthError, setProvisionOAuthError] = useState<string | null>(null);
   const [gcpClientInfo, setGcpClientInfo] = useState<Record<string, unknown> | null>(null);
   const [fetchingGcpInfo, setFetchingGcpInfo] = useState(false);
+  const [syncingGcp, setSyncingGcp] = useState(false);
   // Editable GCP credentials (Google OAuth step) — persisted to the tenant
   // config via editApp.googleAuth and pushed to this app's Vercel project by
   // "Vercel Save & Push".
@@ -196,6 +199,7 @@ export function EditAppModal({ open, onClose, tenantSlug, app, onSnackbar }: Edi
   const [editApp] = useEditAppMutation();
   const [provisionGoogleOAuth] = useProvisionGoogleOAuthMutation();
   const [fetchGoogleOAuthClientInfo] = useLazyFetchGoogleOAuthClientInfoQuery();
+  const [syncGoogleOAuthClient] = useSyncGoogleOAuthClientMutation();
   const [pushAppEnvVars] = usePushAppEnvVarsMutation();
   const { data: rolesData, isLoading: rolesLoading } = useListRoleConfigsQuery();
 
@@ -341,6 +345,34 @@ export function EditAppModal({ open, onClose, tenantSlug, app, onSnackbar }: Edi
       setFetchingGcpInfo(false);
     }
   }, [tenantSlug, fetchGoogleOAuthClientInfo, onSnackbar]);
+
+  // ── Sync from GCP: fetch live data + write back to config ──
+  const handleSyncGcp = useCallback(async () => {
+    setSyncingGcp(true);
+    setGcpClientInfo(null);
+    try {
+      const result = await syncGoogleOAuthClient({ slug: tenantSlug, patch: true }).unwrap();
+      if (result.data) {
+        setGcpClientInfo(result.data as unknown as Record<string, unknown>);
+        const d = result.data as unknown as { apiUnavailable?: boolean; patched?: boolean; mergedUris?: string[] };
+        if (d.apiUnavailable) {
+          onSnackbar({ message: '⚠️ GCP API unavailable — using saved config (see guidance)', severity: 'success' });
+        } else {
+          onSnackbar({
+            message: `✅ Synced from GCP — ${(d.mergedUris || []).length} redirect URIs${d.patched ? ' (client patched)' : ''}`,
+            severity: 'success',
+          });
+        }
+      }
+    } catch (err) {
+      const msg = err && typeof err === 'object' && 'data' in err
+        ? String((err as { data?: { error?: string } }).data?.error || 'Failed to sync GCP client')
+        : 'Failed to sync GCP client';
+      onSnackbar({ message: `❌ ${msg}`, severity: 'error' });
+    } finally {
+      setSyncingGcp(false);
+    }
+  }, [tenantSlug, syncGoogleOAuthClient, onSnackbar]);
 
   // ── Flight Check (app-scoped) ───────────────────────────────
   const runFlightCheck = useCallback(async () => {
@@ -982,6 +1014,15 @@ export function EditAppModal({ open, onClose, tenantSlug, app, onSnackbar }: Edi
                 startIcon={fetchingGcpInfo ? <CircularProgress size={16} color="inherit" /> : <CloudDownloadIcon />}
               >
                 {fetchingGcpInfo ? 'Fetching...' : 'Fetch from GCP'}
+              </Button>
+              <Button
+                variant="contained"
+                size="small"
+                onClick={() => void handleSyncGcp()}
+                disabled={syncingGcp}
+                startIcon={syncingGcp ? <CircularProgress size={16} color="inherit" /> : <CloudSyncIcon />}
+              >
+                {syncingGcp ? 'Syncing...' : 'Sync from GCP'}
               </Button>
             </Stack>
           )}

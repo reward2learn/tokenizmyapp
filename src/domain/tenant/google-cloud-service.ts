@@ -776,6 +776,44 @@ function envVarFallback(config: TenantGoogleConfig): GoogleOAuthClientResult | n
   };
 }
 
+// ── Access token: SDK (service account) OR CLI (gcloud) ─────
+
+export interface GoogleAccessToken {
+  accessToken: string;
+  projectId: string;
+  source: 'service-account' | 'gcloud';
+}
+
+/**
+ * Resolve a Google Cloud access token using whichever capability is available:
+ *   1. Service account (secrets table "GOOGLE_CLOUD_SERVICE_ACCOUNT" or env
+ *      GOOGLE_CLOUD_SERVICE_ACCOUNT_JSON) — works everywhere (Vercel, CI, local)
+ *   2. gcloud CLI (local dev, when installed + authenticated)
+ * Returns null when neither is available.
+ */
+export async function getGoogleAccessToken(): Promise<GoogleAccessToken | null> {
+  // 1. Service account (pure SDK path)
+  const sa = await getServiceAccountToken();
+  if (sa) return { ...sa, source: 'service-account' };
+
+  // 2. gcloud CLI path
+  try {
+    execSync('gcloud --version', { stdio: 'pipe', timeout: 5000 });
+    const token = execSync('gcloud auth print-access-token', { stdio: 'pipe', timeout: 15000, encoding: 'utf8' }).toString().trim();
+    if (token) {
+      let projectId = 'unknown';
+      try {
+        projectId = execSync('gcloud config get-value project 2>/dev/null', { stdio: 'pipe', timeout: 5000, encoding: 'utf8' }).toString().trim() || 'unknown';
+      } catch { /* keep default */ }
+      console.log('[google-cloud] Using gcloud CLI access token');
+      return { accessToken: token, projectId, source: 'gcloud' };
+    }
+  } catch {
+    // gcloud not installed or not authenticated
+  }
+  return null;
+}
+
 // ── Google OAuth Client Info (REST API fetch/update) ─────────
 
 export interface GoogleOAuthClientInfo {
@@ -800,9 +838,9 @@ export async function fetchGoogleOAuthClientInfo(
   clientId: string,
   projectId: string,
 ): Promise<GoogleOAuthClientInfo | null> {
-  const auth = await getServiceAccountToken();
+  const auth = await getGoogleAccessToken();
   if (!auth) {
-    console.warn(`[google-cloud] Cannot fetch client info for ${clientId}: no service account configured`);
+    console.warn(`[google-cloud] Cannot fetch client info for ${clientId}: no service account or gcloud auth available`);
     return null;
   }
 
@@ -855,9 +893,9 @@ export async function updateGoogleOAuthClientRedirectUris(
   projectId: string,
   redirectUris: string[],
 ): Promise<boolean> {
-  const auth = await getServiceAccountToken();
+  const auth = await getGoogleAccessToken();
   if (!auth) {
-    console.warn(`[google-cloud] Cannot update ${clientId}: no service account configured — register URIs manually in GCP Console`);
+    console.warn(`[google-cloud] Cannot update ${clientId}: no service account or gcloud auth available — register URIs manually in GCP Console`);
     return false;
   }
 

@@ -596,6 +596,15 @@ export const tenantApi = createApi({
       }),
     }),
 
+    syncGoogleOAuthClient: builder.mutation<ApiEnvelope<Record<string, unknown>>, { slug: string; patch?: boolean }>({
+      query: ({ slug, patch }) => ({
+        url: `admin/tenants/${slug}/provision/google-oauth/sync`,
+        method: 'POST',
+        body: patch ? { patch: true } : undefined,
+      }),
+      invalidatesTags: (_result, _error, { slug }) => [{ type: 'Tenants', id: slug }],
+    }),
+
     provisionNeon: builder.mutation<ApiEnvelope<NeonProvisionResult>, { slug: string }>({
       query: ({ slug }) => ({
         url: `admin/tenants/${slug}/provision/neon`,
@@ -697,6 +706,7 @@ export const {
   useProvisionGoogleOAuthMutation,
   useFetchGoogleOAuthClientInfoQuery,
   useLazyFetchGoogleOAuthClientInfoQuery,
+  useSyncGoogleOAuthClientMutation,
   useProvisionNeonMutation,
   useTestNeonConnectionMutation,
   useCheckRedirectsMutation,
