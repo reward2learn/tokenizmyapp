@@ -74,6 +74,7 @@ import ErrorIcon from '@mui/icons-material/Error';
 import { getTemplate, listTemplates } from '@/domain/tenant/template-catalog';
 import { DEFAULT_PLATFORM_ADMIN_EMAIL } from '@/domain/security/persons';
 import { TemplateSelector } from '@/components/ops-admin/tenant-wizard';
+import { TenantAiProviderForm } from '@/components/ops-admin/tenant-ai-provider-form';
 import type { AppPackConfig, SuiteAppInstance } from '@/store/apis/tenant-api';
 import { useAppDispatch } from '@/store/hooks';
 import { setThemeColors } from '@/store/ui-slice';
@@ -1675,16 +1676,20 @@ export function EditTenantModal({ open, tenant, onClose, onSnackbar }: EditTenan
   // ── Step 4: OpenAI API-Key ────────────────────────────────
   const renderStepOpenAi = () => (
     <Stack spacing={3}>
+      <TenantAiProviderForm tenantSlug={tenant.slug} />
+
+      <Divider />
+
       <Typography variant="subtitle1" sx={{ fontWeight: 600 }}>
-        OpenAI API Key
+        Legacy OpenAI API Key
       </Typography>
       <Typography variant="body2" color="text.secondary">
-        Set the OpenAI API key used by the tenant application for AI features
-        like chat, content generation, and analysis.
+        Superseded by the AI Provider section above, which takes effect immediately on the tenant&apos;s
+        live app with no redeploy required.
       </Typography>
-      <Alert severity="info">
-        The API key is stored in the secrets table and injected as an environment variable
-        during deployment. Generate a placeholder or enter a real OpenAI key.
+      <Alert severity="warning">
+        This field is only saved into the tenant&apos;s config JSON — it is not currently injected as an
+        environment variable during deployment.
       </Alert>
       <Stack direction="row" spacing={1} sx={{ alignItems: 'flex-start' }}>
         <TextField

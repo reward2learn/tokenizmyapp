@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useGetAiContentQuery, useGenerateAiContentMutation, useClearSeedMutation, useGetNavigationQuery, usePopulateSheetPagesMutation } from '@/store/apis/admin-api';
+import { useGetAiProviderStatusQuery } from '@/store/apis/config-api';
 import Accordion from '@mui/material/Accordion';
 import AccordionDetails from '@mui/material/AccordionDetails';
 import AccordionSummary from '@mui/material/AccordionSummary';
@@ -82,13 +83,19 @@ interface GenerateResult {
     executiveSummarySaved: boolean;
   };
   model?: string;
+  providerId?: string;
+  providerLabel?: string;
 }
 
-/** Ordered list of steps for the timeline visualiser */
+/** Ordered list of steps for the timeline visualiser. Step labels are
+ *  deliberately provider-neutral — the active provider/model varies by
+ *  Config > AI Provider, so hardcoding "OpenAI" here would lie whenever a
+ *  different provider is configured. The live progress.message (rendered
+ *  alongside each active step) carries the actual provider/model name. */
 const STEPS: { key: ProgressEvent['step']; label: string }[] = [
   { key: 'extracting', label: 'Reading Excel workbook' },
   { key: 'prompt', label: 'Building AI prompt' },
-  { key: 'openai', label: 'Calling OpenAI' },
+  { key: 'openai', label: 'Calling AI provider' },
   { key: 'parsing', label: 'Parsing AI response' },
   { key: 'saving', label: 'Saving to database' },
   { key: 'saving_exec', label: 'Saving Executive Summary' },
@@ -134,6 +141,13 @@ export function AiContentTab() {
 
   // RTK Query: POST /api/admin/ai-content — blocking JSON mode (non-SSE)
   const [generateContent, { isLoading: generating }] = useGenerateAiContentMutation();
+
+  // Which AI provider/model will actually be used — read from the same
+  // database resolveActiveAiConfig() reads at generation time (Config > AI
+  // Provider), so this is never stale relative to what Generate will do.
+  const { data: aiProviderData } = useGetAiProviderStatusQuery();
+  const activeProvider = aiProviderData?.data?.providers.find((p) => p.id === aiProviderData.data?.activeProviderId);
+  const activeModel = aiProviderData?.data?.activeModel;
 
   // RTK Query: POST /api/admin/clear-seed
   const [clearSeed, { isLoading: clearing }] = useClearSeedMutation();
@@ -319,7 +333,7 @@ export function AiContentTab() {
         <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
           Automatically generate the Business Review and Executive Summary from
           the June 2026 Excel workbook. The system reads the workbook, builds a
-          comprehensive data prompt, calls OpenAI, and saves the generated
+          comprehensive data prompt, calls the configured AI provider, and saves the generated
           Markdown to the database. No manual file uploads needed.
         </Typography>
 
@@ -565,6 +579,15 @@ export function AiContentTab() {
                   label={`Executive Summary: ${((result.contentLengths?.executiveSummary ?? 0) / 1000).toFixed(0)}K chars`}
                   size="small"
                 />
+                {result.providerLabel ? (
+                  <Chip
+                    icon={<AutoFixHighIcon />}
+                    label={`Provider: ${result.providerLabel}`}
+                    size="small"
+                    color="primary"
+                    variant="outlined"
+                  />
+                ) : null}
                 {result.model ? (
                   <Chip
                     label={`Model: ${result.model}`}
@@ -943,6 +966,16 @@ export function AiContentTab() {
         </DialogTitle>
         <DialogContent dividers>
           <Stack spacing={2}>
+            {activeProvider?.configured && activeModel ? (
+              <Alert severity="info" icon={<AutoFixHighIcon />}>
+                Will use <strong>{activeProvider.label}</strong> — model <strong>{activeModel}</strong>.
+                Change this in Config &gt; AI Provider.
+              </Alert>
+            ) : (
+              <Alert severity="warning">
+                No AI provider is configured yet — set one up in Config &gt; AI Provider before generating.
+              </Alert>
+            )}
             <Typography variant="body2" color="text.secondary">
               This will generate the Business Review, Executive Summary, and Dashboard content
               {additionalContext ? ' incorporating your selected AI Findings.' : '.'}
@@ -953,7 +986,7 @@ export function AiContentTab() {
                   <li>Read the June 2026 Excel workbook data seeded</li>
                   {additionalContext ? <li>Add the AI findings to the data to generate response</li> : null}
                   <li>Build a comprehensive AI prompt from the data and instructions</li>
-                  <li>Call OpenAI to generate all documents</li>
+                  <li>Call the configured AI provider to generate all documents</li>
                   <li>Save to the database: Executive Summary, Detailed Review, and Dashboard content (overwriting existing content)</li>
                 </ol>
               </Typography>
@@ -970,7 +1003,12 @@ export function AiContentTab() {
         </DialogContent>
         <DialogActions sx={{ px: 3, py: 2 }}>
           <Button onClick={() => setGenerateConfirmOpen(false)} color="inherit">Cancel</Button>
-          <Button variant="contained" onClick={runGeneration} startIcon={<AutoFixHighIcon />}>
+          <Button
+            variant="contained"
+            onClick={runGeneration}
+            startIcon={<AutoFixHighIcon />}
+            disabled={!activeProvider?.configured || !activeModel}
+          >
             Generate
           </Button>
         </DialogActions>

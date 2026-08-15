@@ -5,7 +5,8 @@
  *   1. Read the Excel workbook
  *   2. Extract structured data
  *   3. Build the generation prompt
- *   4. Call OpenAI to generate Business Review + Executive Summary
+ *   4. Call the configured AI provider (Config > AI Provider — OpenAI, Vercel
+ *      AI Gateway, or OpenCode Zen) to generate Business Review + Executive Summary
  *   5. Parse the AI response
  *   6. Save results to the database (knowledge_snippets + business_review_parts)
  *
@@ -56,6 +57,12 @@ export interface AiGeneratedContent {
   promptLength: number;
   responseLength: number;
   model: string;
+  /** Which configured provider actually generated this (see Config > AI
+   *  Provider / Edit App / Edit Tenant) — surfaced in the UI so the status
+   *  and progress display never implies OpenAI when a different provider
+   *  is active. */
+  providerId: string;
+  providerLabel: string;
 }
 
 export interface GenerationResult {
@@ -266,7 +273,7 @@ async function saveBusinessReviewParts(
  *                    The caller can forward these to an SSE stream or progress bar.
  * @param source     Optional explicit file path (string) OR in-memory workbook Buffer.
  *                   When omitted auto-detects the file on disk or falls back to DB cache.
- * @param model      Optional OpenAI model name (default gpt-4o)
+ * @param model      Optional model override — defaults to the model configured for the active AI provider
  */
 export async function generateAndSave(
   db: DbClient,
@@ -306,7 +313,7 @@ export async function generateAndSave(
 
     onProgress?.({
       step: 'prompt',
-      message: `AI prompt built — ${promptKb}K characters of structured financial data ready for OpenAI`,
+      message: `AI prompt built — ${promptKb}K characters of structured financial data ready for the AI provider`,
       pct: 30,
     });
 
@@ -359,6 +366,8 @@ export async function generateAndSave(
       promptLength: prompt.length,
       responseLength: businessReview.length + executiveSummary.length,
       model: ai.model,
+      providerId: ai.provider.id,
+      providerLabel: ai.provider.label,
     };
 
     // Phase 3: Generate Dashboard Data (action plan, targets, levers)
@@ -493,7 +502,7 @@ export async function generateAndSave(
 
     onProgress?.({
       step: 'complete',
-      message: `✅ Generation complete — ${savedParts.length} review parts + executive summary saved to database`,
+      message: `✅ Generation complete via ${content.providerLabel} — ${savedParts.length} review parts + executive summary saved to database`,
       pct: 100,
       detail: {
         businessReviewParts: savedParts,
@@ -503,6 +512,8 @@ export async function generateAndSave(
           executiveSummary: content.executiveSummary.length,
         },
         model: content.model,
+        providerId: content.providerId,
+        providerLabel: content.providerLabel,
       },
     });
 

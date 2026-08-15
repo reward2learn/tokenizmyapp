@@ -5,7 +5,7 @@
  *   Returns: prompt preview, data summary, current generated content status
  *
  * POST /api/admin/ai-content  (no Accept: text/event-stream)
- *   Standard blocking POST — reads Excel, calls OpenAI, saves to DB.
+ *   Standard blocking POST — reads Excel, calls the configured AI provider, saves to DB.
  *   Returns: generation result with saved content info
  *
  * POST /api/admin/ai-content  (Accept: text/event-stream or ?stream=true)
@@ -38,7 +38,7 @@ import { generateAndSave, OPENAI_QUOTA_MARKER, type ProgressEvent } from '@/doma
 import { getCurrentAppId, getTenantConfig } from '@shared/lib/config/tenant';
 
 export const dynamic = 'force-dynamic';
-export const maxDuration = 120; // 2 min timeout for OpenAI calls
+export const maxDuration = 120; // 2 min timeout for AI provider calls
 
 // ── Schema ──────────────────────────────────────────────
 
@@ -102,7 +102,7 @@ function sseStream(run: (emit: (event: ProgressEvent) => void) => Promise<void>)
               message: err instanceof Error ? err.message : String(err),
               pct: 0,
               code: err instanceof Error && err.message.includes(OPENAI_QUOTA_MARKER)
-                ? 'openai_no_credits'
+                ? 'ai_provider_no_credits'
                 : undefined,
             }),
           ),
@@ -376,7 +376,7 @@ export async function POST(request: Request): Promise<Response> {
         {
           success: false,
           error: result.error,
-          code: isQuota ? 'openai_no_credits' : undefined,
+          code: isQuota ? 'ai_provider_no_credits' : undefined,
           prompt: result.prompt,
         },
         { status: isQuota ? 402 : 500 },
@@ -393,6 +393,8 @@ export async function POST(request: Request): Promise<Response> {
         },
         saved: result.saved,
         model: result.content?.model,
+        providerId: result.content?.providerId,
+        providerLabel: result.content?.providerLabel,
       },
     });
   } catch (err) {

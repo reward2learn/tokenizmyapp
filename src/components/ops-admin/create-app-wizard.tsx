@@ -85,9 +85,12 @@ import {
   useSeedAppMutation,
   useDeployAppMutation,
   useProvisionGoogleOAuthMutation,
+  useSaveTenantAiProviderMutation,
   type SuiteAppInstance,
 } from '@/store/apis/tenant-api';
 import { useListRoleConfigsQuery } from '@/store/apis/admin-api';
+import type { AiProviderId } from '@/lib/ai-providers-catalog';
+import { CreateAppAiProviderStep } from './create-app-ai-provider-step';
 
 // ── Types ──────────────────────────────────────────────────────
 
@@ -125,6 +128,7 @@ const CREATE_STEPS: Array<{ label: string; icon: React.ReactNode; key: string }>
 
 const CREATE_PROGRESS_STEPS = [
   { key: 'create', label: 'Create app in suite', description: 'Registering the new app (or duplicate) in the tenant app pack' },
+  { key: 'ai-provider', label: 'Save AI provider', description: 'Saving the selected AI provider, key, and model to the new app\'s database' },
   { key: 'seed', label: 'Seed app content', description: 'Seeding pages, navigation and template content for the new app' },
   { key: 'deploy', label: 'Deploy to Vercel', description: 'Creating the Vercel project and triggering the build' },
   { key: 'done', label: 'Done', description: 'New app is live' },
@@ -185,6 +189,9 @@ export function CreateAppWizard({ open, onClose, tenantSlug, sourceApp, onSnackb
   const [provisioningOAuth, setProvisioningOAuth] = useState(false);
   const [provisionOAuthResult, setProvisionOAuthResult] = useState<Record<string, unknown> | null>(null);
   const [provisionOAuthError, setProvisionOAuthError] = useState<string | null>(null);
+  const [aiProviderId, setAiProviderId] = useState<AiProviderId>('openai');
+  const [aiApiKey, setAiApiKey] = useState('');
+  const [aiModel, setAiModel] = useState('');
 
   const { data: tenantsData } = useListTenantsQuery();
   const [addApp] = useAddAppToSuiteMutation();
@@ -192,6 +199,7 @@ export function CreateAppWizard({ open, onClose, tenantSlug, sourceApp, onSnackb
   const [seedApp] = useSeedAppMutation();
   const [deployApp] = useDeployAppMutation();
   const [provisionGoogleOAuth] = useProvisionGoogleOAuthMutation();
+  const [saveTenantAiProvider] = useSaveTenantAiProviderMutation();
   const { data: rolesData, isLoading: rolesLoading } = useListRoleConfigsQuery();
 
   const templates = listTemplates();
@@ -373,28 +381,54 @@ export function CreateAppWizard({ open, onClose, tenantSlug, sourceApp, onSnackb
       mark('create', 'success', `${mode === 'duplicate' ? 'Duplicated' : 'Created'} "${name.trim()}" (${appId})`);
       setCreateProgress(1);
 
+      // The AI Provider step (Step 5) only collects local wizard state — the
+      // new app's database doesn't exist until the create call above
+      // succeeds, so this is the earliest point it can actually be saved.
+      if (aiApiKey.trim()) {
+        mark('ai-provider', 'inprogress');
+        try {
+          await saveTenantAiProvider({
+            slug: tenantSlug,
+            appId,
+            providerId: aiProviderId,
+            apiKey: aiApiKey.trim(),
+            model: aiModel || undefined,
+            activate: true,
+          }).unwrap();
+          mark('ai-provider', 'success', `${aiProviderId} configured${aiModel ? ` (model: ${aiModel})` : ''}`);
+        } catch (err) {
+          // Non-fatal — the app itself was created fine; AI provider can
+          // still be configured later from the Edit App Modal.
+          mark('ai-provider', 'error', apiErrorMessage(err, 'Failed to save AI provider — configure it later from Edit App'));
+        }
+        setCreateProgress(2);
+      } else {
+        mark('ai-provider', 'skipped', 'No API key entered — skipped');
+        setCreateProgress(2);
+      }
+
       if (seedAfter) {
         mark('seed', 'inprogress');
         const seedRes = await seedApp({ slug: tenantSlug, appId }).unwrap();
         mark('seed', 'success', seedRes.data?.seeded ? `Seeded — ${seedRes.data.pages ?? 0} pages, ${seedRes.data.navItems ?? 0} nav items` : 'Seed returned');
-        setCreateProgress(2);
+        setCreateProgress(3);
       } else {
         mark('seed', 'skipped', 'Skipped');
-        setCreateProgress(2);
+        setCreateProgress(3);
       }
 
       if (deployAfter) {
         mark('deploy', 'inprogress');
         const deployRes = await deployApp({ slug: tenantSlug, appId }).unwrap();
         mark('deploy', 'success', deployRes.data?.appUrl ? `URL: ${deployRes.data.appUrl}` : 'Deployed');
-        setCreateProgress(3);
+        setCreateProgress(4);
       } else {
         mark('deploy', 'skipped', 'Skipped');
-        setCreateProgress(3);
+        setCreateProgress(4);
       }
 
       mark('done', 'success', `${mode === 'duplicate' ? 'Duplicated' : 'Created'} "${name.trim()}" — ${seedAfter && deployAfter ? 'seeded + deployed' : seedAfter ? 'seeded' : deployAfter ? 'deployed' : 'added to suite'}`);
-      setCreateProgress(4);
+      setCreateProgress(5);
       onSnackbar({
         message: `✅ Created "${name.trim()}"${mode === 'duplicate' ? ' (duplicate of ' + sourceAppId + ')' : ''} — ${seedAfter && deployAfter ? 'seeded + deployed' : seedAfter ? 'seeded' : deployAfter ? 'deployed' : 'added to suite'}`,
         severity: 'success',
@@ -402,7 +436,11 @@ export function CreateAppWizard({ open, onClose, tenantSlug, sourceApp, onSnackb
       handleClose();
     } catch (err) {
       const msg = apiErrorMessage(err, 'Failed to create app');
-      const currentKey = createProgress === 0 ? 'create' : createProgress === 1 ? 'seed' : createProgress === 2 ? 'deploy' : 'done';
+      const currentKey = createProgress === 0 ? 'create'
+        : createProgress === 1 ? 'ai-provider'
+        : createProgress === 2 ? 'seed'
+        : createProgress === 3 ? 'deploy'
+        : 'done';
       mark(currentKey, 'error', msg);
       onSnackbar({ message: `❌ ${msg}`, severity: 'error' });
     } finally {
@@ -657,15 +695,30 @@ export function CreateAppWizard({ open, onClose, tenantSlug, sourceApp, onSnackb
     </Stack>
   );
 
-  // Step 5: OpenAI API-Keys — inherited from tenant
+  // Step 5: AI Provider — collected as local wizard state (see aiProviderId/
+  // aiApiKey/aiModel above) and pushed to the new app's own database right
+  // after creation succeeds, in handleCreate() below — there's no app/
+  // database to write into yet while this step is on screen. The legacy
+  // tenant-inherited OpenAI key field stays for backward compatibility.
   const renderStepOpenAi = () => (
     <Stack spacing={3}>
+      <CreateAppAiProviderStep
+        providerId={aiProviderId}
+        onProviderIdChange={setAiProviderId}
+        apiKey={aiApiKey}
+        onApiKeyChange={setAiApiKey}
+        model={aiModel}
+        onModelChange={setAiModel}
+      />
+
+      <Divider />
+
       <Stack direction="row" spacing={1.5} sx={{ alignItems: 'center' }}>
         <KeyIcon color="primary" />
-        <Typography variant="subtitle1" sx={{ fontWeight: 600 }}>OpenAI API Key</Typography>
+        <Typography variant="subtitle1" sx={{ fontWeight: 600 }}>Legacy OpenAI API Key (tenant-inherited)</Typography>
       </Stack>
       <Typography variant="body2" color="text.secondary">
-        Inherited from the tenant — one key for every suite app&apos;s AI features.
+        Inherited from the tenant. Superseded by the AI Provider section above.
       </Typography>
       <Paper variant="outlined" sx={{ p: 2 }}>
         <SummaryRow label="OpenAI API Key" value={openaiApiKey ? '✅ configured' : '⚠️ not set'} />

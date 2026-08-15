@@ -701,6 +701,16 @@ export const tenantApi = createApi({
         params: { providerId, ...(appId ? { appId } : {}) },
       }),
     }),
+    /** POST /api/admin/ai-models-preview — list models for a provider using
+     *  an explicit key, before it's saved anywhere (Create App Wizard, where
+     *  the app/database don't exist yet to resolve a stored key from). */
+    previewAiModels: builder.mutation<ApiEnvelope<{ providerId: AiProviderId; models: AiModelOption[] }>, { providerId: AiProviderId; apiKey?: string }>({
+      query: (body) => ({
+        url: 'admin/ai-models-preview',
+        method: 'POST',
+        body,
+      }),
+    }),
   }),
 });
 
@@ -755,4 +765,5 @@ export const {
   useSaveTenantAiProviderMutation,
   useClearTenantAiProviderKeyMutation,
   useLazyGetTenantAiModelsQuery,
+  usePreviewAiModelsMutation,
 } = tenantApi;
