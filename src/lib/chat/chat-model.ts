@@ -20,3 +20,19 @@ export function resolveChatCompletionModel(webSearchEnabled = false): string {
 
   return configured;
 }
+
+/**
+ * Like resolveChatCompletionModel(), but prefers the model explicitly
+ * selected via Config > AI Chat > AI Provider (the same "AI provider
+ * switch" used for AI Content Generation) over the OPENAI_CHAT_MODEL/
+ * OPENAI_MODEL env var chain — so picking a model in that UI actually takes
+ * effect for OpenAI, not just for the other providers. Web search still
+ * always overrides to the dedicated search-preview model; a realtime model
+ * (unsupported over /v1/chat/completions streaming) still falls back to the
+ * env var chain's safety net.
+ */
+export function resolveEffectiveChatModel(activeModel: string | null | undefined, webSearchEnabled: boolean): string {
+  if (webSearchEnabled) return resolveChatCompletionModel(true);
+  if (activeModel && !/realtime/i.test(activeModel)) return activeModel;
+  return resolveChatCompletionModel(false);
+}

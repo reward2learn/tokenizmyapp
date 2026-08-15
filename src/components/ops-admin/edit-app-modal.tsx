@@ -79,6 +79,7 @@ import {
   type AppScopedConfig,
 } from '@/store/apis/tenant-api';
 import { useListRoleConfigsQuery } from '@/store/apis/admin-api';
+import { TenantAiProviderForm } from './tenant-ai-provider-form';
 
 // ── Types ──────────────────────────────────────────────────────
 
@@ -830,16 +831,24 @@ export function EditAppModal({ open, onClose, tenantSlug, app, onSnackbar }: Edi
     </Stack>
   );
 
-  // Step 5: OpenAI API-Keys — editable (prefilled from app.config ?? tenant config)
+  // Step 5: AI Provider — TenantAiProviderForm saves immediately to this
+  // app's own dedicated database (no dependency on this modal's Save All
+  // Changes / diff-tracking flow below). The legacy OpenAI-only field stays
+  // for backward compatibility with existing saved values.
   const renderStepOpenAi = () => (
     <Stack spacing={3}>
+      <TenantAiProviderForm tenantSlug={tenantSlug} appId={app.appId} />
+
+      <Divider />
+
       <Stack direction="row" spacing={1.5} sx={{ alignItems: 'center' }}>
         <KeyIcon color="primary" />
-        <Typography variant="subtitle1" sx={{ fontWeight: 600 }}>OpenAI API Key</Typography>
+        <Typography variant="subtitle1" sx={{ fontWeight: 600 }}>Legacy OpenAI API Key</Typography>
       </Stack>
-      <Alert severity="info" sx={{ fontSize: '0.8rem' }}>
-        Prefilled from the tenant&apos;s key — change it to use a different key for this app only.
-        Pushed to this app&apos;s Vercel project as <strong>OPENAI_API_KEY</strong>.
+      <Alert severity="warning" sx={{ fontSize: '0.8rem' }}>
+        Superseded by the AI Provider section above, which takes effect immediately. This field is only
+        saved into the app&apos;s config JSON — it is not currently pushed as an env var to this app&apos;s
+        Vercel project.
       </Alert>
       <TextField
         label="OpenAI API Key"

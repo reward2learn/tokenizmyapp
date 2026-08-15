@@ -131,8 +131,10 @@ export function AiProviderForm() {
             AI Provider
           </Typography>
           <Typography variant="body2" color="text.secondary">
-            Powers AI Content Generation. Choose a provider, add its API key, then pick a model from that
-            provider&apos;s current catalog. Keys are encrypted in the database.
+            Powers the &quot;AI Content Generation&quot; section (a separate tab above). Choose a provider,
+            add its API key, then pick a model from that provider&apos;s current catalog. Keys are
+            encrypted in the database. The ops chat assistant and voice synthesis still use the OpenAI key
+            below — they aren&apos;t on this switch yet.
           </Typography>
         </Box>
 

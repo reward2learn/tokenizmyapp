@@ -5,6 +5,7 @@ import { NextResponse } from 'next/server';
 import { z } from 'zod';
 import { createClient } from '@/lib/db';
 import { resolveOpenAiKey } from '@/lib/openai';
+import { resolveActiveAiConfig } from '@/lib/ai-providers';
 import { KnowledgeService } from '@/domain/knowledge/knowledge-service';
 import { MONTHLY_TARGETS_SEED } from '@/domain/knowledge/knowledge-seed';
 import { getSessionFromRequest } from '@/lib/auth/session';
@@ -27,7 +28,7 @@ import {
   CHAT_WEB_SEARCH_INSTRUCTIONS,
   type OpenAiChatMessage,
 } from '@/lib/chat/chat-with-session-tools';
-import { resolveChatCompletionModel } from '@/lib/chat/chat-model';
+import { resolveEffectiveChatModel } from '@/lib/chat/chat-model';
 import { getAppSettings } from '@/domain/config/app-settings-service';
 import { isExplicitSessionRequest } from '@/lib/chat/session-tools';
 import { ensureConversationsColumns } from '@/lib/db-migrate';
@@ -246,6 +247,7 @@ function buildUserMessage(message: string, attachments: ChatAttachment[]): OpenA
 async function mapReduceContext(
   fullContext: string,
   userMessage: string,
+  chatCompletionsUrl: string,
   apiKey: string,
   model: string,
 ): Promise<string> {
@@ -270,7 +272,7 @@ async function mapReduceContext(
   for (let i = 0; i < chunks.length; i++) {
     const chunk = chunks[i];
     try {
-      const response = await fetch('https://api.openai.com/v1/chat/completions', {
+      const response = await fetch(chatCompletionsUrl, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -366,10 +368,10 @@ async function handleChatPost(request: Request): Promise<Response> {
 
     const systemPrompt = await knowledge.buildSystemPrompt();
 
-    // Resolve API key early — needed for MapReduce phase below
-    const apiKey = await resolveOpenAiKey();
-    if (!apiKey) {
-      const reply = 'I\'m not fully configured yet. The owner needs to add an OpenAI API key.';
+    // Resolve the active AI provider early — needed for MapReduce phase below
+    const ai = await resolveActiveAiConfig();
+    if (!ai) {
+      const reply = 'I\'m not fully configured yet. The owner needs to set up an AI provider in Config > AI Chat.';
       if (stream === true) {
         const encoder = new TextEncoder();
         const sseBody = new ReadableStream({
@@ -395,7 +397,13 @@ async function handleChatPost(request: Request): Promise<Response> {
     }
 
     const appSettings = await getAppSettings(db);
-    const webSearchEnabled = appSettings.webSearchEnabled;
+    // Web search relies on OpenAI's own search-preview model — no equivalent
+    // has been verified for the other providers yet, so it only actually
+    // activates when OpenAI is the active provider. Telling a different
+    // provider's model "web search is enabled" when it has no such
+    // capability would just produce misleading answers, so this degrades to
+    // off rather than sending a broken request.
+    const webSearchEnabled = appSettings.webSearchEnabled && ai.provider.id === 'openai';
     const sessionToolsEnabled = isExplicitSessionRequest(message);
 
     const systemSections = [
@@ -416,8 +424,11 @@ async function handleChatPost(request: Request): Promise<Response> {
         const reducedContext = await mapReduceContext(
           systemMsg.content,
           message,
-          apiKey,
-          'gpt-4o-mini', // cheaper model for the map phase
+          ai.provider.chatCompletionsUrl,
+          ai.apiKey,
+          // gpt-4o-mini is a known-cheap OpenAI model for this map phase;
+          // other providers just reuse the selected chat model.
+          ai.provider.id === 'openai' ? 'gpt-4o-mini' : ai.model,
         );
         systemMsg.content = reducedContext;
       } catch {
@@ -458,8 +469,12 @@ async function handleChatPost(request: Request): Promise<Response> {
     };
 
     return completeChatWithSessionTools({
-      apiKey,
-      model: resolveChatCompletionModel(webSearchEnabled),
+      chatCompletionsUrl: ai.provider.chatCompletionsUrl,
+      apiKey: ai.apiKey,
+      // The search-preview override (inside resolveEffectiveChatModel) is
+      // OpenAI-only — webSearchEnabled is already forced false above for
+      // any other provider, so this just uses the selected model for them.
+      model: resolveEffectiveChatModel(ai.model, webSearchEnabled),
       messages,
       toolContext,
       stream: stream === true,

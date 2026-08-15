@@ -1,6 +1,7 @@
 import { createApi } from '@reduxjs/toolkit/query/react';
 import { baseQuery } from '@shared/store/base-query';
 import type { ApiEnvelope } from '@/store/api-types';
+import type { AiProviderId, AiProviderStatus, AiModelOption } from '@/store/apis/config-api';
 
 export interface TenantEntry {
   id: string;
@@ -664,6 +665,42 @@ export const tenantApi = createApi({
       query: () => 'chat/ai-findings?limit=1',
       providesTags: ['AiFindings'],
     }),
+
+    // ── Admin-scoped AI Provider config — set directly on a tenant/app's own
+    // dedicated database from the tenant/app edit modal, so it takes effect
+    // on that tenant's live app immediately (see ai-providers.ts). ──
+    getTenantAiProviderStatus: builder.query<ApiEnvelope<AiProviderStatus>, { slug: string; appId?: string }>({
+      query: ({ slug, appId }) => ({
+        url: `admin/tenants/${slug}/ai-provider`,
+        params: appId ? { appId } : undefined,
+      }),
+      providesTags: (_result, _error, { slug, appId }) => [{ type: 'Tenants', id: `ai-provider-${slug}-${appId ?? ''}` }],
+    }),
+    saveTenantAiProvider: builder.mutation<
+      ApiEnvelope<AiProviderStatus>,
+      { slug: string; appId?: string; providerId: AiProviderId; apiKey?: string; model?: string; activate?: boolean }
+    >({
+      query: ({ slug, ...body }) => ({
+        url: `admin/tenants/${slug}/ai-provider`,
+        method: 'POST',
+        body,
+      }),
+      invalidatesTags: (_result, _error, { slug, appId }) => [{ type: 'Tenants', id: `ai-provider-${slug}-${appId ?? ''}` }],
+    }),
+    clearTenantAiProviderKey: builder.mutation<ApiEnvelope<AiProviderStatus>, { slug: string; appId?: string; providerId: AiProviderId }>({
+      query: ({ slug, ...body }) => ({
+        url: `admin/tenants/${slug}/ai-provider`,
+        method: 'DELETE',
+        body,
+      }),
+      invalidatesTags: (_result, _error, { slug, appId }) => [{ type: 'Tenants', id: `ai-provider-${slug}-${appId ?? ''}` }],
+    }),
+    getTenantAiModels: builder.query<ApiEnvelope<{ providerId: AiProviderId; models: AiModelOption[] }>, { slug: string; appId?: string; providerId: AiProviderId }>({
+      query: ({ slug, appId, providerId }) => ({
+        url: `admin/tenants/${slug}/ai-models`,
+        params: { providerId, ...(appId ? { appId } : {}) },
+      }),
+    }),
   }),
 });
 
@@ -714,4 +751,8 @@ export const {
   useGetAiFindingsQuery,
   useLazyGetTenantQuery,
   useLazyGetAiFindingsQuery,
+  useGetTenantAiProviderStatusQuery,
+  useSaveTenantAiProviderMutation,
+  useClearTenantAiProviderKeyMutation,
+  useLazyGetTenantAiModelsQuery,
 } = tenantApi;

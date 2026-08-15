@@ -4,7 +4,6 @@ import {
   executeSessionTool,
   type SessionToolContext,
 } from '@/lib/chat/session-tools';
-import { resolveOpenAiBaseUrl } from '@/lib/openai';
 
 export const CHAT_WEB_SEARCH_INSTRUCTIONS = `Web search is enabled on this chat model. When the user asks about current events, live market data, recent news, or information that may have changed after your training data, search the web before answering. Cite sources briefly when web results are used.`;
 
@@ -73,7 +72,8 @@ const MAX_TOOL_ROUNDS = 4;
 
 function openAiErrorMessage(status: number, detail?: string): string {
   if (detail?.trim()) return detail.trim();
-  if (status === 401) return 'The OpenAI API key appears to be invalid.';
+  if (status === 401) return 'The AI provider API key appears to be invalid.';
+  if (status === 402) return 'The AI provider account has no credits remaining.';
   if (status === 429) return 'The AI service is currently rate-limited.';
   return 'The AI service returned an error.';
 }
@@ -96,6 +96,7 @@ function encodeSseLine(payload: unknown): string {
 }
 
 async function requestOpenAiCompletion(
+  chatCompletionsUrl: string,
   apiKey: string,
   model: string,
   messages: OpenAiChatMessage[],
@@ -113,7 +114,7 @@ async function requestOpenAiCompletion(
     stream,
   };
 
-  return fetch(`${resolveOpenAiBaseUrl()}/chat/completions`, {
+  return fetch(chatCompletionsUrl, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -224,6 +225,7 @@ export async function consumeOpenAiStream(
 }
 
 async function completeChatWithoutStreaming(options: {
+  chatCompletionsUrl: string;
   apiKey: string;
   model: string;
   messages: OpenAiChatMessage[];
@@ -236,6 +238,7 @@ async function completeChatWithoutStreaming(options: {
 
   for (let round = 0; round < MAX_TOOL_ROUNDS; round += 1) {
     const chatResp = await requestOpenAiCompletion(
+      options.chatCompletionsUrl,
       options.apiKey,
       options.model,
       currentMessages,
@@ -295,6 +298,7 @@ async function completeChatWithoutStreaming(options: {
 }
 
 async function completeChatWithStreaming(options: {
+  chatCompletionsUrl: string;
   apiKey: string;
   model: string;
   messages: OpenAiChatMessage[];
@@ -318,6 +322,7 @@ async function completeChatWithStreaming(options: {
     try {
       for (let round = 0; round < MAX_TOOL_ROUNDS; round += 1) {
         const chatResp = await requestOpenAiCompletion(
+          options.chatCompletionsUrl,
           options.apiKey,
           options.model,
           currentMessages,
@@ -394,6 +399,7 @@ async function completeChatWithStreaming(options: {
 }
 
 export async function completeChatWithSessionTools(options: {
+  chatCompletionsUrl: string;
   apiKey: string;
   model: string;
   messages: OpenAiChatMessage[];

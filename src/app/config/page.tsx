@@ -112,6 +112,7 @@ function ConfigPageInner() {
 
           {tab === 0 ? (
             <Stack spacing={3}>
+              <AiProviderForm />
               <OpenAiKeyForm />
               <ChatSettingsForm />
             </Stack>
@@ -121,12 +122,7 @@ function ConfigPageInner() {
 
           {tab === 2 ? <DataViewTab /> : null}
 
-          {tab === 3 ? (
-            <Stack spacing={3}>
-              <AiProviderForm />
-              <AiContentTab />
-            </Stack>
-          ) : null}
+          {tab === 3 ? <AiContentTab /> : null}
           {tab === 4 && template.id === 'nightclub-bar' ? <TemplateConfigPlaceholder template={template} /> : null}
           {tab === 4 && template.id === 'restaurant' ? <TemplateConfigPlaceholder template={template} /> : null}
           {tab === 4 && template.id === 'hotel' ? <TemplateConfigPlaceholder template={template} /> : null}
