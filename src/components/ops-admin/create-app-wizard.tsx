@@ -21,7 +21,7 @@
  *   2. Duplicate — clone an existing app already in the tenant's list
  *      (identity + app-scoped content rows — see the duplicate API route).
  */
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useMemo } from 'react';
 import Alert from '@mui/material/Alert';
 import AlertTitle from '@mui/material/AlertTitle';
 import Avatar from '@mui/material/Avatar';
@@ -66,6 +66,7 @@ import ErrorIcon from '@mui/icons-material/Error';
 import KeyIcon from '@mui/icons-material/Key';
 import LanguageIcon from '@mui/icons-material/Language';
 import LockIcon from '@mui/icons-material/Lock';
+import OpenInNewIcon from '@mui/icons-material/OpenInNew';
 import PaletteIcon from '@mui/icons-material/Palette';
 import PeopleIcon from '@mui/icons-material/People';
 import PlayArrowIcon from '@mui/icons-material/PlayArrow';
@@ -83,6 +84,7 @@ import {
   useDuplicateAppMutation,
   useSeedAppMutation,
   useDeployAppMutation,
+  useProvisionGoogleOAuthMutation,
   type SuiteAppInstance,
 } from '@/store/apis/tenant-api';
 import { useListRoleConfigsQuery } from '@/store/apis/admin-api';
@@ -180,12 +182,16 @@ export function CreateAppWizard({ open, onClose, tenantSlug, sourceApp, onSnackb
   const [createDetails, setCreateDetails] = useState<Record<string, string>>({});
   const [flightChecks, setFlightChecks] = useState<CheckItem[]>([]);
   const [flightRunning, setFlightRunning] = useState(false);
+  const [provisioningOAuth, setProvisioningOAuth] = useState(false);
+  const [provisionOAuthResult, setProvisionOAuthResult] = useState<Record<string, unknown> | null>(null);
+  const [provisionOAuthError, setProvisionOAuthError] = useState<string | null>(null);
 
   const { data: tenantsData } = useListTenantsQuery();
   const [addApp] = useAddAppToSuiteMutation();
   const [duplicateApp] = useDuplicateAppMutation();
   const [seedApp] = useSeedAppMutation();
   const [deployApp] = useDeployAppMutation();
+  const [provisionGoogleOAuth] = useProvisionGoogleOAuthMutation();
   const { data: rolesData, isLoading: rolesLoading } = useListRoleConfigsQuery();
 
   const templates = listTemplates();
@@ -210,7 +216,10 @@ export function CreateAppWizard({ open, onClose, tenantSlug, sourceApp, onSnackb
   const openaiApiKey = String((cfg.openaiApiKey as string) || '');
   const oauthClientId = String((oauthCfg.clientId as string) || '');
   const oauthProjectId = String((oauthCfg.projectId as string) || '');
-  const oauthRedirectUris = (oauthCfg.redirectUris as string[]) || [];
+  const oauthRedirectUris = useMemo(
+    () => (oauthCfg.redirectUris as string[]) || [],
+    [oauthCfg.redirectUris],
+  );
   const oauthGcpEmail = String((oauthCfg.gcpAccountEmail as string) || 'reward2learn@gmail.com');
   const dbUrl = String((dbCfg.databaseUrl as string) || (dbCfg.pooledUrl as string) || tenant?.dbUrl || '');
   const dbDirectUrl = String((dbCfg.directUrl as string) || '');
@@ -228,6 +237,14 @@ export function CreateAppWizard({ open, onClose, tenantSlug, sourceApp, onSnackb
     !!appId &&
     !appIdConflict &&
     (mode === 'blank' || !!sourceAppId);
+
+  // The new app's redirect URIs — these must be added to the tenant's
+  // existing GCP OAuth client for Google sign-in to work on the new app.
+  const newAppRedirectUris = useMemo(() => appId ? [
+    `https://${vercelName}.vercel.app`,
+    `https://${vercelName}.vercel.app/api/auth?action=google-callback`,
+    `https://${vercelName}.vercel.app/api/auth/callback/google`,
+  ] : [], [appId, vercelName]);
 
   /** Prefill everything from the tenant (and source app when duplicating). */
   const prefill = (nextMode: 'blank' | 'duplicate', srcAppId: string) => {
@@ -258,6 +275,34 @@ export function CreateAppWizard({ open, onClose, tenantSlug, sourceApp, onSnackb
     onClose();
   };
 
+  // ── Google OAuth provisioning (interactive) ────────────────
+  const handleProvisionOAuth = useCallback(async () => {
+    if (!appId) return;
+    setProvisioningOAuth(true);
+    setProvisionOAuthError(null);
+    setProvisionOAuthResult(null);
+    try {
+      const allRedirectUris = [...new Set([...oauthRedirectUris, ...newAppRedirectUris])];
+      const result = await provisionGoogleOAuth({
+        slug: tenantSlug,
+        email: oauthGcpEmail,
+        redirectUris: allRedirectUris,
+      }).unwrap();
+      if (result.data) {
+        setProvisionOAuthResult(result.data as unknown as Record<string, unknown>);
+        onSnackbar({ message: `✅ OAuth redirect URIs updated for ${vercelName}`, severity: 'success' });
+      }
+    } catch (err) {
+      const msg = err && typeof err === 'object' && 'data' in err
+        ? String((err as { data?: { error?: string } }).data?.error || 'OAuth provisioning failed')
+        : 'OAuth provisioning failed';
+      setProvisionOAuthError(msg);
+      onSnackbar({ message: `❌ ${msg}`, severity: 'error' });
+    } finally {
+      setProvisioningOAuth(false);
+    }
+  }, [appId, vercelName, oauthRedirectUris, newAppRedirectUris, oauthGcpEmail, tenantSlug, provisionGoogleOAuth, onSnackbar]);
+
   // ── Flight Check (app-scoped) ───────────────────────────────
   const runFlightCheck = useCallback(async () => {
     setFlightRunning(true);
@@ -275,6 +320,8 @@ export function CreateAppWizard({ open, onClose, tenantSlug, sourceApp, onSnackb
     // Inherited tenant config
     addResult('Database URL', dbUrl ? 'pass' : 'fail', dbUrl ? dbUrl.slice(0, 40) + '...' : 'Missing — provision a Neon database in the tenant');
     addResult('Google OAuth Client ID', oauthClientId ? 'pass' : 'fail', oauthClientId ? oauthClientId.slice(0, 25) + '...' : 'Missing — configure in the tenant');
+    addResult('New App Redirect URIs', appId ? (newAppRedirectUris.every(u => oauthRedirectUris.includes(u)) ? 'pass' : 'warn') : 'fail',
+      appId ? (newAppRedirectUris.every(u => oauthRedirectUris.includes(u)) ? 'All registered' : `${newAppRedirectUris.filter(u => !oauthRedirectUris.includes(u)).length} of ${newAppRedirectUris.length} URIs not registered — add them in the Google OAuth step`) : 'Missing — enter an app name first');
     addResult('License Key', licenseKey ? 'pass' : 'fail', licenseKey ? licenseKey.slice(0, 25) + '...' : 'Missing');
     addResult('API Key', setupToken ? 'pass' : 'warn', setupToken ? 'Configured' : 'Not set');
     addResult('Admin Email', adminEmail ? 'pass' : 'fail', adminEmail || 'Not set');
@@ -283,7 +330,7 @@ export function CreateAppWizard({ open, onClose, tenantSlug, sourceApp, onSnackb
 
     setFlightChecks(results);
     setFlightRunning(false);
-  }, [name, appId, appIdConflict, vercelName, dbUrl, oauthClientId, licenseKey, setupToken, adminEmail, pinSignInEnabled, openaiApiKey]);
+  }, [name, appId, appIdConflict, vercelName, dbUrl, oauthClientId, oauthRedirectUris, newAppRedirectUris, licenseKey, setupToken, adminEmail, pinSignInEnabled, openaiApiKey]);
 
   // ── Create & Deploy ─────────────────────────────────────────
   const handleCreate = async () => {
@@ -620,26 +667,141 @@ export function CreateAppWizard({ open, onClose, tenantSlug, sourceApp, onSnackb
     </Stack>
   );
 
-  // Step 6: Google OAuth — inherited from tenant
-  const renderStepOAuth = () => (
-    <Stack spacing={3}>
-      <Stack direction="row" spacing={1.5} sx={{ alignItems: 'center' }}>
-        <VerifiedUserIcon color="primary" />
-        <Typography variant="subtitle1" sx={{ fontWeight: 600 }}>Google OAuth</Typography>
-      </Stack>
-      <Typography variant="body2" color="text.secondary">
-        Inherited from the tenant&apos;s GCP project — the app shares the tenant&apos;s OAuth client.
-      </Typography>
-      <Paper variant="outlined" sx={{ p: 2 }}>
-        <Stack spacing={0.5}>
-          <SummaryRow label="GCP Account Email" value={oauthGcpEmail} />
-          <SummaryRow label="Client ID" value={oauthClientId ? '✅ configured' : '⚠️ not set'} />
-          <SummaryRow label="Project ID" value={oauthProjectId || '(auto)'} />
-          <SummaryRow label="Redirect URIs" value={oauthRedirectUris.length > 0 ? oauthRedirectUris.join(', ') : 'none'} />
+  // Step 6: Google OAuth — interactive: add new app's redirect URIs to tenant's OAuth client
+  const renderStepOAuth = () => {
+    // Check which of the new app's redirect URIs are already registered
+    const registeredUris = new Set(oauthRedirectUris);
+    const newAppUrisMissing = newAppRedirectUris.filter(u => !registeredUris.has(u));
+    const allUrisRegistered = appId && newAppUrisMissing.length === 0;
+
+    return (
+      <Stack spacing={3}>
+        <Stack direction="row" spacing={1.5} sx={{ alignItems: 'center' }}>
+          <VerifiedUserIcon color="primary" />
+          <Typography variant="subtitle1" sx={{ fontWeight: 600 }}>Google OAuth 2.0</Typography>
         </Stack>
-      </Paper>
-    </Stack>
-  );
+        <Typography variant="body2" color="text.secondary">
+          The new app shares the tenant&apos;s Google OAuth client. The new app&apos;s redirect URIs
+          must be added to the existing GCP OAuth client for Google sign-in to work.
+        </Typography>
+
+        {/* Tenant's existing OAuth config (read-only) */}
+        <Paper variant="outlined" sx={{ p: 2 }}>
+          <Typography variant="subtitle2" sx={{ fontWeight: 600, mb: 1 }}>Inherited Tenant OAuth Config</Typography>
+          <Stack spacing={0.5}>
+            <SummaryRow label="GCP Project ID" value={oauthProjectId || '(not set)'} />
+            <SummaryRow label="Client ID" value={oauthClientId ? oauthClientId.slice(0, 30) + '...' : '⚠️ not set'} />
+            <SummaryRow label="Client Secret" value={oauthCfg.clientSecret ? '✅ configured' : '⚠️ not set'} />
+            <SummaryRow label="GCP Email" value={oauthGcpEmail} />
+          </Stack>
+        </Paper>
+
+        {/* New app's redirect URIs */}
+        <Paper variant="outlined" sx={{ p: 2.5, borderColor: 'primary.main' }}>
+          <Stack direction="row" spacing={1.5} sx={{ alignItems: 'center', mb: 1.5 }}>
+            <VerifiedUserIcon color="primary" />
+            <Typography variant="subtitle2" sx={{ fontWeight: 600 }}>
+              New App Redirect URIs
+            </Typography>
+            {appId && (
+              <Chip
+                label={allUrisRegistered ? '✅ All registered' : `${newAppUrisMissing.length} missing`}
+                size="small"
+                color={allUrisRegistered ? 'success' : 'warning'}
+              />
+            )}
+          </Stack>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+            These redirect URIs are for the new app&apos;s Vercel project (<strong>{vercelName || '—'}</strong>).
+            Add them to the GCP Console&apos;s OAuth client to enable Google sign-in.
+          </Typography>
+
+          {appId ? (
+            <Stack spacing={0.5}>
+              {newAppRedirectUris.map((uri) => {
+                const isRegistered = registeredUris.has(uri);
+                return (
+                  <Stack key={uri} direction="row" spacing={1} sx={{ alignItems: 'center' }}>
+                    {isRegistered ? (
+                      <CheckCircleIcon color="success" fontSize="small" />
+                    ) : (
+                      <WarningIcon color="warning" fontSize="small" />
+                    )}
+                    <Typography variant="caption" sx={{ fontFamily: 'monospace', fontSize: '0.7rem', color: 'text.secondary', flex: 1 }}>
+                      {uri}
+                    </Typography>
+                    {isRegistered && (
+                      <Chip label="Registered" size="small" color="success" variant="outlined" />
+                    )}
+                  </Stack>
+                );
+              })}
+            </Stack>
+          ) : (
+            <Typography variant="body2" color="text.secondary">
+              Enter an app name in the Slug step to generate the redirect URIs.
+            </Typography>
+          )}
+
+          {/* Action buttons */}
+          {appId && newAppUrisMissing.length > 0 && (
+            <Stack direction="row" spacing={1.5} sx={{ mt: 2, flexWrap: 'wrap' }}>
+              <Button
+                variant="contained"
+                size="small"
+                href={`https://console.cloud.google.com/apis/credentials?project=${oauthProjectId || tenantSlug}`}
+                target="_blank"
+                startIcon={<OpenInNewIcon />}
+              >
+                Open GCP Console
+              </Button>
+              <Button
+                variant="outlined"
+                size="small"
+                onClick={() => void handleProvisionOAuth()}
+                disabled={provisioningOAuth || !oauthGcpEmail.trim()}
+                startIcon={provisioningOAuth ? <CircularProgress size={16} color="inherit" /> : <AutoFixHighIcon />}
+              >
+                {provisioningOAuth ? 'Adding...' : 'Auto-add Redirect URIs'}
+              </Button>
+            </Stack>
+          )}
+        </Paper>
+
+        {/* Existing tenant redirect URIs (reference) */}
+        <Paper variant="outlined" sx={{ p: 2 }}>
+          <Typography variant="subtitle2" sx={{ fontWeight: 600, mb: 1 }}>Existing Tenant Redirect URIs</Typography>
+          {oauthRedirectUris.length > 0 ? (
+            <Stack spacing={0.5}>
+              {oauthRedirectUris.map((uri) => (
+                <Typography key={uri} variant="caption" sx={{ fontFamily: 'monospace', fontSize: '0.7rem', color: 'text.secondary' }}>
+                  {uri}
+                </Typography>
+              ))}
+            </Stack>
+          ) : (
+            <Typography variant="body2" color="text.secondary">No redirect URIs configured.</Typography>
+          )}
+        </Paper>
+
+        {/* Auto-provision result/error */}
+        {provisionOAuthResult && (
+          <Alert severity="success">
+            <AlertTitle>✅ OAuth Redirect URIs Updated</AlertTitle>
+            <Typography variant="body2" sx={{ fontFamily: 'monospace', fontSize: '0.75rem', whiteSpace: 'pre-wrap' }}>
+              {JSON.stringify(provisionOAuthResult, null, 2)}
+            </Typography>
+          </Alert>
+        )}
+        {provisionOAuthError && (
+          <Alert severity="error">
+            <AlertTitle>❌ OAuth Provisioning Failed</AlertTitle>
+            {provisionOAuthError}
+          </Alert>
+        )}
+      </Stack>
+    );
+  };
 
   // Step 7: Database — shared tenant DB via synthetic scope key
   const renderStepDatabase = () => (
@@ -893,6 +1055,7 @@ export function CreateAppWizard({ open, onClose, tenantSlug, sourceApp, onSnackb
           <SummaryRow label="Features" value={features.length > 0 ? features.join(', ') : 'none'} />
           <SummaryRow label="OpenAI API Key" value={openaiApiKey ? '✅ configured' : '⚠️ not set'} />
           <SummaryRow label="Google OAuth" value={oauthClientId ? '✅ configured' : '⚠️ not set'} />
+          <SummaryRow label="New App Redirect URIs" value={appId ? `${newAppRedirectUris.length} URIs (${newAppRedirectUris.filter(u => oauthRedirectUris.includes(u)).length} registered)` : '—'} />
           <SummaryRow label="Database" value={dbUrl ? '✅ shared tenant DB' : '⚠️ not configured'} />
           <SummaryRow label="Custom Env Vars" value={envPairs.length > 0 ? envPairs.map((p) => p.key).join(', ') : 'none'} />
           <SummaryRow label="Deploy Hook" value={deployHookUrl ? '✅ configured' : '⚠️ not set'} />
