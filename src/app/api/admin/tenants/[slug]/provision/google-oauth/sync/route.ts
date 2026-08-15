@@ -90,7 +90,7 @@ export async function POST(
         source: 'saved-config',
         apiUnavailable: true,
         savedUris: [...knownUris],
-        guidance: 'No service account or gcloud auth available. To enable live GCP sync: create a service account in GCP project "' + projectId + '" with roles/oauthconfig.viewer (read) or roles/oauthconfig.editor (read + auto-register), then store its JSON in the secrets table as GOOGLE_CLOUD_SERVICE_ACCOUNT or set GOOGLE_CLOUD_SERVICE_ACCOUNT_JSON on Vercel. Or run scripts/google-oauth-sync.mjs locally with --sa=path/to/sa.json.',
+        guidance: 'Google removed the OAuth client management API — live GCP fetch/PATCH is no longer possible for any credential. Redirect URIs can only be managed in the GCP Console: https://console.cloud.google.com/auth/clients?project=' + projectId + '. The saved config below is the source of truth — verify these URIs are registered in the console.',
         fetchedAt: new Date().toISOString(),
       });
     }

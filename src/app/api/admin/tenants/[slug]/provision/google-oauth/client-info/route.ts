@@ -54,6 +54,7 @@ export async function GET(
       redirectUris: Array.isArray(savedGoogle?.redirectUris) ? (savedGoogle.redirectUris as string[]) : [],
       source: 'saved-config',
       apiUnavailable: true,
+      note: 'Google removed the OAuth client management API — redirect URIs can no longer be fetched programmatically. Verify them in the GCP Console (https://console.cloud.google.com/auth/clients?project=' + projectId + '). Showing the saved config as best-known state.',
       fetchedAt: new Date().toISOString(),
     });
   } catch (err) {

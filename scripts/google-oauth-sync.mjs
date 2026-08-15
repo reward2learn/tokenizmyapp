@@ -136,7 +136,7 @@ async function fetchClientInfo(token, clientId, projectId) {
   const res = await fetch(`https://oauth2.googleapis.com/v1/projects/${encodeURIComponent(proj.projectNumber || projectId)}/oauthClients/${encodeURIComponent(clientId)}`, {
     headers: { Authorization: `Bearer ${token}` },
   });
-  if (!res.ok) throw new Error(`OAuth client fetch failed (${res.status}): ${(await res.text()).slice(0, 200)}`);
+  if (!res.ok) throw new Error(`OAuth client fetch failed (${res.status}): Google's OAuth client management API is no longer available — manage redirect URIs in the GCP Console`);
   const client = await res.json();
   return { projectNumber: proj.projectNumber, redirectUris: client.redirectUris || [], displayName: client.displayName };
 }

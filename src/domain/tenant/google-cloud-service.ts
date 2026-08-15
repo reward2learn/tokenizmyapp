@@ -859,12 +859,13 @@ export interface GoogleOAuthClientInfo {
 }
 
 /**
- * Fetch the CURRENT OAuth client data (redirect URIs, display name) from Google
- * via the OAuth 2.0 API:
- *   GET https://oauth2.googleapis.com/v1/projects/{projectNumber}/oauthClients/{clientId}
- * Requires a service account with roles/oauthconfig.editor on the project
- * (secrets table key "GOOGLE_CLOUD_SERVICE_ACCOUNT" or env GOOGLE_CLOUD_SERVICE_ACCOUNT_JSON).
- * Returns null when no API access is available.
+ * Fetch the CURRENT OAuth client data (redirect URIs, display name) from Google.
+ *
+ * NOTE: Google removed the OAuth client management API — the v1 and v2
+ * oauth2.googleapis.com client endpoints return 404 at the gateway and the
+ * docs are gone. Redirect URIs can only be managed in the GCP Console, so
+ * this always returns null today (saved-config is the best-known state).
+ * Kept for compatibility with callers.
  */
 export async function fetchGoogleOAuthClientInfo(
   clientId: string,
@@ -894,7 +895,7 @@ export async function fetchGoogleOAuthClientInfo(
     );
     if (!res.ok) {
       const errText = await res.text().catch(() => '');
-      console.warn(`[google-cloud] OAuth client fetch failed for ${clientId}: ${res.status} ${errText.slice(0, 200)}`);
+      console.warn(`[google-cloud] OAuth client fetch failed for ${clientId}: ${res.status} ${errText.slice(0, 200)} (Google's OAuth client management API is no longer available — manage URIs in the GCP Console)`);
       return null;
     }
     const client = (await res.json()) as { clientId?: string; displayName?: string; redirectUris?: string[] };

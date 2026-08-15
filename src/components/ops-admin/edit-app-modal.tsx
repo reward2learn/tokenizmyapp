@@ -1064,8 +1064,23 @@ export function EditAppModal({ open, onClose, tenantSlug, app, onSnackbar }: Edi
           </Alert>
         )}
         {gcpClientInfo && (
-          <Alert severity="info">
-            <AlertTitle>🌐 Current GCP OAuth Client Data</AlertTitle>
+          <Alert severity={gcpClientInfo.apiUnavailable ? 'warning' : 'info'}>
+            <AlertTitle>🌐 GCP OAuth Client Data</AlertTitle>
+            {!!gcpClientInfo.apiUnavailable && (
+              <Typography variant="body2" sx={{ mb: 1 }}>
+                Google removed the OAuth client management API — redirect URIs can only be managed
+                in the{' '}
+                <a
+                  href={`https://console.cloud.google.com/auth/clients?project=${String((gcpClientInfo as Record<string, unknown>).projectId ?? oauthProjectId) || tenantSlug}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  style={{ color: '#0af9fe' }}
+                >
+                  GCP Console
+                </a>
+                . Showing the saved config as best-known state — verify these URIs are registered.
+              </Typography>
+            )}
             <Typography variant="body2" sx={{ fontFamily: 'monospace', fontSize: '0.75rem', whiteSpace: 'pre-wrap' }}>
               {JSON.stringify(gcpClientInfo, null, 2)}
             </Typography>
