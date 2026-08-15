@@ -5,6 +5,7 @@
  * fallback) is handled by vercel-sdk-client.ts.
  */
 import { getVercelClient, withTeamId, withTeamId404Null, TEAM_ID } from './vercel-sdk-client';
+import type { UpdateProjectRequestBody } from '@vercel/sdk/models/updateprojectbranchmatcher.js';
 
 
 
@@ -35,6 +36,9 @@ interface DeployTenantResult {
   appUrl: string;
   envCount: number;
 }
+
+/** Undocumented Vercel API field — the SDK omits gitRepository from UpdateProjectRequestBody. */
+type UpdateProjectRequestBodyWithGit = UpdateProjectRequestBody & { gitRepository?: { type: 'github'; repo: string } };
 
 /** Make a Vercel API call with a specific bearer token (no auto-resolution). */
 /** Try a Vercel API call both with and without teamId. Returns the first successful response,
@@ -113,10 +117,10 @@ export async function ensureVercelProject(input: { slug: string; projectId?: str
           client.projects.updateProject({
             idOrName: existing.id,
             teamId,
-            // SDK's UpdateProjectRequestBody omits gitRepository — cast like the git path does.
+            // SDK's UpdateProjectRequestBody omits gitRepository — cast to narrow type.
             requestBody: {
               gitRepository: { type: 'github' as const, repo: GIT_REPO },
-            } as any,
+            } as UpdateProjectRequestBodyWithGit,
           })
         );
         console.log(`[vercel-deploy] Project "${slug}" linked to ${GIT_REPO}`);
@@ -363,7 +367,8 @@ export async function deployTenant(input: DeployTenantInput): Promise<DeployTena
           name: input.slug,
           project: projectId,
           target: 'production',
-          gitSource: { type: 'github', repoId, ref: 'main' } as any,
+          // Narrow to a valid GitSource variant — SDK union type doesn't infer from literal.
+          gitSource: { type: 'github' as const, repoId, ref: 'main' } as { type: 'github'; repoId: string; ref: string },
         },
       })
     );
@@ -384,7 +389,6 @@ export async function deployTenant(input: DeployTenantInput): Promise<DeployTena
 // ── Git-based deployment ─────────────────────────────────────
 
 const GIT_REPO = process.env.VERCEL_GIT_REPO || 'reward2learn/tokenizmyapp';
-const GIT_REPO_TYPE = 'github';
 
 /**
  * Ensure a Vercel project exists and is linked to the GitHub repo.
@@ -415,7 +419,7 @@ export async function ensureVercelProjectWithGit(input: { slug: string; projectI
   );
   if (existing) {
     // Link to Git repo if not already linked
-    if (!(existing as any).gitRepository) {
+    if (!(existing as { gitRepository?: unknown }).gitRepository) {
       console.log(`[vercel-deploy] Linking existing project "${slug}" to Git repo...`);
       await withTeamId((teamId) =>
         client.projects.updateProject({
@@ -423,7 +427,7 @@ export async function ensureVercelProjectWithGit(input: { slug: string; projectI
           teamId,
           requestBody: {
             gitRepository: { type: 'github' as const, repo: REPO },
-          } as any,
+          } as UpdateProjectRequestBodyWithGit,
         })
       );
       console.log(`[vercel-deploy] Project "${slug}" linked to ${REPO}`);
@@ -520,7 +524,8 @@ export async function deployTenantWithGit(input: DeployTenantInput): Promise<Dep
           name: input.slug,
           project: projectId,
           target: 'production',
-          gitSource: { type: 'github' as const, repoId, ref: 'main' } as any,
+          // Narrow to a valid GitSource variant — SDK union type doesn't infer from literal.
+          gitSource: { type: 'github' as const, repoId, ref: 'main' } as { type: 'github'; repoId: string; ref: string },
         },
       })
     );
