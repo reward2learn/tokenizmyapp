@@ -99,9 +99,9 @@ async function upsertProjectionRaw(
   ]);
 
   await db.$executeRaw`
-    INSERT INTO financial_projections (period, year, month, data_type, scenario, revenue, ebitda, net_income, guests, staff_cost, pnl_lines)
-    VALUES (${metric.period}, ${year}, ${month}, ${metric.dataType}, ${metric.scenario}, ${revenue}, ${ebitda}, ${netIncome}, ${guests}, ${staffCost}, ${pnlLines}::jsonb)
-    ON CONFLICT (period, data_type, scenario)
+    INSERT INTO financial_projections (period, year, month, data_type, scenario, revenue, ebitda, net_income, guests, staff_cost, pnl_lines, app_id)
+    VALUES (${metric.period}, ${year}, ${month}, ${metric.dataType}, ${metric.scenario}, ${revenue}, ${ebitda}, ${netIncome}, ${guests}, ${staffCost}, ${pnlLines}::jsonb, ${getCurrentAppId()})
+    ON CONFLICT (period, data_type, scenario, app_id)
     DO UPDATE SET
       revenue = EXCLUDED.revenue,
       ebitda = EXCLUDED.ebitda,

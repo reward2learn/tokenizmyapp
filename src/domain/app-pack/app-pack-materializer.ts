@@ -8,7 +8,7 @@
  * DB constraints (from zenstack/schema.zmodel):
  *   - app_pages.slug is UNIQUE (global) → flat packId-prefixed slugs
  *   - page_sections.block_type is a BlockType ENUM → cast required
- *   - knowledge_snippets.key is UNIQUE → packId-prefixed keys
+ *   - knowledge_snippets (key, app_id) is UNIQUE → packId-prefixed keys, app_id ''
  *   - security_groups.code is UNIQUE → upsert, never delete (referenced)
  */
 
@@ -80,9 +80,11 @@ const APP_PACK_TABLE_DDL = [
   )`,
   `CREATE TABLE IF NOT EXISTS knowledge_snippets (
     id TEXT PRIMARY KEY,
-    key TEXT NOT NULL UNIQUE,
+    key TEXT NOT NULL,
     content TEXT NOT NULL,
-    category TEXT NOT NULL
+    category TEXT NOT NULL,
+    app_id TEXT NOT NULL DEFAULT '',
+    UNIQUE (key, app_id)
   )`,
 ];
 
@@ -95,6 +97,8 @@ const APP_PACK_TABLE_ALTERS = [
   `ALTER TABLE navigation_items ADD COLUMN IF NOT EXISTS is_active BOOLEAN NOT NULL DEFAULT true`,
   `ALTER TABLE navigation_items ADD COLUMN IF NOT EXISTS is_dynamic BOOLEAN NOT NULL DEFAULT false`,
   `ALTER TABLE navigation_items ADD COLUMN IF NOT EXISTS is_default BOOLEAN NOT NULL DEFAULT false`,
+  `ALTER TABLE knowledge_snippets ADD COLUMN IF NOT EXISTS app_id TEXT NOT NULL DEFAULT ''`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS knowledge_snippets_key_app_id_key ON knowledge_snippets (key, app_id)`,
 ];
 
 /** Run before materialization so writes never hit missing tables/columns. */
@@ -203,8 +207,8 @@ export async function materializeAppPack(client: Client, input: MaterializeInput
     // Snippets for this app.
     for (const snip of rows.snippets) {
       await client.query(
-        `INSERT INTO knowledge_snippets (id, key, content, category) VALUES ($1, $2, $3, $4)
-         ON CONFLICT (key) DO UPDATE SET content = EXCLUDED.content, category = EXCLUDED.category;`,
+        `INSERT INTO knowledge_snippets (id, key, content, category, app_id) VALUES ($1, $2, $3, $4, '')
+         ON CONFLICT (key, app_id) DO UPDATE SET content = EXCLUDED.content, category = EXCLUDED.category;`,
         [snip.id, snip.key, snip.content, snip.category],
       );
       counts.snippets++;
@@ -259,8 +263,8 @@ export async function materializeAppPack(client: Client, input: MaterializeInput
   }
   for (const snip of ceoRows.snippets) {
     await client.query(
-      `INSERT INTO knowledge_snippets (id, key, content, category) VALUES ($1, $2, $3, $4)
-       ON CONFLICT (key) DO UPDATE SET content = EXCLUDED.content, category = EXCLUDED.category;`,
+      `INSERT INTO knowledge_snippets (id, key, content, category, app_id) VALUES ($1, $2, $3, $4, '')
+       ON CONFLICT (key, app_id) DO UPDATE SET content = EXCLUDED.content, category = EXCLUDED.category;`,
       [snip.id, snip.key, snip.content, snip.category],
     );
     counts.snippets++;

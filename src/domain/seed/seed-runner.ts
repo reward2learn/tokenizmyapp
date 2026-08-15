@@ -112,12 +112,14 @@ CREATE TABLE IF NOT EXISTS daily_metrics (
 const MONTHLY_TARGETS_DDL = `
 CREATE TABLE IF NOT EXISTS monthly_targets (
   id SERIAL PRIMARY KEY,
-  month TEXT NOT NULL UNIQUE,
+  month TEXT NOT NULL,
   target_revenue NUMERIC(12,2) NOT NULL,
   target_ebitda NUMERIC(12,2) NOT NULL,
   target_guests INTEGER NOT NULL,
   target_avg_spend NUMERIC(10,2) NOT NULL,
-  target_staff_cost_pct NUMERIC(5,2) NOT NULL
+  target_staff_cost_pct NUMERIC(5,2) NOT NULL,
+  app_id TEXT NOT NULL DEFAULT '',
+  UNIQUE (month, app_id)
 );`;
 
 const CONTENT_ENUM_STATEMENTS = [
@@ -161,10 +163,12 @@ const CONTENT_TABLE_STATEMENTS = [
   )`,
   `CREATE TABLE IF NOT EXISTS levers (
     id TEXT PRIMARY KEY,
-    num INTEGER NOT NULL UNIQUE,
+    num INTEGER NOT NULL,
     name TEXT NOT NULL,
     impact TEXT NOT NULL,
-    description TEXT NOT NULL
+    description TEXT NOT NULL,
+    app_id TEXT NOT NULL DEFAULT '',
+    UNIQUE (num, app_id)
   )`,
   `CREATE TABLE IF NOT EXISTS action_items (
     id TEXT PRIMARY KEY,
@@ -175,9 +179,11 @@ const CONTENT_TABLE_STATEMENTS = [
   )`,
   `CREATE TABLE IF NOT EXISTS knowledge_snippets (
     id TEXT PRIMARY KEY,
-    key TEXT NOT NULL UNIQUE,
+    key TEXT NOT NULL,
     content TEXT NOT NULL,
-    category TEXT NOT NULL
+    category TEXT NOT NULL,
+    app_id TEXT NOT NULL DEFAULT '',
+    UNIQUE (key, app_id)
   )`,
   `CREATE TABLE IF NOT EXISTS google_oauth_config (
     id TEXT PRIMARY KEY DEFAULT 'default',
