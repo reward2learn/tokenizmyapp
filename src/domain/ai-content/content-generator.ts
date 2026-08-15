@@ -17,7 +17,7 @@
 
 import { extractExcelData, extractExcelDataFromBuffers } from '@/domain/excel/excel-extractor';
 import { buildGenerationPrompt, buildDashboardPrompt } from '@/domain/ai-content/prompt-builder';
-import { resolveOpenAiKey } from '@/lib/openai';
+import { resolveActiveAiConfig, type ActiveAiConfig } from '@/lib/ai-providers';
 import type { DbClient } from '@/lib/db';
 import { getCurrentAppId } from '@shared/lib/config/tenant';
 import { parseReviewParts } from '@/domain/ai-content/parse-review-parts';
@@ -71,17 +71,20 @@ export interface SavedResult {
 
 // ── AI Call ─────────────────────────────────────────────
 
-// ── OpenAI error classification ─────────────────────────────
+// ── AI provider error classification ─────────────────────────────
 
 /** Marker embedded in quota-exhausted error messages so callers can map them to HTTP 402. */
 export const OPENAI_QUOTA_MARKER = '[openai-no-credits]';
 
 /**
- * Build an error for a failed OpenAI call. Quota exhaustion (429 +
- * insufficient_quota / credit_balance_exhausted) gets an actionable message
- * with the masked key, so the UI can tell the operator to add credits.
+ * Build an error for a failed AI provider call. Quota exhaustion gets an
+ * actionable message with the masked key, so the UI can tell the operator
+ * to add credits or switch providers. Different providers signal this
+ * differently: OpenAI uses 429 + insufficient_quota/credit_balance_exhausted;
+ * Vercel AI Gateway and OpenCode Zen return 402 directly when a hard billing
+ * limit is hit.
  */
-function buildOpenAiError(status: number, errBody: string, apiKey: string): Error {
+function buildAiProviderError(status: number, errBody: string, apiKey: string, provider: ActiveAiConfig['provider']): Error {
   let code = '';
   let type = '';
   try {
@@ -92,46 +95,48 @@ function buildOpenAiError(status: number, errBody: string, apiKey: string): Erro
     // non-JSON body — keep the raw message
   }
   const isQuota =
-    status === 429 &&
-    (code === 'insufficient_quota' || type === 'insufficient_quota' || errBody.includes('credit_balance_exhausted'));
+    status === 402 ||
+    (status === 429 &&
+      (code === 'insufficient_quota' || type === 'insufficient_quota' || errBody.includes('credit_balance_exhausted')));
   if (isQuota) {
     const maskedKey = apiKey ? `${apiKey.slice(0, 7)}…${apiKey.slice(-4)}` : 'unknown';
     return new Error(
-      `${OPENAI_QUOTA_MARKER} OpenAI account has no credits remaining (API key ${maskedKey}). ` +
-      'Add credits at https://platform.openai.com/settings/organization/billing, or switch to a key ' +
-      'with credits in Config > OpenAI Key.',
+      `${OPENAI_QUOTA_MARKER} ${provider.label} account has no credits remaining (API key ${maskedKey}). ` +
+      `Add credits at ${provider.docsUrl}, or switch providers/keys in Config > AI Provider.`,
     );
   }
-  return new Error(`OpenAI API error (${status}): ${errBody}`);
+  return new Error(`${provider.label} API error (${status}): ${errBody}`);
 }
 
 /**
- * Call OpenAI to generate a single document (business review OR executive summary).
- * Keeps each response within the model's 16384 output-token limit.
+ * Call the active AI provider to generate a single document (business
+ * review OR executive summary). Keeps each response within the model's
+ * 16384 output-token limit. All three supported providers (OpenAI, Vercel
+ * AI Gateway, OpenCode Zen) expose an OpenAI-compatible Chat Completions
+ * endpoint, so this request shape works unchanged across them.
  */
-async function callOpenAiForDocument(
+async function callAiProviderForDocument(
   prompt: string,
-  apiKey: string,
+  ai: ActiveAiConfig,
   documentType: 'businessReview' | 'executiveSummary' | 'dashboardData',
-  model = 'gpt-4o',
   onProgress?: ProgressCallback,
 ): Promise<string> {
   const docLabel = documentType === 'businessReview' ? 'Business Review' : documentType === 'executiveSummary' ? 'Executive Summary' : 'Dashboard Data';
 
   onProgress?.({
     step: 'openai',
-    message: `Calling OpenAI — generating ${docLabel} (${model})...`,
+    message: `Calling ${ai.provider.label} — generating ${docLabel} (${ai.model})...`,
     pct: documentType === 'businessReview' ? 40 : 55,
   });
 
-  const response = await fetch('https://api.openai.com/v1/chat/completions', {
+  const response = await fetch(ai.provider.chatCompletionsUrl, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      Authorization: `Bearer ${apiKey}`,
+      Authorization: `Bearer ${ai.apiKey}`,
     },
     body: JSON.stringify({
-      model,
+      model: ai.model,
       messages: [
         {
           role: 'system',
@@ -151,7 +156,7 @@ async function callOpenAiForDocument(
 
   if (!response.ok) {
     const errBody = await response.text().catch(() => 'Unknown error');
-    throw buildOpenAiError(response.status, errBody, apiKey);
+    throw buildAiProviderError(response.status, errBody, ai.apiKey, ai.provider);
   }
 
   const result = await response.json();
@@ -305,22 +310,22 @@ export async function generateAndSave(
       pct: 30,
     });
 
-    // ── 3. Resolve API key ──────────────────────────────
+    // ── 3. Resolve active AI provider + API key ─────────
     onProgress?.({
       step: 'openai',
-      message: 'Resolving OpenAI API key...',
+      message: 'Resolving AI provider...',
       pct: 35,
     });
 
-    const apiKey = await resolveOpenAiKey();
-    if (!apiKey) {
+    const ai = await resolveActiveAiConfig(model);
+    if (!ai) {
       const errorMsg =
-        'OpenAI API key not configured. Set it in Config > OpenAI Key or via OPENAI_API_KEY env var.';
+        'No AI provider configured. Set one up in Config > AI Provider (OpenAI, Vercel AI Gateway, or OpenCode Zen).';
       onProgress?.({
         step: 'error',
         message: errorMsg,
         pct: 0,
-        detail: { hint: 'Set your key in: Admin > Config > OpenAI Key, or add OPENAI_API_KEY to .env.local' },
+        detail: { hint: 'Set your provider and API key in: Admin > Config > AI Provider' },
       });
       return { success: false, error: errorMsg, prompt };
     }
@@ -333,8 +338,8 @@ export async function generateAndSave(
       pct: 40,
     });
 
-    const businessReview = await callOpenAiForDocument(
-      prompt, apiKey, 'businessReview', model, onProgress,
+    const businessReview = await callAiProviderForDocument(
+      prompt, ai, 'businessReview', onProgress,
     );
 
     // Phase 2: Generate Executive Summary
@@ -344,8 +349,8 @@ export async function generateAndSave(
       pct: 55,
     });
 
-    const executiveSummary = await callOpenAiForDocument(
-      prompt, apiKey, 'executiveSummary', model, onProgress,
+    const executiveSummary = await callAiProviderForDocument(
+      prompt, ai, 'executiveSummary', onProgress,
     );
 
     const content: AiGeneratedContent = {
@@ -353,7 +358,7 @@ export async function generateAndSave(
       executiveSummary,
       promptLength: prompt.length,
       responseLength: businessReview.length + executiveSummary.length,
-      model: model ?? 'gpt-4o',
+      model: ai.model,
     };
 
     // Phase 3: Generate Dashboard Data (action plan, targets, levers)
@@ -366,16 +371,16 @@ export async function generateAndSave(
     try {
       const dashboardPrompt = buildDashboardPrompt(data, additionalContext);
 
-      // Call OpenAI directly (not through callOpenAiForDocument) because dashboard
-      // data returns structured JSON, not a markdown string.
-      const dashResponse = await fetch('https://api.openai.com/v1/chat/completions', {
+      // Call the provider directly (not through callAiProviderForDocument)
+      // because dashboard data returns structured JSON, not a markdown string.
+      const dashResponse = await fetch(ai.provider.chatCompletionsUrl, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          Authorization: `Bearer ${apiKey}`,
+          Authorization: `Bearer ${ai.apiKey}`,
         },
         body: JSON.stringify({
-          model: model ?? 'gpt-4o',
+          model: ai.model,
           messages: [
             {
               role: 'system',

@@ -16,6 +16,7 @@ import { AuthGate } from '@/components/auth/auth-gate';
 import { SignInPanelGate } from '@/components/auth/sign-in-panel';
 import { ChatSettingsForm } from '@/components/config/chat-settings-form';
 import { OpenAiKeyForm } from '@/components/config/openai-key-form';
+import { AiProviderForm } from '@/components/config/ai-provider-form';
 import { getClientTenantConfig } from '@shared/lib/config/tenant';
 import { getTemplate } from '@/domain/tenant/template-catalog';
 
@@ -120,7 +121,12 @@ function ConfigPageInner() {
 
           {tab === 2 ? <DataViewTab /> : null}
 
-          {tab === 3 ? <AiContentTab /> : null}
+          {tab === 3 ? (
+            <Stack spacing={3}>
+              <AiProviderForm />
+              <AiContentTab />
+            </Stack>
+          ) : null}
           {tab === 4 && template.id === 'nightclub-bar' ? <TemplateConfigPlaceholder template={template} /> : null}
           {tab === 4 && template.id === 'restaurant' ? <TemplateConfigPlaceholder template={template} /> : null}
           {tab === 4 && template.id === 'hotel' ? <TemplateConfigPlaceholder template={template} /> : null}

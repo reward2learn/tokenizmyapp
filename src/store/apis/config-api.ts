@@ -26,6 +26,30 @@ export interface OpenAiKeyStatus {
   source: 'db' | 'env' | null;
 }
 
+export type AiProviderId = 'openai' | 'vercel-ai-gateway' | 'opencode-zen';
+
+export interface AiProviderInfo {
+  id: AiProviderId;
+  label: string;
+  configured: boolean;
+  source: 'db' | 'env' | null;
+  docsUrl: string;
+  keyPlaceholder: string;
+  defaultModel: string | null;
+}
+
+export interface AiProviderStatus {
+  providers: AiProviderInfo[];
+  activeProviderId: AiProviderId;
+  activeModel: string | null;
+}
+
+export interface AiModelOption {
+  id: string;
+  label: string;
+  description?: string;
+}
+
 export interface VercelTokenStatus {
   status: 'configured' | 'expired' | 'not_configured';
   tokenInfo: string | null;
@@ -63,7 +87,7 @@ export interface SeedDetailsResponse {
 export const configApi = createApi({
   reducerPath: 'configApi',
   baseQuery,
-  tagTypes: ['OpenAiKey', 'ChatSettings', 'SeedDetails', 'VercelToken'],
+  tagTypes: ['OpenAiKey', 'ChatSettings', 'SeedDetails', 'VercelToken', 'AiProvider'],
   endpoints: (builder) => ({
     reseedFromSources: builder.mutation<ApiEnvelope<ReseedResponse>, FormData>({
       query: (body) => ({
@@ -132,6 +156,36 @@ export const configApi = createApi({
       query: (runId) => `config/reseed/status?runId=${runId}`,
       keepUnusedDataFor: 5,
     }),
+    /** GET /api/config/ai-provider — status for every provider + active selection */
+    getAiProviderStatus: builder.query<ApiEnvelope<AiProviderStatus>, void>({
+      query: () => 'config/ai-provider',
+      providesTags: ['AiProvider'],
+    }),
+    /** POST /api/config/ai-provider — save a provider's key and/or activate it */
+    saveAiProvider: builder.mutation<
+      ApiEnvelope<AiProviderStatus>,
+      { providerId: AiProviderId; apiKey?: string; model?: string; activate?: boolean }
+    >({
+      query: (body) => ({
+        url: 'config/ai-provider',
+        method: 'POST',
+        body,
+      }),
+      invalidatesTags: ['AiProvider'],
+    }),
+    /** DELETE /api/config/ai-provider — remove a provider's stored key */
+    clearAiProviderKey: builder.mutation<ApiEnvelope<AiProviderStatus>, { providerId: AiProviderId }>({
+      query: (body) => ({
+        url: 'config/ai-provider',
+        method: 'DELETE',
+        body,
+      }),
+      invalidatesTags: ['AiProvider'],
+    }),
+    /** GET /api/config/ai-models?providerId= — live model list for a provider */
+    getAiModels: builder.query<ApiEnvelope<{ providerId: AiProviderId; models: AiModelOption[] }>, AiProviderId>({
+      query: (providerId) => `config/ai-models?providerId=${providerId}`,
+    }),
   }),
 });
 
@@ -147,4 +201,8 @@ export const {
   useImportDataMutation,
   useLazyGetReseedWorkflowStatusQuery,
   useGetVercelTokenStatusQuery,
+  useGetAiProviderStatusQuery,
+  useSaveAiProviderMutation,
+  useClearAiProviderKeyMutation,
+  useLazyGetAiModelsQuery,
 } = configApi;
