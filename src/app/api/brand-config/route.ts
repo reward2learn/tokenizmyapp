@@ -2,7 +2,7 @@
  * Public Tenant Config API
  *
  * GET /api/brand-config
- *   Returns: { success, data: { tenantSlug, tenantDisplayName, tenantTemplate, brandLogoText, brandLogoUrl, brandPrimaryColor, brandSecondaryColor } }
+ *   Returns: { success, data: { tenantSlug, tenantDisplayName, tenantTemplate, brandLogoText, brandLogoUrl, brandPrimaryColor, brandSecondaryColor, themeMode } }
  *   No auth required — called by the header and theme on every page load.
  */
 
@@ -28,6 +28,7 @@ export async function GET(): Promise<NextResponse> {
       brandLogoUrl: '',
       brandPrimaryColor: '#eb3d28',
       brandSecondaryColor: '#0af9fe',
+      themeMode: 'system',
     });
   }
 
@@ -43,6 +44,7 @@ export async function GET(): Promise<NextResponse> {
       brandLogoUrl: settings.brandLogoUrl,
       brandPrimaryColor: settings.brandPrimaryColor,
       brandSecondaryColor: settings.brandSecondaryColor,
+      themeMode: settings.themeMode || 'system',
     });
   } catch (err) {
     console.error('[brand-config] Failed to read:', err);
@@ -55,6 +57,7 @@ export async function GET(): Promise<NextResponse> {
       brandLogoUrl: '',
       brandPrimaryColor: '#eb3d28',
       brandSecondaryColor: '#0af9fe',
+      themeMode: 'system',
     });
   }
 }

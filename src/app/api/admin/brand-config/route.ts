@@ -13,6 +13,7 @@
  *     brandLogoUrl       — URL or base64 data-URI of the uploaded logo image
  *     brandPrimaryColor  — hex color
  *     brandSecondaryColor — hex color
+ *     themeMode          — "light" | "dark" | "system"
  *   Returns: updated config
  */
 
@@ -102,6 +103,7 @@ export async function PUT(request: Request): Promise<NextResponse> {
     let brandLogoUrl: string | undefined;
     let brandPrimaryColor: string | undefined;
     let brandSecondaryColor: string | undefined;
+    let themeMode: 'light' | 'dark' | 'system' | undefined;
 
     const contentType = request.headers.get('content-type') ?? '';
 
@@ -147,6 +149,11 @@ export async function PUT(request: Request): Promise<NextResponse> {
       if (secondaryField && typeof secondaryField === 'string' && /^#[0-9a-fA-F]{6}$/.test(secondaryField.trim())) {
         brandSecondaryColor = secondaryField.trim();
       }
+
+      const themeField = formData.get('themeMode');
+      if (themeField === 'light' || themeField === 'dark' || themeField === 'system') {
+        themeMode = themeField;
+      }
     } catch {
       return jsonError('Failed to parse multipart form data', 400);
     }
@@ -165,6 +172,7 @@ export async function PUT(request: Request): Promise<NextResponse> {
       brandLogoUrl = parsed.data.brandLogoUrl;
       brandPrimaryColor = parsed.data.brandPrimaryColor;
       brandSecondaryColor = parsed.data.brandSecondaryColor;
+      themeMode = parsed.data.themeMode;
     } catch {
       return jsonError('Expected JSON or multipart/form-data body', 400);
     }
@@ -182,6 +190,7 @@ export async function PUT(request: Request): Promise<NextResponse> {
       ...(brandLogoUrl !== undefined ? { brandLogoUrl } : {}),
       ...(brandPrimaryColor !== undefined ? { brandPrimaryColor } : {}),
       ...(brandSecondaryColor !== undefined ? { brandSecondaryColor } : {}),
+      ...(themeMode !== undefined ? { themeMode } : {}),
     }, scope.tenantSlug, scope.appId);
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);

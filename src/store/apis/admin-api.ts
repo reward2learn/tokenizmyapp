@@ -1,6 +1,7 @@
 import { createApi } from '@reduxjs/toolkit/query/react';
 import { baseQuery } from '@shared/store/base-query';
 import type { ApiEnvelope } from '@/store/api-types';
+import { brandConfigApi } from '@shared/store/apis/brand-config-api';
 import type { RoleConfigView } from '@/app/api/admin/roles/route';
 import type { AdminConversationView } from '@/app/api/admin/conversations/route';
 import type { AdminUserView } from '@/app/api/admin/users/route';
@@ -200,6 +201,14 @@ export const adminApi = createApi({
         params: { tenantSlug, appId },
       }),
       invalidatesTags: ['BrandConfig'],
+      async onQueryStarted(_arg, { dispatch, queryFulfilled }) {
+        try {
+          await queryFulfilled;
+          dispatch(brandConfigApi.util.invalidateTags(['BrandConfig']));
+        } catch {
+          // save failed — keep the public header cache as-is
+        }
+      },
     }),
     /** GET /api/admin/navigation — list nav tree */
     getNavigation: builder.query<ApiEnvelope<unknown>, TenantAppScope | void>({

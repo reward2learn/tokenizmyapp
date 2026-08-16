@@ -66,8 +66,11 @@ export function TenantInfoTab({ tenantSlug, appId }: TenantInfoTabProps = {}) {
           />
           <InfoRow label="App URL" value={`https://${tenant.slug}.vercel.app`} link={`https://${tenant.slug}.vercel.app`} />
 
-          {/* Favicon */}
-          <FaviconSection slug={tenant.slug} />
+          {/* Favicon lives on the factory tenants table — skip on suite/tenant deploys
+              whose slug is a Vercel project id (e.g. my-finance-review-pro-fin), not a tenants row. */}
+          {getClientTenantConfig().slug === 'tokenizmyapp' ? (
+            <FaviconSection slug={tenant.slug} />
+          ) : null}
 
           {brand?.brandPrimaryColor ? (
             <Stack direction="row" spacing={2} sx={{ alignItems: 'center' }}>

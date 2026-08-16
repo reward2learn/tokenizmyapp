@@ -10,14 +10,17 @@ export interface BrandConfig {
   brandLogoUrl: string | null;
   brandPrimaryColor: string;
   brandSecondaryColor: string;
+  themeMode?: string;
 }
 
 export const brandConfigApi = createApi({
   reducerPath: 'brandConfigApi',
   baseQuery,
+  tagTypes: ['BrandConfig'],
   endpoints: (builder) => ({
     getBrandConfig: builder.query<ApiEnvelope<BrandConfig>, void>({
       query: () => 'brand-config',
+      providesTags: ['BrandConfig'],
     }),
   }),
 });

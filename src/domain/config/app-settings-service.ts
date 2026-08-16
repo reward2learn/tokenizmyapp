@@ -55,6 +55,7 @@ export async function ensureAppSettingsTable(db: DbClient): Promise<void> {
     'ADD COLUMN IF NOT EXISTS brand_logo_url TEXT NOT NULL DEFAULT \'\'',
     'ADD COLUMN IF NOT EXISTS brand_primary_color TEXT NOT NULL DEFAULT \'#eb3d28\'',
     'ADD COLUMN IF NOT EXISTS brand_secondary_color TEXT NOT NULL DEFAULT \'#0af9fe\'',
+    'ADD COLUMN IF NOT EXISTS theme_mode TEXT NOT NULL DEFAULT \'system\'',
   ];
   for (const col of migrationCols) {
     try {
@@ -98,6 +99,7 @@ export async function getAppSettings(db: DbClient, tenantSlug?: string, appId?: 
       brandLogoUrl: String(ex.brandLogoUrl ?? ex.brand_logo_url ?? ''),
       brandPrimaryColor: String(ex.brandPrimaryColor ?? ex.brand_primary_color ?? '#eb3d28'),
       brandSecondaryColor: String(ex.brandSecondaryColor ?? ex.brand_secondary_color ?? '#0af9fe'),
+      themeMode: String(ex.themeMode ?? ex.theme_mode ?? 'system'),
       updatedAt: existing.updatedAt,
     };
   }
@@ -136,6 +138,7 @@ export async function updateAppSettings(
     brandLogoUrl?: string;
     brandPrimaryColor?: string;
     brandSecondaryColor?: string;
+    themeMode?: string;
   },
   tenantSlug?: string,
   appId?: string,
