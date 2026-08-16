@@ -22,6 +22,12 @@
 export type ThemeMode = 'light' | 'dark';
 
 /**
+ * Theme preference as configured by the tenant (brand config) or the user
+ * (drawer toggle). `'system'` resolves to the OS `prefers-color-scheme`.
+ */
+export type ThemePreference = ThemeMode | 'system';
+
+/**
  * Default surface mode for the app shell.
  *
  * Single switch on purpose — flipping this reverts the whole console between
@@ -29,6 +35,9 @@ export type ThemeMode = 'light' | 'dark';
  * below is resolved from the ramp rather than hardcoded at the call site.
  */
 export const DEFAULT_MODE: ThemeMode = 'light';
+
+/** Fallback preference when no brand config / saved user preference exists. */
+export const DEFAULT_PREFERENCE: ThemePreference = 'system';
 
 export interface NeutralRamp {
   /** Page background — the widest surface. */

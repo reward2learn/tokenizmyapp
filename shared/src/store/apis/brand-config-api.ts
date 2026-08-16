@@ -10,6 +10,8 @@ export interface BrandConfig {
   brandLogoUrl: string | null;
   brandPrimaryColor: string;
   brandSecondaryColor: string;
+  /** Default theme: 'light' | 'dark' | 'system' (follows OS). */
+  themeMode?: 'light' | 'dark' | 'system';
 }
 
 export const brandConfigApi = createApi({

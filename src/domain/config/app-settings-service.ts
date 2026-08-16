@@ -1,4 +1,5 @@
 import type { DbClient } from '@/lib/db';
+import type { ThemePreference } from '@/theme/design-tokens';
 
 const APP_SETTINGS_ID = 'default';
 
@@ -15,6 +16,7 @@ CREATE TABLE IF NOT EXISTS app_settings (
   brand_logo_url TEXT NOT NULL DEFAULT '',
   brand_primary_color TEXT NOT NULL DEFAULT '#eb3d28',
   brand_secondary_color TEXT NOT NULL DEFAULT '#0af9fe',
+  theme_mode TEXT NOT NULL DEFAULT 'system',
   updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );`;
 
@@ -30,6 +32,8 @@ export interface AppSettingsDto {
   brandLogoUrl: string;
   brandPrimaryColor: string;
   brandSecondaryColor: string;
+  /** Default theme: 'light' | 'dark' | 'system' (follows OS). */
+  themeMode: ThemePreference;
   updatedAt: Date;
 }
 
@@ -37,6 +41,11 @@ export interface AppSettingsDto {
 function buildRowId(tenantSlug: string | undefined, appId: string | undefined): string {
   const slug = tenantSlug ?? APP_SETTINGS_ID;
   return appId ? `${slug}__${appId}` : slug;
+}
+
+/** Coerce a stored theme value into a valid preference, tolerating legacy/unknown values. */
+function normalizeThemeMode(value: unknown): ThemePreference {
+  return value === 'light' || value === 'dark' || value === 'system' ? value : 'system';
 }
 
 export async function ensureAppSettingsTable(db: DbClient): Promise<void> {
@@ -53,6 +62,7 @@ export async function ensureAppSettingsTable(db: DbClient): Promise<void> {
     'ADD COLUMN IF NOT EXISTS brand_logo_url TEXT NOT NULL DEFAULT \'\'',
     'ADD COLUMN IF NOT EXISTS brand_primary_color TEXT NOT NULL DEFAULT \'#eb3d28\'',
     'ADD COLUMN IF NOT EXISTS brand_secondary_color TEXT NOT NULL DEFAULT \'#0af9fe\'',
+    'ADD COLUMN IF NOT EXISTS theme_mode TEXT NOT NULL DEFAULT \'system\'',
   ];
   for (const col of migrationCols) {
     try {
@@ -96,6 +106,7 @@ export async function getAppSettings(db: DbClient, tenantSlug?: string, appId?: 
       brandLogoUrl: String(ex.brandLogoUrl ?? ex.brand_logo_url ?? ''),
       brandPrimaryColor: String(ex.brandPrimaryColor ?? ex.brand_primary_color ?? '#eb3d28'),
       brandSecondaryColor: String(ex.brandSecondaryColor ?? ex.brand_secondary_color ?? '#0af9fe'),
+      themeMode: normalizeThemeMode(ex.themeMode ?? ex.theme_mode ?? 'system'),
       updatedAt: existing.updatedAt,
     };
   }
@@ -117,6 +128,7 @@ export async function getAppSettings(db: DbClient, tenantSlug?: string, appId?: 
     brandLogoUrl: String(cr.brandLogoUrl ?? cr.brand_logo_url ?? ''),
     brandPrimaryColor: String(cr.brandPrimaryColor ?? cr.brand_primary_color ?? '#eb3d28'),
     brandSecondaryColor: String(cr.brandSecondaryColor ?? cr.brand_secondary_color ?? '#0af9fe'),
+    themeMode: normalizeThemeMode(cr.themeMode ?? cr.theme_mode ?? 'system'),
     updatedAt: created.updatedAt,
   };
 }
@@ -133,6 +145,7 @@ export async function updateAppSettings(
     brandLogoUrl?: string;
     brandPrimaryColor?: string;
     brandSecondaryColor?: string;
+    themeMode?: ThemePreference;
   },
   tenantSlug?: string,
   appId?: string,
@@ -153,6 +166,7 @@ export async function updateAppSettings(
   if (patch.brandLogoUrl !== undefined) data.brandLogoUrl = patch.brandLogoUrl;
   if (patch.brandPrimaryColor !== undefined) data.brandPrimaryColor = patch.brandPrimaryColor;
   if (patch.brandSecondaryColor !== undefined) data.brandSecondaryColor = patch.brandSecondaryColor;
+  if (patch.themeMode !== undefined) data.themeMode = patch.themeMode;
 
   if (Object.keys(data).length === 0) {
     // Nothing to update — just read back

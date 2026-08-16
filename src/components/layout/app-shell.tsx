@@ -31,6 +31,8 @@ import SearchOutlined from '@mui/icons-material/SearchOutlined';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import ExpandLessIcon from '@mui/icons-material/ExpandLess';
 import FolderIcon from '@mui/icons-material/Folder';
+import DarkModeIcon from '@mui/icons-material/DarkMode';
+import LightModeIcon from '@mui/icons-material/LightMode';
 import type { ReactNode } from 'react';
 import { SavedConversationsMenu } from '@/components/chat/saved-conversations-menu';
 import { getReviewPartDisplayTitle, listNavPages, resolvePage, resolveReviewPart } from '@/lib/page-catalog';
@@ -41,6 +43,7 @@ import { useGetBrandConfigQuery } from '@shared/store/apis/brand-config-api';
 import { useGetNavigationQuery } from '@/store/apis/navigation-api';
 import { NavIcon } from '@/components/shared/nav-icon';
 import { getClientTenantConfig } from '@shared/lib/config/tenant';
+import { useThemeMode } from '@/theme/theme-registry';
 
 const DRAWER_WIDTH = 280;
 /** Right-side AI chat drawer — persistent (pushes the main container, no overlay). */
@@ -76,6 +79,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   const drawerOpen = useAppSelector((s) => s.ui.drawerOpen);
   const chatDrawerOpen = useAppSelector((s) => s.ui.chatDrawerOpen);
   const { tier, user, groups } = useAppSelector((s) => s.auth);
+  const { mode, toggleMode } = useThemeMode();
   useListPagesQuery();
 
   // Brand config via RTK Query — fallback to tenant env var, then default
@@ -386,6 +390,16 @@ export function AppShell({ children }: { children: ReactNode }) {
               {user?.email ?? `Tier: ${tier}`}
             </Typography>
           </Box>
+          {/* Theme toggle — flips the whole app between light and dark */}
+          <Tooltip title={mode === 'dark' ? 'Switch to light theme' : 'Switch to dark theme'}>
+            <IconButton
+              aria-label={mode === 'dark' ? 'Switch to light theme' : 'Switch to dark theme'}
+              onClick={toggleMode}
+              sx={{ color: 'text.secondary' }}
+            >
+              {mode === 'dark' ? <LightModeIcon fontSize="small" /> : <DarkModeIcon fontSize="small" />}
+            </IconButton>
+          </Tooltip>
         </Box>
         <Divider />
         <Box sx={{ px: 2, py: 1 }}>

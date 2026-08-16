@@ -48,6 +48,7 @@ const putSchema = z.object({
   brandLogoUrl: z.string().max(50000).optional(), // base64 data-URIs can be large
   brandPrimaryColor: z.string().regex(/^#[0-9a-fA-F]{6}$/, 'Must be a hex color like #eb3d28').optional(),
   brandSecondaryColor: z.string().regex(/^#[0-9a-fA-F]{6}$/, 'Must be a hex color like #0af9fe').optional(),
+  themeMode: z.enum(['light', 'dark', 'system']).optional(),
 });
 
 // ── GET ─────────────────────────────────────────────────
@@ -79,6 +80,7 @@ export async function GET(request: Request): Promise<NextResponse> {
     brandLogoUrl: settings.brandLogoUrl,
     brandPrimaryColor: settings.brandPrimaryColor,
     brandSecondaryColor: settings.brandSecondaryColor,
+    themeMode: settings.themeMode,
     updatedAt: settings.updatedAt.toISOString(),
   });
 }
@@ -100,6 +102,7 @@ export async function PUT(request: Request): Promise<NextResponse> {
     let brandLogoUrl: string | undefined;
     let brandPrimaryColor: string | undefined;
     let brandSecondaryColor: string | undefined;
+    let themeMode: 'light' | 'dark' | 'system' | undefined;
 
     const contentType = request.headers.get('content-type') ?? '';
 
@@ -145,6 +148,11 @@ export async function PUT(request: Request): Promise<NextResponse> {
       if (secondaryField && typeof secondaryField === 'string' && /^#[0-9a-fA-F]{6}$/.test(secondaryField.trim())) {
         brandSecondaryColor = secondaryField.trim();
       }
+
+      const themeField = formData.get('themeMode');
+      if (themeField && typeof themeField === 'string' && ['light', 'dark', 'system'].includes(themeField.trim())) {
+        themeMode = themeField.trim() as 'light' | 'dark' | 'system';
+      }
     } catch {
       return jsonError('Failed to parse multipart form data', 400);
     }
@@ -163,6 +171,7 @@ export async function PUT(request: Request): Promise<NextResponse> {
       brandLogoUrl = parsed.data.brandLogoUrl;
       brandPrimaryColor = parsed.data.brandPrimaryColor;
       brandSecondaryColor = parsed.data.brandSecondaryColor;
+      themeMode = parsed.data.themeMode;
     } catch {
       return jsonError('Expected JSON or multipart/form-data body', 400);
     }
@@ -180,6 +189,7 @@ export async function PUT(request: Request): Promise<NextResponse> {
       ...(brandLogoUrl !== undefined ? { brandLogoUrl } : {}),
       ...(brandPrimaryColor !== undefined ? { brandPrimaryColor } : {}),
       ...(brandSecondaryColor !== undefined ? { brandSecondaryColor } : {}),
+      ...(themeMode !== undefined ? { themeMode } : {}),
     }, scope.tenantSlug, scope.appId);
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
@@ -200,6 +210,7 @@ export async function PUT(request: Request): Promise<NextResponse> {
     brandLogoUrl: settings.brandLogoUrl,
     brandPrimaryColor: settings.brandPrimaryColor,
     brandSecondaryColor: settings.brandSecondaryColor,
+    themeMode: settings.themeMode,
     updatedAt: settings.updatedAt.toISOString(),
   });
   } catch (err) {
