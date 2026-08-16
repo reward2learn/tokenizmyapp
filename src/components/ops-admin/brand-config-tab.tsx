@@ -158,7 +158,7 @@ export function BrandConfigTab({ tenantSlug, appId }: BrandConfigTabProps = {}) 
 
         <Stack spacing={3}>
           {/* ── Tenant Identity ────────────────────────── */}
-          <Paper variant="outlined" sx={{ p: 2, bgcolor: 'rgba(255,255,255,0.02)' }}>
+          <Paper variant="outlined" sx={{ p: 2, bgcolor: 'background.default' }}>
             <Typography variant="subtitle1" sx={{ fontWeight: 600, mb: 2 }}>
               Tenant Identity
             </Typography>
@@ -336,7 +336,7 @@ export function BrandConfigTab({ tenantSlug, appId }: BrandConfigTabProps = {}) 
                     height: 32,
                     marginTop: 4,
                     padding: 0,
-                    border: '1px solid rgba(255,255,255,0.12)',
+                    border: '1px solid', borderColor: 'divider',
                     borderRadius: 6,
                     background: 'none',
                     cursor: 'pointer',
@@ -387,7 +387,7 @@ export function BrandConfigTab({ tenantSlug, appId }: BrandConfigTabProps = {}) 
                     height: 32,
                     marginTop: 4,
                     padding: 0,
-                    border: '1px solid rgba(255,255,255,0.12)',
+                    border: '1px solid', borderColor: 'divider',
                     borderRadius: 6,
                     background: 'none',
                     cursor: 'pointer',

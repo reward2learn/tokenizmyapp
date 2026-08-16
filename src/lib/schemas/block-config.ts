@@ -86,6 +86,30 @@ export const packTableConfigSchema = z.object({
   minTier: minTierSchema,
 });
 
+export const featureGridConfigSchema = z.object({
+  heading: z.string().optional(),
+  subheading: z.string().optional(),
+  minTier: minTierSchema,
+});
+
+export const testimonialsConfigSchema = z.object({
+  heading: z.string().optional(),
+  subheading: z.string().optional(),
+  items: z
+    .array(
+      z.object({
+        id: z.string().optional(),
+        quote: z.string(),
+        name: z.string().optional(),
+        role: z.string().optional(),
+        avatarUrl: z.string().optional(),
+        rating: z.number().min(0).max(5).optional(),
+      }),
+    )
+    .optional(),
+  minTier: minTierSchema,
+});
+
 export const blockConfigSchemas = {
   hero: heroConfigSchema,
   metric_grid: metricGridConfigSchema,
@@ -104,6 +128,8 @@ export const blockConfigSchemas = {
   reports_rollup: reportsRollupConfigSchema,
   sheet_viewer: sheetViewerConfigSchema,
   pack_table: packTableConfigSchema,
+  feature_grid: featureGridConfigSchema,
+  testimonials: testimonialsConfigSchema,
 } as const satisfies Record<BlockType, z.ZodType>;
 
 export type BlockConfigMap = {

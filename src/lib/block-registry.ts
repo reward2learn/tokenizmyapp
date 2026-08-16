@@ -11,6 +11,8 @@ import { PnlTableBlock } from '@/components/blocks/pnl-table-block';
 import { ReportsRollupBlock } from '@/components/blocks/reports-rollup-block';
 import { SheetViewerBlock } from '@/components/blocks/sheet-viewer-block';
 import { PackTableBlock } from '@/components/blocks/pack-table-block';
+import { FeatureGridBlock } from '@/components/blocks/feature-grid-block';
+import { TestimonialsBlockAdapter } from '@/components/blocks/testimonials-block';
 import {
   OpsAdminTabsBlock,
   ZReportFormBlock,
@@ -40,6 +42,8 @@ export const BLOCK_REGISTRY: Record<BlockType, BlockComponent> = {
   reports_rollup: ReportsRollupBlock,
   sheet_viewer: SheetViewerBlock,
   pack_table: PackTableBlock,
+  feature_grid: FeatureGridBlock,
+  testimonials: TestimonialsBlockAdapter,
 };
 
 export function getBlockComponent(blockType: BlockType): BlockComponent {

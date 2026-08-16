@@ -74,6 +74,7 @@ import {
   useLazyFetchGoogleOAuthClientInfoQuery,
   useSyncGoogleOAuthClientMutation,
   usePushAppEnvVarsMutation,
+  useProvisionAppDeployHookMutation,
   type SuiteAppInstance,
   type GoogleOAuthConfigPatch,
   type AppScopedConfig,
@@ -202,6 +203,7 @@ export function EditAppModal({ open, onClose, tenantSlug, app, onSnackbar }: Edi
   const [fetchGoogleOAuthClientInfo] = useLazyFetchGoogleOAuthClientInfoQuery();
   const [syncGoogleOAuthClient] = useSyncGoogleOAuthClientMutation();
   const [pushAppEnvVars] = usePushAppEnvVarsMutation();
+  const [provisionDeployHook, { isLoading: generatingHook }] = useProvisionAppDeployHookMutation();
   const { data: rolesData, isLoading: rolesLoading } = useListRoleConfigsQuery();
 
   const templates = listTemplates();
@@ -303,6 +305,29 @@ export function EditAppModal({ open, onClose, tenantSlug, app, onSnackbar }: Edi
     if (saving) return;
     onClose();
   };
+
+  /** Auto-provision this app's Vercel Deploy Hook via the Vercel API rather
+   *  than making the operator create one by hand and paste the URL. Writes
+   *  straight through to the app record, so it survives without also needing
+   *  "Save All Changes". */
+  const handleGenerateDeployHook = useCallback(async () => {
+    try {
+      const res = await provisionDeployHook({ slug: tenantSlug, appId: app.appId }).unwrap();
+      const url = res.data?.deployHookUrl;
+      if (url) {
+        setDeployHookUrl(url);
+        onSnackbar({
+          message: res.data?.created ? '✅ Deploy hook created on Vercel' : '✅ Reused existing Vercel deploy hook',
+          severity: 'success',
+        });
+      }
+    } catch (err) {
+      const message = err && typeof err === 'object' && 'data' in err
+        ? String((err as { data?: { error?: string } }).data?.error ?? 'Failed to generate deploy hook')
+        : 'Failed to generate deploy hook';
+      onSnackbar({ message: `❌ ${message}`, severity: 'error' });
+    }
+  }, [provisionDeployHook, tenantSlug, app.appId, onSnackbar]);
 
   // ── Google OAuth provisioning (interactive) ────────────────
   const handleProvisionOAuth = useCallback(async () => {
@@ -1228,19 +1253,39 @@ export function EditAppModal({ open, onClose, tenantSlug, app, onSnackbar }: Edi
         <Typography variant="subtitle1" sx={{ fontWeight: 600 }}>Deploy Hooks</Typography>
       </Stack>
       <Typography variant="body2" color="text.secondary">
-        This app&apos;s own Vercel Deploy Hook URL. Create one in the app&apos;s Vercel project settings, then
-        paste it here to enable &quot;Trigger Deploy Hook&quot; from the app&apos;s three-dot menu.
+        This app&apos;s own Vercel Deploy Hook URL, used by &quot;Trigger Deploy Hook&quot; in the app&apos;s
+        three-dot menu. Generate one automatically below, or paste one created manually in the
+        app&apos;s Vercel project settings.
       </Typography>
-      <TextField
-        label="Deploy Hook URL"
-        value={deployHookUrl}
-        onChange={(e) => setDeployHookUrl(e.target.value)}
-        fullWidth
-        size="small"
-        placeholder="https://api.vercel.com/v1/integrations/deploy/prj_xxx/hook_xxx"
-        helperText="Distinct from the tenant-level metadata.config.hooks.deployHookUrl — this is this app's own hook."
-        slotProps={{ input: { sx: { fontFamily: 'monospace', fontSize: '0.8rem' } } }}
-      />
+      <Stack direction="row" spacing={1.5} sx={{ alignItems: 'flex-start' }}>
+        <TextField
+          label="Deploy Hook URL"
+          value={deployHookUrl}
+          onChange={(e) => setDeployHookUrl(e.target.value)}
+          fullWidth
+          size="small"
+          placeholder="https://api.vercel.com/v1/integrations/deploy/prj_xxx/hook_xxx"
+          helperText="Distinct from the tenant-level metadata.config.hooks.deployHookUrl — this is this app's own hook."
+          sx={{ flex: 1 }}
+          slotProps={{ input: { sx: { fontFamily: 'monospace', fontSize: '0.8rem' } } }}
+        />
+        <Button
+          variant="outlined"
+          size="small"
+          onClick={() => void handleGenerateDeployHook()}
+          disabled={generatingHook || !app.vercelProjectId}
+          startIcon={generatingHook ? <CircularProgress size={16} /> : <RocketLaunchIcon />}
+          sx={{ mt: 0.5, minWidth: 150, flexShrink: 0 }}
+        >
+          {generatingHook ? 'Generating…' : 'Generate'}
+        </Button>
+      </Stack>
+      {!app.vercelProjectId ? (
+        <Alert severity="info" sx={{ fontSize: '0.8rem' }}>
+          Deploy this app first — a Vercel project must exist before a deploy hook can be created for it.
+          New deploys now provision a hook automatically.
+        </Alert>
+      ) : null}
       <Paper variant="outlined" sx={{ p: 2 }}>
         <SummaryRow label="Vercel Project" value={app.vercelProjectId ? app.vercelProjectId : '⚠️ not deployed yet'} />
         <SummaryRow label="Vercel name" value={vercelName} />

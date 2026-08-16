@@ -5,6 +5,14 @@ import type { ReactNode } from 'react';
 import CssBaseline from '@mui/material/CssBaseline';
 import { createTheme, ThemeProvider } from '@mui/material/styles';
 import { AppRouterCacheProvider } from '@mui/material-nextjs/v16-appRouter';
+import {
+  DEFAULT_MODE,
+  NEUTRALS,
+  RADIUS,
+  SHADOWS,
+  TYPE,
+  type ThemeMode,
+} from './design-tokens';
 
 export interface BrandColors {
   primary: string;
@@ -13,13 +21,8 @@ export interface BrandColors {
 
 const FALLBACK_COLORS: BrandColors = { primary: '#eb3d28', secondary: '#0af9fe' };
 
-/**
- * Build an MUI dark theme using the given brand colors.
- * Falls back to default palette when brand config is not yet loaded.
- */
-
 function hexToRgb(hex: string): { r: number; g: number; b: number } | null {
-  const m = hex.match(/^#?([a-f\\d]{2})([a-f\\d]{2})([a-f\\d]{2})$/i);
+  const m = hex.match(/^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i);
   return m ? { r: parseInt(m[1], 16), g: parseInt(m[2], 16), b: parseInt(m[3], 16) } : null;
 }
 
@@ -33,50 +36,151 @@ function luminance(hex: string): number {
 }
 
 function contrastText(bgHex: string): string {
-  return luminance(bgHex) > 0.5 ? '#0f0f14' : '#f0f0f5';
+  return luminance(bgHex) > 0.5 ? '#09090B' : '#FAFAFA';
 }
 
-function buildTheme(brand: BrandColors) {
+/** rgba() string from a hex + alpha — for tints of the brand colour. */
+function alpha(hex: string, a: number): string {
+  const rgb = hexToRgb(hex);
+  return rgb ? `rgba(${rgb.r},${rgb.g},${rgb.b},${a})` : hex;
+}
+
+/**
+ * Build the app theme from the tenant's brand colours and a surface mode.
+ *
+ * Structure comes from the design tokens; only the accent is tenant-specific.
+ * Exported so tests and Storybook-style previews can build a theme without
+ * mounting the provider (which fetches brand config over the network).
+ */
+export function createAppTheme(brand: BrandColors, mode: ThemeMode = DEFAULT_MODE) {
+  const n = NEUTRALS[mode];
+
   return createTheme({
     palette: {
-      mode: 'dark',
+      mode,
       primary: { main: brand.primary, contrastText: contrastText(brand.primary) },
       secondary: { main: brand.secondary, contrastText: contrastText(brand.secondary) },
-      background: {
-        default: '#0f0f14',
-        paper: '#1a1a22',
+      error: { main: n.danger },
+      background: { default: n.background, paper: n.surface },
+      text: { primary: n.text, secondary: n.textMuted },
+      divider: n.border,
+      action: {
+        hover: alpha(brand.primary, 0.06),
+        selected: alpha(brand.primary, 0.1),
       },
-      text: {
-        primary: '#f0f0f5',
-        secondary: '#8888a0',
-      },
-      divider: 'rgba(255,255,255,0.06)',
     },
-    shape: { borderRadius: 16 },
+    shape: { borderRadius: RADIUS.base },
     typography: {
-      fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif",
+      fontFamily: TYPE.fontFamily,
+      fontSize: TYPE.body.size,
+      // Display sizes share one tracking value — that consistency is what makes
+      // the scale read as a system rather than a set of one-off sizes.
+      h1: { fontSize: '3rem', lineHeight: 1.1, fontWeight: TYPE.display.weight, letterSpacing: TYPE.display.tracking },
+      h2: { fontSize: '2.25rem', lineHeight: 1.11, fontWeight: TYPE.display.weight, letterSpacing: TYPE.display.tracking },
+      h3: { fontSize: '1.875rem', lineHeight: 1.2, fontWeight: TYPE.display.weight, letterSpacing: TYPE.display.tracking },
+      h4: { fontSize: '1.5rem', lineHeight: 1.25, fontWeight: TYPE.display.weight, letterSpacing: TYPE.display.tracking },
+      h5: { fontSize: '1.25rem', lineHeight: 1.3, fontWeight: TYPE.display.weight, letterSpacing: TYPE.display.tracking },
+      h6: { fontSize: '1rem', lineHeight: 1.4, fontWeight: TYPE.display.weight, letterSpacing: TYPE.display.tracking },
+      body1: { fontSize: '1rem', lineHeight: TYPE.body.lineHeight },
+      body2: { fontSize: '0.875rem', lineHeight: 1.45 },
+      button: { fontWeight: TYPE.control.weight, textTransform: 'none', letterSpacing: 0 },
+      caption: { fontSize: '0.8125rem', lineHeight: 1.4 },
     },
     components: {
+      MuiCssBaseline: {
+        styleOverrides: {
+          body: { backgroundColor: n.background, color: n.text },
+        },
+      },
       MuiPaper: {
         styleOverrides: {
-          root: { backgroundImage: 'none' },
+          root: {
+            backgroundImage: 'none',
+            borderRadius: RADIUS.card,
+          },
+          // `elevation={0}` is used across the app for bordered panels — keep it flat.
+          elevation0: { boxShadow: 'none' },
+          elevation1: { boxShadow: SHADOWS.card },
+        },
+      },
+      MuiCard: {
+        styleOverrides: {
+          root: {
+            borderRadius: RADIUS.card,
+            border: `1px solid ${n.border}`,
+            boxShadow: SHADOWS.card,
+          },
+        },
+      },
+      MuiDialog: {
+        styleOverrides: {
+          paper: { borderRadius: RADIUS.card, boxShadow: SHADOWS.overlay },
+        },
+      },
+      MuiMenu: {
+        styleOverrides: {
+          paper: { borderRadius: RADIUS.base, border: `1px solid ${n.border}`, boxShadow: SHADOWS.overlay },
         },
       },
       MuiAppBar: {
         styleOverrides: {
           root: {
-            backgroundColor: 'rgba(15,15,20,0.85)',
+            backgroundColor: alpha(n.background, 0.85),
             backdropFilter: 'blur(8px)',
-            borderBottom: '1px solid rgba(255,255,255,0.06)',
+            borderBottom: `1px solid ${n.border}`,
+            boxShadow: 'none',
+            backgroundImage: 'none',
+            color: n.text,
           },
         },
       },
       MuiDrawer: {
         styleOverrides: {
           paper: {
-            backgroundColor: '#1a1a22',
-            borderLeft: '1px solid rgba(255,255,255,0.08)',
+            backgroundColor: n.rail,
+            borderColor: n.border,
+            backgroundImage: 'none',
           },
+        },
+      },
+      MuiListItemButton: {
+        styleOverrides: {
+          root: {
+            borderRadius: RADIUS.control,
+            '&.Mui-selected': {
+              backgroundColor: n.railAccent,
+              '&:hover': { backgroundColor: n.railAccent },
+            },
+          },
+        },
+      },
+      MuiChip: {
+        styleOverrides: {
+          root: { borderRadius: RADIUS.pill, fontWeight: TYPE.control.weight },
+        },
+      },
+      MuiTooltip: {
+        styleOverrides: {
+          tooltip: { borderRadius: RADIUS.control, fontSize: '0.8125rem' },
+        },
+      },
+      MuiOutlinedInput: {
+        styleOverrides: {
+          root: { borderRadius: RADIUS.control },
+        },
+      },
+      MuiTab: {
+        styleOverrides: {
+          root: { textTransform: 'none', fontWeight: TYPE.control.weight, letterSpacing: 0 },
+        },
+      },
+      MuiButton: {
+        defaultProps: { disableElevation: true },
+        styleOverrides: {
+          root: { borderRadius: RADIUS.control },
+          contained: { boxShadow: SHADOWS.control, '&:hover': { boxShadow: SHADOWS.raised } },
+          // Mobile touch target — every small button still clears 48px.
+          sizeSmall: { minHeight: 48 },
         },
       },
       // ── Mobile touch target overrides ─────────────────────────
@@ -86,13 +190,6 @@ function buildTheme(brand: BrandColors) {
           sizeSmall: {
             width: 48,
             height: 48,
-          },
-        },
-      },
-      MuiButton: {
-        styleOverrides: {
-          sizeSmall: {
-            minHeight: 48,
           },
         },
       },
@@ -162,7 +259,7 @@ export function ThemeRegistry({ children }: { children: ReactNode }) {
       });
   }, []);
 
-  const theme = useMemo(() => buildTheme(brand), [brand]);
+  const theme = useMemo(() => createAppTheme(brand), [brand]);
 
   return (
     <AppRouterCacheProvider>

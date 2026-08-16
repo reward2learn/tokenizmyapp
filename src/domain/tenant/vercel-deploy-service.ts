@@ -438,6 +438,86 @@ export async function deployTenant(input: DeployTenantInput): Promise<DeployTena
   };
 }
 
+// ── Deploy hooks ─────────────────────────────────────────────
+
+interface VercelDeployHook {
+  id: string;
+  name: string;
+  ref: string;
+  url: string;
+  createdAt?: number;
+}
+
+/**
+ * Create (or reuse) a Vercel Deploy Hook for a project and return its URL.
+ *
+ * The @vercel/sdk has no deploy-hook methods (its `webhooks` namespace is the
+ * unrelated account-level event webhooks API), so this calls the same
+ * endpoints the official Vercel CLI's `vercel deploy-hooks` command uses:
+ *   POST   /v2/projects/{projectId}/deploy-hooks   body { name, ref }
+ *   DELETE /v2/projects/{projectId}/deploy-hooks/{hookId}
+ * The POST returns the updated PROJECT, with the new hook inside
+ * `link.deployHooks` — hence the diff-by-id to identify which one is new.
+ *
+ * Requires a git-linked project (deploy hooks live on `project.link`); the
+ * tenant/app projects here are always created git-linked, so that holds.
+ * Returns null on any failure — callers treat the hook as a nice-to-have and
+ * must not fail a deploy over it.
+ */
+export async function ensureDeployHook(
+  projectId: string,
+  opts: { name?: string; ref?: string } = {},
+): Promise<{ url: string; id: string; created: boolean } | null> {
+  const name = opts.name || 'auto-provisioned';
+  const ref = opts.ref || 'main';
+
+  try {
+    const bearer = await resolveBearerToken();
+    const teamQuery = TEAM_ID ? `?teamId=${encodeURIComponent(TEAM_ID)}` : '';
+    const base = `${VERCEL_API}/v2/projects/${encodeURIComponent(projectId)}/deploy-hooks`;
+
+    // Reuse an existing hook on the same ref rather than piling up new ones —
+    // Vercel caps deploy hooks at 5/project (10 on Enterprise).
+    const getRes = await fetch(`${VERCEL_API}/v10/projects/${encodeURIComponent(projectId)}${teamQuery}`, {
+      headers: { Authorization: `Bearer ${bearer}` },
+    });
+    if (getRes.ok) {
+      const project = await getRes.json() as { link?: { deployHooks?: VercelDeployHook[] } };
+      const existing = project.link?.deployHooks?.find((h) => h.ref === ref && h.name === name);
+      if (existing?.url) {
+        return { url: existing.url, id: existing.id, created: false };
+      }
+    }
+
+    const res = await fetch(`${base}${teamQuery}`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${bearer}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name, ref }),
+    });
+
+    if (!res.ok) {
+      const body = await res.text().catch(() => '');
+      console.warn(`[vercel-deploy] Deploy hook creation failed (${res.status}) for ${projectId}: ${body.slice(0, 300)}`);
+      return null;
+    }
+
+    const updated = await res.json() as { link?: { deployHooks?: VercelDeployHook[] } };
+    const hooks = updated.link?.deployHooks ?? [];
+    // We already returned early on an exact name+ref match, so the newest
+    // matching entry here is necessarily the one just created.
+    const created = [...hooks].reverse().find((h) => h.ref === ref && h.name === name);
+    if (!created?.url) {
+      console.warn(`[vercel-deploy] Deploy hook created for ${projectId} but no URL returned`);
+      return null;
+    }
+    console.log(`[vercel-deploy] Deploy hook created for ${projectId}: ${created.id}`);
+    return { url: created.url, id: created.id, created: true };
+  } catch (err) {
+    console.warn(`[vercel-deploy] Deploy hook error for ${projectId}:`, err instanceof Error ? err.message : err);
+    return null;
+  }
+}
+
 // ── Git-based deployment ─────────────────────────────────────
 
 const GIT_REPO = process.env.VERCEL_GIT_REPO || 'reward2learn/tokenizmyapp';

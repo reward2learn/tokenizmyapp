@@ -25,7 +25,6 @@ import { PrismaClient } from '@/generated/prisma';
 import { requireWriteAuth, requireCapability } from '@/lib/auth/guards';
 import { jsonError, jsonOk } from '@/lib/api/response';
 import { extractExcelData } from '@/domain/excel/excel-extractor';
-import { v4 as uuidv4 } from 'node:uuid';
 
 export const dynamic = 'force-dynamic';
 export const config = {
@@ -73,7 +72,7 @@ export async function POST(request: Request): Promise<NextResponse> {
 
     // Validate it's a valid Excel file by trying to extract data
     try {
-      const data = extractExcelData(Buffer.from(base64Content, 'base64'));
+      extractExcelData(Buffer.from(base64Content, 'base64'));
       // If extraction succeeds, we have a valid workbook
     } catch (extractErr) {
       return jsonError(

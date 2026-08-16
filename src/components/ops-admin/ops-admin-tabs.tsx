@@ -369,7 +369,7 @@ function dataFromEnvelope<T>(value: unknown): T {
 
 function SectionShell({ title, tooltip, children }: { title: string; tooltip?: string; children: ReactNode }) {
   return (
-    <Paper elevation={0} sx={{ p: 2.5, border: '1px solid', borderColor: 'divider', bgcolor: '#0f0f14' }}>
+    <Paper elevation={0} sx={{ p: 2.5, border: '1px solid', borderColor: 'divider', bgcolor: 'background.default' }}>
       <Typography variant="h6" sx={{ fontWeight: 800, mb: 2, display: 'flex', alignItems: 'center', gap: 1 }}>
         {title}
         {tooltip ? (
@@ -1286,7 +1286,7 @@ function DayPosTab() {
               sx={{
                 position: 'sticky',
                 bottom: 66,
-                background: '#0f0f14',
+                background: (t) => t.palette.background.default,
                 zIndex: 99,
               }}
             >
@@ -2103,7 +2103,7 @@ function FillMissingTab() {
         ) : null}
 
         {importPreview ? (
-          <Paper variant="outlined" sx={{ p: 2, bgcolor: 'rgba(255,255,255,0.02)' }}>
+          <Paper variant="outlined" sx={{ p: 2, bgcolor: 'background.default' }}>
             <Typography variant="subtitle2" sx={{ fontWeight: 700, mb: 1 }}>
               Import preview — {importPreview.summary}
             </Typography>
@@ -2332,7 +2332,7 @@ function ZoomableViewer({
               bottom: 16,
               left: '50%',
               transform: 'translateX(-50%)',
-              color: 'rgba(255,255,255,0.5)',
+              color: 'text.secondary',
               fontSize: '0.75rem',
               pointerEvents: 'none',
             }}
@@ -2640,7 +2640,7 @@ export function OpsAdminTabs({ initialTab = 'day-pos' }: { initialTab?: OpsTab }
           borderRadius: 0,
           border: '0px solid', 
           borderColor: 'divider', 
-          bgcolor: '#121217',
+          bgcolor: 'background.default',
           backgroundFilter: 'blur(0px)' }}>
      
           <Tabs value={tab} onChange={handleTabChange} variant="scrollable" scrollButtons="auto">

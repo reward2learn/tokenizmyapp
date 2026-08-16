@@ -107,12 +107,12 @@ export function SignInPanel({ requiredTier }: SignInPanelProps) {
     >
       <Box sx={{ maxWidth: 420, mx: 'auto' }}>
         <Typography variant="h5" sx={{ fontWeight: 700, mb: 1 }}>
-          {requiredTier === 'google' ? 'Sign in to Access' : 'Ops Sign-In'}
+          {requiredTier === 'google' ? 'Sign in' : 'Ops sign-in'}
         </Typography>
         <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
           {requiredTier === 'google'
-            ? 'Sign in with Google to view the full business review, AI chat, and operations tracking.'
-            : 'Enter the ops PIN or sign in with Google for full access.'}
+            ? 'Unlocks the full review, AI chat, and ops tracking.'
+            : 'Enter the ops PIN, or sign in with Google for full access.'}
         </Typography>
 
         {oauthError ? (
@@ -138,9 +138,12 @@ export function SignInPanel({ requiredTier }: SignInPanelProps) {
           sx={{
             bgcolor: 'background.paper',
             color: 'text.primary',
-            fontWeight: 600,
+            // Needs its own hairline: on a light background a white button with
+            // no border has nothing to separate it from the page.
+            border: '1px solid',
+            borderColor: 'divider',
             mb: showPin ? 2 : 0,
-            '&:hover': { bgcolor: 'action.hover' },
+            '&:hover': { bgcolor: 'action.hover', borderColor: 'divider' },
           }}
         >
           Sign in with Google

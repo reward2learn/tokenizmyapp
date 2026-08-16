@@ -10,6 +10,7 @@ import { NextResponse } from 'next/server';
 import { z } from 'zod';
 import { createRawClient, type DbClient } from '@/lib/db';
 import { requireWriteAuth } from '@/lib/auth/guards';
+import { requireFeatureForTenant } from '@/domain/billing/entitlement-service';
 import { sessionIsPlatformAdmin } from '@/lib/auth/jwt';
 import { jsonError, jsonOk } from '@/lib/api/response';
 import { ensureTenantsTable } from '@/domain/tenant/tenant-service';
@@ -134,6 +135,10 @@ export async function POST(
   if (!sessionIsPlatformAdmin(guard.session)) return jsonError('Platform admin only', 403);
 
   const { slug } = await params;
+
+  // Adding users beyond the owner is a paid capability.
+  const entitled = await requireFeatureForTenant(slug, 'teammates');
+  if (!entitled.ok) return entitled.response!;
 
   let body: unknown;
   try { body = await request.json(); } catch {

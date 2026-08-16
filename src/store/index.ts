@@ -20,6 +20,7 @@ import { sheetDataApi } from '@/store/apis/sheet-data-api';
 import { brandConfigApi } from '@shared/store/apis/brand-config-api';
 import { navigationApi } from '@/store/apis/navigation-api';
 import { tenantApi } from '@/store/apis/tenant-api';
+import { organizationApi } from '@/store/apis/organization-api';
 
 const apiMiddleware = [
   authApi.middleware,
@@ -38,6 +39,7 @@ const apiMiddleware = [
   brandConfigApi.middleware,
   navigationApi.middleware,
   tenantApi.middleware,
+  organizationApi.middleware,
   sheetViewerListenerMiddleware,
   undoRedoListenerMiddleware,
 ] as const;
@@ -66,6 +68,7 @@ export function makeStore() {
       [brandConfigApi.reducerPath]: brandConfigApi.reducer,
       [navigationApi.reducerPath]: navigationApi.reducer,
       [tenantApi.reducerPath]: tenantApi.reducer,
+      [organizationApi.reducerPath]: organizationApi.reducer,
     },
     middleware: (getDefaultMiddleware) =>
       getDefaultMiddleware().concat(...apiMiddleware),

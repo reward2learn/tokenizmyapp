@@ -200,7 +200,7 @@ function ChartFinancialBlockInner({ config }: { config: Record<string, unknown> 
                 flex: 1,
                 minWidth: 130,
                 p: 1.5,
-                bgcolor: 'rgba(255,255,255,0.03)',
+                bgcolor: 'action.hover',
                 border: '1px solid',
                 borderColor: 'divider',
                 borderRadius: 2,
@@ -233,8 +233,9 @@ function ChartFinancialBlockInner({ config }: { config: Record<string, unknown> 
         elevation={0}
         sx={{
           p: 2,
-          bgcolor: '#1a1a22',
-          border: '1px solid rgba(255,255,255,0.05)',
+          bgcolor: 'background.paper',
+          border: '1px solid',
+          borderColor: 'divider',
           borderRadius: 2,
           mb: 1,
         }}
@@ -267,7 +268,7 @@ function ChartFinancialBlockInner({ config }: { config: Record<string, unknown> 
         <LegendDot color="#22c55e" label="Actual" />
         <LegendDot color="#f59e0b" label="Forecast" />
         <LegendDot color="#3b82f6" label="Cumulative" />
-        <LegendDot color="rgba(255,255,255,0.08)" label="Current month" />
+        <LegendDot color="rgba(128,128,128,0.25)" label="Current month" />
         {selectedMonthLabel ? (
           <Typography
             component="span"

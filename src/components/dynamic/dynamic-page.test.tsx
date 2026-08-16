@@ -60,7 +60,7 @@ describe('DynamicPage', () => {
     renderPage('dashboard');
     expect(screen.getByText(/July 2026/)).toBeInTheDocument();
     expect(screen.getByText(/Business Review/)).toBeInTheDocument();
-    expect(screen.getByText('Sign in to Access')).toBeInTheDocument();
+    expect(screen.getByText('Sign in')).toBeInTheDocument();
   });
 
   it('renders terms page markdown via content API', async () => {

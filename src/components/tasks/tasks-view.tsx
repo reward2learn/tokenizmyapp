@@ -206,7 +206,7 @@ export function TasksView({ forcedRole }: { forcedRole?: string | null } = {}) {
                   : task.status === 'completed'
                     ? 'success.main'
                     : 'divider',
-                '&:hover': { bgcolor: 'rgba(255,255,255,0.04)' },
+                '&:hover': { bgcolor: 'action.hover' },
               }}
             >
               <Stack direction="row" sx={{ alignItems: 'flex-start' }} spacing={2}>

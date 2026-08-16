@@ -1,12 +1,52 @@
 import Link from 'next/link';
+import { DEFAULT_MODE, NEUTRALS, RADIUS, TYPE } from '@/theme/design-tokens';
+
+// Rendered outside the MUI ThemeProvider, so the tokens are read directly
+// rather than through `useTheme()` — same values, no provider dependency.
+const n = NEUTRALS[DEFAULT_MODE];
 
 export default function NotFound() {
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', minHeight: '100dvh', fontFamily: 'system-ui, sans-serif', background: '#0f0f14', color: '#e0e0e0' }}>
-      <h1 style={{ fontSize: '4rem', margin: 0, color: '#eb3d28' }}>404</h1>
-      <p style={{ fontSize: '1.25rem', margin: '1rem 0' }}>This page could not be found.</p>
-      <Link href="/dashboard" style={{ color: '#0af9fe', textDecoration: 'none', fontSize: '1rem' }}>
-        Back to Dashboard
+    <div
+      style={{
+        display: 'flex',
+        flexDirection: 'column',
+        alignItems: 'center',
+        justifyContent: 'center',
+        minHeight: '100dvh',
+        gap: '0.75rem',
+        fontFamily: TYPE.fontFamily,
+        background: n.background,
+        color: n.text,
+      }}
+    >
+      <h1
+        style={{
+          fontSize: '3rem',
+          lineHeight: 1.1,
+          fontWeight: TYPE.display.weight,
+          letterSpacing: TYPE.display.tracking,
+          margin: 0,
+        }}
+      >
+        404
+      </h1>
+      <p style={{ fontSize: '1rem', margin: 0, color: n.textMuted }}>This page does not exist.</p>
+      <Link
+        href="/dashboard"
+        style={{
+          marginTop: '0.75rem',
+          padding: '0.5rem 1rem',
+          borderRadius: `${RADIUS.control}px`,
+          border: `1px solid ${n.border}`,
+          background: n.surface,
+          color: n.text,
+          fontSize: TYPE.control.size,
+          fontWeight: TYPE.control.weight,
+          textDecoration: 'none',
+        }}
+      >
+        Back to dashboard
       </Link>
     </div>
   );

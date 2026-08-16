@@ -77,7 +77,7 @@ describe('SignInPanel', () => {
   it('renders PIN and Google options for pin tier', async () => {
     renderPanel();
     expect(screen.getByTestId('sign-in-panel')).toBeInTheDocument();
-    expect(screen.getByText('Ops Sign-In')).toBeInTheDocument();
+    expect(screen.getByText('Ops sign-in')).toBeInTheDocument();
     expect(screen.getByText('Sign in with Google')).toBeInTheDocument();
     // The PIN form renders after list-pin-users resolves (async user list).
     expect(await screen.findByTestId('pin-input')).toBeInTheDocument();

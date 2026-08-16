@@ -74,6 +74,8 @@ enum BlockType {
   reports_rollup
   sheet_viewer
   pack_table
+  feature_grid
+  testimonials
 }
 
 enum JobStatus {
@@ -689,11 +691,17 @@ model Tenant {
   metadata        Json     @default("{}")
   /// Who created this tenant
   createdBy       String?  @map("created_by")
+  /// Billing owner. Nullable so pre-existing tenants keep working until the
+  /// backfill assigns them (see backfillDefaultOrganization).
+  organizationId  String?  @map("organization_id")
+  organization    Organization? @relation(fields: [organizationId], references: [id])
   createdAt       DateTime @default(now()) @map("created_at")
   updatedAt       DateTime @updatedAt @map("updated_at")
 
   // Webhook integration (one-to-many)
   webhookConfigs  WebhookConfig[]
+
+  @@index([organizationId])
 
   @@allow('read', true)
   @@allow('create,update,delete', auth().tier == pin || auth().tier == google)
@@ -751,3 +759,73 @@ model WebhookEvent {
 // Financial writes: auth().tier == pin || auth().tier == google
 // Review parts: auth().tier == google
 // Public read: metrics list, legal pages
+
+// ── Billing layer (platform root DB only) ───────────────────
+// Organization → Tenant → Apps. The Organization owns the subscription,
+// credit balances and payment method. These tables must never be created in
+// a tenant's dedicated database — a tenant DB is a customer-controlled data
+// plane; billing state belongs to the control plane.
+// See src/domain/billing/organization-service.ts.
+
+model Organization {
+  id            String   @id @default(cuid())
+  /// URL-safe identifier, editable by the owner.
+  slug          String   @unique
+  displayName   String   @map("display_name")
+  logoUrl       String?  @map("logo_url")
+  /// Account that owns billing for this organization.
+  ownerUserId   String?  @map("owner_user_id")
+  /// Affiliate attribution. Recorded at signup — impossible to backfill later.
+  referredBy    String?  @map("referred_by")
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+
+  members       OrgMember[]
+  tenants       Tenant[]
+  subscription  Subscription?
+
+  @@allow('read', true)
+  @@allow('create,update,delete', auth().tier == google)
+  @@map("organizations")
+}
+
+model OrgMember {
+  id           String   @id @default(cuid())
+  orgId        String   @map("org_id")
+  organization Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  userId       String   @map("user_id")
+  /// owner | admin | member | billing
+  role         String   @default("member")
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  @@unique([orgId, userId])
+  @@index([userId])
+  @@allow('read', true)
+  @@allow('create,update,delete', auth().tier == google)
+  @@map("org_members")
+}
+
+model Subscription {
+  id                 String   @id @default(cuid())
+  orgId              String   @unique @map("org_id")
+  organization       Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  /// free | pro | business | enterprise — see src/lib/billing/plans.ts
+  planId             String   @default("free") @map("plan_id")
+  /// active | past_due | canceled | trialing
+  status             String   @default("active")
+  /// monthly | yearly
+  interval           String   @default("monthly")
+  currentPeriodStart DateTime @default(now()) @map("current_period_start")
+  currentPeriodEnd   DateTime @map("current_period_end")
+  cancelAtPeriodEnd  Boolean  @default(false) @map("cancel_at_period_end")
+  /// Billing anchor. Held separately from currentPeriodStart so an upgrade
+  /// mid-cycle does not reset the cycle and hand out a free extension.
+  anchorDate         DateTime @default(now()) @map("anchor_date")
+  createdAt          DateTime @default(now()) @map("created_at")
+  updatedAt          DateTime @updatedAt @map("updated_at")
+
+  @@index([planId, status])
+  @@allow('read', true)
+  @@allow('create,update,delete', auth().tier == google)
+  @@map("subscriptions")
+}

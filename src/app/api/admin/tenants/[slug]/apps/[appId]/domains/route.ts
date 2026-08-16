@@ -10,6 +10,7 @@ import { NextResponse } from 'next/server';
 import { z } from 'zod';
 import { createRawClient } from '@/lib/db';
 import { requireWriteAuth } from '@/lib/auth/guards';
+import { requireFeatureForTenant } from '@/domain/billing/entitlement-service';
 import { jsonError, jsonOk } from '@/lib/api/response';
 import {
   getVercelDomains,
@@ -115,6 +116,11 @@ export async function POST(
   if (!guard.ok) return guard.response;
 
   const { slug, appId } = await params;
+
+  // Attaching a domain is a paid capability. Reading existing domains is not
+  // gated — a downgraded tenant must still be able to see what it has.
+  const entitled = await requireFeatureForTenant(slug, 'custom-domains');
+  if (!entitled.ok) return entitled.response!;
 
   let body: unknown;
   try { body = await request.json(); } catch {

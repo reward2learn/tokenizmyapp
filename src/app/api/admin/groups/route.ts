@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { PrismaClient } from '@/generated/prisma';
 import { createRawClient, type DbClient } from '@/lib/db';
 import { requireWriteAuth } from '@/lib/auth/guards';
+import { requireFeatureForTenant } from '@/domain/billing/entitlement-service';
 import { sessionIsPlatformAdmin } from '@/lib/auth/jwt';
 import { jsonError, jsonOk } from '@/lib/api/response';
 import { DEFAULT_SECURITY_GROUPS } from '@/lib/db-migrate';
@@ -144,6 +145,14 @@ export async function POST(request: Request): Promise<NextResponse> {
     tenantSlug?: string;
     appId?: string;
   };
+
+  // Creating security groups is the RBAC capability. Tenant-scoped groups are
+  // gated on the owning org's plan; platform-level groups (no tenantSlug) are
+  // internal and stay ungated.
+  if (tenantSlug) {
+    const entitled = await requireFeatureForTenant(tenantSlug, 'rbac');
+    if (!entitled.ok) return entitled.response!;
+  }
 
   if (!code || !name) return jsonError('code and name are required', 400);
   if (!/^[a-z0-9-]+$/.test(code)) {

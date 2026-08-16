@@ -12,6 +12,8 @@ import { jsonError, jsonOk } from '@/lib/api/response';
 import { ensureTenantsTable } from '@/domain/tenant/tenant-service';
 import { addTenantColumnsIfMissing, seedTemplateSecurityGroups } from '@/domain/tenant/tenant-seed-service';
 import { ensureTenantConfigColumns } from '@/domain/tenant/tenant-config-service';
+import { backfillDefaultOrganization } from '@/domain/billing/organization-service';
+import { ensureBillingTables, getSubscription } from '@/domain/billing/entitlement-service';
 
 export const dynamic = 'force-dynamic';
 
@@ -31,6 +33,21 @@ export async function POST(
     // 1. Ensure the tenants table exists
     await ensureTenantsTable(db);
     results.tenantsTable = 'ok';
+
+    // 1b. Organization + billing layer (platform root DB only — never the
+    // tenant's dedicated database). Idempotent: creates the tables, ensures
+    // the default org, and adopts any tenant that predates the org layer.
+    await ensureBillingTables(db);
+    const backfill = await backfillDefaultOrganization(db);
+    results.billingTables = 'ok';
+    results.organizationBackfill = backfill.created
+      ? `created default org, assigned ${backfill.tenantsAssigned} tenant(s)`
+      : `assigned ${backfill.tenantsAssigned} tenant(s)`;
+
+    // Every org must resolve to a subscription; Free is created on demand so
+    // nothing downstream has to handle a missing billing row.
+    const sub = await getSubscription(backfill.orgId, db);
+    results.subscription = `${sub.planId} (${sub.status})`;
 
     // 2. Check tenant exists
     const rows = await db.$queryRawUnsafe(

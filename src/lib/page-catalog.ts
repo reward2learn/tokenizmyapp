@@ -24,7 +24,9 @@ export type BlockType =
   | 'kpi_cards'
   | 'reports_rollup'
   | 'sheet_viewer'
-  | 'pack_table';
+  | 'pack_table'
+  | 'feature_grid'
+  | 'testimonials';
 
 export interface PageSectionDefinition {
   blockType: BlockType;
@@ -149,8 +151,22 @@ export const PAGE_CATALOG: Record<string, PageDefinition> = {
       {
         blockType: 'hero',
         config: {
-          headline: 'Welcome',
-          subtitle: 'Your business application — configure pages, data and branding from the Admin area.',
+          headline: 'Run the business on private AI',
+          subtitle:
+            'Planning, analytics, budgeting and forecasting in one tenant — with your data scoped to your own database, not a shared model.',
+          minTier: 'public',
+        },
+      },
+      {
+        blockType: 'feature_grid',
+        config: { minTier: 'public' },
+      },
+      {
+        // No quotes are shipped by default — the block renders its empty state
+        // until real, permissioned testimonials are added to this config.
+        blockType: 'testimonials',
+        config: {
+          heading: 'What customers say',
           minTier: 'public',
         },
       },

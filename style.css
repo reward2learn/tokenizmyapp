@@ -4,8 +4,11 @@
    ══════════════════════════════════════════════════ */
 
 /* ── PDF Capture Wrapper ─────────────────────────── */
+/* Must match NEUTRALS[DEFAULT_MODE].background in src/theme/design-tokens.ts —
+   the capture wrapper sits outside React, so the value cannot be read from the
+   theme and has to be mirrored here. */
 #pdfCapture {
-  background: #0f0f14;
+  background: #fdfdfc;
 }
 
 /* ── Print / PDF — hide chrome, preserve background & layout ── */

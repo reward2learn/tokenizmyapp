@@ -390,6 +390,18 @@ export const tenantApi = createApi({
       }),
       invalidatesTags: ['Tenants'],
     }),
+    /** POST .../apps/{appId}/deploy-hook — auto-provision this app's own
+     *  Vercel Deploy Hook instead of hand-copying one from the dashboard. */
+    provisionAppDeployHook: builder.mutation<
+      ApiEnvelope<{ appId: string; deployHookUrl: string; created: boolean }>,
+      { slug: string; appId: string }
+    >({
+      query: ({ slug, appId }) => ({
+        url: `admin/tenants/${slug}/apps/${appId}/deploy-hook`,
+        method: 'POST',
+      }),
+      invalidatesTags: ['Tenants'],
+    }),
 
     /** GET — this app's own domain list + Vercel project info (keyed by the app's own vercelProjectId). */
     getAppDomains: builder.query<
@@ -736,6 +748,7 @@ export const {
   useLazyRefreshAppStatusQuery,
   useEditAppMutation,
   usePushAppEnvVarsMutation,
+  useProvisionAppDeployHookMutation,
   useGetAppDomainsQuery,
   useLazyGetAppDomainsQuery,
   useSetAppDomainMutation,
