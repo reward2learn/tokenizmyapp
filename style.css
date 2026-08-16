@@ -4,11 +4,15 @@
    ══════════════════════════════════════════════════ */
 
 /* ── PDF Capture Wrapper ─────────────────────────── */
-/* Must match NEUTRALS[DEFAULT_MODE].background in src/theme/design-tokens.ts —
-   the capture wrapper sits outside React, so the value cannot be read from the
-   theme and has to be mirrored here. */
+/* #pdfCapture wraps the main content of every dynamic page, so it paints over
+   the whole viewport — it must follow the active theme, not a fixed colour.
+   ThemeRegistry writes --app-canvas from NEUTRALS[resolvedMode] on every mode
+   change; the fallback only applies for the first paint before hydration.
+   Do not hardcode a hex here: a light value wins over a dark body and turns
+   every page below the hero into a white slab. */
 #pdfCapture {
-  background: #fdfdfc;
+  background: var(--app-canvas, #fdfdfc);
+  color: var(--app-text, inherit);
 }
 
 /* ── Print / PDF — hide chrome, preserve background & layout ── */

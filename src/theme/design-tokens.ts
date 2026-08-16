@@ -109,17 +109,28 @@ export const NEUTRALS: Record<ThemeMode, NeutralRamp> = {
     ring: '#6366F1',
     danger: '#FF5C5C',
   },
+  /**
+   * Late-bound ramp for surfaces rendered outside the MUI ThemeProvider.
+   *
+   * `system` is a *preference*, not a palette — it resolves to light or dark at
+   * runtime. Anything that can read the theme should use NEUTRALS[resolvedMode]
+   * instead; this entry exists so plain inline styles can defer to the CSS
+   * variables ThemeRegistry publishes on <html>.
+   *
+   * Variable names must stay in lockstep with that effect. Each carries a
+   * light-mode fallback for the first paint, before hydration has set anything.
+   */
   system: {
-    background: 'var(--background)',
-    surface: 'var(--surface)',
-    rail: 'var(--rail)',
-    railAccent: 'var(--rail-accent)',
-    text: 'var(--text)',
-    textMuted: 'var(--text-muted)',
-    muted: 'var(--muted)',
-    border: 'var(--border)',
-    ring: 'var(--ring)',
-    danger: 'var(--danger)',
+    background: 'var(--app-canvas, #FDFDFC)',
+    surface: 'var(--app-surface, #FFFFFF)',
+    rail: 'var(--app-rail, #FAF9F8)',
+    railAccent: 'var(--app-rail-accent, #EEEAE7)',
+    text: 'var(--app-text, #09090B)',
+    textMuted: 'var(--app-text-muted, #71717B)',
+    muted: 'var(--app-muted, #F4F4F5)',
+    border: 'var(--app-border, #E4E4E7)',
+    ring: 'var(--app-ring, #AAAAF3)',
+    danger: 'var(--app-danger, #E7000B)',
   },
 };
 
