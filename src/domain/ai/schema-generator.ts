@@ -19,6 +19,7 @@
 import { generateObject } from 'ai';
 import { openai } from '@ai-sdk/openai';
 import { schemaGenerationZodSchema, type SchemaGenerationResult } from './schema-generation-schema';
+import { meterAiUsage } from '@/domain/billing/credit-service';
 
 // ── W3C XSD Standards per template ──────────────────────
 
@@ -94,16 +95,33 @@ Return a complete schema definition with models, use cases, and pages.`;
 export async function generateSchemaFromPrompt(
   userPrompt: string,
   templateId: string,
+  tenantSlug: string,
 ): Promise<SchemaGenerationResult> {
   const systemPrompt = buildSystemPrompt(templateId);
 
-  const { object } = await generateObject({
+  const { object, usage } = await generateObject({
     model: openai('gpt-5.5'),
     schema: schemaGenerationZodSchema,
     system: systemPrompt,
     prompt: userPrompt,
     temperature: 0.1, // Low temperature for consistent, structured output
   });
+
+  // Platform key (env) — always metered. Non-blocking: a metering failure
+  // must never break generation; the pre-flight gate in the callers is the
+  // enforcement point.
+  try {
+    await meterAiUsage({
+      tenantSlug,
+      model: 'gpt-5.5',
+      promptTokens: usage.inputTokens ?? 0,
+      completionTokens: usage.outputTokens ?? 0,
+      keySource: 'env',
+      refType: 'schema_generation',
+    });
+  } catch (err) {
+    console.warn('[schema-generator] Metering failed (non-blocking):', err instanceof Error ? err.message : err);
+  }
 
   return object;
 }

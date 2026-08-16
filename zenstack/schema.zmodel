@@ -783,6 +783,8 @@ model Organization {
   members       OrgMember[]
   tenants       Tenant[]
   subscription  Subscription?
+  creditGrants  CreditGrant[]
+  creditLedger  CreditLedger[]
 
   @@allow('read', true)
   @@allow('create,update,delete', auth().tier == google)
@@ -828,4 +830,54 @@ model Subscription {
   @@allow('read', true)
   @@allow('create,update,delete', auth().tier == google)
   @@map("subscriptions")
+}
+
+model CreditGrant {
+  id           String       @id @default(cuid())
+  orgId        String       @map("org_id")
+  organization Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  /// plan = monthly allowance, addon = purchased top-up, onetime = negotiated
+  /// volume deal, promo = promotional bonus — kept separate so promo generosity
+  /// is measurable and withdrawable without touching purchased credits.
+  source       String
+  /// Total credits granted.
+  amount       Int
+  /// Credits not yet consumed.
+  remaining    Int
+  grantedAt    DateTime     @default(now()) @map("granted_at")
+  /// Grants expire 30 days after issue.
+  expiresAt    DateTime     @map("expires_at")
+  /// Which plan the grant came from (for plan-source grants).
+  planId       String?      @map("plan_id")
+  /// Free-form (e.g. stripe session id, promo code).
+  metadata     Json?
+
+  /// Balance queries consume oldest-expiring-first.
+  @@index([orgId, expiresAt])
+  @@allow('read', true)
+  @@allow('create,update,delete', auth().tier == google)
+  @@map("credit_grants")
+}
+
+model CreditLedger {
+  id           String       @id @default(cuid())
+  orgId        String       @map("org_id")
+  organization Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  /// The grant this entry debits/credits (null for balance-level entries).
+  grantId      String?      @map("grant_id")
+  /// Positive = grant, negative = consumption.
+  delta        Int
+  /// plan_allowance | topup_purchase | ai_generation | promo_bonus | admin_adjustment
+  reason       String
+  /// content_generation | chat | app_pack | schema_generation
+  refType      String?      @map("ref_type")
+  /// Optional reference id.
+  refId        String?      @map("ref_id")
+  createdAt    DateTime     @default(now()) @map("created_at")
+  metadata     Json?
+
+  @@index([orgId, createdAt])
+  @@allow('read', true)
+  @@allow('create,update,delete', auth().tier == google)
+  @@map("credit_ledger")
 }

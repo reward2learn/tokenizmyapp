@@ -34,10 +34,39 @@ export interface Subscription {
   anchorDate: string;
 }
 
+export interface CreditBalance {
+  available: number;
+  expiringSoon: number;
+}
+
+export interface CreditGrant {
+  id: string;
+  orgId: string;
+  source: 'plan' | 'addon' | 'onetime' | 'promo';
+  amount: number;
+  remaining: number;
+  grantedAt: string;
+  expiresAt: string;
+  planId: string | null;
+  metadata: unknown;
+}
+
+export interface CreditLedgerEntry {
+  id: string;
+  orgId: string;
+  grantId: string | null;
+  delta: number;
+  reason: string;
+  refType: string | null;
+  refId: string | null;
+  createdAt: string;
+  metadata: unknown;
+}
+
 export const organizationApi = createApi({
   reducerPath: 'organizationApi',
   baseQuery,
-  tagTypes: ['Organization', 'TenantOrg'],
+  tagTypes: ['Organization', 'TenantOrg', 'Credits'],
   endpoints: (builder) => ({
     listOrganizations: builder.query<ApiEnvelope<{ organizations: Organization[] }>, void>({
       query: () => ({ url: 'admin/organizations' }),
@@ -110,6 +139,35 @@ export const organizationApi = createApi({
       }),
       invalidatesTags: ['Organization', 'TenantOrg'],
     }),
+
+    getOrganizationCredits: builder.query<
+      ApiEnvelope<{
+        balance: CreditBalance;
+        grants: CreditGrant[];
+        ledger: CreditLedgerEntry[];
+      }>,
+      string
+    >({
+      query: (orgId) => ({ url: `admin/organizations/${orgId}/credits` }),
+      providesTags: ['Credits'],
+    }),
+
+    grantOrganizationCredits: builder.mutation<
+      ApiEnvelope<{ grant: CreditGrant; balance: CreditBalance }>,
+      {
+        orgId: string;
+        source: 'addon' | 'promo' | 'onetime';
+        amount: number;
+        metadata?: Record<string, unknown>;
+      }
+    >({
+      query: ({ orgId, ...body }) => ({
+        url: `admin/organizations/${orgId}/credits`,
+        method: 'POST',
+        body,
+      }),
+      invalidatesTags: ['Credits'],
+    }),
   }),
 });
 
@@ -120,4 +178,6 @@ export const {
   useUpdateOrganizationMutation,
   useGetTenantOrganizationQuery,
   useAssignTenantOrganizationMutation,
+  useGetOrganizationCreditsQuery,
+  useGrantOrganizationCreditsMutation,
 } = organizationApi;

@@ -22,7 +22,19 @@ export const provisionTenant = inngest.createFunction(
       try {
         const { generateSchemaFromPrompt } = await import('@/domain/ai/schema-generator');
         const { compileToZModel } = await import('@/domain/ai/zmodel-compiler');
-        const schema = await generateSchemaFromPrompt(prompt, templateId);
+        const { requireCreditsForTenant } = await import('@/domain/billing/credit-service');
+
+        // Pre-flight credit gate (platform key): an empty balance skips
+        // schema generation — the existing catch below logs and continues
+        // the workflow without a schema (best-effort, same as a provider
+        // failure). No HTTP response exists in a workflow, so we throw
+        // instead of returning a 402.
+        const gate = await requireCreditsForTenant(slug);
+        if (!gate.ok) {
+          throw new Error('No AI credits remaining — schema generation skipped. Upgrade the plan or add credits.');
+        }
+
+        const schema = await generateSchemaFromPrompt(prompt, templateId, slug);
         const zmodel = compileToZModel(schema);
         return { schema, zmodel };
       } catch (err) {

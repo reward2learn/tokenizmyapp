@@ -32,6 +32,7 @@ import { resolveEffectiveChatModel } from '@/lib/chat/chat-model';
 import { getAppSettings } from '@/domain/config/app-settings-service';
 import { isExplicitSessionRequest } from '@/lib/chat/session-tools';
 import { ensureConversationsColumns } from '@/lib/db-migrate';
+import { requireCreditsForTenant } from '@/domain/billing/credit-service';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
@@ -333,6 +334,36 @@ async function mapReduceContext(
   return reduced;
 }
 
+/**
+ * Friendly chat reply for degraded states (no provider configured, no credits
+ * left) — chat must degrade gracefully, never hard-fail. Mirrors the SSE
+ * shape of a normal streamed reply so the client renders it identically.
+ */
+function friendlyChatReply(reply: string, stream: boolean): Response {
+  if (stream) {
+    const encoder = new TextEncoder();
+    const sseBody = new ReadableStream({
+      start(controller) {
+        controller.enqueue(encoder.encode(`data: ${JSON.stringify({ choices: [{ delta: { content: reply } }] })}\n\n`));
+        controller.enqueue(encoder.encode('data: [DONE]\n\n'));
+        controller.close();
+      },
+    });
+    return new Response(sseBody, {
+      headers: {
+        'Content-Type': 'text/event-stream',
+        'Cache-Control': 'no-cache',
+        Connection: 'keep-alive',
+        'X-Accel-Buffering': 'no',
+      },
+    });
+  }
+  return NextResponse.json({
+    success: true,
+    data: { reply },
+  });
+}
+
 async function handleChatPost(request: Request): Promise<Response> {
   let body: unknown;
   try {
@@ -371,29 +402,25 @@ async function handleChatPost(request: Request): Promise<Response> {
     // Resolve the active AI provider early — needed for MapReduce phase below
     const ai = await resolveActiveAiConfig();
     if (!ai) {
-      const reply = 'I\'m not fully configured yet. The owner needs to set up an AI provider in Config > AI Chat.';
-      if (stream === true) {
-        const encoder = new TextEncoder();
-        const sseBody = new ReadableStream({
-          start(controller) {
-            controller.enqueue(encoder.encode(`data: ${JSON.stringify({ choices: [{ delta: { content: reply } }] })}\n\n`));
-            controller.enqueue(encoder.encode('data: [DONE]\n\n'));
-            controller.close();
-          },
-        });
-        return new Response(sseBody, {
-          headers: {
-            'Content-Type': 'text/event-stream',
-            'Cache-Control': 'no-cache',
-            Connection: 'keep-alive',
-            'X-Accel-Buffering': 'no',
-          },
-        });
+      return friendlyChatReply(
+        'I\'m not fully configured yet. The owner needs to set up an AI provider in Config > AI Chat.',
+        stream === true,
+      );
+    }
+
+    // ── Pre-flight credit gate (platform key only) ──
+    // BYOK tenants (keySource === 'db') pay their provider directly and are
+    // never gated. Platform-key usage with an empty balance degrades to a
+    // friendly reply instead of a hard error — chat must keep working.
+    if (ai.keySource === 'env') {
+      const tenantSlug = process.env.NEXT_PUBLIC_TENANT_SLUG ?? 'tokenizmyapp';
+      const gate = await requireCreditsForTenant(tenantSlug);
+      if (!gate.ok) {
+        return friendlyChatReply(
+          'This workspace has no AI credits remaining. The owner can upgrade the plan or add credits to continue chatting.',
+          stream === true,
+        );
       }
-      return NextResponse.json({
-        success: true,
-        data: { reply },
-      });
     }
 
     const appSettings = await getAppSettings(db);
@@ -480,6 +507,8 @@ async function handleChatPost(request: Request): Promise<Response> {
       stream: stream === true,
       webSearchEnabled,
       sessionToolsEnabled,
+      tenantSlug: process.env.NEXT_PUBLIC_TENANT_SLUG ?? 'tokenizmyapp',
+      keySource: ai.keySource,
     });
   } catch (err) {
     console.error('CHAT ERROR:', err);

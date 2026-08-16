@@ -51,21 +51,45 @@ export async function setActiveProvider(providerId: AiProviderId, model?: string
   }
 }
 
-/** Resolve an API key for a provider: DB secret first, then its env var. */
-export async function resolveProviderKey(provider: AiProviderDef, db?: DbClient): Promise<string | null> {
+/** Where a resolved API key came from — 'db' means the tenant's own BYOK key. */
+export type ProviderKeySource = 'db' | 'env';
+
+interface ResolvedProviderKey {
+  key: string | null;
+  source: ProviderKeySource | null;
+}
+
+/**
+ * Resolve an API key for a provider: DB secret first, then its env var.
+ * Returns the source alongside the key so callers can distinguish "tenant's
+ * own key (BYOK)" from "platform key" — the credit-metering decision in
+ * credit-service.ts depends on it (roadmap §5.1).
+ */
+async function resolveProviderKeyWithSource(
+  provider: AiProviderDef,
+  db?: DbClient,
+): Promise<ResolvedProviderKey> {
   try {
     const key = await getSecretPlaintext(provider.keySecretName, db);
-    if (key) return key;
+    if (key) return { key, source: 'db' };
   } catch (err) {
     console.warn(`[ai-providers] DB key fetch failed for ${provider.id}, falling back to env:`, err instanceof Error ? err.message : err);
   }
-  return process.env[provider.keyEnvVar] ?? null;
+  const envKey = process.env[provider.keyEnvVar] ?? null;
+  return { key: envKey, source: envKey ? 'env' : null };
+}
+
+/** Resolve an API key for a provider: DB secret first, then its env var. */
+export async function resolveProviderKey(provider: AiProviderDef, db?: DbClient): Promise<string | null> {
+  return (await resolveProviderKeyWithSource(provider, db)).key;
 }
 
 export interface ActiveAiConfig {
   provider: AiProviderDef;
   apiKey: string;
   model: string;
+  /** 'db' = tenant's own BYOK key (do not charge credits); 'env' = platform key. */
+  keySource: ProviderKeySource;
 }
 
 /**
@@ -79,11 +103,11 @@ export async function resolveActiveAiConfig(modelOverride?: string | null, db?: 
   const provider = getAiProvider(providerId);
   if (!provider) return null;
 
-  const apiKey = await resolveProviderKey(provider, db);
+  const { key: apiKey, source: keySource } = await resolveProviderKeyWithSource(provider, db);
   if (!apiKey) return null;
 
   const model = modelOverride || (await getActiveModel(providerId, db));
   if (!model) return null;
 
-  return { provider, apiKey, model };
+  return { provider, apiKey, model, keySource: keySource ?? 'env' };
 }

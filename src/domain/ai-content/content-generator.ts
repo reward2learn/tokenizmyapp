@@ -24,6 +24,7 @@ import { withTimeout } from '@/lib/with-timeout';
 import { getCurrentAppId } from '@shared/lib/config/tenant';
 import { parseReviewParts } from '@/domain/ai-content/parse-review-parts';
 import type { ReviewPart } from '@/domain/ai-content/parse-review-parts';
+import { meterAiUsage, requireCreditsForTenant } from '@/domain/billing/credit-service';
 
 // ── Progress reporting ──────────────────────────────────
 
@@ -127,6 +128,7 @@ async function callAiProviderForDocument(
   prompt: string,
   ai: ActiveAiConfig,
   documentType: 'businessReview' | 'executiveSummary' | 'dashboardData',
+  tenantSlug: string,
   onProgress?: ProgressCallback,
 ): Promise<string> {
   const docLabel = documentType === 'businessReview' ? 'Business Review' : documentType === 'executiveSummary' ? 'Executive Summary' : 'Dashboard Data';
@@ -170,6 +172,26 @@ async function callAiProviderForDocument(
   const result = await response.json();
   const reply = result.choices?.[0]?.message?.content ?? '';
 
+  // Meter platform-key usage (BYOK is never charged — the tenant pays the
+  // provider directly). Non-blocking: metering must never break generation;
+  // the pre-flight gate in generateAndSave() is the enforcement point.
+  if (ai.keySource === 'env') {
+    const usage = result.usage as { prompt_tokens?: number; completion_tokens?: number } | undefined;
+    try {
+      await meterAiUsage({
+        tenantSlug,
+        model: ai.model,
+        promptTokens: usage?.prompt_tokens ?? 0,
+        completionTokens: usage?.completion_tokens ?? 0,
+        keySource: ai.keySource,
+        refType: 'content_generation',
+        refId: documentType,
+      });
+    } catch (err) {
+      console.warn('[content-generator] Metering failed (non-blocking):', err instanceof Error ? err.message : err);
+    }
+  }
+
   let parsed: Record<string, string>;
   try {
     parsed = JSON.parse(reply);
@@ -205,6 +227,7 @@ async function generateDashboardData(
   data: import('@/domain/excel/excel-extractor').ExcelData,
   additionalContext: string | undefined,
   ai: ActiveAiConfig,
+  tenantSlug: string,
 ): Promise<DashboardData | null> {
   const dashboardPrompt = buildDashboardPrompt(data, additionalContext);
 
@@ -237,6 +260,26 @@ async function generateDashboardData(
   const result = await response.json();
   const reply = result.choices?.[0]?.message?.content ?? '';
   if (!reply) return null;
+
+  // Meter platform-key usage (BYOK is never charged). Non-blocking — the
+  // dashboard call is already best-effort (returns null on failure), and
+  // metering must never break generation.
+  if (ai.keySource === 'env') {
+    const usage = result.usage as { prompt_tokens?: number; completion_tokens?: number } | undefined;
+    try {
+      await meterAiUsage({
+        tenantSlug,
+        model: ai.model,
+        promptTokens: usage?.prompt_tokens ?? 0,
+        completionTokens: usage?.completion_tokens ?? 0,
+        keySource: ai.keySource,
+        refType: 'content_generation',
+        refId: 'dashboardData',
+      });
+    } catch (err) {
+      console.warn('[content-generator] Dashboard metering failed (non-blocking):', err instanceof Error ? err.message : err);
+    }
+  }
 
   const parsed = JSON.parse(reply);
   if (!parsed.actionPhases || !parsed.targetRows || !parsed.levers) return null;
@@ -331,6 +374,9 @@ async function saveBusinessReviewParts(
  * @param source     Optional explicit file path (string) OR in-memory workbook Buffer.
  *                   When omitted auto-detects the file on disk or falls back to DB cache.
  * @param model      Optional model override — defaults to the model configured for the active AI provider
+ * @param tenantSlug Optional tenant slug for credit metering/gating. Defaults to
+ *                   NEXT_PUBLIC_TENANT_SLUG (the root config app is itself a
+ *                   tenant in the registry) or 'tokenizmyapp' when unset.
  */
 export async function generateAndSave(
   db: DbClient,
@@ -339,7 +385,9 @@ export async function generateAndSave(
   model?: string,
   additionalContext?: string,
   overridePrompt?: string,
+  tenantSlug?: string,
 ): Promise<GenerationResult & { saved?: SavedResult; prompt?: string }> {
+  const tenant = tenantSlug ?? process.env.NEXT_PUBLIC_TENANT_SLUG ?? 'tokenizmyapp';
   try {
     // ── 1. Extract Excel data ───────────────────────────
     onProgress?.({
@@ -399,6 +447,20 @@ export async function generateAndSave(
       return { success: false, error: errorMsg, prompt };
     }
 
+    // ── 3.5 Pre-flight credit gate (platform key only) ──
+    // BYOK tenants (keySource === 'db') pay their provider directly and are
+    // never gated. Platform-key usage is the enforcement point: an empty
+    // balance throws with OPENAI_QUOTA_MARKER so the route maps it to the
+    // existing 402 / ai_provider_no_credits SSE code path.
+    if (ai.keySource === 'env') {
+      const gate = await requireCreditsForTenant(tenant);
+      if (!gate.ok) {
+        throw new Error(
+          `${OPENAI_QUOTA_MARKER} This organization has no AI credits remaining. Upgrade your plan or add credits in the Organization bar.`,
+        );
+      }
+    }
+
     // ── 4. Call AI for all three documents CONCURRENTLY ──
     // These three prompts are fully independent (none depends on another's
     // output), so running them sequentially inside one serverless function
@@ -412,7 +474,7 @@ export async function generateAndSave(
       pct: 40,
     });
 
-    const dashboardPromise = generateDashboardData(data, additionalContext, ai)
+    const dashboardPromise = generateDashboardData(data, additionalContext, ai, tenant)
       .catch((err) => {
         // Non-critical — dashboard just shows hardcoded fallbacks if this fails.
         console.error('[content-generator] Dashboard data generation failed:', err);
@@ -420,8 +482,8 @@ export async function generateAndSave(
       });
 
     const [businessReview, executiveSummary] = await Promise.all([
-      callAiProviderForDocument(prompt, ai, 'businessReview', onProgress),
-      callAiProviderForDocument(prompt, ai, 'executiveSummary', onProgress),
+      callAiProviderForDocument(prompt, ai, 'businessReview', tenant, onProgress),
+      callAiProviderForDocument(prompt, ai, 'executiveSummary', tenant, onProgress),
     ]);
 
     const content: AiGeneratedContent = {

@@ -4,6 +4,7 @@ import {
   executeSessionTool,
   type SessionToolContext,
 } from '@/lib/chat/session-tools';
+import { meterAiUsage } from '@/domain/billing/credit-service';
 
 export const CHAT_WEB_SEARCH_INSTRUCTIONS = `Web search is enabled on this chat model. When the user asks about current events, live market data, recent news, or information that may have changed after your training data, search the web before answering. Cite sources briefly when web results are used.`;
 
@@ -59,6 +60,9 @@ interface ConsumedOpenAiStream {
   finishReason: string | null;
   content: string;
   toolCalls: OpenAiToolCall[];
+  /** Token usage from the final stream chunk (only present when the request
+   *  sent `stream_options: { include_usage: true }`). */
+  usage: { promptTokens: number; completionTokens: number } | null;
 }
 
 const SSE_HEADERS = {
@@ -112,6 +116,9 @@ async function requestOpenAiCompletion(
     max_tokens: 1200,
     ...(webSearchEnabled ? {} : { temperature: 0.7 }),
     stream,
+    // Ask for a final usage chunk so streaming calls can be metered — OpenAI
+    // sends a last chunk with empty choices and a `usage` field when set.
+    ...(stream ? { stream_options: { include_usage: true } } : {}),
   };
 
   return fetch(chatCompletionsUrl, {
@@ -134,6 +141,7 @@ export async function consumeOpenAiStream(
   const toolCallsByIndex = new Map<number, OpenAiToolCall>();
   let finishReason: string | null = null;
   let content = '';
+  let usage: { promptTokens: number; completionTokens: number } | null = null;
 
   while (true) {
     const { done, value } = await reader.read();
@@ -152,12 +160,21 @@ export async function consumeOpenAiStream(
       const raw = trimmed.slice('data:'.length).trim();
       if (!raw || raw === '[DONE]') continue;
 
-      const parsed = JSON.parse(raw) as OpenAiStreamDelta & { error?: string | { message?: string } };
+      const parsed = JSON.parse(raw) as OpenAiStreamDelta & { error?: string | { message?: string }; usage?: { prompt_tokens?: number; completion_tokens?: number } };
       if (typeof parsed.error === 'string' && parsed.error.trim()) {
         throw new Error(parsed.error.trim());
       }
       if (parsed.error && typeof parsed.error === 'object' && parsed.error.message) {
         throw new Error(parsed.error.message);
+      }
+
+      // The final chunk (with include_usage) carries usage and empty choices —
+      // capture it before the choice guard below skips it.
+      if (parsed.usage) {
+        usage = {
+          promptTokens: parsed.usage.prompt_tokens ?? 0,
+          completionTokens: parsed.usage.completion_tokens ?? 0,
+        };
       }
 
       const choice = parsed.choices?.[0];
@@ -203,7 +220,13 @@ export async function consumeOpenAiStream(
     if (trimmed.startsWith('data:')) {
       const raw = trimmed.slice('data:'.length).trim();
       if (raw && raw !== '[DONE]') {
-        const parsed = JSON.parse(raw) as OpenAiStreamDelta & { error?: string | { message?: string } };
+        const parsed = JSON.parse(raw) as OpenAiStreamDelta & { error?: string | { message?: string }; usage?: { prompt_tokens?: number; completion_tokens?: number } };
+        if (parsed.usage) {
+          usage = {
+            promptTokens: parsed.usage.prompt_tokens ?? 0,
+            completionTokens: parsed.usage.completion_tokens ?? 0,
+          };
+        }
         const choice = parsed.choices?.[0];
         if (choice?.delta?.content) {
           content += choice.delta.content;
@@ -221,7 +244,32 @@ export async function consumeOpenAiStream(
     .map(([, call]) => call)
     .filter((call) => call.id && call.function.name);
 
-  return { finishReason, content, toolCalls };
+  return { finishReason, content, toolCalls, usage };
+}
+
+/**
+ * Meter a chat round against the org's credit balance. BYOK (`keySource ===
+ * 'db'`) is never charged; platform-key usage is metered non-blocking — a
+ * metering failure must never break the chat reply (the pre-flight gate in
+ * the route is the enforcement point).
+ */
+async function meterChatUsage(
+  options: { tenantSlug: string; keySource: 'db' | 'env'; model: string },
+  usage: { promptTokens: number; completionTokens: number } | null | undefined,
+): Promise<void> {
+  if (options.keySource !== 'env') return;
+  try {
+    await meterAiUsage({
+      tenantSlug: options.tenantSlug,
+      model: options.model,
+      promptTokens: usage?.promptTokens ?? 0,
+      completionTokens: usage?.completionTokens ?? 0,
+      keySource: options.keySource,
+      refType: 'chat',
+    });
+  } catch (err) {
+    console.warn('[chat] Metering failed (non-blocking):', err instanceof Error ? err.message : err);
+  }
 }
 
 async function completeChatWithoutStreaming(options: {
@@ -232,6 +280,8 @@ async function completeChatWithoutStreaming(options: {
   toolContext: SessionToolContext;
   webSearchEnabled: boolean;
   sessionToolsEnabled: boolean;
+  tenantSlug: string;
+  keySource: 'db' | 'env';
 }): Promise<Response> {
   const clientActions: ChatSessionAction[] = [];
   let currentMessages = [...options.messages];
@@ -252,12 +302,17 @@ async function completeChatWithoutStreaming(options: {
       return Response.json({ success: true, data: { reply: errReply, actions: clientActions } });
     }
 
-    const data = await chatResp.json() as OpenAiCompletionResponse;
+    const data = await chatResp.json() as OpenAiCompletionResponse & { usage?: { prompt_tokens?: number; completion_tokens?: number } };
     const message = data.choices?.[0]?.message;
     if (!message) {
       const fallback = 'I could not generate a response. Please try again.';
       return Response.json({ success: true, data: { reply: fallback, actions: clientActions } });
     }
+
+    // Meter this round (tool rounds included — every provider call costs credits).
+    await meterChatUsage(options, data.usage
+      ? { promptTokens: data.usage.prompt_tokens ?? 0, completionTokens: data.usage.completion_tokens ?? 0 }
+      : null);
 
     if (message.tool_calls?.length) {
       const sessionToolCalls = message.tool_calls.filter(isSessionFunctionToolCall);
@@ -305,6 +360,8 @@ async function completeChatWithStreaming(options: {
   toolContext: SessionToolContext;
   webSearchEnabled: boolean;
   sessionToolsEnabled: boolean;
+  tenantSlug: string;
+  keySource: 'db' | 'env';
 }): Promise<Response> {
   const encoder = new TextEncoder();
   const { readable, writable } = new TransformStream<Uint8Array>();
@@ -340,13 +397,16 @@ async function completeChatWithStreaming(options: {
           break;
         }
 
-        const { finishReason, content, toolCalls } = await consumeOpenAiStream(
+        const { finishReason, content, toolCalls, usage } = await consumeOpenAiStream(
           chatResp.body,
           async (chunk) => {
             streamedChars += chunk.length;
             await writeLine({ choices: [{ delta: { content: chunk } }] });
           },
         );
+
+        // Meter this round from the final usage chunk (include_usage).
+        await meterChatUsage(options, usage);
 
         if (finishReason === 'tool_calls' && toolCalls.length) {
           const sessionToolCalls = toolCalls.filter(isSessionFunctionToolCall);
@@ -407,6 +467,8 @@ export async function completeChatWithSessionTools(options: {
   stream: boolean;
   webSearchEnabled: boolean;
   sessionToolsEnabled: boolean;
+  tenantSlug: string;
+  keySource: 'db' | 'env';
 }): Promise<Response> {
   if (options.stream) {
     return completeChatWithStreaming(options);

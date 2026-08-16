@@ -22,6 +22,7 @@ import {
   type AppPackAppDefinition,
   type AppPackBrief,
 } from './app-pack-schema';
+import { meterAiUsage } from '@/domain/billing/credit-service';
 
 // ── W3C XSD Standards + schema.org types per template ────
 
@@ -104,15 +105,34 @@ CEO overview purpose + KPIs.`;
 
 export async function decomposePackFromPrompt(
   userPrompt: string,
+  tenantSlug: string,
   knowledgeBase?: string,
 ): Promise<AppPackDecomposition> {
-  const { object } = await generateObject({
+  const { object, usage } = await generateObject({
     model: openai(MODEL),
     schema: appPackDecompositionZod,
     system: buildDecomposeSystemPrompt(knowledgeBase),
     prompt: userPrompt,
     temperature: 0.2,
   });
+
+  // Platform key (env) — always metered. Non-blocking: a metering failure
+  // must never break generation; the pre-flight gate in the materializer is
+  // the enforcement point.
+  try {
+    await meterAiUsage({
+      tenantSlug,
+      model: MODEL,
+      promptTokens: usage.inputTokens ?? 0,
+      completionTokens: usage.outputTokens ?? 0,
+      keySource: 'env',
+      refType: 'app_pack',
+      refId: 'decompose',
+    });
+  } catch (err) {
+    console.warn('[app-pack-generator] Decompose metering failed (non-blocking):', err instanceof Error ? err.message : err);
+  }
+
   return object;
 }
 
@@ -184,15 +204,32 @@ export async function generateAppDefinition(
   ceoPurpose: string,
   ceoKpis: string[],
   allApps: AppPackBrief[],
+  tenantSlug: string,
   knowledgeBase?: string,
 ): Promise<AppPackAppDefinition> {
-  const { object } = await generateObject({
+  const { object, usage } = await generateObject({
     model: openai(MODEL),
     schema: appPackAppDefinitionZod,
     system: buildAppSystemPrompt(brief, ceoPurpose, ceoKpis, allApps, knowledgeBase),
     prompt: `Design the "${brief.name}" application in full detail.`,
     temperature: 0.2,
   });
+
+  // Platform key (env) — always metered. Non-blocking (see decomposePackFromPrompt).
+  try {
+    await meterAiUsage({
+      tenantSlug,
+      model: MODEL,
+      promptTokens: usage.inputTokens ?? 0,
+      completionTokens: usage.outputTokens ?? 0,
+      keySource: 'env',
+      refType: 'app_pack',
+      refId: brief.id,
+    });
+  } catch (err) {
+    console.warn('[app-pack-generator] App definition metering failed (non-blocking):', err instanceof Error ? err.message : err);
+  }
+
   return object;
 }
 

@@ -171,3 +171,37 @@ export function lowestPlanWithFeature(feature: Feature): PlanDef | null {
       .sort((a, b) => (a.priceMonthly ?? Infinity) - (b.priceMonthly ?? Infinity))[0] ?? null
   );
 }
+
+/**
+ * AI credit top-up packs — editable data rows, NOT a computed rate.
+ *
+ * The observed bonus curve (2.0× → 1.75× → 1.47× of base) runs *backwards*:
+ * total value per dollar DECREASES as basket size grows ($6.00 → $5.50 → $5.24
+ * of credit per dollar). That is a first-purchase acquisition lever, not a
+ * volume discount — front-loaded to convert the smallest, most hesitant buyer,
+ * tapering so it doesn't bleed margin on whales. Treat these numbers as a
+ * promo snapshot: change them before charging anyone, and keep `bonusCredits`
+ * on a separate `source='promo'` grant so promo generosity is measurable and
+ * can be withdrawn without touching purchased credits (roadmap §1.9 / §3.7).
+ */
+export interface CreditPack {
+  id: string;
+  label: string;
+  /** USD cents. */
+  priceCents: number;
+  baseCredits: number;
+  bonusCredits: number;
+}
+
+export const CREDIT_PACKS: CreditPack[] = [
+  { id: 'pack-25', label: '$25', priceCents: 2500, baseCredits: 50, bonusCredits: 100 },
+  { id: 'pack-50', label: '$50', priceCents: 5000, baseCredits: 100, bonusCredits: 175 },
+  { id: 'pack-100', label: '$100', priceCents: 10000, baseCredits: 212, bonusCredits: 312 },
+];
+
+/**
+ * Top-up floor, pinned to the Pro price — buying credits at all implies Pro
+ * (roadmap §1.9: custom amounts below this are rejected with "the minimum is
+ * $25/mo — the Pro plan").
+ */
+export const CREDIT_PACK_MIN_PRICE_CENTS = 2500;

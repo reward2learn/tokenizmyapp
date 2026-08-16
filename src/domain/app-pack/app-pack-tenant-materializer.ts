@@ -19,6 +19,7 @@ import {
   mockGenerateAppDefinition,
 } from './app-pack-generator';
 import { getTemplate } from '@/domain/tenant/template-catalog';
+import { requireCreditsForTenant } from '@/domain/billing/credit-service';
 import type {
   AppPackDecomposition,
   AppPackAppDefinition,
@@ -134,6 +135,20 @@ export async function materializeAppPackForTenant(
     // to the deterministic per-template builder, same as explicit 'custom' mode.
     const deterministic = useMock || packMode === 'custom';
 
+    // ── 0. Pre-flight credit gate (real AI only) ─────────
+    // Mock mode is never gated — it makes no provider calls. Real AI runs on
+    // the platform key (env), so an empty balance blocks with an actionable
+    // message instead of burning a provider call the org can't pay for.
+    if (!useMock) {
+      const gate = await requireCreditsForTenant(input.tenantSlug);
+      if (!gate.ok) {
+        return {
+          success: false,
+          error: 'This organization has no AI credits remaining. Upgrade your plan or add credits to continue generating.',
+        };
+      }
+    }
+
     // ── 1. DECOMPOSE ──────────────────────────────────────
     let decomposition: AppPackDecomposition;
 
@@ -142,7 +157,7 @@ export async function materializeAppPackForTenant(
     } else {
       // 'predefined' mode with a real AI key: free-decompose from the category prompt.
       const prompt = input.prompt || buildSuitePrompt(input.displayName, input.templates);
-      decomposition = await decomposePackFromPrompt(prompt);
+      decomposition = await decomposePackFromPrompt(prompt, input.tenantSlug);
       decomposition.packId = `${input.tenantSlug}-suite`;
       decomposition.name = `${input.displayName} Suite`;
     }
@@ -160,6 +175,7 @@ export async function materializeAppPackForTenant(
           isCeo ? decomposition.ceoOverview.purpose : '',
           isCeo ? decomposition.ceoOverview.kpis : [],
           decomposition.apps,
+          input.tenantSlug,
         );
       }
       definitions.push(def);

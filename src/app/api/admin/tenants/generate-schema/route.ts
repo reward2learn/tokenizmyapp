@@ -28,6 +28,7 @@ import { requireWriteAuth } from '@/lib/auth/guards';
 import { jsonError, jsonOk } from '@/lib/api/response';
 import { generateSchemaFromPrompt, mockGenerateSchema } from '@/domain/ai/schema-generator';
 import { compileToZModel, compileToPageCatalog } from '@/domain/ai/zmodel-compiler';
+import { requireCreditsForTenant } from '@/domain/billing/credit-service';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
@@ -36,7 +37,7 @@ export async function POST(request: Request): Promise<NextResponse> {
   const guard = await requireWriteAuth(request);
   if (!guard.ok) return guard.response;
 
-  let body: { prompt?: string; templateId?: string; mock?: boolean };
+  let body: { prompt?: string; templateId?: string; mock?: boolean; tenantSlug?: string };
   try {
     body = await request.json();
   } catch {
@@ -67,8 +68,15 @@ export async function POST(request: Request): Promise<NextResponse> {
     return jsonError('prompt is required (or set mock=true for testing)', 400);
   }
 
+  // ── Pre-flight credit gate (real AI only) ──
+  // Schema generation runs on the platform key (env) — require credits up
+  // front so an empty balance returns 402 instead of a failed provider call.
+  const tenantSlug = body.tenantSlug ?? process.env.NEXT_PUBLIC_TENANT_SLUG ?? 'tokenizmyapp';
+  const gate = await requireCreditsForTenant(tenantSlug);
+  if (!gate.ok) return gate.response;
+
   try {
-    const schema = await generateSchemaFromPrompt(body.prompt, body.templateId);
+    const schema = await generateSchemaFromPrompt(body.prompt, body.templateId, tenantSlug);
     const zmodel = compileToZModel(schema);
     const pageCatalog = compileToPageCatalog(schema);
 

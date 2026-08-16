@@ -28,6 +28,7 @@ import { generateTenantCode, injectTenantConfig, cleanupTenantCode } from '@/dom
 import { deployViaCli } from '@/domain/tenant/vercel-cli-service';
 import { materializeAppPackForTenant, buildSuitePrompt } from '@/domain/app-pack/app-pack-tenant-materializer';
 import { provisionSuiteApps } from '@/domain/workflow/suite-provisioning';
+import { requireCreditsForTenant } from '@/domain/billing/credit-service';
 
 export const dynamic = 'force-dynamic';
 
@@ -114,6 +115,15 @@ export async function POST(request: Request): Promise<NextResponse> {
   const parsed = createSchema.safeParse(body);
   if (!parsed.success) {
     return jsonError(`Validation failed: ${parsed.error.issues.map((i) => i.message).join(', ')}`, 400);
+  }
+
+  // ── Pre-flight credit gate for AI schema generation ──
+  // A prompt means the flow below will call the AI schema generator on the
+  // platform key — require credits up front so a 402 surfaces before any
+  // tenant row is created (no orphaned 'deploying' tenants).
+  if (parsed.data.prompt) {
+    const gate = await requireCreditsForTenant(parsed.data.slug);
+    if (!gate.ok) return gate.response;
   }
 
   const db = createRawClient();
@@ -233,6 +243,7 @@ export async function POST(request: Request): Promise<NextResponse> {
         generatedSchema = await generateSchemaFromPrompt(
           parsed.data.prompt,
           parsed.data.template,
+          parsed.data.slug,
         );
         console.log(
           `[tenants] Phase 2: schema generated — ${generatedSchema.models.length} models, ` +

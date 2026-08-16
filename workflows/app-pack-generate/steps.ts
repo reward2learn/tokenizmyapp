@@ -52,7 +52,7 @@ export async function decomposePackStep(
   }
   // Knowledge grounding is loaded separately (loadKnowledgeBaseStep); the
   // generator call is wrapped so step retries are safe.
-  const decomposition = await decomposePackFromPrompt(input.prompt);
+  const decomposition = await decomposePackFromPrompt(input.prompt, input.tenantSlug);
   if (!decomposition.apps.length) {
     throw new FatalError('AI decomposition returned zero apps — please rephrase the requirement.');
   }
@@ -104,6 +104,7 @@ export async function generateAppStep(
     isCeo ? decomposition.ceoOverview.purpose : '',
     isCeo ? decomposition.ceoOverview.kpis : [],
     decomposition.apps,
+    input.tenantSlug,
     knowledgeBase,
   );
 }

@@ -63,6 +63,8 @@ enum BlockType {
   reports_rollup
   sheet_viewer
   pack_table
+  feature_grid
+  testimonials
 }
 
 enum JobStatus {
@@ -635,10 +637,15 @@ model Tenant {
   metadata        Json            @default("{}")
   /// Who created this tenant
   createdBy       String?         @map("created_by")
+  /// Billing owner. Nullable so pre-existing tenants keep working until the
+  /// backfill assigns them (see backfillDefaultOrganization).
+  organizationId  String?         @map("organization_id")
+  organization    Organization?   @relation(fields: [organizationId], references: [id])
   createdAt       DateTime        @default(now()) @map("created_at")
   updatedAt       DateTime        @updatedAt() @map("updated_at")
   webhookConfigs  WebhookConfig[]
 
+  @@index([organizationId])
   @@map("tenants")
 }
 
@@ -677,4 +684,107 @@ model WebhookEvent {
   @@index([configId, eventType])
   @@index([status, createdAt])
   @@map("webhook_events")
+}
+
+model Organization {
+  id           String         @id() @default(cuid())
+  /// URL-safe identifier, editable by the owner.
+  slug         String         @unique()
+  displayName  String         @map("display_name")
+  logoUrl      String?        @map("logo_url")
+  /// Account that owns billing for this organization.
+  ownerUserId  String?        @map("owner_user_id")
+  /// Affiliate attribution. Recorded at signup — impossible to backfill later.
+  referredBy   String?        @map("referred_by")
+  createdAt    DateTime       @default(now()) @map("created_at")
+  updatedAt    DateTime       @updatedAt() @map("updated_at")
+  members      OrgMember[]
+  tenants      Tenant[]
+  subscription Subscription?
+  creditGrants CreditGrant[]
+  creditLedger CreditLedger[]
+
+  @@map("organizations")
+}
+
+model OrgMember {
+  id           String       @id() @default(cuid())
+  orgId        String       @map("org_id")
+  organization Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  userId       String       @map("user_id")
+  /// owner | admin | member | billing
+  role         String       @default("member")
+  createdAt    DateTime     @default(now()) @map("created_at")
+
+  @@unique([orgId, userId])
+  @@index([userId])
+  @@map("org_members")
+}
+
+model Subscription {
+  id                 String       @id() @default(cuid())
+  orgId              String       @unique() @map("org_id")
+  organization       Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  /// free | pro | business | enterprise — see src/lib/billing/plans.ts
+  planId             String       @default("free") @map("plan_id")
+  /// active | past_due | canceled | trialing
+  status             String       @default("active")
+  /// monthly | yearly
+  interval           String       @default("monthly")
+  currentPeriodStart DateTime     @default(now()) @map("current_period_start")
+  currentPeriodEnd   DateTime     @map("current_period_end")
+  cancelAtPeriodEnd  Boolean      @default(false) @map("cancel_at_period_end")
+  /// Billing anchor. Held separately from currentPeriodStart so an upgrade
+  /// mid-cycle does not reset the cycle and hand out a free extension.
+  anchorDate         DateTime     @default(now()) @map("anchor_date")
+  createdAt          DateTime     @default(now()) @map("created_at")
+  updatedAt          DateTime     @updatedAt() @map("updated_at")
+
+  @@index([planId, status])
+  @@map("subscriptions")
+}
+
+model CreditGrant {
+  id           String       @id() @default(cuid())
+  orgId        String       @map("org_id")
+  organization Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  /// plan = monthly allowance, addon = purchased top-up, onetime = negotiated
+  /// volume deal, promo = promotional bonus — kept separate so promo generosity
+  /// is measurable and withdrawable without touching purchased credits.
+  source       String
+  /// Total credits granted.
+  amount       Int
+  /// Credits not yet consumed.
+  remaining    Int
+  grantedAt    DateTime     @default(now()) @map("granted_at")
+  /// Grants expire 30 days after issue.
+  expiresAt    DateTime     @map("expires_at")
+  /// Which plan the grant came from (for plan-source grants).
+  planId       String?      @map("plan_id")
+  /// Free-form (e.g. stripe session id, promo code).
+  metadata     Json?
+
+  @@index([orgId, expiresAt])
+  @@map("credit_grants")
+}
+
+model CreditLedger {
+  id           String       @id() @default(cuid())
+  orgId        String       @map("org_id")
+  organization Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  /// The grant this entry debits/credits (null for balance-level entries).
+  grantId      String?      @map("grant_id")
+  /// Positive = grant, negative = consumption.
+  delta        Int
+  /// plan_allowance | topup_purchase | ai_generation | promo_bonus | admin_adjustment
+  reason       String
+  /// content_generation | chat | app_pack | schema_generation
+  refType      String?      @map("ref_type")
+  /// Optional reference id.
+  refId        String?      @map("ref_id")
+  createdAt    DateTime     @default(now()) @map("created_at")
+  metadata     Json?
+
+  @@index([orgId, createdAt])
+  @@map("credit_ledger")
 }
