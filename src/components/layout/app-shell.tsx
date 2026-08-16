@@ -306,6 +306,17 @@ export function AppShell({ children }: { children: ReactNode }) {
             </Typography>
           </Link>
 
+          {/* Theme toggle button */}
+          <Tooltip title="Toggle theme">
+            <IconButton
+              aria-label="Toggle theme"
+              onClick={() => setThemeMode(prev => prev === 'light' ? 'dark' : prev === 'dark' ? 'system' : 'light')}
+              sx={{ mr: 1, p: 0.5 }}
+            >
+              {themeMode === 'system' ? 'Aa' : themeMode === 'dark' ? '🌙' : '☀️'}
+            </IconButton>
+          </Tooltip>
+
           {/* Breadcrumbs trail */}
           {breadcrumbs.length > 0 && (
             <Breadcrumbs

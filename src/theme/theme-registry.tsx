@@ -7,17 +7,14 @@ import { createTheme, ThemeProvider } from '@mui/material/styles';
 import { AppRouterCacheProvider } from '@mui/material-nextjs/v16-appRouter';
 import {
   DEFAULT_MODE,
-  NEUTRALS,
-  RADIUS,
-  SHADOWS,
-  TYPE,
+  ThemeMode,
+  useSystemTheme,
+  createAppTheme,
+  type BrandColors,
+  type NeutralRamp,
   type ThemeMode,
 } from './design-tokens';
-
-export interface BrandColors {
-  primary: string;
-  secondary: string;
-}
+import { useGetBrandConfigQuery } from '@shared/store/apis/brand-config-api';
 
 const FALLBACK_COLORS: BrandColors = { primary: '#eb3d28', secondary: '#0af9fe' };
 
@@ -39,7 +36,6 @@ function contrastText(bgHex: string): string {
   return luminance(bgHex) > 0.5 ? '#09090B' : '#FAFAFA';
 }
 
-/** rgba() string from a hex + alpha — for tints of the brand colour. */
 function alpha(hex: string, a: number): string {
   const rgb = hexToRgb(hex);
   return rgb ? `rgba(${rgb.r},${rgb.g},${rgb.b},${a})` : hex;
@@ -73,8 +69,6 @@ export function createAppTheme(brand: BrandColors, mode: ThemeMode = DEFAULT_MOD
     typography: {
       fontFamily: TYPE.fontFamily,
       fontSize: TYPE.body.size,
-      // Display sizes share one tracking value — that consistency is what makes
-      // the scale read as a system rather than a set of one-off sizes.
       h1: { fontSize: '3rem', lineHeight: 1.1, fontWeight: TYPE.display.weight, letterSpacing: TYPE.display.tracking },
       h2: { fontSize: '2.25rem', lineHeight: 1.11, fontWeight: TYPE.display.weight, letterSpacing: TYPE.display.tracking },
       h3: { fontSize: '1.875rem', lineHeight: 1.2, fontWeight: TYPE.display.weight, letterSpacing: TYPE.display.tracking },
@@ -98,7 +92,6 @@ export function createAppTheme(brand: BrandColors, mode: ThemeMode = DEFAULT_MOD
             backgroundImage: 'none',
             borderRadius: RADIUS.card,
           },
-          // `elevation={0}` is used across the app for bordered panels — keep it flat.
           elevation0: { boxShadow: 'none' },
           elevation1: { boxShadow: SHADOWS.card },
         },
@@ -179,12 +172,9 @@ export function createAppTheme(brand: BrandColors, mode: ThemeMode = DEFAULT_MOD
         styleOverrides: {
           root: { borderRadius: RADIUS.control },
           contained: { boxShadow: SHADOWS.control, '&:hover': { boxShadow: SHADOWS.raised } },
-          // Mobile touch target — every small button still clears 48px.
           sizeSmall: { minHeight: 48 },
         },
       },
-      // ── Mobile touch target overrides ─────────────────────────
-      // Ensure all small variants meet minimum 48×48px tap target.
       MuiIconButton: {
         styleOverrides: {
           sizeSmall: {
@@ -203,13 +193,6 @@ export function createAppTheme(brand: BrandColors, mode: ThemeMode = DEFAULT_MOD
       },
       MuiSwitch: {
         styleOverrides: {
-          // Reference spec (see DevTools target markup):
-          //   .MuiSwitch-root (sizeMedium): padding 9px; width 70px
-          //   .MuiSwitch-switchBase:         padding 14px (checked AND unchecked)
-          //   .MuiSwitch-track:              border-radius 15px
-          // Scoped to sizeMedium — size="small" switches keep their
-          // compact geometry. Touch target is met via the 70px-wide root
-          // + MuiFormControlLabel minHeight 48 below.
           root: ({ ownerState }) => ownerState.size === 'medium' ? {
             width: 70,
             padding: 9,
@@ -237,29 +220,50 @@ export function createAppTheme(brand: BrandColors, mode: ThemeMode = DEFAULT_MOD
   });
 }
 
+export interface BrandConfigState {
+  themeMode: ThemeMode;
+  setThemeMode: (mode: ThemeMode) => void;
+  brandColors: BrandColors;
+}
+
 export function ThemeRegistry({ children }: { children: ReactNode }) {
-  const [brand, setBrand] = useState<BrandColors>(FALLBACK_COLORS);
+  const [themeMode, setThemeMode] = useState<ThemeMode>('system');
+  const [brandColors, setBrandColors] = useState<BrandColors>(FALLBACK_COLORS);
+  const { data: brandData, isLoading } = useGetBrandConfigQuery();
 
+  // Initialize brand colors from brand config API
   useEffect(() => {
-    fetch('/api/brand-config')
-      .then((r) => r.json())
-      .then((d) => {
-        // Handle both wrapped ({ success, data }) and unwrapped responses
-        const config = d?.data ?? d;
-        const primary = config.brandPrimaryColor && /^#[0-9a-fA-F]{6}$/.test(config.brandPrimaryColor)
-          ? config.brandPrimaryColor
-          : FALLBACK_COLORS.primary;
-        const secondary = config.brandSecondaryColor && /^#[0-9a-fA-F]{6}$/.test(config.brandSecondaryColor)
-          ? config.brandSecondaryColor
-          : FALLBACK_COLORS.secondary;
-        setBrand({ primary, secondary });
-      })
-      .catch(() => {
-        // keep defaults
-      });
-  }, []);
+    if (brandData?.data) {
+      const config = brandData.data;
+      const primary = config.brandPrimaryColor && /^#[0-9a-fA-F]{6}$/.test(config.brandPrimaryColor)
+        ? config.brandPrimaryColor
+        : FALLBACK_COLORS.primary;
+      const secondary = config.brandSecondaryColor && /^#[0-9a-fA-F]{6}$/.test(config.brandSecondaryColor)
+        ? config.brandSecondaryColor
+        : FALLBACK_COLORS.secondary;
+      setBrandColors({ primary, secondary });
+    }
+  }, [brandData]);
 
-  const theme = useMemo(() => createAppTheme(brand), [brand]);
+  // Initialize themeMode from brand config, then override with system preference
+  useEffect(() => {
+    if (brandData?.data?.themeMode) {
+      setThemeMode(brandData.data.themeMode as ThemeMode);
+    } else {
+      // Fall back to system preference
+      const systemMode = useSystemTheme();
+      setThemeMode(systemMode);
+    }
+  }, [brandData, useSystemTheme()]);
+
+  // Sync the HTML class when themeMode changes
+  useEffect(() => {
+    const html = document.documentElement;
+    html.classList.remove('light', 'dark', 'system');
+    html.classList.add(themeMode);
+  }, [themeMode]);
+
+  const theme = useMemo(() => createAppTheme(brandColors, themeMode), [brandColors, themeMode]);
 
   return (
     <AppRouterCacheProvider>

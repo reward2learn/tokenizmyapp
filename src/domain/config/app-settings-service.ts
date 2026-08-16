@@ -15,6 +15,7 @@ CREATE TABLE IF NOT EXISTS app_settings (
   brand_logo_url TEXT NOT NULL DEFAULT '',
   brand_primary_color TEXT NOT NULL DEFAULT '#eb3d28',
   brand_secondary_color TEXT NOT NULL DEFAULT '#0af9fe',
+  theme_mode TEXT NOT NULL DEFAULT 'system',
   updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );`;
 
@@ -30,6 +31,7 @@ export interface AppSettingsDto {
   brandLogoUrl: string;
   brandPrimaryColor: string;
   brandSecondaryColor: string;
+  themeMode: string;
   updatedAt: Date;
 }
 
@@ -117,6 +119,7 @@ export async function getAppSettings(db: DbClient, tenantSlug?: string, appId?: 
     brandLogoUrl: String(cr.brandLogoUrl ?? cr.brand_logo_url ?? ''),
     brandPrimaryColor: String(cr.brandPrimaryColor ?? cr.brand_primary_color ?? '#eb3d28'),
     brandSecondaryColor: String(cr.brandSecondaryColor ?? cr.brand_secondary_color ?? '#0af9fe'),
+    themeMode: String(cr.themeMode ?? cr.theme_mode ?? "system"),
     updatedAt: created.updatedAt,
   };
 }
@@ -152,6 +155,7 @@ export async function updateAppSettings(
   if (patch.brandLogoText !== undefined) data.brandLogoText = patch.brandLogoText;
   if (patch.brandLogoUrl !== undefined) data.brandLogoUrl = patch.brandLogoUrl;
   if (patch.brandPrimaryColor !== undefined) data.brandPrimaryColor = patch.brandPrimaryColor;
+  if (patch.themeMode !== undefined) data.themeMode = patch.themeMode;
   if (patch.brandSecondaryColor !== undefined) data.brandSecondaryColor = patch.brandSecondaryColor;
 
   if (Object.keys(data).length === 0) {

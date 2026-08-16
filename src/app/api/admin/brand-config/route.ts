@@ -48,6 +48,7 @@ const putSchema = z.object({
   brandLogoUrl: z.string().max(50000).optional(), // base64 data-URIs can be large
   brandPrimaryColor: z.string().regex(/^#[0-9a-fA-F]{6}$/, 'Must be a hex color like #eb3d28').optional(),
   brandSecondaryColor: z.string().regex(/^#[0-9a-fA-F]{6}$/, 'Must be a hex color like #0af9fe').optional(),
+  themeMode: z.enum(['light', 'dark', 'system']).optional(),
 });
 
 // ── GET ─────────────────────────────────────────────────
@@ -79,6 +80,7 @@ export async function GET(request: Request): Promise<NextResponse> {
     brandLogoUrl: settings.brandLogoUrl,
     brandPrimaryColor: settings.brandPrimaryColor,
     brandSecondaryColor: settings.brandSecondaryColor,
+    themeMode: settings.themeMode,
     updatedAt: settings.updatedAt.toISOString(),
   });
 }
@@ -200,6 +202,7 @@ export async function PUT(request: Request): Promise<NextResponse> {
     brandLogoUrl: settings.brandLogoUrl,
     brandPrimaryColor: settings.brandPrimaryColor,
     brandSecondaryColor: settings.brandSecondaryColor,
+    themeMode: settings.themeMode,
     updatedAt: settings.updatedAt.toISOString(),
   });
   } catch (err) {
