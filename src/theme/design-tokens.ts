@@ -1,4 +1,37 @@
+import { createTheme } from '@mui/material/styles';
+
 export type ThemeMode = 'light' | 'dark' | 'system';
+export type ResolvedThemeMode = Exclude<ThemeMode, 'system'>;
+
+export interface BrandColors {
+  primary: string;
+  secondary: string;
+}
+
+function hexToRgb(hex: string): { r: number; g: number; b: number } | null {
+  const m = hex.match(/^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i);
+  return m ? { r: parseInt(m[1], 16), g: parseInt(m[2], 16), b: parseInt(m[3], 16) } : null;
+}
+
+function luminance(hex: string): number {
+  const rgb = hexToRgb(hex);
+  if (!rgb) return 0.5;
+  const [r, g, b] = [rgb.r / 255, rgb.g / 255, rgb.b / 255].map((c) =>
+    c <= 0.03928 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4),
+  );
+  return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+}
+
+function contrastText(bgHex: string): string {
+  return luminance(bgHex) > 0.5 ? '#09090B' : '#FAFAFA';
+}
+
+function alpha(hex: string, a: number): string {
+  const rgb = hexToRgb(hex);
+  return rgb ? `rgba(${rgb.r},${rgb.g},${rgb.b},${a})` : hex;
+}
+
+/**
 
 /**
  * Default surface mode for the app shell.
@@ -152,7 +185,7 @@ export const TYPE = {
  * Exported so tests and Storybook-style previews can build a theme without
  * mounting the provider (which fetches brand config over the network).
  */
-export function createAppTheme(brand: BrandColors, mode: ThemeMode = DEFAULT_MODE) {
+export function createAppTheme(brand: BrandColors, mode: ResolvedThemeMode = 'light') {
   const n = NEUTRALS[mode];
 
   return createTheme({

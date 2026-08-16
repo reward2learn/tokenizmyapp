@@ -9,6 +9,7 @@ import {
   DEFAULT_MODE,
   createAppTheme,
   type BrandColors,
+  type ResolvedThemeMode,
   type ThemeMode,
 } from './design-tokens';
 import { useGetBrandConfigQuery } from '@shared/store/apis/brand-config-api';
@@ -55,8 +56,8 @@ export function ThemeRegistry({ children }: { children: ReactNode }) {
   const { data: brandData } = useGetBrandConfigQuery();
   const userOverrideRef = useRef(false);
   const systemPref = useSystemTheme();
-  const resolvedMode: Exclude<ThemeMode, 'system'> =
-    themeMode === 'system' ? (systemPref === 'dark' ? 'dark' : 'light') : themeMode;
+  const resolvedMode: ResolvedThemeMode =
+    themeMode === 'system' ? systemPref : themeMode;
 
   const setThemeMode = useCallback((mode: ThemeMode) => {
     userOverrideRef.current = true;
