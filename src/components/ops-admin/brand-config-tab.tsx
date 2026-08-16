@@ -17,11 +17,6 @@ import ImageIcon from '@mui/icons-material/Image';
 import DeleteIcon from '@mui/icons-material/Delete';
 import PaletteIcon from '@mui/icons-material/Palette';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
-import LightModeIcon from '@mui/icons-material/LightMode';
-import DarkModeIcon from '@mui/icons-material/DarkMode';
-import BrightnessAutoIcon from '@mui/icons-material/BrightnessAuto';
-import ToggleButton from '@mui/material/ToggleButton';
-import ToggleButtonGroup from '@mui/material/ToggleButtonGroup';
 
 interface BrandConfig {
   tenantSlug: string;
@@ -31,7 +26,6 @@ interface BrandConfig {
   brandLogoUrl: string;
   brandPrimaryColor: string;
   brandSecondaryColor: string;
-  themeMode: 'light' | 'dark' | 'system';
   updatedAt?: string;
 }
 
@@ -61,7 +55,6 @@ export function BrandConfigTab({ tenantSlug, appId }: BrandConfigTabProps = {}) 
     brandLogoUrl: '',
     brandPrimaryColor: '#eb3d28',
     brandSecondaryColor: '#0af9fe',
-    themeMode: 'system',
   });
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
@@ -101,7 +94,6 @@ export function BrandConfigTab({ tenantSlug, appId }: BrandConfigTabProps = {}) 
       formData.append('brandLogoText', config.brandLogoText);
       formData.append('brandPrimaryColor', config.brandPrimaryColor);
       formData.append('brandSecondaryColor', config.brandSecondaryColor);
-      formData.append('themeMode', config.themeMode);
 
       // Include the logo URL if we have one (either existing or newly uploaded)
       if (logoPreview && logoPreview.startsWith('data:')) {
@@ -120,7 +112,7 @@ export function BrandConfigTab({ tenantSlug, appId }: BrandConfigTabProps = {}) 
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     }
-  }, [config.tenantSlug, config.tenantDisplayName, config.tenantTemplate, config.brandLogoText, config.brandPrimaryColor, config.brandSecondaryColor, config.themeMode, logoPreview, updateBrandConfig, tenantSlug, appId]);
+  }, [config.tenantSlug, config.tenantDisplayName, config.tenantTemplate, config.brandLogoText, config.brandPrimaryColor, config.brandSecondaryColor, logoPreview, updateBrandConfig, tenantSlug, appId]);
 
   const handleFileSelect = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -448,45 +440,6 @@ export function BrandConfigTab({ tenantSlug, appId }: BrandConfigTabProps = {}) 
                 Secondary Accent
               </Box>
             </Paper>
-          </Box>
-
-          {/* ── Default theme ─────────────────────────── */}
-          <Box>
-            <Stack direction="row" spacing={1} sx={{ alignItems: 'center', mb: 1 }}>
-              <BrightnessAutoIcon color="primary" />
-              <Typography variant="subtitle2">Default Theme</Typography>
-            </Stack>
-            <Typography variant="caption" color="text.secondary" sx={{ mb: 2, display: 'block' }}>
-              Choose the default appearance for the entire application. Users can still toggle
-              light/dark from the navigation drawer — this setting is the fallback for new visitors.
-            </Typography>
-
-            <ToggleButtonGroup
-              exclusive
-              fullWidth
-              value={config.themeMode}
-              onChange={(_, value: 'light' | 'dark' | 'system' | null) => {
-                if (value) setConfig((prev) => ({ ...prev, themeMode: value }));
-              }}
-              aria-label="Default theme"
-              sx={{ '& .MuiToggleButton-root': { py: 1.25 } }}
-            >
-              <ToggleButton value="light" aria-label="Light theme">
-                <LightModeIcon fontSize="small" sx={{ mr: 1 }} />
-                Light
-              </ToggleButton>
-              <ToggleButton value="dark" aria-label="Dark theme">
-                <DarkModeIcon fontSize="small" sx={{ mr: 1 }} />
-                Dark
-              </ToggleButton>
-              <ToggleButton value="system" aria-label="System theme">
-                <BrightnessAutoIcon fontSize="small" sx={{ mr: 1 }} />
-                System
-              </ToggleButton>
-            </ToggleButtonGroup>
-            <Typography variant="caption" color="text.secondary" sx={{ mt: 1, display: 'block' }}>
-              System follows the visitor&apos;s operating system preference (e.g. macOS dark mode).
-            </Typography>
           </Box>
 
           {/* ── Status alerts ─────────────────────────── */}

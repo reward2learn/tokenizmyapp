@@ -1,19 +1,17 @@
 'use client';
 
-import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import type { ReactNode } from 'react';
 import CssBaseline from '@mui/material/CssBaseline';
 import { createTheme, ThemeProvider } from '@mui/material/styles';
 import { AppRouterCacheProvider } from '@mui/material-nextjs/v16-appRouter';
 import {
   DEFAULT_MODE,
-  DEFAULT_PREFERENCE,
   NEUTRALS,
   RADIUS,
   SHADOWS,
   TYPE,
   type ThemeMode,
-  type ThemePreference,
 } from './design-tokens';
 
 export interface BrandColors {
@@ -22,33 +20,6 @@ export interface BrandColors {
 }
 
 const FALLBACK_COLORS: BrandColors = { primary: '#eb3d28', secondary: '#0af9fe' };
-
-/** localStorage key for the per-user theme override (drawer toggle). */
-const THEME_PREFERENCE_KEY = 'theme-preference';
-
-export interface ThemeModeContextValue {
-  /** Effective preference: tenant default (brand config) unless the user overrode it. */
-  preference: ThemePreference;
-  /** Resolved mode — 'system' is already collapsed to light/dark. */
-  mode: ThemeMode;
-  /** Set an explicit preference (persisted per-user in localStorage). */
-  setPreference: (p: ThemePreference) => void;
-  /** Flip between light and dark (persisted as an explicit override). */
-  toggleMode: () => void;
-}
-
-const ThemeModeContext = createContext<ThemeModeContextValue | null>(null);
-
-/** Access the current theme mode + toggle from anywhere under ThemeRegistry. */
-export function useThemeMode(): ThemeModeContextValue {
-  const ctx = useContext(ThemeModeContext);
-  if (!ctx) throw new Error('useThemeMode must be used within ThemeRegistry');
-  return ctx;
-}
-
-function isPreference(v: unknown): v is ThemePreference {
-  return v === 'light' || v === 'dark' || v === 'system';
-}
 
 function hexToRgb(hex: string): { r: number; g: number; b: number } | null {
   const m = hex.match(/^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i);
@@ -268,13 +239,6 @@ export function createAppTheme(brand: BrandColors, mode: ThemeMode = DEFAULT_MOD
 
 export function ThemeRegistry({ children }: { children: ReactNode }) {
   const [brand, setBrand] = useState<BrandColors>(FALLBACK_COLORS);
-  // Tenant default from brand config — the "system" default keeps current
-  // behavior until an admin picks an explicit mode.
-  const [configPreference, setConfigPreference] = useState<ThemePreference>(DEFAULT_PREFERENCE);
-  // Per-user override from the drawer toggle (localStorage) — wins over config.
-  const [userPreference, setUserPreference] = useState<ThemePreference | null>(null);
-  // OS-level dark mode, only consulted when the effective preference is 'system'.
-  const [systemDark, setSystemDark] = useState(false);
 
   useEffect(() => {
     fetch('/api/brand-config')
@@ -289,63 +253,20 @@ export function ThemeRegistry({ children }: { children: ReactNode }) {
           ? config.brandSecondaryColor
           : FALLBACK_COLORS.secondary;
         setBrand({ primary, secondary });
-        if (isPreference(config.themeMode)) setConfigPreference(config.themeMode);
       })
       .catch(() => {
         // keep defaults
       });
   }, []);
 
-  // Restore the user's saved override (drawer toggle) once on mount.
-  useEffect(() => {
-    try {
-      const saved = window.localStorage.getItem(THEME_PREFERENCE_KEY);
-      if (isPreference(saved)) setUserPreference(saved);
-    } catch {
-      // localStorage unavailable (private mode etc.) — ignore
-    }
-  }, []);
-
-  // Track the OS preference so 'system' stays live across OS changes.
-  useEffect(() => {
-    const mq = window.matchMedia('(prefers-color-scheme: dark)');
-    setSystemDark(mq.matches);
-    const onChange = (e: MediaQueryListEvent) => setSystemDark(e.matches);
-    mq.addEventListener('change', onChange);
-    return () => mq.removeEventListener('change', onChange);
-  }, []);
-
-  const preference: ThemePreference = userPreference ?? configPreference;
-  const mode: ThemeMode = preference === 'system' ? (systemDark ? 'dark' : 'light') : preference;
-
-  const setPreference = useCallback((p: ThemePreference) => {
-    setUserPreference(p);
-    try {
-      window.localStorage.setItem(THEME_PREFERENCE_KEY, p);
-    } catch {
-      // ignore storage failures
-    }
-  }, []);
-
-  const toggleMode = useCallback(() => {
-    setPreference(mode === 'dark' ? 'light' : 'dark');
-  }, [mode, setPreference]);
-
-  const theme = useMemo(() => createAppTheme(brand, mode), [brand, mode]);
-
-  const contextValue = useMemo<ThemeModeContextValue>(
-    () => ({ preference, mode, setPreference, toggleMode }),
-    [preference, mode, setPreference, toggleMode],
-  );
+  const theme = useMemo(() => createAppTheme(brand), [brand]);
 
   return (
-    <ThemeModeContext.Provider value={contextValue}>
-      <AppRouterCacheProvider>
-        <ThemeProvider theme={theme}>
-          <CssBaseline />
-          {children}
-        </ThemeProvider>
-      </AppRouterCacheProvider>
-    </ThemeModeContext.Provider>
+    <AppRouterCacheProvider>
+      <ThemeProvider theme={theme}>
+        <CssBaseline />
+        {children}
+      </ThemeProvider>
+    </AppRouterCacheProvider>
   );
 }

@@ -374,8 +374,6 @@ model AppSetting {
   brandLogoUrl        String   @default("") @map("brand_logo_url")
   brandPrimaryColor   String   @default("#eb3d28") @map("brand_primary_color")
   brandSecondaryColor String   @default("#0af9fe") @map("brand_secondary_color")
-  /// Default theme for the app: 'light' | 'dark' | 'system' (follows OS)
-  themeMode           String   @default("system") @map("theme_mode")
   updatedAt           DateTime @updatedAt() @map("updated_at")
 
   @@index([tenantSlug, appId], name: "idx_app_settings_tenant_app")
