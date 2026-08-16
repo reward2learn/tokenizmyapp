@@ -428,9 +428,9 @@ export async function saveSnippetsStep(
     // Raw comprehension JSON (used by AI chat / reprocess).
     await executeOne(
       db,
-      `INSERT INTO knowledge_snippets (id, key, category, content)
-       VALUES (gen_random_uuid()::TEXT, $1, 'document', $2)
-       ON CONFLICT (key) DO UPDATE SET content = EXCLUDED.content;`,
+      `INSERT INTO knowledge_snippets (id, key, category, content, app_id)
+       VALUES (gen_random_uuid()::TEXT, $1, 'document', $2, '')
+       ON CONFLICT (key, app_id) DO UPDATE SET content = EXCLUDED.content;`,
       [
         'workbook_comprehension',
         JSON.stringify({ model, comprehendedAt: new Date().toISOString(), comprehension }),
@@ -452,9 +452,9 @@ export async function saveSnippetsStep(
 
       await executeOne(
         db,
-        `INSERT INTO knowledge_snippets (id, key, category, content)
-         VALUES (gen_random_uuid()::TEXT, $1, 'sheet', $2)
-         ON CONFLICT (key) DO UPDATE SET content = EXCLUDED.content;`,
+        `INSERT INTO knowledge_snippets (id, key, category, content, app_id)
+         VALUES (gen_random_uuid()::TEXT, $1, 'sheet', $2, '')
+         ON CONFLICT (key, app_id) DO UPDATE SET content = EXCLUDED.content;`,
         [key, markdown],
       );
       count++;
