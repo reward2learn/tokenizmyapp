@@ -70,7 +70,7 @@ async function findApp(
 export async function GET(
   request: Request,
   { params }: { params: Promise<{ slug: string; appId: string }> },
-): Promise<NextResponse> {
+): Promise<Response> {
   const guard = await requireWriteAuth(request);
   if (!guard.ok) return guard.response;
 
@@ -111,7 +111,7 @@ export async function GET(
 export async function POST(
   request: Request,
   { params }: { params: Promise<{ slug: string; appId: string }> },
-): Promise<NextResponse> {
+): Promise<Response> {
   const guard = await requireWriteAuth(request);
   if (!guard.ok) return guard.response;
 

@@ -23,7 +23,6 @@
  *   }
  */
 
-import { NextResponse } from 'next/server';
 import { requireWriteAuth } from '@/lib/auth/guards';
 import { jsonError, jsonOk } from '@/lib/api/response';
 import { generateSchemaFromPrompt, mockGenerateSchema } from '@/domain/ai/schema-generator';
@@ -33,7 +32,7 @@ import { requireCreditsForTenant } from '@/domain/billing/credit-service';
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
 
-export async function POST(request: Request): Promise<NextResponse> {
+export async function POST(request: Request): Promise<Response> {
   const guard = await requireWriteAuth(request);
   if (!guard.ok) return guard.response;
 

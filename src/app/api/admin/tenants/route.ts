@@ -8,7 +8,6 @@
  * DELETE /api/admin/tenants/[slug]  — delete a tenant (soft)
  */
 
-import { NextResponse } from 'next/server';
 import { z } from 'zod';
 import { PrismaClient } from '@/generated/prisma';
 import { createRawClient } from '@/lib/db';
@@ -73,7 +72,7 @@ function mapTenantRow(row: Record<string, unknown>) {
 
 // ── GET /api/admin/tenants ───────────────────────────
 
-export async function GET(request: Request): Promise<NextResponse> {
+export async function GET(request: Request): Promise<Response> {
   const guard = await requireWriteAuth(request);
   if (!guard.ok) return guard.response;
 
@@ -103,7 +102,7 @@ export async function GET(request: Request): Promise<NextResponse> {
 
 // ── POST /api/admin/tenants ──────────────────────────
 
-export async function POST(request: Request): Promise<NextResponse> {
+export async function POST(request: Request): Promise<Response> {
   const guard = await requireWriteAuth(request);
   if (!guard.ok) return guard.response;
 

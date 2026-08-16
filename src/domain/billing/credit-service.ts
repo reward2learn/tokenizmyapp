@@ -20,9 +20,9 @@
  * provider directly. Only platform-key usage is metered.
  */
 import type { createRawClient } from '@/lib/db';
-import type { NextResponse } from 'next/server';
 import { getPlan } from '@/lib/billing/plans';
 import { creditsForUsage } from '@/lib/billing/credit-rates';
+import { jsonErrorLite } from '@/lib/api/response-lite';
 
 /** Grants expire 30 days after issue (roadmap §3.2 — documented decision). */
 export const CREDIT_EXPIRY_DAYS = 30;
@@ -449,7 +449,7 @@ export async function meterAiUsage(
 
 export type CreditGateResult =
   | { ok: true; balance: number }
-  | { ok: false; balance: number; response: NextResponse };
+  | { ok: false; balance: number; response: Response };
 
 /**
  * Pre-flight gate: may this tenant start an AI generation?
@@ -482,7 +482,7 @@ export async function requireCreditsForTenant(
     return {
       ok: false,
       balance: available,
-      response: (await import('@/lib/api/response')).jsonError(
+      response: jsonErrorLite(
         'This organization has no AI credits remaining. Upgrade your plan or add credits to continue generating.',
         402,
       ),

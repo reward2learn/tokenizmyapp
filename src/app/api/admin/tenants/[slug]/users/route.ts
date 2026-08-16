@@ -68,7 +68,7 @@ function toView(r: TenantUserRow, groups: string[], permissions: string[]): Tena
 export async function GET(
   request: Request,
   { params }: { params: Promise<{ slug: string }> },
-): Promise<NextResponse> {
+): Promise<Response> {
   const guard = await requireWriteAuth(request);
   if (!guard.ok) return guard.response;
   if (!sessionIsPlatformAdmin(guard.session)) return jsonError('Platform admin only', 403);
@@ -129,7 +129,7 @@ const upsertSchema = z.object({
 export async function POST(
   request: Request,
   { params }: { params: Promise<{ slug: string }> },
-): Promise<NextResponse> {
+): Promise<Response> {
   const guard = await requireWriteAuth(request);
   if (!guard.ok) return guard.response;
   if (!sessionIsPlatformAdmin(guard.session)) return jsonError('Platform admin only', 403);

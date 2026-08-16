@@ -72,7 +72,7 @@ async function resolveGroupsDb(
   return { db, dedicated };
 }
 
-export async function GET(request: Request): Promise<NextResponse> {
+export async function GET(request: Request): Promise<Response> {
   const guard = await requireWriteAuth(request);
   if (!guard.ok) return guard.response;
   if (!sessionIsPlatformAdmin(guard.session)) return jsonError('Platform admin only', 403);
@@ -125,7 +125,7 @@ export async function GET(request: Request): Promise<NextResponse> {
   }
 }
 
-export async function POST(request: Request): Promise<NextResponse> {
+export async function POST(request: Request): Promise<Response> {
   const guard = await requireWriteAuth(request);
   if (!guard.ok) return guard.response;
   if (!sessionIsPlatformAdmin(guard.session)) return jsonError('Platform admin only', 403);

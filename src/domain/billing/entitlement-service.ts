@@ -8,7 +8,6 @@
  * Lives in the platform root DB — see the placement rule in organization-service.ts.
  */
 import type { createRawClient } from '@/lib/db';
-import type { NextResponse } from 'next/server';
 import {
   DEFAULT_PLAN_ID,
   getPlan,
@@ -20,6 +19,7 @@ import {
   type PlanDef,
   type PlanId,
 } from '@/lib/billing/plans';
+import { jsonErrorLite } from '@/lib/api/response-lite';
 
 export * from '@/lib/billing/plans';
 
@@ -201,7 +201,7 @@ export async function tenantHasFeature(
 
 export interface EntitlementGuardResult {
   ok: boolean;
-  response?: NextResponse;
+  response?: Response;
 }
 
 /**
@@ -223,7 +223,7 @@ export async function requireFeatureForTenant(
   const target = upgrade ? upgrade.label : 'a paid plan';
   return {
     ok: false,
-    response: (await import('@/lib/api/response')).jsonError(
+    response: jsonErrorLite(
       `This tenant's plan does not include ${feature}. Upgrade to ${target} to enable it.`,
       402,
     ),
