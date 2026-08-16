@@ -19,17 +19,10 @@
  * (`keySource === 'db'`), metering does NOT charge credits — they pay the
  * provider directly. Only platform-key usage is metered.
  */
-import { createRawClient } from '@/lib/db';
-import { jsonError } from '@/lib/api/response';
+import type { createRawClient } from '@/lib/db';
 import type { NextResponse } from 'next/server';
 import { getPlan } from '@/lib/billing/plans';
 import { creditsForUsage } from '@/lib/billing/credit-rates';
-import {
-  backfillDefaultOrganization,
-  getOrganization,
-  resolveOrgForTenant,
-} from '@/domain/billing/organization-service';
-import { ensureBillingTables, getSubscription } from '@/domain/billing/entitlement-service';
 
 /** Grants expire 30 days after issue (roadmap §3.2 — documented decision). */
 export const CREDIT_EXPIRY_DAYS = 30;
@@ -62,6 +55,21 @@ export interface CreditLedgerEntry {
 }
 
 type RawDb = ReturnType<typeof createRawClient>;
+
+/**
+ * Lazily create the raw DB client.
+ *
+ * Dynamic import on purpose: the Prisma runtime (`src/generated/prisma`) does
+ * CJS `require("node:fs")` calls that cannot execute inside the ESM
+ * `@workflow/vitest` step bundle, so it must never be statically reachable
+ * from workflow steps. Runtime behavior is identical to the old
+ * `db: RawDb = createRawClient()` default — the client is created on first use.
+ */
+async function getDb(db?: RawDb): Promise<RawDb> {
+  if (db) return db;
+  const { createRawClient } = await import('@/lib/db');
+  return createRawClient();
+}
 
 const CREDIT_GRANTS_DDL = `
 CREATE TABLE IF NOT EXISTS credit_grants (
@@ -98,6 +106,7 @@ CREATE INDEX IF NOT EXISTS idx_credit_ledger_org_created ON credit_ledger (org_i
 /** Idempotent DDL for the credit layer. Safe to call on every request. */
 export async function ensureCreditTables(db: RawDb): Promise<void> {
   // Subscriptions must exist first — the monthly allowance logic reads them.
+  const { ensureBillingTables } = await import('@/domain/billing/entitlement-service');
   await ensureBillingTables(db);
   await db.$executeRawUnsafe(CREDIT_GRANTS_DDL);
   await db.$executeRawUnsafe(CREDIT_LEDGER_DDL);
@@ -168,8 +177,9 @@ const SOURCE_REASONS: Record<CreditSource, string> = {
  */
 export async function getCreditBalance(
   orgId: string,
-  db: RawDb = createRawClient(),
+  db?: RawDb,
 ): Promise<{ available: number; expiringSoon: number }> {
+  db ??= await getDb();
   await grantMonthlyAllowanceIfDue(orgId, db);
   await ensureCreditTables(db);
 
@@ -206,8 +216,9 @@ export interface GrantCreditsInput {
 export async function grantCredits(
   orgId: string,
   input: GrantCreditsInput,
-  db: RawDb = createRawClient(),
+  db?: RawDb,
 ): Promise<CreditGrant> {
+  db ??= await getDb();
   await ensureCreditTables(db);
 
   const expiresAt = input.expiresAt ?? new Date(Date.now() + CREDIT_EXPIRY_DAYS * 86_400_000);
@@ -262,8 +273,9 @@ export interface ConsumeCreditsInput {
 export async function consumeCredits(
   orgId: string,
   input: ConsumeCreditsInput,
-  db: RawDb = createRawClient(),
+  db?: RawDb,
 ): Promise<{ consumed: number; balance: number }> {
+  db ??= await getDb();
   await ensureCreditTables(db);
 
   const grants = (await db.$queryRawUnsafe(
@@ -313,8 +325,9 @@ export async function consumeCredits(
 export async function hasSufficientCredits(
   orgId: string,
   amount: number,
-  db: RawDb = createRawClient(),
+  db?: RawDb,
 ): Promise<boolean> {
+  db ??= await getDb();
   const { available } = await getCreditBalance(orgId, db);
   return available >= amount;
 }
@@ -335,10 +348,12 @@ export async function hasSufficientCredits(
  */
 export async function grantMonthlyAllowanceIfDue(
   orgId: string,
-  db: RawDb = createRawClient(),
+  db?: RawDb,
 ): Promise<CreditGrant | null> {
+  db ??= await getDb();
   await ensureCreditTables(db);
 
+  const { getSubscription } = await import('@/domain/billing/entitlement-service');
   const sub = await getSubscription(orgId, db);
   const plan = getPlan(sub.planId);
   if (plan.aiCreditsPerMonth <= 0) return null;
@@ -391,12 +406,16 @@ export interface MeterAiUsageInput {
  */
 export async function meterAiUsage(
   input: MeterAiUsageInput,
-  db: RawDb = createRawClient(),
+  db?: RawDb,
 ): Promise<{ charged: boolean; credits: number; balance: number }> {
+  db ??= await getDb();
   if (input.keySource === 'db') {
     return { charged: false, credits: 0, balance: 0 };
   }
 
+  const { resolveOrgForTenant, backfillDefaultOrganization, getOrganization } = await import(
+    '@/domain/billing/organization-service'
+  );
   let org = await resolveOrgForTenant(input.tenantSlug, db);
   if (!org) {
     // Tenant predates the org layer (or is unknown) — converge on the default
@@ -443,8 +462,12 @@ export type CreditGateResult =
  */
 export async function requireCreditsForTenant(
   tenantSlug: string,
-  db: RawDb = createRawClient(),
+  db?: RawDb,
 ): Promise<CreditGateResult> {
+  db ??= await getDb();
+  const { resolveOrgForTenant, backfillDefaultOrganization, getOrganization } = await import(
+    '@/domain/billing/organization-service'
+  );
   let org = await resolveOrgForTenant(tenantSlug, db);
   if (!org) {
     const { orgId } = await backfillDefaultOrganization(db);
@@ -459,7 +482,7 @@ export async function requireCreditsForTenant(
     return {
       ok: false,
       balance: available,
-      response: jsonError(
+      response: (await import('@/lib/api/response')).jsonError(
         'This organization has no AI credits remaining. Upgrade your plan or add credits to continue generating.',
         402,
       ),

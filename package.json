@@ -10,7 +10,7 @@
     "start": "next start",
     "type-check": "tsc --noEmit",
     "lint": "eslint src --max-warnings 0",
-    "test": "node scripts/enforce-redux.mjs && vitest run",
+    "test": "NODE_ENV=test node scripts/enforce-redux.mjs && NODE_ENV=test vitest run",
     "enforce:redux": "node scripts/enforce-redux.mjs",
     "seed": "bun run scripts/seed-from-sources.ts",
     "seed:chatbot-key": "bun run scripts/seed-chatbot-openai-key.ts",

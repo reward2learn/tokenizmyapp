@@ -7,8 +7,7 @@
  *
  * Lives in the platform root DB — see the placement rule in organization-service.ts.
  */
-import { createRawClient } from '@/lib/db';
-import { jsonError } from '@/lib/api/response';
+import type { createRawClient } from '@/lib/db';
 import type { NextResponse } from 'next/server';
 import {
   DEFAULT_PLAN_ID,
@@ -21,14 +20,25 @@ import {
   type PlanDef,
   type PlanId,
 } from '@/lib/billing/plans';
-import {
-  ensureOrganizationTables,
-  resolveOrgForTenant,
-} from '@/domain/billing/organization-service';
 
 export * from '@/lib/billing/plans';
 
 type RawDb = ReturnType<typeof createRawClient>;
+
+/**
+ * Lazily create the raw DB client.
+ *
+ * Dynamic import on purpose: the Prisma runtime (`src/generated/prisma`) does
+ * CJS `require("node:fs")` calls that cannot execute inside the ESM
+ * `@workflow/vitest` step bundle, so it must never be statically reachable
+ * from workflow steps. Runtime behavior is identical to the old
+ * `db: RawDb = createRawClient()` default — the client is created on first use.
+ */
+async function getDb(db?: RawDb): Promise<RawDb> {
+  if (db) return db;
+  const { createRawClient } = await import('@/lib/db');
+  return createRawClient();
+}
 
 export type SubscriptionStatus = 'active' | 'past_due' | 'canceled' | 'trialing';
 
@@ -67,6 +77,7 @@ CREATE TABLE IF NOT EXISTS subscriptions (
 );`;
 
 export async function ensureBillingTables(db: RawDb): Promise<void> {
+  const { ensureOrganizationTables } = await import('@/domain/billing/organization-service');
   await ensureOrganizationTables(db);
   await db.$executeRawUnsafe(SUBSCRIPTIONS_DDL);
 }
@@ -96,8 +107,9 @@ function mapSubscription(row: Record<string, unknown>): Subscription {
  */
 export async function getSubscription(
   orgId: string,
-  db: RawDb = createRawClient(),
+  db?: RawDb,
 ): Promise<Subscription> {
+  db ??= await getDb();
   await ensureBillingTables(db);
 
   const rows = (await db.$queryRawUnsafe(
@@ -138,8 +150,9 @@ export interface SetPlanInput {
 export async function setPlan(
   orgId: string,
   input: SetPlanInput,
-  db: RawDb = createRawClient(),
+  db?: RawDb,
 ): Promise<Subscription> {
+  db ??= await getDb();
   await getSubscription(orgId, db); // ensures the row exists
 
   await db.$executeRawUnsafe(
@@ -177,8 +190,10 @@ export async function hasFeature(orgId: string, feature: Feature, db?: RawDb): P
 export async function tenantHasFeature(
   tenantSlug: string,
   feature: Feature,
-  db: RawDb = createRawClient(),
+  db?: RawDb,
 ): Promise<boolean> {
+  db ??= await getDb();
+  const { resolveOrgForTenant } = await import('@/domain/billing/organization-service');
   const org = await resolveOrgForTenant(tenantSlug, db);
   if (!org) return false;
   return hasFeature(org.id, feature, db);
@@ -199,15 +214,16 @@ export interface EntitlementGuardResult {
 export async function requireFeatureForTenant(
   tenantSlug: string,
   feature: Feature,
-  db: RawDb = createRawClient(),
+  db?: RawDb,
 ): Promise<EntitlementGuardResult> {
+  db ??= await getDb();
   if (await tenantHasFeature(tenantSlug, feature, db)) return { ok: true };
 
   const upgrade = lowestPlanWithFeature(feature);
   const target = upgrade ? upgrade.label : 'a paid plan';
   return {
     ok: false,
-    response: jsonError(
+    response: (await import('@/lib/api/response')).jsonError(
       `This tenant's plan does not include ${feature}. Upgrade to ${target} to enable it.`,
       402,
     ),
