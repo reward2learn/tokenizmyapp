@@ -550,7 +550,7 @@ export function AppShell({ children }: { children: ReactNode }) {
       {/* Right-side AI chat drawer — always exactly the window height
           (sticky, spans header + content) and persistent: its width push
           shrinks the main column instead of overlaying. Mounted always so the
-          conversation + draft input survive open/close. */}
+          conversation + draft input survive open/close. kgk  */}
       <Box
         component="aside"
         aria-label="AI chat drawer"
