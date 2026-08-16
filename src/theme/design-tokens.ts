@@ -1,5 +1,3 @@
-import { useEffect, useState } from 'react';
-
 export type ThemeMode = 'light' | 'dark' | 'system';
 
 /**
@@ -10,25 +8,6 @@ export type ThemeMode = 'light' | 'dark' | 'system';
  * below is resolved from the ramp rather than hardcoded at the call site.
  */
 export const DEFAULT_MODE: ThemeMode = 'system';
-
-/**
- * Determine the system theme from the OS preferences.
- * Runs once on mount and on every resize/change event.
- */
-export function useSystemTheme(): ThemeMode {
-  const [mode, setMode] = useState<ThemeMode>('system');
-
-  useEffect(() => {
-    const mq = window.matchMedia('(prefers-color-scheme: dark)');
-    setMode(mq.matches ? 'dark' : 'light');
-
-    const handler = () => setMode(mq.matches ? 'dark' : 'light');
-    mq.addEventListener('change', handler);
-    return () => mq.removeEventListener('change', handler);
-  }, []);
-
-  return mode;
-}
 
 /**
  * Neutral ramp — surface colours keyed by theme mode.

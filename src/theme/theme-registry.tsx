@@ -8,13 +8,26 @@ import { AppRouterCacheProvider } from '@mui/material-nextjs/v16-appRouter';
 import {
   DEFAULT_MODE,
   createAppTheme,
-  useSystemTheme,
   type BrandColors,
   type ThemeMode,
 } from './design-tokens';
 import { useGetBrandConfigQuery } from '@shared/store/apis/brand-config-api';
 
 const FALLBACK_COLORS: BrandColors = { primary: '#eb3d28', secondary: '#0af9fe' };
+
+function useSystemTheme(): Exclude<ThemeMode, 'system'> {
+  const [mode, setMode] = useState<Exclude<ThemeMode, 'system'>>('light');
+
+  useEffect(() => {
+    const mq = window.matchMedia('(prefers-color-scheme: dark)');
+    const apply = () => setMode(mq.matches ? 'dark' : 'light');
+    apply();
+    mq.addEventListener('change', apply);
+    return () => mq.removeEventListener('change', apply);
+  }, []);
+
+  return mode;
+}
 
 export interface BrandConfigState {
   themeMode: ThemeMode;
