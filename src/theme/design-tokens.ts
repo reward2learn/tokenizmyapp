@@ -32,8 +32,6 @@ function alpha(hex: string, a: number): string {
 }
 
 /**
-
-/**
  * Default surface mode for the app shell.
  *
  * Single switch on purpose — flipping this reverts the whole console between
