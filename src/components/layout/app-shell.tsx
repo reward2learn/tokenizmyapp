@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import { usePathname } from 'next/navigation';
 import Link from 'next/link';
 import type { Route } from 'next';
@@ -24,13 +24,17 @@ import Typography from '@mui/material/Typography';
 import Button from '@mui/material/Button';
 import dynamic from 'next/dynamic';
 import MenuIcon from '@mui/icons-material/Menu';
+import Menu from '@mui/material/Menu';
+import MenuItem from '@mui/material/MenuItem';
 import ChatIcon from '@mui/icons-material/Chat';
 import CloseIcon from '@mui/icons-material/Close';
 import NavigateNextIcon from '@mui/icons-material/NavigateNext';
 import SearchOutlined from '@mui/icons-material/SearchOutlined';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import ExpandLessIcon from '@mui/icons-material/ExpandLess';
-import FolderIcon from '@mui/icons-material/Folder';
+import LightModeOutlined from '@mui/icons-material/LightModeOutlined';
+import DarkModeOutlined from '@mui/icons-material/DarkModeOutlined';
+import BrightnessAutoOutlined from '@mui/icons-material/BrightnessAutoOutlined';
 import type { ReactNode } from 'react';
 import { SavedConversationsMenu } from '@/components/chat/saved-conversations-menu';
 import { getReviewPartDisplayTitle, listNavPages, resolvePage, resolveReviewPart } from '@/lib/page-catalog';
@@ -41,6 +45,8 @@ import { useGetBrandConfigQuery } from '@shared/store/apis/brand-config-api';
 import { useGetNavigationQuery } from '@/store/apis/navigation-api';
 import { NavIcon } from '@/components/shared/nav-icon';
 import { getClientTenantConfig } from '@shared/lib/config/tenant';
+import { useThemeMode } from '@/theme/theme-registry';
+import type { ThemeMode } from '@/theme/design-tokens';
 
 const DRAWER_WIDTH = 280;
 /** Right-side AI chat drawer — persistent (pushes the main container, no overlay). */
@@ -51,6 +57,42 @@ const ChatDrawerPanel = dynamic(
   () => import('@/components/chat/chat-panel').then((m) => ({ default: m.ChatPanel })),
   { ssr: false },
 );
+
+const THEME_MODE_OPTIONS: { mode: ThemeMode; label: string }[] = [
+  { mode: 'light', label: 'Light' },
+  { mode: 'dark', label: 'Dark' },
+  { mode: 'system', label: 'System' },
+];
+
+function ThemeModeIcon({ mode }: { mode: ThemeMode }) {
+  switch (mode) {
+    case 'light':
+      return <LightModeOutlined fontSize="small" />;
+    case 'dark':
+      return <DarkModeOutlined fontSize="small" />;
+    case 'system':
+      return <BrightnessAutoOutlined fontSize="small" />;
+    default: {
+      const _exhaustive: never = mode;
+      return _exhaustive;
+    }
+  }
+}
+
+function themeModeLabel(mode: ThemeMode): string {
+  switch (mode) {
+    case 'light':
+      return 'Light';
+    case 'dark':
+      return 'Dark';
+    case 'system':
+      return 'System';
+    default: {
+      const _exhaustive: never = mode;
+      return _exhaustive;
+    }
+  }
+}
 
 const linkSx = { textDecoration: 'none', color: 'inherit', display: 'inline-flex', width: '100%' };
 
@@ -76,6 +118,8 @@ export function AppShell({ children }: { children: ReactNode }) {
   const drawerOpen = useAppSelector((s) => s.ui.drawerOpen);
   const chatDrawerOpen = useAppSelector((s) => s.ui.chatDrawerOpen);
   const { tier, user, groups } = useAppSelector((s) => s.auth);
+  const { themeMode, setThemeMode } = useThemeMode();
+  const [themeMenuAnchor, setThemeMenuAnchor] = useState<HTMLElement | null>(null);
   useListPagesQuery();
 
   // Brand config via RTK Query — fallback to tenant env var, then default
@@ -306,16 +350,37 @@ export function AppShell({ children }: { children: ReactNode }) {
             </Typography>
           </Link>
 
-          {/* Theme toggle button */}
-          <Tooltip title="Toggle theme">
+          {/* Theme mode menu */}
+          <Tooltip title={`Theme: ${themeModeLabel(themeMode)}`}>
             <IconButton
-              aria-label="Toggle theme"
-              onClick={() => setThemeMode(prev => prev === 'light' ? 'dark' : prev === 'dark' ? 'system' : 'light')}
-              sx={{ mr: 1, p: 0.5 }}
+              aria-label="Change theme"
+              aria-haspopup="menu"
+              aria-expanded={themeMenuAnchor ? 'true' : undefined}
+              onClick={(e) => setThemeMenuAnchor(e.currentTarget)}
+              sx={{ color: 'text.secondary', mr: 1 }}
             >
-              {themeMode === 'system' ? 'Aa' : themeMode === 'dark' ? '🌙' : '☀️'}
+              <ThemeModeIcon mode={themeMode} />
             </IconButton>
           </Tooltip>
+          <Menu
+            anchorEl={themeMenuAnchor}
+            open={Boolean(themeMenuAnchor)}
+            onClose={() => setThemeMenuAnchor(null)}
+            slotProps={{ paper: { sx: { minWidth: 160 } } }}
+          >
+            {THEME_MODE_OPTIONS.map((option) => (
+              <MenuItem
+                key={option.mode}
+                selected={themeMode === option.mode}
+                onClick={() => {
+                  setThemeMode(option.mode);
+                  setThemeMenuAnchor(null);
+                }}
+              >
+                {option.label}
+              </MenuItem>
+            ))}
+          </Menu>
 
           {/* Breadcrumbs trail */}
           {breadcrumbs.length > 0 && (
