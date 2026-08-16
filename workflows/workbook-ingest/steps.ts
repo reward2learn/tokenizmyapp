@@ -213,7 +213,7 @@ export async function closeProgressStep(
 
 /**
  * Upsert financial projections from the AI comprehension.
- * Idempotent: ON CONFLICT (period, data_type, scenario) DO UPDATE.
+ * Idempotent: ON CONFLICT (period, data_type, scenario, app_id) DO UPDATE.
  */
 export async function populateProjectionsStep(
   comprehension: WorkbookComprehension,
@@ -241,9 +241,9 @@ export async function populateProjectionsStep(
 
       await executeOne(
         db,
-        `INSERT INTO financial_projections (period, year, month, data_type, scenario, revenue, ebitda, net_income, guests, staff_cost, pnl_lines)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11::jsonb)
-         ON CONFLICT (period, data_type, scenario)
+        `INSERT INTO financial_projections (period, year, month, data_type, scenario, app_id, revenue, ebitda, net_income, guests, staff_cost, pnl_lines)
+         VALUES ($1, $2, $3, $4, $5, '', $6, $7, $8, $9, $10, $11::jsonb)
+         ON CONFLICT (period, data_type, scenario, app_id)
          DO UPDATE SET
            revenue = EXCLUDED.revenue,
            ebitda = EXCLUDED.ebitda,
