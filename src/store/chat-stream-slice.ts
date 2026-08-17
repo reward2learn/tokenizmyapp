@@ -1,6 +1,11 @@
 import { createAsyncThunk, createSlice } from '@reduxjs/toolkit';
 import { consumeSseStream } from '@/lib/chat/sse-parser';
-import { isChatSessionAction, type ChatComposerTool, type ChatSessionAction } from '@/lib/chat/session-tools';
+import {
+  isChatSessionAction,
+  type ChatComposerTool,
+  type ChatSessionAction,
+  type CustomTemplateDraft,
+} from '@/lib/chat/session-tools';
 import type { ChatAttachment } from '@/lib/chat/attachments';
 
 export interface ChatStreamMessage {
@@ -23,6 +28,18 @@ export interface ChatStreamState {
    * drawer closes and reopens between turns). Sticky until explicitly cleared.
    */
   activeTool: ChatComposerTool | null;
+  /**
+   * A template the assistant designed but has NOT saved.
+   *
+   * Held in the store, not in the message text, because the confirmation card
+   * needs the whole definition to POST back on save — regenerating it to
+   * confirm would charge credits twice and could produce a different template.
+   * Survives the chat drawer closing between turns, like activeTool.
+   *
+   * One at a time: a second design supersedes the first, matching what the
+   * administrator sees in the transcript.
+   */
+  templateDraft: CustomTemplateDraft | null;
 }
 
 const initialState: ChatStreamState = {
@@ -32,6 +49,7 @@ const initialState: ChatStreamState = {
   error: null,
   pendingSessionActions: [],
   activeTool: null,
+  templateDraft: null,
 };
 
 export const sendStreamingMessage = createAsyncThunk<
@@ -79,9 +97,17 @@ export const sendStreamingMessage = createAsyncThunk<
 
     const contentType = response.headers.get('content-type') ?? '';
     if (contentType.includes('application/json')) {
-      const payload = await response.json() as { data?: { reply?: string }; error?: string };
+      const payload = await response.json() as {
+        data?: { reply?: string; templateDraft?: CustomTemplateDraft };
+        error?: string;
+      };
       const reply = payload.data?.reply ?? payload.error ?? 'No reply returned.';
       dispatch(appendToken(reply));
+      // The non-streaming path returns the draft in the body rather than as an
+      // SSE event; both must surface the confirmation card.
+      if (payload.data?.templateDraft) {
+        dispatch(setTemplateDraft(payload.data.templateDraft));
+      }
       return;
     }
 
@@ -102,6 +128,11 @@ export const sendStreamingMessage = createAsyncThunk<
         if (isChatSessionAction(event.action)) {
           dispatch(queueSessionAction(event.action));
         }
+        return;
+      }
+
+      if (event.type === 'template_draft') {
+        dispatch(setTemplateDraft(event.draft));
         return;
       }
 
@@ -139,6 +170,10 @@ export const chatStreamSlice = createSlice({
       state.streamingText = '';
       state.error = null;
       state.pendingSessionActions = [];
+      // The confirmation card belongs to the conversation that produced it —
+      // leaving it behind would offer to save a template with no visible
+      // context for what it is.
+      state.templateDraft = null;
     },
     appendToken(state, action: { payload: string }) {
       state.streamingText += action.payload;
@@ -162,6 +197,12 @@ export const chatStreamSlice = createSlice({
     setActiveTool(state, action: { payload: ChatComposerTool | null }) {
       state.activeTool = action.payload;
     },
+    setTemplateDraft(state, action: { payload: CustomTemplateDraft }) {
+      state.templateDraft = action.payload;
+    },
+    clearTemplateDraft(state) {
+      state.templateDraft = null;
+    },
     queueSessionAction(state, action: { payload: ChatSessionAction }) {
       state.pendingSessionActions.push(action.payload);
     },
@@ -176,10 +217,12 @@ export const {
   appendToken,
   clearMessages,
   clearPendingSessionActions,
+  clearTemplateDraft,
   queueSessionAction,
   resetStream,
   setActiveTool,
   setMessages,
   setStreamError,
   setStreaming,
+  setTemplateDraft,
 } = chatStreamSlice.actions;

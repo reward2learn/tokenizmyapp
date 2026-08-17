@@ -1,6 +1,7 @@
 import {
   CHAT_SESSION_OPENAI_TOOLS,
   type ChatSessionAction,
+  type CustomTemplateDraft,
   executeSessionTool,
   type SessionToolContext,
 } from '@/lib/chat/session-tools';
@@ -295,6 +296,7 @@ async function completeChatWithoutStreaming(options: {
   viewerEmail?: string | null;
 }): Promise<Response> {
   const clientActions: ChatSessionAction[] = [];
+  let templateDraft: CustomTemplateDraft | undefined;
   let currentMessages = [...options.messages];
 
   for (let round = 0; round < MAX_TOOL_ROUNDS; round += 1) {
@@ -336,6 +338,7 @@ async function completeChatWithoutStreaming(options: {
             options.toolContext,
           );
           if (result.clientAction) clientActions.push(result.clientAction);
+          if (result.templateDraft) templateDraft = result.templateDraft;
           currentMessages.push({
             role: 'tool',
             tool_call_id: toolCall.id,
@@ -355,6 +358,7 @@ async function completeChatWithoutStreaming(options: {
       data: {
         reply,
         actions: clientActions,
+        ...(templateDraft ? { templateDraft } : {}),
       },
     });
   }
@@ -438,6 +442,12 @@ async function completeChatWithStreaming(options: {
               );
               if (result.clientAction) {
                 await writeLine({ type: 'chat_action', action: result.clientAction });
+              }
+              if (result.templateDraft) {
+                // Sent as its own event rather than folded into the reply text:
+                // the client renders it as a confirmation card with a save
+                // button, and the model's prose cannot carry a payload.
+                await writeLine({ type: 'template_draft', draft: result.templateDraft });
               }
               currentMessages.push({
                 role: 'tool',

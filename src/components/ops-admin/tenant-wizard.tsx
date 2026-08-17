@@ -48,6 +48,7 @@ import {
   listTemplates,
   isSlugAvailable,
 } from '@/domain/tenant/template-catalog';
+import { useListAllTemplatesQuery } from '@/store/apis/template-api';
 import { BUSINESS_CATEGORY_PROMPTS, getBusinessCategory } from '@/domain/app-pack/business-category-prompts';
 import {
   useCreateTenantMutation,
@@ -323,7 +324,13 @@ export function TenantWizard() {
     }
   };
 
-  const templates = listTemplates();
+  // Built-ins come from the compiled catalog; custom (AI-generated) templates —
+  // including any built by the chat assistant's Custom Template Build tool —
+  // exist only in the platform DB, so the merged list has to be fetched.
+  // listTemplates() alone silently hides every custom template from the picker.
+  // Falls back to the built-ins while the request is in flight or if it fails.
+  const { data: templateData } = useListAllTemplatesQuery();
+  const templates = templateData?.data?.templates ?? listTemplates();
   const selectedTemplate = getTemplate(state.template);
   const suiteApps = getEffectiveSuiteApps();
 
@@ -1137,7 +1144,13 @@ export function TemplateSelector({
   onColorsChange,
   showPreviewDelta = false,
 }: TemplateSelectorProps) {
-  const templates = listTemplates();
+  // Built-ins come from the compiled catalog; custom (AI-generated) templates —
+  // including any built by the chat assistant's Custom Template Build tool —
+  // exist only in the platform DB, so the merged list has to be fetched.
+  // listTemplates() alone silently hides every custom template from the picker.
+  // Falls back to the built-ins while the request is in flight or if it fails.
+  const { data: templateData } = useListAllTemplatesQuery();
+  const templates = templateData?.data?.templates ?? listTemplates();
   const selected = getTemplate(selectedId);
   const current = currentId ? getTemplate(currentId) : null;
   const hasDelta = showPreviewDelta && current && current.id !== selected.id;

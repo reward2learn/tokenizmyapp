@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent } from 'react';
-import { useSearchParams } from 'next/navigation';
+import { usePathname, useSearchParams } from 'next/navigation';
 import Box from '@mui/material/Box';
 import Button from '@mui/material/Button';
 import Chip from '@mui/material/Chip';
@@ -74,7 +74,8 @@ import {
   type ChatAttachment,
 } from '@/lib/chat/attachments';
 import { ActiveToolBadge, ComposerToolPicker } from '@/components/chat/composer-tool-picker';
-import { CHAT_COMPOSER_TOOLS } from '@/lib/chat/session-tools';
+import { availableComposerTools, CHAT_COMPOSER_TOOLS } from '@/lib/chat/session-tools';
+import { TemplateDraftCard } from '@/components/chat/template-draft-card';
 
 const ICON_BUTTON_SX = { width: 48, height: 48 };
 
@@ -118,6 +119,18 @@ export function ChatPanel({ variant = 'page' }: { variant?: 'page' | 'drawer' } 
   // Composer tool selection lives in the store (chat-stream-slice), not local
   // state — the send thunk reads it directly and it survives the drawer closing.
   const activeTool = useAppSelector((s) => s.chatStream.activeTool);
+  const isPlatformAdmin = useAppSelector((s) => Boolean(s.auth.platformAdmin));
+  const pathname = usePathname();
+  /**
+   * Tools offered here. `build_custom_template` writes platform-level config
+   * and is restricted to a platform admin inside /admin — see
+   * ChatComposerToolDef.adminOnly. The server enforces the admin half
+   * independently; this only decides what the picker shows.
+   */
+  const composerTools = availableComposerTools({
+    isPlatformAdmin,
+    isAdminRoute: (pathname ?? '').startsWith('/admin'),
+  });
   const [attachmentLoading, setAttachmentLoading] = useState(false);
   const [status, setStatus] = useState<string | null>(null);
   const [saveConversation, { isLoading: isSaving }] = useSaveConversationMutation();
@@ -822,6 +835,8 @@ export function ChatPanel({ variant = 'page' }: { variant?: 'page' | 'drawer' } 
               </DialogActions>
             </Dialog>
 
+            <TemplateDraftCard />
+
             <ActiveToolBadge activeTool={activeTool} onClear={() => dispatch(setActiveTool(null))} />
 
             <TextField
@@ -985,6 +1000,7 @@ export function ChatPanel({ variant = 'page' }: { variant?: 'page' | 'drawer' } 
                 </span>
               </Tooltip>
               <ComposerToolPicker
+                tools={composerTools}
                 activeTool={activeTool}
                 onChange={(tool) => dispatch(setActiveTool(tool))}
                 iconButtonSx={ICON_BUTTON_SX}

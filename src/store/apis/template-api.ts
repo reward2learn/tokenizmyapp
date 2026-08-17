@@ -2,6 +2,7 @@ import { createApi } from '@reduxjs/toolkit/query/react';
 import { baseQuery } from '@shared/store/base-query';
 import type { ApiEnvelope } from '@/store/api-types';
 import type { TemplateDefinition } from '@/domain/tenant/template-catalog';
+import type { CustomTemplateDraft } from '@/lib/chat/session-tools';
 
 export interface CustomTemplateRecord {
   id: string;
@@ -68,6 +69,22 @@ export const templateApi = createApi({
       invalidatesTags: ['Template'],
     }),
 
+    /**
+     * Persist a template the chat assistant designed.
+     *
+     * Separate from generateCustomTemplate because it must NOT regenerate: the
+     * administrator approved a specific design, and generation is both costly
+     * and non-deterministic. Invalidates 'Template' so every picker — including
+     * the Create New App wizard — sees it immediately.
+     */
+    saveCustomTemplateDraft: builder.mutation<
+      ApiEnvelope<{ stored: boolean; template: CustomTemplateRecord }>,
+      { draft: CustomTemplateDraft }
+    >({
+      query: (body) => ({ url: 'admin/custom-templates', method: 'POST', body }),
+      invalidatesTags: ['Template'],
+    }),
+
     deleteCustomTemplate: builder.mutation<ApiEnvelope<{ templateId: string }>, string>({
       query: (templateId) => ({
         url: `admin/custom-templates/${templateId}`,
@@ -82,5 +99,6 @@ export const {
   useListAllTemplatesQuery,
   useListCustomTemplatesQuery,
   useGenerateCustomTemplateMutation,
+  useSaveCustomTemplateDraftMutation,
   useDeleteCustomTemplateMutation,
 } = templateApi;

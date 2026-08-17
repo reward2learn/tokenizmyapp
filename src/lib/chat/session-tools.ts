@@ -35,6 +35,18 @@ export interface ChatComposerToolDef {
   description: string;
   /** Placeholder swapped into the composer while the tool is active. */
   placeholder: string;
+  /**
+   * Restrict to the platform admin console.
+   *
+   * Two conditions, both required: the viewer is a platform admin, and they are
+   * on an `/admin` route. The admin check is the security boundary — it is
+   * enforced server-side in executeSessionTool and cannot be bypassed by a
+   * crafted request. The route check is scope: this tool writes platform-level
+   * configuration that has nothing to do with the tenant app a user is looking
+   * at, so offering it from a tenant dashboard invites confusion about what is
+   * being changed and for whom.
+   */
+  adminOnly?: boolean;
 }
 
 export const CHAT_COMPOSER_TOOLS: ChatComposerToolDef[] = [
@@ -43,8 +55,19 @@ export const CHAT_COMPOSER_TOOLS: ChatComposerToolDef[] = [
     label: 'Custom Template Build',
     description: 'Generate a reusable app template from a website or written requirements.',
     placeholder: 'Describe the app template — paste a website URL or the requirements…',
+    adminOnly: true,
   },
 ];
+
+/** Composer tools offered on this surface. */
+export function availableComposerTools(options: {
+  isPlatformAdmin: boolean;
+  isAdminRoute: boolean;
+}): ChatComposerToolDef[] {
+  return CHAT_COMPOSER_TOOLS.filter(
+    (tool) => !tool.adminOnly || (options.isPlatformAdmin && options.isAdminRoute),
+  );
+}
 
 export function isChatSessionAction(value: unknown): value is ChatSessionAction {
   return typeof value === 'string' && (CHAT_SESSION_ACTIONS as readonly string[]).includes(value);
@@ -69,17 +92,28 @@ Never call session tools for business questions, metrics, revenue, operations, o
 When a session tool is appropriate, call the matching tool before confirming the action in your reply.
 
 To build a reusable app template ("Custom Template Build"):
-- Call "build_custom_template" when the administrator asks to create a template, or when the
-  Custom Template Build tool is selected in the chat composer.
-- Source it from a web address (sourceKind "url" + the url) when they give you a site to model,
-  or from written requirements (sourceKind "knowledge" + knowledgeContent) when they paste or
-  describe the requirements.
-- Always pass a "brief" describing the kind of business the template serves.
+- Available only to platform administrators in the admin console. If it is not available, say so
+  plainly rather than attempting the call.
+- GATHER THE DETAILS FIRST. Generating costs credits and takes up to a minute, so do not call the
+  tool on a one-line request. Before calling, you need all four of:
+    1. What the business does — the industry and what it sells or provides.
+    2. Who uses the app — staff only, customers only, or both. This decides which pages are
+       public, which are staff-only (pin) and which are owner-only (google).
+    3. The two or three things they most need to track or manage day to day.
+    4. The source: a web address to model on, pasted requirements, or neither.
+  Ask for whatever is missing in ONE short message — a numbered list, not an interrogation over
+  several turns. If the administrator declines to answer, proceed with what you have.
+- Then call "build_custom_template" with everything folded into "brief" — the brief is the entire
+  design input, so write it as a paragraph covering all four points, not as an echo of their words.
+- Set sourceKind "url" plus the url when they gave you a site, "knowledge" plus knowledgeContent
+  when they pasted requirements, otherwise "prompt".
 - Only set web3Wallet true when the business genuinely involves tokens, NFTs, crypto payments or
   on-chain memberships. Do not enable it speculatively. The wallet is Reown AppKit with Google,
   Apple and email sign-in — users never handle a seed phrase.
-- The template is generated, validated and stored; afterwards it appears in the template picker
-  when a tenant creates an app. Report the template name back to the administrator.
+- The tool DESIGNS the template but does NOT save it. The administrator reviews the result and
+  presses "Save & Create Template" to add it to the platform library. Never claim it has been
+  created, added or saved — say it is ready for review and name the button.
+- Once saved it becomes selectable in the "Create New App" wizard for any tenant.
 
 To update the Business Review and Executive Summary with insights from your conversation:
 - When the user says something like "update the review" or "save this to the review" or provides substantive new financial/operational information, call the "update_review_documents" tool.
@@ -150,13 +184,16 @@ export const CHAT_SESSION_OPENAI_TOOLS = [
     function: {
       name: 'build_custom_template',
       description:
-        'Generate a reusable custom app template from a web address or written requirements, and store it so tenants can build apps from it.',
+        'Design a reusable custom app template from a web address or written requirements. Returns a draft for the administrator to review — it is NOT saved until they confirm.',
       parameters: {
         type: 'object',
         properties: {
           brief: {
             type: 'string',
-            description: 'What kind of business or application this template should serve.',
+            description:
+              'The full design input, as a paragraph: what the business does, who uses the app '
+              + '(staff, customers or both), and the two or three things they most need to track. '
+              + 'This is the only description the designer sees — do not send a bare phrase.',
           },
           sourceKind: {
             type: 'string',
@@ -193,11 +230,50 @@ export interface SessionToolContext {
    * otherwise an exempt operator passes the route's gate and is stopped here.
    */
   viewerEmail?: string | null;
+  /**
+   * Whether the viewer is a platform administrator.
+   *
+   * The security boundary for `adminOnly` tools. Derived from the verified
+   * session in the chat route, never from anything the client sends.
+   */
+  isPlatformAdmin?: boolean;
+}
+
+/**
+ * A generated-but-unsaved template, handed to the client for confirmation.
+ *
+ * The tool used to generate AND store in one step, so a chat turn silently
+ * added platform configuration that the administrator had not yet seen. Since
+ * generation costs credits, re-running it to "preview then confirm" would
+ * charge twice and could return a different template the second time — so the
+ * draft itself travels to the client and comes back on save.
+ *
+ * Carries everything `saveCustomTemplate` needs, so the save endpoint stores
+ * without touching an AI provider.
+ */
+export interface CustomTemplateDraft {
+  label: string;
+  description: string;
+  icon: string;
+  templateType: 'single' | 'suite';
+  /** Full TemplateDefinition — kept opaque here to avoid a domain import. */
+  definition: Record<string, unknown>;
+  capabilities: Record<string, unknown>;
+  sourceKind: 'url' | 'knowledge' | 'prompt';
+  sourceRef: string | null;
+  prompt: string;
+  /** Page titles, for the confirmation card. */
+  pageTitles: string[];
+  /** One line on why the design came out this way — shown for review. */
+  rationale: string | null;
+  walletSummary: string;
 }
 
 export interface SessionToolResult {
   toolMessage: string;
   clientAction?: ChatSessionAction;
+  /** Set by build_custom_template — rendered as a confirmation card. */
+  templateDraft?: CustomTemplateDraft;
 }
 
 export async function executeSessionTool(
@@ -256,9 +332,34 @@ export async function executeSessionTool(
       };
     }
     case 'build_custom_template': {
+      // Security boundary for the adminOnly tool. The composer already hides it
+      // outside /admin, but that is presentation — a crafted request can set
+      // activeTool freely, and this writes platform-level configuration and
+      // spends the platform AI key.
+      if (!ctx.isPlatformAdmin) {
+        return {
+          toolMessage:
+            'Building app templates is restricted to platform administrators in the admin console. ' +
+            'Tell the user this action is not available here.',
+        };
+      }
+
       const brief = typeof args.brief === 'string' ? args.brief.trim() : '';
       if (!brief) {
         return { toolMessage: 'A brief is required — describe the kind of app the template should build.' };
+      }
+
+      // The brief is the entire input to the design. A three-word brief produces
+      // a template that could describe any business, so ask rather than generate
+      // something the administrator will discard — generation costs credits and
+      // takes a scrape plus a model round-trip.
+      if (brief.length < 25) {
+        return {
+          toolMessage:
+            'The brief is too thin to design from. Ask the administrator for: what the business does, ' +
+            'who uses the app (staff, customers, or both), and the two or three things they most need ' +
+            'to track. Then call this tool again.',
+        };
       }
 
       const sourceKind = args.sourceKind === 'url' || args.sourceKind === 'knowledge'
@@ -276,13 +377,10 @@ export async function executeSessionTool(
 
       // Imported lazily: the generator reaches the AI provider and the platform
       // root DB, neither of which should load for an ordinary chat turn.
-      const [{ generateCustomTemplate }, { saveCustomTemplate }, { createRawClient }, credits] =
-        await Promise.all([
-          import('@/domain/tenant/custom-template-generator'),
-          import('@/domain/tenant/custom-template-service'),
-          import('@/lib/db'),
-          import('@/domain/billing/credit-service'),
-        ]);
+      const [{ generateCustomTemplate }, credits] = await Promise.all([
+        import('@/domain/tenant/custom-template-generator'),
+        import('@/domain/billing/credit-service'),
+      ]);
 
       // Same pre-flight gate as POST /api/admin/custom-templates. The tool
       // calls the generator directly rather than going through the route, so
@@ -313,39 +411,45 @@ export async function executeSessionTool(
           viewerEmail: ctx.viewerEmail,
         });
 
-        // Custom templates are control-plane config shared across tenants, so
-        // they go to the platform root DB — not ctx.db, which is tenant-scoped.
-        const record = await saveCustomTemplate(
-          {
+        const wallet = generated.capabilities.web3Wallet;
+        const pageTitles = generated.definition.defaultPages.map((p) => p.title);
+        const walletSummary = wallet?.enabled
+          ? `Reown wallet enabled — ${wallet.connectMode} sign-in via ${[
+              ...wallet.socialProviders,
+              ...(wallet.emailLogin ? ['email'] : []),
+            ].join('/') || 'wallet extension'}, chains ${wallet.chains.join(', ')}.`
+          : 'Web3 wallet not enabled.';
+
+        // Deliberately NOT stored here. Storing on generation meant a chat turn
+        // silently added platform configuration the administrator had not seen,
+        // and left no way to reject a bad design short of deleting it
+        // afterwards. The draft goes to the client for review; "Save & Create
+        // Template" persists it without regenerating (and without spending
+        // credits a second time).
+        return {
+          toolMessage: [
+            `Designed a template: "${generated.definition.label}".`,
+            `${generated.definition.description}`,
+            `Pages: ${pageTitles.join(', ')}.`,
+            walletSummary,
+            'It has NOT been saved yet — tell the administrator to review it and press',
+            '"Save & Create Template" to add it to the platform template library.',
+          ].join(' '),
+          clientAction: 'build_custom_template',
+          templateDraft: {
             label: generated.definition.label,
             description: generated.definition.description,
             icon: generated.definition.icon,
             templateType: generated.definition.templateType,
-            definition: generated.definition,
-            capabilities: generated.capabilities,
+            definition: generated.definition as unknown as Record<string, unknown>,
+            capabilities: generated.capabilities as unknown as Record<string, unknown>,
             sourceKind,
             sourceRef: generated.sourceRef,
             prompt: brief,
-            createdBy: ctx.userName,
+            pageTitles,
+            rationale: generated.rationale,
+            walletSummary,
           },
-          createRawClient(),
-        );
-
-        const wallet = generated.capabilities.web3Wallet;
-        const pages = generated.definition.defaultPages.map((p) => p.title).join(', ');
-        return {
-          toolMessage: [
-            `Created custom template "${record.label}" (id ${record.id}).`,
-            `Pages: ${pages}.`,
-            wallet?.enabled
-              ? `Reown wallet enabled — ${wallet.connectMode} sign-in via ${[
-                  ...wallet.socialProviders,
-                  ...(wallet.emailLogin ? ['email'] : []),
-                ].join('/') || 'wallet extension'}, chains ${wallet.chains.join(', ')}.`
-              : 'Web3 wallet not enabled.',
-            'It is now selectable when creating a tenant app.',
-          ].join(' '),
-          clientAction: 'build_custom_template',
         };
       } catch (err) {
         return { toolMessage: `Could not build the template: ${(err as Error).message}` };

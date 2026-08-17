@@ -77,6 +77,7 @@ import VerifiedUserIcon from '@mui/icons-material/VerifiedUser';
 import WarningIcon from '@mui/icons-material/Warning';
 
 import { getTemplate, listTemplates } from '@/domain/tenant/template-catalog';
+import { useListAllTemplatesQuery } from '@/store/apis/template-api';
 import { DEFAULT_PLATFORM_ADMIN_EMAIL } from '@/domain/security/persons';
 import {
   useListTenantsQuery,
@@ -202,7 +203,24 @@ export function CreateAppWizard({ open, onClose, tenantSlug, sourceApp, onSnackb
   const [saveTenantAiProvider] = useSaveTenantAiProviderMutation();
   const { data: rolesData, isLoading: rolesLoading } = useListRoleConfigsQuery();
 
-  const templates = listTemplates();
+  // Built-ins come from the compiled catalog; custom (AI-generated) templates —
+  // including any built by the chat assistant's Custom Template Build tool —
+  // exist only in the platform DB, so the merged list has to be fetched.
+  // listTemplates() alone silently hides every custom template from the picker.
+  // Falls back to the built-ins while the request is in flight or if it fails.
+  const { data: templateData } = useListAllTemplatesQuery();
+  const templates = templateData?.data?.templates ?? listTemplates();
+
+  /**
+   * Resolve a template id against the fetched list, not the compiled catalog.
+   *
+   * getTemplate() falls back to the "default" template for any id it does not
+   * recognise — which is every custom template. Using it here would create the
+   * app with the generic template's brand colours and label the review step
+   * "Generic Dashboard", both silently.
+   */
+  const resolveTemplate = (id: string) =>
+    templates.find((t) => t.id === id) ?? getTemplate(id);
   const tenant = tenantsData?.data?.tenants?.find((t) => t.slug === tenantSlug);
   const tenantMeta = (tenant?.metadata ?? {}) as Record<string, unknown>;
   const tenantCfg = (tenantMeta.config ?? {}) as Record<string, unknown>;
@@ -367,7 +385,7 @@ export function CreateAppWizard({ open, onClose, tenantSlug, sourceApp, onSnackb
           copyContent: true,
         }).unwrap();
       } else {
-        const tpl = getTemplate(templateId);
+        const tpl = resolveTemplate(templateId);
         await addApp({
           slug: tenantSlug,
           appId,
@@ -1102,7 +1120,7 @@ export function CreateAppWizard({ open, onClose, tenantSlug, sourceApp, onSnackb
           <SummaryRow label="Vercel name" value={vercelName || '—'} />
           <SummaryRow label="Live URL" value={appId ? `https://${vercelName}.vercel.app` : '—'} />
           {department.trim() ? <SummaryRow label="Department" value={department.trim()} /> : null}
-          <SummaryRow label="Template" value={getTemplate(templateId).label} />
+          <SummaryRow label="Template" value={resolveTemplate(templateId).label} />
         </Stack>
       </Paper>
 

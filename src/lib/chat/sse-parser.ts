@@ -1,6 +1,10 @@
+import type { CustomTemplateDraft } from '@/lib/chat/session-tools';
+
 export type SseStreamEvent =
   | { type: 'token'; token: string }
   | { type: 'action'; action: string }
+  /** A generated template awaiting the administrator's confirmation. */
+  | { type: 'template_draft'; draft: CustomTemplateDraft }
   | { type: 'error'; error: string }
   | { type: 'done' };
 
@@ -23,12 +27,17 @@ export function parseSsePayload(payload: unknown): SseStreamEvent[] {
   const data = payload as {
     type?: string;
     action?: string;
+    draft?: CustomTemplateDraft;
     error?: string | { message?: string };
     choices?: { delta?: { content?: string }; message?: { content?: string } }[];
   };
 
   if (data.type === 'chat_action' && typeof data.action === 'string') {
     return [{ type: 'action', action: data.action }];
+  }
+
+  if (data.type === 'template_draft' && data.draft && typeof data.draft === 'object') {
+    return [{ type: 'template_draft', draft: data.draft }];
   }
 
   if (data.error) {

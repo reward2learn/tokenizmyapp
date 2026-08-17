@@ -55,6 +55,57 @@ export async function POST(request: Request): Promise<Response> {
     return jsonError('Invalid JSON body', 400);
   }
 
+  // ── Save-only path ──
+  //
+  // The chat assistant designs a template and hands the draft to the
+  // administrator for review; "Save & Create Template" posts it back here.
+  // Deliberately does NOT regenerate: generation costs credits and is
+  // non-deterministic, so re-running it on confirm would both double-charge and
+  // risk storing a different template from the one that was approved.
+  //
+  // No credit gate for the same reason — the generation this draft came from
+  // was already metered.
+  if (body.draft && typeof body.draft === 'object') {
+    const draft = body.draft as Record<string, unknown>;
+    const definition = draft.definition;
+    const label = typeof draft.label === 'string' ? draft.label.trim() : '';
+
+    // The draft round-trips through the browser, so it is untrusted input even
+    // though this route is admin-only. Validate the parts that must be usable —
+    // a definition with no pages provisions an app with nothing in it.
+    if (!label) return jsonError('draft.label is required', 400);
+    if (!definition || typeof definition !== 'object' || Array.isArray(definition)) {
+      return jsonError('draft.definition must be an object', 400);
+    }
+    const pages = (definition as Record<string, unknown>).defaultPages;
+    if (!Array.isArray(pages) || pages.length === 0) {
+      return jsonError('draft.definition.defaultPages must be a non-empty array', 400);
+    }
+
+    const draftSourceKind = isSourceKind(draft.sourceKind) ? draft.sourceKind : 'prompt';
+
+    try {
+      const record = await saveCustomTemplate(
+        {
+          label,
+          description: typeof draft.description === 'string' ? draft.description : '',
+          icon: typeof draft.icon === 'string' && draft.icon ? draft.icon : 'Dashboard',
+          templateType: draft.templateType === 'suite' ? 'suite' : 'single',
+          definition: definition as never,
+          capabilities: (draft.capabilities ?? {}) as never,
+          sourceKind: draftSourceKind,
+          sourceRef: typeof draft.sourceRef === 'string' ? draft.sourceRef : null,
+          prompt: typeof draft.prompt === 'string' ? draft.prompt : null,
+          createdBy: guard.session?.sub ?? null,
+        },
+        createRawClient(),
+      );
+      return jsonOk({ stored: true, template: record }, { status: 201 });
+    } catch (err) {
+      return jsonError('Failed to save the template: ' + (err as Error).message, 500);
+    }
+  }
+
   const brief = typeof body.brief === 'string' ? body.brief.trim() : '';
   if (!brief) return jsonError('brief is required — describe the app the template should build', 400);
 

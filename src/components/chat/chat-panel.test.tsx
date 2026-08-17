@@ -6,6 +6,8 @@ import { ChatPanel } from '@/components/chat/chat-panel';
 import { chatStreamSlice } from '@/store/chat-stream-slice';
 import { chatApi } from '@/store/apis/chat-api';
 import { sheetViewerSlice } from '@/store/sheet-viewer-slice';
+import { authSlice } from '@/store/auth-slice';
+import { templateApi } from '@/store/apis/template-api';
 
 const searchParamsRef: { current: URLSearchParams } = { current: new URLSearchParams('') };
 
@@ -20,9 +22,13 @@ function renderPanel(search: string) {
     reducer: {
       chatStream: chatStreamSlice.reducer,
       sheetViewer: sheetViewerSlice.reducer,
+      // The composer reads auth.platformAdmin to decide which tools to offer,
+      // and the template draft card issues a templateApi mutation.
+      auth: authSlice.reducer,
       [chatApi.reducerPath]: chatApi.reducer,
+      [templateApi.reducerPath]: templateApi.reducer,
     },
-    middleware: (getDefault) => getDefault().concat(chatApi.middleware),
+    middleware: (getDefault) => getDefault().concat(chatApi.middleware, templateApi.middleware),
   });
   return render(
     <Provider store={store}>

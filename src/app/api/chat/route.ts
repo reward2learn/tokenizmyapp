@@ -456,8 +456,11 @@ async function handleChatPost(request: Request): Promise<Response> {
     const systemSections = [
       systemPrompt,
       ...(sessionToolsEnabled ? [CHAT_SESSION_TOOL_INSTRUCTIONS] : []),
-      ...(activeTool === 'build_custom_template'
-        ? ['The administrator selected the Custom Template Build tool. Call build_custom_template for this request. If you are missing the web address or the requirements content, ask for it before calling the tool.']
+      // Only honoured for a platform admin. A non-admin who sets activeTool
+      // gets no instruction here, and executeSessionTool refuses the call
+      // anyway — belt and braces, since this arms a privileged tool.
+      ...(activeTool === 'build_custom_template' && sessionIsPlatformAdmin(session)
+        ? ['The administrator selected the Custom Template Build tool. Gather the four details listed in your instructions (what the business does, who uses the app, what they need to track, and the source) before calling build_custom_template. The tool designs the template but does not save it — tell them to press "Save & Create Template" to add it.']
         : []),
       ...(webSearchEnabled ? [CHAT_WEB_SEARCH_INSTRUCTIONS] : []),
     ];
@@ -517,6 +520,10 @@ async function handleChatPost(request: Request): Promise<Response> {
       userName,
       messages: sessionMessages,
       viewerEmail: session?.email,
+      // From the verified session, never from the request body — this is the
+      // boundary that keeps `build_custom_template` (which writes platform
+      // configuration) out of reach of non-admins, whatever the client sends.
+      isPlatformAdmin: sessionIsPlatformAdmin(session),
     };
 
     return completeChatWithSessionTools({
