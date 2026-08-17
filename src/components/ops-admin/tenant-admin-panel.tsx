@@ -37,7 +37,7 @@ import ClearIcon from '@mui/icons-material/Clear';
 import EditIcon from '@mui/icons-material/Edit';
 
 import { useListTenantsQuery, type TenantEntry, type AppPackConfig } from '@/store/apis/tenant-api';
-import { useListOrganizationsQuery } from '@/store/apis/organization-api';
+import { useOrgScopedTenants } from '@/lib/admin/use-org-scoped-tenants';
 import { getTemplate } from '@/domain/tenant/template-catalog';
 import { OrganizationBar } from './organization-bar';
 import { TenantDashboard } from './tenant-dashboard';
@@ -95,27 +95,9 @@ export function TenantAdminPanel() {
   // invalidate every downstream useMemo.
   const allTenants = useMemo(() => data?.data?.tenants ?? [], [data]);
 
-  // Scope the list to the organization selected in the bar above.
-  //
-  // A tenant belongs to exactly one organization, so an organization filter is
-  // the natural way to narrow this panel — without it, an operator running
-  // several customers had to recognise every tenant by name in one flat list.
-  //
-  // Membership comes from the organization list rather than the tenant list:
-  // listOrganizations already returns each org's tenants, the query is warm
-  // (the bar above issues it), and TenantEntry carries no organizationId.
-  const selectedOrgId = useAppSelector((s) => s.ui.adminSelectedOrgId);
-  const { data: orgList } = useListOrganizationsQuery();
-
-  const tenants = useMemo(() => {
-    if (!selectedOrgId) return allTenants;
-    const org = orgList?.data?.organizations?.find((o) => o.id === selectedOrgId);
-    // Until the organization list resolves we cannot filter, and showing every
-    // tenant would contradict the filter the operator just set. An empty list
-    // for one render is the honest reading of "not known yet".
-    const slugs = new Set((org?.tenants ?? []).map((t) => t.slug));
-    return allTenants.filter((t) => slugs.has(t.slug));
-  }, [allTenants, orgList, selectedOrgId]);
+  // Scoped by the organization picker in the bar above — shared with the
+  // Tenant Applications list so the two sections cannot disagree.
+  const { scoped: tenants, selectedOrgId } = useOrgScopedTenants(allTenants);
 
   // Get selected tenant
   const selectedTenant = useMemo(() => {

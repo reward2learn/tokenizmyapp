@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import Alert from '@mui/material/Alert';
 import Box from '@mui/material/Box';
 import Button from '@mui/material/Button';
@@ -73,6 +73,7 @@ import { useClearSeedMutation } from '@/store/apis/admin-api';
 import { useAppDispatch } from '@/store/hooks';
 import { setAdminSelectedTenant } from '@/store/ui-slice';
 import { getTemplate } from '@/domain/tenant/template-catalog';
+import { useOrgScopedTenants } from '@/lib/admin/use-org-scoped-tenants';
 import { TenantWizard } from '@/components/ops-admin/tenant-wizard';
 import { TenantUserManager } from '@/components/ops-admin/tenant-user-manager';
 import { EditTenantModal } from '@/components/ops-admin/edit-tenant-modal';
@@ -201,7 +202,10 @@ export function TenantDashboard() {
   const [clearConfirmText, setClearConfirmText] = useState('');
   const [clearSeed, { isLoading: isClearingData }] = useClearSeedMutation();
 
-  const tenants = data?.data?.tenants ?? [];
+  const allTenants = useMemo(() => data?.data?.tenants ?? [], [data]);
+  // Scoped by the organization picker, shared with the Tenants panel's selector
+  // so both sections of the console show the same set.
+  const { scoped: tenants, selectedOrgName, isEmptyForOrg } = useOrgScopedTenants(allTenants);
 
   const handleDelete = async (slug: string) => {
     handleMenuClose();
@@ -523,6 +527,17 @@ export function TenantDashboard() {
           </Box>
         ) : isError ? (
           <Alert severity="error">Failed to load tenants. The tenants table may need to be migrated — run seed or migrate first.</Alert>
+        ) : isEmptyForOrg ? (
+          // Distinct from having no tenants at all: an operator who filtered to
+          // an empty organization would otherwise be told their platform is
+          // empty and go looking for a data problem that is not there.
+          <Box sx={{ textAlign: 'center', py: 6 }}>
+            <Typography variant="body1" color="text.secondary" sx={{ mb: 2 }}>
+              No tenant applications in {selectedOrgName ?? 'this organization'}.
+              Choose another organization above, or create one here.
+            </Typography>
+            <TenantWizard />
+          </Box>
         ) : tenants.length === 0 ? (
           <Box sx={{ textAlign: 'center', py: 6 }}>
             <Typography variant="body1" color="text.secondary" sx={{ mb: 2 }}>
