@@ -3,7 +3,7 @@
  *
  * GET /api/default-route
  *   Returns: { path: string } — the configured default nav item's path,
- *            or "/dashboard" when none is configured.
+ *            or "/" when none is configured.
  *   No auth required — used by the root page redirect.
  */
 

@@ -108,8 +108,17 @@ export async function proxy(request: NextRequest) {
     const isPublic = PUBLIC_SLUGS.has(slug) || slug === '';
     if (!isPublic) {
       if (!session) {
-        const redirectUrl = new URL('/dashboard', request.url);
+        // Send them to the landing page, not into the app.
+        //
+        // This used to redirect to /dashboard, so an anonymous visitor asking
+        // for any gated route was deposited on a dashboard they could not see,
+        // to be shown a sign-in wall. '/' is public, explains what the product
+        // is, and carries its own sign-in — which is the page they should have
+        // met in the first place.
+        const redirectUrl = new URL('/', request.url);
         redirectUrl.searchParams.set('redirect_reason', 'auth_required');
+        // Preserved so sign-in can return them to what they actually wanted.
+        redirectUrl.searchParams.set('redirect', pathname);
         return NextResponse.redirect(redirectUrl);
       }
     }

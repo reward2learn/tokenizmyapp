@@ -92,7 +92,16 @@ export function SignInPanel({ requiredTier }: SignInPanelProps) {
   // user in without unlocking *that* page. That is a real limitation, and the
   // panel says so below rather than letting the form look like it failed.
   const pinUnlocksThisPage = requiredTier !== 'google';
-  const googleHref = googleAuthHref(pathname || '/');
+  // Prefer the destination the proxy preserved when it bounced an
+  // unauthenticated request to the landing page — otherwise signing in returns
+  // the user to '/' and they have to find their way back to what they asked
+  // for. Only same-origin paths are honoured, so the parameter cannot be used
+  // to bounce someone off-site after login.
+  const requested = searchParams.get('redirect');
+  const safeRequested = requested && requested.startsWith('/') && !requested.startsWith('//')
+    ? requested
+    : null;
+  const googleHref = googleAuthHref(safeRequested ?? pathname ?? '/');
 
   const handlePinSubmit = async (event: FormEvent) => {
     event.preventDefault();

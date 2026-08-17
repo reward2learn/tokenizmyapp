@@ -12,16 +12,26 @@
  * called fetch(`${VERCEL_URL}/api/default-route`) from the root page — the
  * deployment URL is behind Vercel SSO/deployment protection, so the fetch
  * was redirected to the SSO login, res.ok was false, and the app always
- * fell back to "/dashboard" regardless of the configured default.
+ * fell back to the default path regardless of the configured default.
  */
 
 import { PrismaClient } from '@/generated/prisma';
 
-const FALLBACK_PATH = '/dashboard';
+/**
+ * Where to land when nothing is configured.
+ *
+ * '/' is the landing page. It used to be '/dashboard', which meant every
+ * deployment without an explicit default nav item sent everyone — including
+ * anonymous visitors — into the app and, for most of them, straight into a
+ * sign-in wall. A tenant that has configured a default still gets it; this is
+ * only the answer to "nothing is set up".
+ */
+const FALLBACK_PATH = '/';
 
 /**
  * @returns the configured default nav path (is_default = TRUE, visible),
- *          or "/dashboard" when nothing is configured or unavailable.
+ *          or "/" (the landing page) when nothing is configured or the
+ *          database is unavailable.
  */
 export async function getDefaultRoutePath(): Promise<string> {
   const url = process.env.POSTGRES_URL ?? process.env.DATABASE_URL;
