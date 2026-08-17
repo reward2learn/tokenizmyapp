@@ -44,6 +44,7 @@ import { TenantInfoTab } from './tenant-info-tab';
 import { NavigationManager } from './navigation-manager';
 import { BrandConfigTab } from './brand-config-tab';
 import { AppPackTab } from './app-pack-tab';
+import { TenantBillingTab } from '@/components/billing/tenant-billing-tab';
 import { EditTenantModal } from './edit-tenant-modal';
 import { TenantSecurityGroups } from './tenant-security-groups';
 import { TenantRoles } from './tenant-roles';
@@ -152,6 +153,7 @@ export function TenantAdminPanel() {
     { key: 'accounts', label: 'Accounts' },
     { key: 'roles', label: 'Roles' },
     { key: 'ai-chat', label: 'AI Chat' },
+    { key: 'billing', label: 'Billing' },
   ];
   
   return (
@@ -409,6 +411,9 @@ export function TenantAdminPanel() {
                 )}
                 {activeSubtab === 'ai-chat' && selectedTenant && (
                   <TenantAIChat tenantSlug={selectedTenant.slug} tenantName={selectedTenant.displayName} appId={effectiveAppId} />
+                )}
+                {activeSubtab === 'billing' && selectedTenant && (
+                  <TenantBillingTab tenantSlug={selectedTenant.slug} />
                 )}
               </Box>
             </>

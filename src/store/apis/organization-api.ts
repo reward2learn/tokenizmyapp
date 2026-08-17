@@ -246,6 +246,30 @@ export const organizationApi = createApi({
       invalidatesTags: ['Subscription'],
     }),
 
+    /** Invoice history, read live from Stripe. */
+    getOrganizationInvoices: builder.query<
+      ApiEnvelope<{
+        stripeConfigured: boolean;
+        invoices: Array<{
+          id: string;
+          number: string | null;
+          status: string | null;
+          amountDue: number;
+          amountPaid: number;
+          currency: string;
+          created: string;
+          periodStart: string;
+          periodEnd: string;
+          hostedInvoiceUrl: string | null;
+          invoicePdf: string | null;
+        }>;
+      }>,
+      string
+    >({
+      query: (orgId) => ({ url: `admin/organizations/${orgId}/invoices` }),
+      providesTags: ['Subscription'],
+    }),
+
     /** Create a PaymentIntent for a paid top-up. Credits arrive via webhook. */
     createTopUpIntent: builder.mutation<
       ApiEnvelope<{
@@ -279,6 +303,7 @@ export const {
   useGetOrganizationCreditsQuery,
   useGrantOrganizationCreditsMutation,
   useGetBillingCheckoutQuery,
+  useGetOrganizationInvoicesQuery,
   useStartCheckoutMutation,
   useCreateTopUpIntentMutation,
 } = organizationApi;

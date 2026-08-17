@@ -3,6 +3,9 @@ import type { ForecastScenarioKey } from '@/domain/financial/financial-projectio
 
 export type ChartKpi = 'ebitda' | 'revenue' | 'net_income' | 'guests' | 'staff_cost';
 
+/** Tabs in Settings → Billing. */
+export type BillingTab = 'plan' | 'ai-credits' | 'cloud-credits' | 'invoices';
+
 export type AdminTenantSubtab =
   | 'info'
   | 'navigation'
@@ -11,7 +14,8 @@ export type AdminTenantSubtab =
   | 'accounts'
   | 'roles'
   | 'ai-chat'
-  | 'app-pack';
+  | 'app-pack'
+  | 'billing';
 
 export interface UiState {
   drawerOpen: boolean;
@@ -31,6 +35,8 @@ export interface UiState {
   adminSelectedAppId: string | null;
   /** Platform-admin "Tenants" panel: which subtab is active for the selected tenant. */
   adminActiveSubtab: AdminTenantSubtab;
+  /** Active tab in the Billing panel. */
+  billingTab: BillingTab;
 }
 
 const initialState: UiState = {
@@ -47,6 +53,7 @@ const initialState: UiState = {
   adminSelectedTenantSlug: null,
   adminSelectedAppId: null,
   adminActiveSubtab: 'info',
+  billingTab: 'plan',
 };
 
 export const uiSlice = createSlice({
@@ -99,6 +106,9 @@ export const uiSlice = createSlice({
       state.adminSelectedAppId = action.payload;
       state.adminActiveSubtab = 'info';
     },
+    setBillingTab(state, action: { payload: BillingTab }) {
+      state.billingTab = action.payload;
+    },
     setAdminActiveSubtab(state, action: { payload: AdminTenantSubtab }) {
       state.adminActiveSubtab = action.payload;
     },
@@ -118,4 +128,5 @@ export const {
   setAdminSelectedTenant,
   setAdminSelectedApp,
   setAdminActiveSubtab,
+  setBillingTab,
 } = uiSlice.actions;
