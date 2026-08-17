@@ -59,7 +59,12 @@ export const provisionTenant = inngest.createFunction(
     // database when Neon provisioning succeeded, never the root DB.
     await step.run('seed-defaults', async () => {
       try {
-        const { seedTenantDefaults, seedTemplateSecurityGroups, resolveTenantAdminEmail } = await import('@/domain/tenant/tenant-seed-service');
+        const {
+          seedTenantDefaults,
+          seedTemplateSecurityGroups,
+          seedTenantKnowledge,
+          resolveTenantAdminEmail,
+        } = await import('@/domain/tenant/tenant-seed-service');
         const { PrismaClient } = await import('@/generated/prisma');
         const { createRawClient } = await import('@/lib/db');
         const dedicatedClient = dbInfo?.pooledUrl
@@ -74,6 +79,15 @@ export const provisionTenant = inngest.createFunction(
             db,
           });
           await seedTemplateSecurityGroups(db, templateId);
+          // Give the AI assistant something true to say about THIS app. Without
+          // it the tenant's knowledge_snippets table is empty and the assistant
+          // falls back to generic code defaults.
+          await seedTenantKnowledge(db, {
+            slug, displayName, templateId,
+            // The prompt is the administrator's own description of the
+            // business — the best source of context that exists here.
+            brief: prompt ?? null,
+          });
         } finally {
           if (dedicatedClient) await dedicatedClient.$disconnect();
         }

@@ -209,8 +209,9 @@ export async function POST(
       await db.$executeRawUnsafe(`DELETE FROM user_groups WHERE user_id = $1;`, userId);
       for (const code of groupCodes) {
         await db.$executeRawUnsafe(
-          `INSERT INTO user_groups (user_id, group_id)
-           SELECT $1, sg.id FROM security_groups sg WHERE sg.code = $2
+          // `id` is @default(cuid()) — client-side, so no database default.
+          `INSERT INTO user_groups (id, user_id, group_id)
+           SELECT gen_random_uuid()::TEXT, $1, sg.id FROM security_groups sg WHERE sg.code = $2
            ON CONFLICT (user_id, group_id) DO NOTHING;`,
           userId, code,
         );

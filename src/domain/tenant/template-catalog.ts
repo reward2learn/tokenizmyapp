@@ -76,6 +76,52 @@ export interface TemplateCapabilities {
   web3Wallet?: Web3WalletConfig;
 }
 
+/**
+ * Who the AI assistant is, for apps built from this template.
+ *
+ * ## Why this exists
+ *
+ * The assistant's system prompt used to be assembled from a hardcoded corpus
+ * describing one specific nightclub, plus two blocks appended unconditionally:
+ * that tenant's monthly revenue targets, and answer rules instructing the model
+ * to format in IDR and highlight break-even coverage. Every app built from
+ * every template inherited all of it — a hotel in Europe was told to answer in
+ * rupiah about a Bali venue's exit strategy.
+ *
+ * A template already decides an app's pages, navigation, data model and brand.
+ * The assistant is part of the app, so it belongs here too: the same decision,
+ * declared in the same place, rather than baked into a shared prompt file that
+ * no tenant can override.
+ *
+ * ## Reaching the running app
+ *
+ * A provisioned app does not read this catalog — it runs from its own
+ * deployment. The resolved profile is serialized into the `TEMPLATE_PROFILE`
+ * environment variable at deploy time (see vercel-deploy-service.ts) and parsed
+ * back by shared/src/lib/config/template-profile.ts. Everything here must
+ * therefore be plain JSON-serializable data.
+ */
+export interface TemplateAssistantProfile {
+  /** What the assistant *is*, e.g. "restaurant operations analyst". */
+  role: string;
+  /** The business domain, e.g. "restaurant and food service operations". */
+  domain: string;
+  /**
+   * ISO 4217 code used when the assistant quotes money.
+   *
+   * A template-level default only — a tenant's own currency, once known, should
+   * win over it. Templates that are not money-centric (education, healthcare)
+   * still need a value for the occasions money does come up.
+   */
+  currency: string;
+  /** Domain metrics the assistant should reach for first. */
+  keyMetrics: string[];
+  /** What the assistant can help with — drives its opening offer. */
+  capabilities: string[];
+  /** Replaces the old hardcoded "How You Answer" block. */
+  answerStyle: string[];
+}
+
 export interface TemplateDefinition {
   id: string;
   label: string;
@@ -89,6 +135,12 @@ export interface TemplateDefinition {
    */
   source?: 'builtin' | 'custom';
   capabilities?: TemplateCapabilities;
+  /**
+   * Persona for this template's AI assistant. Optional so an older stored
+   * custom template still loads; `resolveAssistantProfile()` derives a usable
+   * one from `label`/`description`/`schemaOrgType` when it is absent.
+   */
+  assistant?: TemplateAssistantProfile;
   defaultColors: { primary: string; secondary: string };
   defaultPages: {
     slug: string;

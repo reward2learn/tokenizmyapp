@@ -7,7 +7,6 @@ import { createClient } from '@/lib/db';
 import { resolveOpenAiKey } from '@/lib/openai';
 import { resolveActiveAiConfig } from '@/lib/ai-providers';
 import { KnowledgeService } from '@/domain/knowledge/knowledge-service';
-import { MONTHLY_TARGETS_SEED } from '@/domain/knowledge/knowledge-seed';
 import { getSessionFromRequest } from '@/lib/auth/session';
 import { sessionIsPlatformAdmin } from '@/lib/auth/jwt';
 import { legacyError } from '@/lib/api/response';
@@ -178,13 +177,22 @@ async function fetchDatabaseContext(db: ReturnType<typeof createClient>): Promis
       parts.push(`Avg Spend: ${Number(cm.avg_spend).toLocaleString()}`);
       parts.push(`GoFood: ${Number(cm.total_gofood).toLocaleString()}, Dine-in: ${Number(cm.total_dine_in).toLocaleString()}`);
 
-      const target = MONTHLY_TARGETS_SEED.find((t) => t.month === cm.month);
+      // Targets come from THIS app's own monthly_targets rows. They used to be
+      // read from a hardcoded constant holding one particular tenant's goals,
+      // so every app's live revenue was reported "VS TARGET" against a Bali
+      // nightclub's numbers. An app with no targets of its own now gets no
+      // comparison, which is the honest answer.
+      const target = await db.monthlyTarget.findFirst({
+        where: { month: String(cm.month), appId: getCurrentAppId() },
+      });
       if (target) {
         const projRev = (Number(cm.total_revenue) / cm.days_count) * 30;
+        // targetGuests is a monthly figure; the actual beside it is per day.
+        const targetGuestsPerDay = Math.round(Number(target.targetGuests) / 30);
         parts.push('--- VS TARGET ---');
-        parts.push(`Target Revenue: ${Number(target.revenue).toLocaleString()}, Projected: ${Math.round(projRev).toLocaleString()}`);
-        parts.push(`Target Guests/Day: ${target.guests}, Actual: ${cm.avg_guests}`);
-        parts.push(`Target Avg Spend: ${Number(target.spend).toLocaleString()}, Actual: ${Number(cm.avg_spend).toLocaleString()}`);
+        parts.push(`Target Revenue: ${Number(target.targetRevenue).toLocaleString()}, Projected: ${Math.round(projRev).toLocaleString()}`);
+        parts.push(`Target Guests/Day: ${targetGuestsPerDay}, Actual: ${cm.avg_guests}`);
+        parts.push(`Target Avg Spend: ${Number(target.targetAvgSpend).toLocaleString()}, Actual: ${Number(cm.avg_spend).toLocaleString()}`);
       }
     }
   } catch {

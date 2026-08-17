@@ -66,6 +66,26 @@ const web3WalletSchema = z.object({
   tokenGating: z.boolean(),
 });
 
+/**
+ * The persona for this template's AI assistant.
+ *
+ * Worth generating rather than defaulting: the administrator's brief IS a
+ * description of the business, and it is the only description that exists for a
+ * custom template. Falling back to a generic persona here would waste the one
+ * piece of first-hand knowledge the platform has.
+ *
+ * Optional so a model that omits it still produces a usable template —
+ * `resolveAssistantProfile()` then derives one from the label and description.
+ */
+const assistantProfileSchema = z.object({
+  role: z.string().min(1).max(80),
+  domain: z.string().min(1).max(200),
+  currency: z.string().length(3),
+  keyMetrics: z.array(z.string().min(1).max(60)).max(8),
+  capabilities: z.array(z.string().min(1).max(160)).max(6),
+  answerStyle: z.array(z.string().min(1).max(200)).max(6),
+});
+
 const templateGenerationSchema = z.object({
   label: z.string().min(1).max(60),
   description: z.string().min(1).max(400),
@@ -89,6 +109,7 @@ const templateGenerationSchema = z.object({
   schemaOrgType: z.string().min(1),
   xsdStandard: z.string().min(1),
   web3Wallet: web3WalletSchema,
+  assistant: assistantProfileSchema.optional(),
   /** One line on why this shape was chosen — shown to the admin for review. */
   rationale: z.string().max(600).optional(),
 });
@@ -117,6 +138,18 @@ function buildSystemPrompt(): string {
     'socialProviders may only contain "google" and "apple" — those are the socials enabled on the',
     'platform Reown project. Set emailLogin true to also offer email sign-in. Default chain is 8453 (Base).',
     'Even when the wallet is disabled, still return a complete web3Wallet object with enabled=false.',
+    '',
+    'Assistant persona ("assistant"): describe the AI assistant this app should have.',
+    '- role: what it is, e.g. "veterinary clinic operations analyst". Lower case, no company name.',
+    '- domain: the subject it covers, in a short phrase.',
+    '- currency: ISO 4217 code for this business (e.g. USD, EUR, IDR, GBP). Infer it from the',
+    '  source material or the location when either indicates one; otherwise use USD.',
+    '- keyMetrics: 3-6 metrics a operator in THIS industry actually tracks. Use the industry\'s own',
+    '  vocabulary (a hotel tracks RevPAR, a clinic tracks appointment utilisation). Do not list',
+    '  generic finance metrics unless the business is genuinely finance-led.',
+    '- capabilities: 3-5 things the assistant can help with, each starting with a verb.',
+    '- answerStyle: 3-5 imperative instructions for how it should answer in this domain.',
+    'Write these for the industry, not for this one company — the template may be reused.',
   ].join('\n');
 }
 
@@ -315,6 +348,11 @@ export async function generateCustomTemplate(
     schemaOrgType: g.schemaOrgType,
     xsdStandard: g.xsdStandard,
     capabilities: { web3Wallet },
+    // Carried through so apps built from this template inherit an assistant
+    // that knows the industry. Omitted when the model did not produce one —
+    // resolveAssistantProfile() then derives a persona from label/description
+    // rather than storing a placeholder that looks authored.
+    ...(g.assistant ? { assistant: g.assistant } : {}),
   };
 
   return {

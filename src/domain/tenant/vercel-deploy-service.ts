@@ -8,6 +8,8 @@ import { getVercelClient, withTeamId, withTeamId404Null, TEAM_ID, resolveBearerT
 import { DEFAULT_RELAY_REDIRECT_URI } from '@/lib/auth/google-relay';
 import { buildWeb3EnvVars } from '@/lib/web3/reown';
 import { resolveTemplate } from '@/domain/tenant/custom-template-service';
+import { resolveAssistantProfile } from '@/domain/tenant/template-assistant-profiles';
+import { TEMPLATE_PROFILE_ENV_KEY } from '@shared/lib/config/template-profile';
 import type { UpdateProjectRequestBody } from '@vercel/sdk/models/updateprojectbranchmatcher.js';
 
 
@@ -338,6 +340,20 @@ export async function buildEnvVarsForProject(input: DeployTenantInput): Promise<
   try {
     const template = await resolveTemplate(input.template);
     Object.assign(envVars, buildWeb3EnvVars(template.capabilities?.web3Wallet));
+
+    // Stamp the template identity onto the deployment.
+    //
+    // Without this a provisioned app has no idea what it is: the template
+    // decides its pages, nav and colours at provisioning time and is then
+    // discarded. That is why every app's AI assistant used to introduce itself
+    // as the same nightclub — the persona had nothing else to go on. The
+    // template is already resolved here for the wallet, so carrying the rest
+    // of it through costs nothing.
+    envVars.NEXT_PUBLIC_TEMPLATE_ID = template.id;
+    envVars.NEXT_PUBLIC_TEMPLATE_LABEL = template.label;
+    // Server-only: this is prompt material, not UI copy, and large enough that
+    // putting it in the client bundle would be waste.
+    envVars[TEMPLATE_PROFILE_ENV_KEY] = JSON.stringify(resolveAssistantProfile(template));
   } catch (err) {
     console.warn(
       `[vercel-deploy] Could not resolve template "${input.template}" for wallet config; deploying without a wallet:`,

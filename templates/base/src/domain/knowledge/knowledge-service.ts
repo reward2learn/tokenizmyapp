@@ -1,7 +1,7 @@
 import type { DbClient } from '@/lib/db';
 import {
   buildStructuredPromptFromSnippets,
-  KNOWLEDGE_SEED_SNIPPETS,
+  buildFallbackSnippets,
 } from '@/domain/knowledge/knowledge-seed';
 
 export interface KnowledgeSnippetDto {
@@ -22,7 +22,7 @@ export class KnowledgeService {
     } catch (err) {
       console.warn('[knowledge] snippet lookup failed, using seed fallback:', key, err);
     }
-    const seed = KNOWLEDGE_SEED_SNIPPETS.find((s) => s.key === key);
+    const seed = buildFallbackSnippets().find((s) => s.key === key);
     return seed ? { key: seed.key, category: seed.category, content: seed.content } : null;
   }
 
@@ -34,7 +34,7 @@ export class KnowledgeService {
     if (rows.length) {
       return rows.map((r) => ({ key: r.key, category: r.category, content: r.content }));
     }
-    return KNOWLEDGE_SEED_SNIPPETS
+    return buildFallbackSnippets()
       .filter((s) => s.category === category)
       .map((s) => ({ key: s.key, category: s.category, content: s.content }));
   }
@@ -44,7 +44,7 @@ export class KnowledgeService {
     if (rows.length) {
       return rows.map((r) => ({ key: r.key, category: r.category, content: r.content }));
     }
-    return KNOWLEDGE_SEED_SNIPPETS.map((s) => ({
+    return buildFallbackSnippets().map((s) => ({
       key: s.key,
       category: s.category,
       content: s.content,
