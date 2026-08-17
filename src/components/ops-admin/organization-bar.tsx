@@ -179,6 +179,14 @@ export function OrganizationBar({ tenantSlug }: { tenantSlug?: string | null }) 
                     <Typography variant="body2" sx={{ fontWeight: 500 }}>
                       {o.displayName}
                     </Typography>
+                    {/* Tenant count in the picker itself: an org that pays for
+                        nothing and an org whose tenants were orphaned used to
+                        look identical here. */}
+                    <Typography variant="caption" color="text.secondary">
+                      {(o.tenants?.length ?? 0) === 1
+                        ? '1 tenant'
+                        : `${o.tenants?.length ?? 0} tenants`}
+                    </Typography>
                   </Stack>
                 </MenuItem>
               ))}
@@ -196,6 +204,28 @@ export function OrganizationBar({ tenantSlug }: { tenantSlug?: string | null }) 
                   onDelete={() => navigator.clipboard?.writeText(activeOrg.id)}
                   deleteIcon={<ContentCopyIcon sx={{ fontSize: 14 }} />}
                   sx={{ fontFamily: 'var(--font-geist-mono, monospace)', fontSize: '0.7rem' }}
+                />
+              </Tooltip>
+
+              {/* Which tenants this org actually pays for. Without it the
+                  Organization -> Tenant mapping was only ever visible in
+                  reverse, one selected tenant at a time. */}
+              <Tooltip
+                title={
+                  activeOrg.tenants?.length
+                    ? activeOrg.tenants.map((t) => t.displayName).join(', ')
+                    : 'No tenants are assigned to this organization'
+                }
+              >
+                <Chip
+                  label={
+                    activeOrg.tenants?.length
+                      ? `${activeOrg.tenants.length} tenant${activeOrg.tenants.length === 1 ? '' : 's'}`
+                      : 'No tenants'
+                  }
+                  size="small"
+                  variant="outlined"
+                  color={activeOrg.tenants?.length ? 'default' : 'warning'}
                 />
               </Tooltip>
 

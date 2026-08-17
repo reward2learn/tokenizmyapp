@@ -29,6 +29,17 @@ export interface Organization {
   referredBy: string | null;
   createdAt: string;
   updatedAt: string;
+  /**
+   * Tenants this organization pays for.
+   *
+   * Populated by `listOrganizations`; absent on single-org reads where the
+   * caller has not asked for it. The mapping is the whole point of the
+   * Organization → Tenant → Apps hierarchy, and it was previously impossible to
+   * see from the admin console: the only view of it was the reverse lookup for
+   * one selected tenant, so an organization with no tenants and an organization
+   * whose tenants were orphaned looked identical.
+   */
+  tenants?: { slug: string; displayName: string }[];
 }
 
 export interface OrgMember {
@@ -148,7 +159,25 @@ export async function listOrganizations(db: RawDb): Promise<Organization[]> {
   const rows = (await db.$queryRawUnsafe(
     `SELECT * FROM organizations ORDER BY created_at ASC;`,
   )) as Record<string, unknown>[];
-  return rows.map(mapOrg);
+
+  // One extra query for the whole set rather than one per organization — there
+  // are few organizations and this runs on every admin page load.
+  const tenantRows = (await db.$queryRawUnsafe(
+    `SELECT organization_id, slug, display_name
+       FROM tenants
+      WHERE organization_id IS NOT NULL
+      ORDER BY slug ASC;`,
+  )) as Record<string, unknown>[];
+
+  const byOrg = new Map<string, { slug: string; displayName: string }[]>();
+  for (const row of tenantRows) {
+    const key = String(row.organization_id);
+    const list = byOrg.get(key) ?? [];
+    list.push({ slug: String(row.slug), displayName: String(row.display_name) });
+    byOrg.set(key, list);
+  }
+
+  return rows.map((row) => ({ ...mapOrg(row), tenants: byOrg.get(String(row.id)) ?? [] }));
 }
 
 export async function getOrganization(db: RawDb, orgId: string): Promise<Organization | null> {
@@ -305,8 +334,25 @@ export async function backfillDefaultOrganization(
     if (reread.length > 0) orgId = String(reread[0].id);
   }
 
+  // Two conditions, not one.
+  //
+  // `IS NULL` catches tenants that predate the organization layer. The second
+  // clause catches tenants pointing at an organization that no longer exists —
+  // which the original condition could never fix, because such a row is not
+  // null and so was skipped on every subsequent run. Permanently orphaned, and
+  // invisible: `resolveOrgForTenant` INNER JOINs organizations, so the tenant
+  // reads as having no billing owner while the backfill reads it as already
+  // assigned.
+  //
+  // Orphans are reachable because the column has two creation paths that
+  // disagree: `prisma db push` builds it with a foreign key (so a deleted org
+  // nulls the reference), while the idempotent DDL below adds a bare
+  // `organization_id TEXT` with no constraint at all.
   const assigned = await db.$executeRawUnsafe(
-    `UPDATE tenants SET organization_id = $1 WHERE organization_id IS NULL;`,
+    `UPDATE tenants
+        SET organization_id = $1
+      WHERE organization_id IS NULL
+         OR organization_id NOT IN (SELECT id FROM organizations);`,
     orgId,
   );
 

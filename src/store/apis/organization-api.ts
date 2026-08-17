@@ -12,6 +12,8 @@ export interface Organization {
   referredBy: string | null;
   createdAt: string;
   updatedAt: string;
+  /** Tenants this organization pays for. Returned by the list endpoint. */
+  tenants?: { slug: string; displayName: string }[];
 }
 
 export interface OrgMember {
@@ -80,7 +82,11 @@ export const organizationApi = createApi({
   baseQuery,
   tagTypes: ['Organization', 'TenantOrg', 'Credits', 'Subscription'],
   endpoints: (builder) => ({
-    listOrganizations: builder.query<ApiEnvelope<{ organizations: Organization[] }>, void>({
+    listOrganizations: builder.query<
+      // `assigned` reports how many tenants the read's backfill just repaired.
+      ApiEnvelope<{ organizations: Organization[]; assigned: number }>,
+      void
+    >({
       query: () => ({ url: 'admin/organizations' }),
       providesTags: ['Organization'],
     }),

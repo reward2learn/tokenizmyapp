@@ -26,10 +26,19 @@ export async function GET(request: Request): Promise<NextResponse> {
   const db = createRawClient();
   try {
     // Converge the default org on first read so a platform that has never run
-    // the migrate route still returns something usable.
-    await backfillDefaultOrganization(db);
+    // the migrate route still returns something usable. Also reclaims tenants
+    // pointing at an organization that no longer exists, which the old
+    // NULL-only condition could never repair.
+    const backfill = await backfillDefaultOrganization(db);
+    if (backfill.tenantsAssigned > 0) {
+      console.log(
+        `[organizations] Backfill assigned ${backfill.tenantsAssigned} tenant(s) to the default organization`,
+      );
+    }
     const organizations = await listOrganizations(db);
-    return jsonOk({ organizations });
+    // `assigned` lets the console say what was repaired instead of silently
+    // changing the mapping under the administrator.
+    return jsonOk({ organizations, assigned: backfill.tenantsAssigned });
   } catch (err) {
     return jsonError('Failed to list organizations: ' + (err as Error).message, 500);
   }

@@ -1,0 +1,184 @@
+import { describe, expect, it, vi } from 'vitest';
+
+vi.mock('@/domain/tenant/tenant-service', () => ({
+  ensureTenantsTable: vi.fn(async () => {}),
+}));
+vi.mock('@/lib/db-updated-at', () => ({
+  ensureUpdatedAtDefaults: vi.fn(async () => {}),
+}));
+
+interface FakeOrg {
+  id: string;
+  slug: string;
+  display_name: string;
+  logo_url: string | null;
+  owner_user_id: string | null;
+  referred_by: string | null;
+  created_at: Date;
+  updated_at: Date;
+}
+
+interface FakeTenant {
+  slug: string;
+  display_name: string;
+  organization_id: string | null;
+}
+
+/**
+ * In-memory stand-in for `organizations` + the `tenants` registry.
+ *
+ * The backfill's whole job is a single UPDATE with a compound WHERE, so the
+ * fake models that predicate exactly rather than approximating it — the bug it
+ * exists to catch lived in that predicate.
+ */
+function makeDb(tenants: FakeTenant[] = []) {
+  const orgs: FakeOrg[] = [];
+
+  const db = {
+    orgs,
+    tenants,
+    $executeRawUnsafe: vi.fn(async (sql: string, ...args: unknown[]) => {
+      if (sql.includes('INSERT INTO organizations')) {
+        const slug = args[1] as string;
+        if (orgs.some((o) => o.slug === slug)) return 0; // ON CONFLICT DO NOTHING
+        orgs.push({
+          id: args[0] as string,
+          slug,
+          display_name: args[2] as string,
+          logo_url: null,
+          owner_user_id: null,
+          referred_by: null,
+          created_at: new Date(),
+          updated_at: new Date(),
+        });
+        return 1;
+      }
+      if (sql.includes('UPDATE tenants') && sql.includes('SET organization_id')) {
+        const orgId = args[0] as string;
+        const known = new Set(orgs.map((o) => o.id));
+        // Mirrors the real predicate: null OR pointing at a missing org.
+        const reclaimsOrphans = sql.includes('NOT IN (SELECT id FROM organizations)');
+        const targets = tenants.filter(
+          (t) =>
+            t.organization_id === null ||
+            (reclaimsOrphans && t.organization_id !== null && !known.has(t.organization_id)),
+        );
+        for (const t of targets) t.organization_id = orgId;
+        return targets.length;
+      }
+      return 0;
+    }),
+    $queryRawUnsafe: vi.fn(async (sql: string, ...args: unknown[]) => {
+      if (sql.includes('FROM organizations') && sql.includes('WHERE slug')) {
+        return orgs.filter((o) => o.slug === args[0]).slice(0, 1);
+      }
+      if (sql.includes('FROM organizations') && sql.includes('WHERE id')) {
+        return orgs.filter((o) => o.id === args[0]).slice(0, 1);
+      }
+      if (sql.includes('FROM organizations')) return orgs;
+      if (sql.includes('FROM tenants') && sql.includes('organization_id IS NOT NULL')) {
+        return tenants.filter((t) => t.organization_id !== null).map((t) => ({
+          organization_id: t.organization_id,
+          slug: t.slug,
+          display_name: t.display_name,
+        }));
+      }
+      return [];
+    }),
+  };
+
+  return db as unknown as Parameters<
+    typeof import('./organization-service').backfillDefaultOrganization
+  >[0] & typeof db;
+}
+
+describe('backfillDefaultOrganization', () => {
+  it('creates the default org and claims unassigned tenants', async () => {
+    const service = await import('./organization-service');
+    const db = makeDb([
+      { slug: 'alpha', display_name: 'Alpha', organization_id: null },
+      { slug: 'beta', display_name: 'Beta', organization_id: null },
+    ]);
+
+    const result = await service.backfillDefaultOrganization(db);
+
+    expect(result.created).toBe(true);
+    expect(result.tenantsAssigned).toBe(2);
+    expect(db.tenants.every((t) => t.organization_id === result.orgId)).toBe(true);
+  });
+
+  it('reclaims a tenant pointing at an organization that no longer exists', async () => {
+    // The bug this test exists for. The old predicate was `organization_id IS
+    // NULL` alone, so a tenant whose org had been deleted was neither null nor
+    // resolvable: resolveOrgForTenant INNER JOINs organizations and found
+    // nothing, while the backfill saw a non-null value and skipped it. The
+    // tenant was permanently unmapped and no repeat run could fix it.
+    const service = await import('./organization-service');
+    const db = makeDb([
+      { slug: 'orphan', display_name: 'Orphan', organization_id: 'org_deleted_long_ago' },
+    ]);
+
+    const result = await service.backfillDefaultOrganization(db);
+
+    expect(result.tenantsAssigned).toBe(1);
+    expect(db.tenants[0].organization_id).toBe(result.orgId);
+  });
+
+  it('leaves correctly assigned tenants alone', async () => {
+    // Reclaiming must not steal tenants from a real organization — moving a
+    // tenant's billing owner is an explicit admin action, not a side effect of
+    // loading a page.
+    const service = await import('./organization-service');
+    const db = makeDb();
+    const first = await service.backfillDefaultOrganization(db);
+
+    const other = await service.createOrganization(db, { displayName: 'Acme' });
+    db.tenants.push({ slug: 'acme-app', display_name: 'Acme App', organization_id: other.id });
+
+    const second = await service.backfillDefaultOrganization(db);
+
+    expect(second.orgId).toBe(first.orgId);
+    expect(second.tenantsAssigned).toBe(0);
+    expect(db.tenants[0].organization_id).toBe(other.id);
+  });
+
+  it('is idempotent', async () => {
+    const service = await import('./organization-service');
+    const db = makeDb([{ slug: 'alpha', display_name: 'Alpha', organization_id: null }]);
+
+    const first = await service.backfillDefaultOrganization(db);
+    const second = await service.backfillDefaultOrganization(db);
+
+    expect(second.orgId).toBe(first.orgId);
+    expect(second.created).toBe(false);
+    expect(second.tenantsAssigned).toBe(0);
+    expect(db.orgs).toHaveLength(1);
+  });
+});
+
+describe('listOrganizations', () => {
+  it('reports which tenants each organization owns', async () => {
+    // Without this the console could not distinguish an org that pays for
+    // nothing from one whose tenants had been orphaned.
+    const service = await import('./organization-service');
+    const db = makeDb([
+      { slug: 'alpha', display_name: 'Alpha', organization_id: null },
+      { slug: 'beta', display_name: 'Beta', organization_id: null },
+    ]);
+    await service.backfillDefaultOrganization(db);
+
+    const [defaultOrg] = await service.listOrganizations(db);
+
+    expect(defaultOrg.slug).toBe(service.DEFAULT_ORG_SLUG);
+    expect(defaultOrg.tenants?.map((t) => t.slug).sort()).toEqual(['alpha', 'beta']);
+  });
+
+  it('returns an empty list rather than undefined for an org with no tenants', async () => {
+    const service = await import('./organization-service');
+    const db = makeDb();
+    await service.backfillDefaultOrganization(db);
+
+    const [defaultOrg] = await service.listOrganizations(db);
+    expect(defaultOrg.tenants).toEqual([]);
+  });
+});
