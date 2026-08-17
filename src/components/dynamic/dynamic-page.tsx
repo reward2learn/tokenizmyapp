@@ -57,7 +57,20 @@ export function DynamicPage({ page }: DynamicPageProps) {
   const platformAdmin = useAppSelector((s) => s.auth.platformAdmin);
   const searchParams = useSearchParams();
   const isPdf = searchParams.get('pdf') === '1';
-  const showSignIn = page.slug === 'dashboard' && tier === 'public';
+  // Prompt to sign in only when something on the page is actually gated.
+  //
+  // This was `page.slug === 'dashboard'` — right while every dashboard held
+  // gated business data, wrong the moment one did not. The platform console's
+  // /dashboard is a public pricing page, and it was rendering a sign-in wall
+  // underneath the prices for visitors who had nothing to sign in to yet.
+  //
+  // Derived from the sections rather than the slug, so the prompt appears
+  // exactly where there is something behind it.
+  const hasGatedSection = page.sections.some((section) => {
+    const configured = (section.config as { minTier?: AuthTier } | undefined)?.minTier;
+    return configured === 'pin' || configured === 'google';
+  });
+  const showSignIn = hasGatedSection && tier === 'public';
 
   return (
     <Box component="main" id="pdfCapture">

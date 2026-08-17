@@ -48,6 +48,19 @@ export function getTenantConfig(): TenantConfig {
 }
 
 /**
+ * Is this deployment the platform's own admin console, rather than a tenant app?
+ *
+ * The console runs the same codebase as every app it provisions, so a handful
+ * of surfaces differ between them — the console sells the product, a tenant app
+ * runs a business. Keyed on the slug because it is stamped on every deployment
+ * and is the same value the platform uses to identify itself elsewhere.
+ */
+export function isPlatformApp(): boolean {
+  const slug = process.env.NEXT_PUBLIC_TENANT_SLUG?.trim() || DEFAULT_TENANT.slug;
+  return slug === DEFAULT_TENANT.slug;
+}
+
+/**
  * Resolve this deployment's own suite-mode app id, e.g. "hr" or "sales-reporting".
  * Empty string for single-app tenants and the tenant's own hub deployment —
  * the same "no app scope" sentinel used throughout the business-data tables

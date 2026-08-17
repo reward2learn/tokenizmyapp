@@ -19,6 +19,7 @@ import { ProductShowcaseBlock } from '@/components/blocks/product-showcase-block
 import { CustomerProofBlock } from '@/components/blocks/customer-proof-block';
 import { FaqBlock } from '@/components/blocks/faq-block';
 import { CtaBannerBlock } from '@/components/blocks/cta-banner-block';
+import { PricingTableBlock } from '@/components/blocks/pricing-table-block';
 import {
   OpsAdminTabsBlock,
   ZReportFormBlock,
@@ -56,6 +57,7 @@ export const BLOCK_REGISTRY: Record<BlockType, BlockComponent> = {
   customer_proof: CustomerProofBlock,
   faq: FaqBlock,
   cta_banner: CtaBannerBlock,
+  pricing_table: PricingTableBlock,
 };
 
 export function getBlockComponent(blockType: BlockType): BlockComponent {

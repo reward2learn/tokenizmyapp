@@ -152,6 +152,15 @@ export const faqConfigSchema = z.object({
   minTier: minTierSchema,
 });
 
+export const pricingTableConfigSchema = z.object({
+  heading: z.string().optional(),
+  subheading: z.string().optional(),
+  ctaHref: z.string().optional(),
+  /** Plan id to mark "Most popular". */
+  highlightPlanId: z.string().optional(),
+  minTier: minTierSchema,
+});
+
 export const ctaBannerConfigSchema = z.object({
   heading: z.string().optional(),
   subheading: z.string().optional(),
@@ -204,6 +213,7 @@ export const blockConfigSchemas = {
   customer_proof: customerProofConfigSchema,
   faq: faqConfigSchema,
   cta_banner: ctaBannerConfigSchema,
+  pricing_table: pricingTableConfigSchema,
 } as const satisfies Record<BlockType, z.ZodType>;
 
 export type BlockConfigMap = {

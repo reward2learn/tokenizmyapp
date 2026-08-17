@@ -5,6 +5,8 @@
  *
  * DB AppPage/PageSection seeded in P6; catalog wins at runtime.
  */
+import { isPlatformApp } from '@shared/lib/config/tenant';
+
 export type AuthTier = 'public' | 'pin' | 'google';
 
 export type BlockType =
@@ -33,7 +35,8 @@ export type BlockType =
   | 'product_showcase'
   | 'customer_proof'
   | 'faq'
-  | 'cta_banner';
+  | 'cta_banner'
+  | 'pricing_table';
 
 export interface PageSectionDefinition {
   blockType: BlockType;
@@ -142,9 +145,99 @@ export function setDynamicPages(pages: PageDefinition[]): void {
   DYNAMIC_PAGES = Object.fromEntries(pages.map((p) => [p.slug, p]));
 }
 
+/**
+ * Pages that differ on the platform's own console.
+ *
+ * The console runs the same codebase as every app it provisions, so most pages
+ * are shared — but a few mean different things. `/dashboard` on a tenant app is
+ * that business's operating dashboard; on the console there is no business to
+ * report on, and the useful thing to show a signed-out visitor is what the
+ * product costs.
+ *
+ * Applied over PAGE_CATALOG rather than branching inside it, so a tenant app's
+ * dashboard is untouched and the override is visible in one place.
+ */
+const PLATFORM_PAGE_OVERRIDES: Record<string, PageDefinition> = {
+  dashboard: {
+    slug: 'dashboard',
+    title: 'Pricing',
+    navLabel: 'Pricing',
+    showInNav: true,
+    authTier: 'public',
+    sections: [
+      {
+        // Generated from src/lib/billing/plans.ts — the same source that drives
+        // Stripe prices, the monthly credit grant and every entitlement check.
+        // Hand-written pricing copy starts lying the moment either side moves.
+        blockType: 'pricing_table',
+        config: {
+          heading: 'Pricing',
+          subheading: 'Start for free and upgrade as you grow.',
+          highlightPlanId: 'business',
+          ctaHref: '/admin',
+          minTier: 'public',
+        },
+      },
+      {
+        blockType: 'faq',
+        config: {
+          heading: 'Frequently asked questions',
+          items: [
+            {
+              question: 'Can I change my plan at any time?',
+              answer:
+                'Yes. Upgrades take effect immediately and are charged pro rata for the rest of the current period, without resetting your billing date. Downgrades take effect at the end of the period you have already paid for, so you keep what you bought.',
+            },
+            {
+              question: 'What are AI credits?',
+              answer:
+                'Credits are spent when the platform generates something for you — an app, a schema, a template, or a chat reply. Each plan includes a monthly allowance, and credits expire 30 days after they are granted. You can buy top-ups on a paid plan.',
+            },
+            {
+              question: 'What happens if I run out of credits?',
+              answer:
+                'Work already in progress finishes rather than failing halfway. The shortfall is recorded and the next generation is blocked until it is settled, which the next monthly allowance does automatically.',
+            },
+            {
+              question: 'What payment methods do you accept?',
+              answer:
+                'Cards, through Stripe. Card details are entered directly with Stripe and never reach our servers. Other payment methods are handled case by case on Enterprise.',
+            },
+            {
+              question: 'What does hosting cost?',
+              answer:
+                'Hosting, the database, authentication, storage and email are included in every plan. Paid plans include a larger share of cloud usage.',
+            },
+            {
+              question: 'Can I use my own AI provider key?',
+              answer:
+                'Yes, on paid plans. Usage against your own key is not charged in AI credits — you pay your provider directly.',
+            },
+          ],
+          minTier: 'public',
+        },
+      },
+      {
+        blockType: 'cta_banner',
+        config: {
+          heading: 'Start building for free',
+          subheading: 'No credit card required.',
+          ctaLabel: 'Start building',
+          ctaHref: '/admin',
+          minTier: 'public',
+        },
+      },
+    ],
+  },
+};
+
 /** Combined static + dynamic page catalog (evaluated lazily so dynamic pages are included). */
 export function getFullCatalog(): Record<string, PageDefinition> {
-  return { ...PAGE_CATALOG, ...DYNAMIC_PAGES };
+  return {
+    ...PAGE_CATALOG,
+    ...(isPlatformApp() ? PLATFORM_PAGE_OVERRIDES : {}),
+    ...DYNAMIC_PAGES,
+  };
 }
 
 export const PAGE_CATALOG: Record<string, PageDefinition> = {
