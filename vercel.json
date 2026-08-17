@@ -9,7 +9,7 @@
     "NEXT_PUBLIC_TENANT_SLUG": "tokenizmyapp",
     "NEXT_PUBLIC_TENANT_DISPLAY_NAME": "TokenizMyApp",
     "NEXT_PUBLIC_TENANT_DESCRIPTION": "Create and configure your business application",
-    "NEXT_PUBLIC_TENANT_APP_TITLE": "TokenizMyApp \u2014 Tenant Factory"
+    "NEXT_PUBLIC_TENANT_APP_TITLE": "TokenizMyApp — Tenant Factory"
   },
   "rewrites": [
     {
@@ -45,15 +45,15 @@
     {
       "source": "/(.*)",
       "headers": [
-        {
-          "key": "X-Content-Type-Options",
-          "value": "nosniff"
-        },
-        {
-          "key": "X-Frame-Options",
-          "value": "DENY"
-        }
-      ]
+      {
+        "key": "X-Content-Type-Options",
+        "value": "nosniff"
+      },
+      {
+        "key": "X-Frame-Options",
+        "value": "DENY"
+      }
+    ]
     }
   ],
   "installCommand": "bun install",
@@ -61,6 +61,10 @@
     {
       "path": "/api/cron/dunning",
       "schedule": "0 3 * * *"
+    },
+    {
+      "path": "/api/cron/cloud-credits",
+      "schedule": "0 4 * * *"
     }
   ]
 }
