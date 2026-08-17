@@ -27,7 +27,7 @@ import { generateTenantCode, injectTenantConfig, cleanupTenantCode } from '@/dom
 import { deployViaCli } from '@/domain/tenant/vercel-cli-service';
 import { materializeAppPackForTenant, buildSuitePrompt } from '@/domain/app-pack/app-pack-tenant-materializer';
 import { provisionSuiteApps } from '@/domain/workflow/suite-provisioning';
-import { requireCreditsForTenant } from '@/domain/billing/credit-service';
+import { CREDIT_FLOORS, requireCreditsForTenant } from '@/domain/billing/credit-service';
 
 export const dynamic = 'force-dynamic';
 
@@ -121,7 +121,14 @@ export async function POST(request: Request): Promise<Response> {
   // platform key — require credits up front so a 402 surfaces before any
   // tenant row is created (no orphaned 'deploying' tenants).
   if (parsed.data.prompt) {
-    const gate = await requireCreditsForTenant(parsed.data.slug);
+    // Creating a tenant runs schema generation and seeding — sized as a
+    // provisioning job, not a single model call.
+    const gate = await requireCreditsForTenant(
+      parsed.data.slug,
+      undefined,
+      undefined,
+      CREDIT_FLOORS.tenantProvisioning,
+    );
     if (!gate.ok) return gate.response;
   }
 

@@ -390,7 +390,7 @@ export async function executeSessionTool(
       const gate = await credits.requireCreditsForOrg(
         await credits.resolvePlatformOrgId(),
         undefined,
-        credits.MIN_CREDITS_TO_START,
+        credits.CREDIT_FLOORS.templateGeneration,
         ctx.viewerEmail,
       );
       if (!gate.ok) {

@@ -156,18 +156,26 @@ function makeDb() {
   return db as unknown as Parameters<typeof import('./credit-service').grantCredits>[2] & typeof db;
 }
 
-// The monthly allowance reads subscriptions. Pinned to `enterprise` — the one
+// The monthly allowance reads subscriptions. Defaults to `enterprise` — the one
 // plan with aiCreditsPerMonth = 0 — so grantMonthlyAllowanceIfDue() short-
 // circuits and these tests measure only the grant/consume bookkeeping. Any
 // other plan would silently inject its allowance into every assertion below.
+//
+// Mutable because the debt ceiling IS the plan allowance, so testing it needs a
+// plan that grants one.
+const mockPlan = { id: 'enterprise' };
+
 vi.mock('@/domain/billing/entitlement-service', () => ({
   ensureBillingTables: vi.fn(async () => {}),
   getSubscription: vi.fn(async () => ({
-    planId: 'enterprise',
+    planId: mockPlan.id,
     currentPeriodStart: new Date(0).toISOString(),
     currentPeriodEnd: new Date(0).toISOString(),
   })),
 }));
+
+/** Enterprise reports no allowance, so the ceiling falls back to this. */
+const FALLBACK_CEILING = 50;
 
 const ORG = 'org_test';
 
@@ -175,6 +183,7 @@ let service: typeof import('./credit-service');
 
 beforeEach(async () => {
   service = await import('./credit-service');
+  mockPlan.id = 'enterprise';
 });
 
 describe('redeemCreditPack', () => {
@@ -287,8 +296,12 @@ describe('meterAiUsageForOrg', () => {
 
     expect(result.credits).toBeGreaterThan(1);
     expect(result.consumed).toBe(1);
+    // Everything uncollected, split into what is owed and what is gone.
     expect(result.shortfall).toBe(result.credits - 1);
-    expect(await service.getOutstandingDebt(ORG, db)).toBe(result.credits - 1);
+    expect(result.debt + result.writtenOff).toBe(result.shortfall);
+    // Debt is bounded by the ceiling; the balance of the cost is written off.
+    expect(result.debt).toBe(FALLBACK_CEILING);
+    expect(await service.getOutstandingDebt(ORG, db)).toBe(FALLBACK_CEILING);
   });
 
   it('keeps the books balanced while in debt', async () => {
@@ -321,6 +334,144 @@ describe('meterAiUsageForOrg', () => {
     expect(result).toMatchObject({ charged: false, credits: 0, consumed: 0, shortfall: 0 });
     expect(db.ledger.filter((l) => l.delta < 0)).toHaveLength(0);
     expect(await service.getOutstandingDebt(ORG, db)).toBe(0);
+  });
+});
+
+describe('per-operation credit floors', () => {
+  it('sizes floors to the operations they guard', () => {
+    // A flat floor is wrong in both directions: these differ by ~8x at the
+    // current rate card. Chat stays at 1 because blocking a ~4-credit turn is
+    // worse than absorbing it; an app pack costs ~30.
+    expect(service.CREDIT_FLOORS.chat).toBe(1);
+    expect(service.CREDIT_FLOORS.appPack).toBeGreaterThan(service.CREDIT_FLOORS.schemaGeneration);
+    expect(service.CREDIT_FLOORS.schemaGeneration).toBeGreaterThan(
+      service.CREDIT_FLOORS.templateGeneration,
+    );
+  });
+
+  it('blocks an operation the balance cannot cover but allows a cheaper one', async () => {
+    const db = makeDb();
+    await service.grantCredits(ORG, { source: 'addon', amount: 6 }, db);
+
+    // 6 credits: enough to start a template build (floor 5), not an app pack (30).
+    expect((await service.requireCreditsForOrg(ORG, db, service.CREDIT_FLOORS.templateGeneration)).ok)
+      .toBe(true);
+    expect((await service.requireCreditsForOrg(ORG, db, service.CREDIT_FLOORS.appPack)).ok)
+      .toBe(false);
+  });
+
+  it('explains the shortfall rather than just refusing', async () => {
+    const db = makeDb();
+    await service.grantCredits(ORG, { source: 'addon', amount: 6 }, db);
+    const gate = await service.requireCreditsForOrg(ORG, db, service.CREDIT_FLOORS.appPack);
+    expect(gate.ok).toBe(false);
+    if (!gate.ok) {
+      const body = await gate.response.json() as { error: string };
+      expect(body.error).toContain('6');
+      expect(body.error).toContain(String(service.CREDIT_FLOORS.appPack));
+    }
+  });
+});
+
+describe('debt ceiling', () => {
+  it('caps debt at the plan allowance', async () => {
+    // Free grants 15 credits/month, so a Free org can never owe more than 15 —
+    // exactly what its next grant will settle.
+    //
+    // Metering grants the monthly allowance first, so those 15 credits are
+    // consumed by this very run; the assertions below account for that rather
+    // than pretending the balance started empty.
+    mockPlan.id = 'free';
+    const db = makeDb();
+    const result = await meterExpensiveRun(db);
+
+    expect(result.credits).toBe(400);
+    expect(result.consumed).toBe(15);
+    expect(result.debt).toBe(15);
+    expect(result.writtenOff).toBe(400 - 15 - 15);
+    expect(result.shortfall).toBe(result.debt + result.writtenOff);
+
+    // Outstanding debt is deliberately NOT asserted here. The fake's period
+    // window is degenerate, so the lazy monthly allowance re-grants on every
+    // balance read and immediately settles what was just recorded. That is a
+    // fixture artifact, not behaviour worth pinning — the persistence of debt
+    // is covered by the enterprise cases below, where no allowance interferes.
+  });
+
+  it('scales the ceiling with the plan', async () => {
+    // Pro grants 50/month and may therefore carry more — the ceiling tracks
+    // what the org's own next grant can clear, not a flat platform number.
+    mockPlan.id = 'pro';
+    const db = makeDb();
+    const pro = await meterExpensiveRun(db);
+    expect(pro.debt).toBe(50);
+
+    mockPlan.id = 'free';
+    const free = await meterExpensiveRun(makeDb());
+    expect(free.debt).toBe(15);
+    expect(pro.debt).toBeGreaterThan(free.debt);
+  });
+
+  it('falls back for a plan with no allowance', async () => {
+    // Enterprise negotiates its allowance and reports 0, which would otherwise
+    // mean a zero ceiling — every overage written off.
+    mockPlan.id = 'enterprise';
+    const db = makeDb();
+    expect((await meterExpensiveRun(db)).debt).toBe(FALLBACK_CEILING);
+  });
+
+  it('records the write-off instead of swallowing it', async () => {
+    // An unrecorded write-off is indistinguishable from a metering bug.
+    mockPlan.id = 'free';
+    const db = makeDb();
+    await meterExpensiveRun(db);
+
+    const entry = db.ledger.find((l) => l.reason === 'ai_generation_written_off');
+    expect(entry).toBeDefined();
+    expect(entry?.delta).toBe(0);
+    expect(entry?.grant_id).toBeNull();
+  });
+
+  it('keeps the books balanced after a write-off', async () => {
+    mockPlan.id = 'free';
+    const db = makeDb();
+    await meterExpensiveRun(db);
+    const report = await service.reconcileCredits(ORG, db);
+    expect(report.balanced).toBe(true);
+  });
+
+  it('bounds total debt across repeated runs, not just one', async () => {
+    // The ceiling applies to TOTAL debt, so an org already in arrears has less
+    // headroom. Without that, N runs could each add a full ceiling and arrears
+    // would grow without limit.
+    //
+    // Uses enterprise so no monthly allowance is granted between runs — the
+    // point here is the bound, not the settlement.
+    mockPlan.id = 'enterprise';
+    const db = makeDb();
+    await meterExpensiveRun(db);
+    await meterExpensiveRun(db);
+    await meterExpensiveRun(db);
+    expect(await service.getOutstandingDebt(ORG, db)).toBe(FALLBACK_CEILING);
+  });
+
+  it('lets one monthly grant clear the whole debt', async () => {
+    // This is the reason the ceiling IS the plan allowance: arrears must
+    // self-heal. A higher ceiling would let an org owe more than a grant can
+    // clear, leaving it blocked indefinitely — which in practice means gone.
+    mockPlan.id = 'free';
+    const db = makeDb();
+    const run = await meterExpensiveRun(db);
+    expect(run.debt).toBe(15);
+
+    // Switch off the lazy allowance so the grant under test is the only one —
+    // otherwise the gate's own balance read tops the org up first.
+    mockPlan.id = 'enterprise';
+    expect((await service.requireCreditsForOrg(ORG, db)).ok).toBe(false);
+
+    await service.grantCredits(ORG, { source: 'plan', amount: 15 }, db);
+    expect(await service.getOutstandingDebt(ORG, db)).toBe(0);
+    expect((await service.requireCreditsForOrg(ORG, db)).ok).toBe(true);
   });
 });
 
@@ -444,7 +595,7 @@ describe('debt settlement', () => {
     const db = makeDb();
     await service.grantCredits(ORG, { source: 'addon', amount: 1 }, db);
     const run = await meterExpensiveRun(db);
-    const debt = run.shortfall;
+    const debt = run.debt;
 
     await service.grantCredits(ORG, { source: 'addon', amount: debt + 10 }, db);
 
@@ -459,7 +610,7 @@ describe('debt settlement', () => {
     const db = makeDb();
     await service.grantCredits(ORG, { source: 'addon', amount: 1 }, db);
     const run = await meterExpensiveRun(db);
-    const debt = run.shortfall;
+    const debt = run.debt;
 
     await service.grantCredits(ORG, { source: 'addon', amount: 5 }, db);
 
@@ -475,7 +626,7 @@ describe('debt settlement', () => {
     await service.grantCredits(ORG, { source: 'addon', amount: 1 }, db);
     const run = await meterExpensiveRun(db);
 
-    await service.grantCredits(ORG, { source: 'addon', amount: run.shortfall + 1 }, db);
+    await service.grantCredits(ORG, { source: 'addon', amount: run.debt + 1 }, db);
 
     expect((await service.requireCreditsForOrg(ORG, db)).ok).toBe(true);
   });

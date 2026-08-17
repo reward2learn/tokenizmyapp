@@ -27,7 +27,7 @@ import { requireWriteAuth } from '@/lib/auth/guards';
 import { jsonError, jsonOk } from '@/lib/api/response';
 import { generateSchemaFromPrompt, mockGenerateSchema } from '@/domain/ai/schema-generator';
 import { compileToZModel, compileToPageCatalog } from '@/domain/ai/zmodel-compiler';
-import { requireCreditsForTenant } from '@/domain/billing/credit-service';
+import { CREDIT_FLOORS, requireCreditsForTenant } from '@/domain/billing/credit-service';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
@@ -71,7 +71,12 @@ export async function POST(request: Request): Promise<Response> {
   // Schema generation runs on the platform key (env) — require credits up
   // front so an empty balance returns 402 instead of a failed provider call.
   const tenantSlug = body.tenantSlug ?? process.env.NEXT_PUBLIC_TENANT_SLUG ?? 'tokenizmyapp';
-  const gate = await requireCreditsForTenant(tenantSlug);
+  const gate = await requireCreditsForTenant(
+    tenantSlug,
+    undefined,
+    undefined,
+    CREDIT_FLOORS.schemaGeneration,
+  );
   if (!gate.ok) return gate.response;
 
   try {

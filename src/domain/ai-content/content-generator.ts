@@ -24,7 +24,7 @@ import { withTimeout } from '@/lib/with-timeout';
 import { getCurrentAppId } from '@shared/lib/config/tenant';
 import { parseReviewParts } from '@/domain/ai-content/parse-review-parts';
 import type { ReviewPart } from '@/domain/ai-content/parse-review-parts';
-import { meterAiUsage, requireCreditsForTenant } from '@/domain/billing/credit-service';
+import { meterAiUsage, requireCreditsForTenant, CREDIT_FLOORS } from '@/domain/billing/credit-service';
 
 // ── Progress reporting ──────────────────────────────────
 
@@ -453,7 +453,12 @@ export async function generateAndSave(
     // balance throws with OPENAI_QUOTA_MARKER so the route maps it to the
     // existing 402 / ai_provider_no_credits SSE code path.
     if (ai.keySource === 'env') {
-      const gate = await requireCreditsForTenant(tenant);
+      const gate = await requireCreditsForTenant(
+        tenant,
+        undefined,
+        undefined,
+        CREDIT_FLOORS.contentGeneration,
+      );
       if (!gate.ok) {
         throw new Error(
           `${OPENAI_QUOTA_MARKER} This organization has no AI credits remaining. Upgrade your plan or add credits in the Organization bar.`,

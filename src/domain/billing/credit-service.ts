@@ -64,20 +64,55 @@ export function isCreditExemptEmail(email?: string | null): boolean {
 }
 
 /**
- * Balance a generation must have before it is allowed to start.
+ * Default floor, used only where a call site has no better number.
  *
- * ⚠️ Currently 1, which means the gate only stops a *completely* empty org. A
- * real generation costs many credits, so an org with 1 credit passes the gate,
- * runs, and the platform collects 1 credit for the whole job — the rest is
- * given away (see the `shortfall` field on MeterResult).
- *
- * Raising this to a realistic floor is a pricing decision, not a code one: too
- * low leaks revenue, too high refuses work from customers who could have
- * afforded most of it. Left at the pre-existing behaviour until that number is
- * chosen. `requireCreditsForOrg(orgId, db, n)` overrides it per call site for
- * generations known to be expensive.
+ * Kept at 1 deliberately — it stops a completely empty org and nothing else.
+ * Real operations pass their own floor from CREDIT_FLOORS below, which is what
+ * actually keeps arrears exceptional.
  */
 export const MIN_CREDITS_TO_START = 1;
+
+/**
+ * Per-operation credit floors.
+ *
+ * A single flat floor is the wrong instrument: at the current rate card these
+ * operations differ by roughly 8×, so any one number is simultaneously too high
+ * for chat and too low for an app pack. `requireCreditsForOrg(orgId, db, n)`
+ * already took a per-call-site minimum — these are the numbers for it.
+ *
+ * Sized from measured cost at the flagship rate (0.4 credits/1K in,
+ * 1.6/1K out), rounded to the nearest sensible floor rather than the exact
+ * mean — the floor's job is to stop an org starting work it plainly cannot
+ * cover, not to predict the bill.
+ *
+ * Reference: Free grants 15 credits/month, Pro 50. A floor above the Free
+ * allowance would make an operation unreachable on Free, which is a pricing
+ * decision — `appPack` at 30 is deliberately the one that does this, since a
+ * full app-pack materialization is not a Free-tier operation.
+ */
+export const CREDIT_FLOORS = {
+  /** ~4 credits/turn. Kept at 1: blocking a cheap turn is worse than absorbing it. */
+  chat: 1,
+  /** ~5 credits — brief + scraped page in, one JSON definition out. */
+  templateGeneration: 5,
+  /** ~5 credits per generated section. */
+  contentGeneration: 5,
+  /** ~9 credits — larger prompt, much larger structured output. */
+  schemaGeneration: 10,
+  /** ~30 credits — multiple model calls across the whole pack. */
+  appPack: 30,
+  /** Provisioning runs schema generation plus seeding. */
+  tenantProvisioning: 30,
+} as const;
+
+/**
+ * Most debt one job may leave behind, as a fallback when the org's plan grants
+ * no monthly allowance (Enterprise, whose allowance is negotiated).
+ */
+const DEFAULT_DEBT_CEILING = 50;
+
+/** Ledger reason for cost that exceeded the debt ceiling and was written off. */
+const DEBT_WRITTEN_OFF_REASON = 'ai_generation_written_off';
 
 export type CreditSource = 'plan' | 'addon' | 'onetime' | 'promo';
 
@@ -430,6 +465,15 @@ export interface ConsumeCreditsInput {
    * silently taking only what is there. Defaults to false.
    */
   allowDebt?: boolean;
+  /**
+   * Most total debt this org may carry after this call. Overage beyond it is
+   * written off rather than recorded, so one very large job cannot leave
+   * arrears the org will never return to clear.
+   *
+   * Omitted means no ceiling — used by internal callers that are not metering
+   * a customer-facing job.
+   */
+  debtCeiling?: number;
 }
 
 /**
@@ -453,7 +497,7 @@ export async function consumeCredits(
   orgId: string,
   input: ConsumeCreditsInput,
   db?: RawDb,
-): Promise<{ consumed: number; debtIncurred: number; balance: number }> {
+): Promise<{ consumed: number; debtIncurred: number; writtenOff: number; balance: number }> {
   db ??= await getDb();
   await ensureCreditTables(db);
 
@@ -499,7 +543,20 @@ export async function consumeCredits(
   // The overage. Written as a single balance-level ledger entry (grant_id NULL)
   // rather than pushing a grant negative — grants model money that was issued,
   // and a negative one would corrupt both the balance sum and expiry handling.
-  const debtIncurred = input.allowDebt ? input.amount - consumed : 0;
+  const uncappedDebt = input.allowDebt ? input.amount - consumed : 0;
+
+  // Apply the ceiling against TOTAL debt, not this job's share: an org already
+  // carrying arrears has less headroom, which is the point — the ceiling bounds
+  // what the org can owe, not what any one call may add.
+  let debtIncurred = uncappedDebt;
+  let writtenOff = 0;
+  if (uncappedDebt > 0 && input.debtCeiling !== undefined) {
+    const existingDebt = await getOutstandingDebt(orgId, db);
+    const headroom = Math.max(0, input.debtCeiling - existingDebt);
+    debtIncurred = Math.min(uncappedDebt, headroom);
+    writtenOff = uncappedDebt - debtIncurred;
+  }
+
   if (debtIncurred > 0) {
     await db.$executeRawUnsafe(
       `INSERT INTO credit_ledger (id, org_id, grant_id, delta, reason, ref_type, ref_id, metadata)
@@ -513,8 +570,28 @@ export async function consumeCredits(
     );
   }
 
+  // Recorded, not swallowed. A zero delta keeps the ledger invariant and the
+  // debt sum untouched while leaving the loss visible and attributable — an
+  // unrecorded write-off is indistinguishable from a metering bug.
+  if (writtenOff > 0) {
+    await db.$executeRawUnsafe(
+      `INSERT INTO credit_ledger (id, org_id, grant_id, delta, reason, ref_type, ref_id, metadata)
+       VALUES (gen_random_uuid()::TEXT, $1, NULL, 0, $2, $3, $4, $5::jsonb);`,
+      orgId,
+      DEBT_WRITTEN_OFF_REASON,
+      input.refType ?? null,
+      input.refId ?? null,
+      JSON.stringify({
+        ...(input.metadata ?? {}),
+        originalReason: input.reason,
+        writtenOffCredits: writtenOff,
+        debtCeiling: input.debtCeiling,
+      }),
+    );
+  }
+
   const { available } = await getCreditBalance(orgId, db);
-  return { consumed, debtIncurred, balance: available };
+  return { consumed, debtIncurred, writtenOff, balance: available };
 }
 
 /**
@@ -677,6 +754,36 @@ export async function hasSufficientCredits(
  * still gets a full 30 days of use. Skipped entirely when the plan grants no
  * credits (enterprise — volume deals are negotiated separately).
  */
+/**
+ * Most debt this org may carry: its own monthly allowance.
+ *
+ * Chosen so arrears always **self-heal**. Debt blocks the next generation, and
+ * the next monthly grant settles debt before anything else can spend it — so
+ * capping at one month's allowance guarantees the org is unblocked by the very
+ * next grant without anyone intervening. A larger ceiling would let an org
+ * accumulate more than a grant can clear and stay blocked indefinitely, which
+ * in practice means it never comes back.
+ *
+ * Enterprise negotiates its allowance and reports 0 here, which would otherwise
+ * mean a zero ceiling — every overage written off. It falls back to a flat
+ * default instead.
+ *
+ * Failures fall back rather than propagate: this is called from metering, which
+ * runs after the tokens are already spent, and a plan lookup failing must not
+ * lose the usage record.
+ */
+export async function debtCeilingForOrg(orgId: string, db?: RawDb): Promise<number> {
+  db ??= await getDb();
+  try {
+    const { getSubscription } = await import('@/domain/billing/entitlement-service');
+    const sub = await getSubscription(orgId, db);
+    const monthly = getPlan(sub.planId).aiCreditsPerMonth;
+    return monthly > 0 ? monthly : DEFAULT_DEBT_CEILING;
+  } catch {
+    return DEFAULT_DEBT_CEILING;
+  }
+}
+
 export async function grantMonthlyAllowanceIfDue(
   orgId: string,
   db?: RawDb,
@@ -762,8 +869,21 @@ export interface MeterResult {
   credits: number;
   /** What was actually taken from the balance — may be less than `credits`. */
   consumed: number;
-  /** `credits - consumed`. Non-zero means work was delivered unbilled. */
+  /**
+   * `credits - consumed` — everything the platform did not collect now.
+   * Always `debt + writtenOff`; the split is what matters operationally.
+   */
   shortfall: number;
+  /** Recorded as arrears. Blocks the next run and is settled by the next grant. */
+  debt: number;
+  /**
+   * Exceeded the org's debt ceiling, so it was never recorded as owed and will
+   * never be collected. Real money lost — logged, and recorded in the ledger.
+   *
+   * Kept separate from `debt` deliberately: they look alike in a total and are
+   * opposites in meaning — deferred revenue versus a loss.
+   */
+  writtenOff: number;
   /** Remaining spendable balance after this call. */
   balance: number;
 }
@@ -821,7 +941,7 @@ async function recordExemptUsage(
   );
 
   const { available } = await getCreditBalance(input.orgId, db);
-  return { charged: false, credits, consumed: 0, shortfall: 0, balance: available };
+  return { charged: false, credits, consumed: 0, shortfall: 0, debt: 0, writtenOff: 0, balance: available };
 }
 
 /**
@@ -836,7 +956,7 @@ export async function meterAiUsageForOrg(
 ): Promise<MeterResult> {
   db ??= await getDb();
   if (input.keySource === 'db') {
-    return { charged: false, credits: 0, consumed: 0, shortfall: 0, balance: 0 };
+    return { charged: false, credits: 0, consumed: 0, shortfall: 0, debt: 0, writtenOff: 0, balance: 0 };
   }
 
   if (isCreditExemptEmail(input.viewerEmail)) {
@@ -846,7 +966,7 @@ export async function meterAiUsageForOrg(
   await grantMonthlyAllowanceIfDue(input.orgId, db);
 
   const credits = creditsForUsage(input.model, input.promptTokens, input.completionTokens);
-  const { consumed, debtIncurred, balance } = await consumeCredits(
+  const { consumed, debtIncurred, writtenOff, balance } = await consumeCredits(
     input.orgId,
     {
       amount: credits,
@@ -862,6 +982,10 @@ export async function meterAiUsageForOrg(
       // what the balance could cover would hand the rest of the work over for
       // free; the overage becomes debt and blocks the NEXT generation instead.
       allowDebt: true,
+      // Bounded at the org's own monthly allowance: an org can owe at most what
+      // its next grant will settle, so arrears always self-heal rather than
+      // becoming a balance nobody ever comes back to clear.
+      debtCeiling: await debtCeilingForOrg(input.orgId, db),
     },
     db,
   );
@@ -873,7 +997,26 @@ export async function meterAiUsageForOrg(
     );
   }
 
-  return { charged: true, credits, consumed, shortfall: debtIncurred, balance };
+  // Louder than debt on purpose: debt is deferred revenue, a write-off is a
+  // loss. Repeated entries here mean the ceiling or the floors are mis-sized.
+  if (writtenOff > 0) {
+    console.error(
+      `[credits] Org ${input.orgId} exceeded its debt ceiling: ${writtenOff} credit(s) ` +
+        `written off from a ${credits}-credit job. This cost will never be recovered.`,
+    );
+  }
+
+  // `shortfall` stays the full uncollected amount — what the platform did not
+  // get paid — of which `writtenOff` is the part it never will.
+  return {
+    charged: true,
+    credits,
+    consumed,
+    shortfall: debtIncurred + writtenOff,
+    debt: debtIncurred,
+    writtenOff,
+    balance,
+  };
 }
 
 export interface MeterAiUsageInput {
@@ -903,7 +1046,7 @@ export async function meterAiUsage(
 ): Promise<MeterResult> {
   db ??= await getDb();
   if (input.keySource === 'db') {
-    return { charged: false, credits: 0, consumed: 0, shortfall: 0, balance: 0 };
+    return { charged: false, credits: 0, consumed: 0, shortfall: 0, debt: 0, writtenOff: 0, balance: 0 };
   }
 
   const orgId = await resolvePayingOrgId(input.tenantSlug, db);
@@ -932,11 +1075,12 @@ export async function requireCreditsForTenant(
   tenantSlug: string,
   db?: RawDb,
   viewerEmail?: string | null,
+  minimum: number = MIN_CREDITS_TO_START,
 ): Promise<CreditGateResult> {
   if (isCreditExemptEmail(viewerEmail)) return { ok: true, balance: Infinity, exempt: true };
   db ??= await getDb();
   const orgId = await resolvePayingOrgId(tenantSlug, db);
-  return requireCreditsForOrg(orgId, db, MIN_CREDITS_TO_START, viewerEmail);
+  return requireCreditsForOrg(orgId, db, minimum, viewerEmail);
 }
 
 /**

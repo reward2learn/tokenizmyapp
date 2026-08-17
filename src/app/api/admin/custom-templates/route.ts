@@ -133,10 +133,14 @@ export async function POST(request: Request): Promise<Response> {
   // Pre-flight credit gate. Charged to the platform org — a custom template is
   // built by an administrator for reuse, not on behalf of any one tenant.
   // Returns 402, which the client already handles as the AI upsell path.
-  const { requireCreditsForOrg, resolvePlatformOrgId } = await import(
+  const { requireCreditsForOrg, resolvePlatformOrgId, CREDIT_FLOORS } = await import(
     '@/domain/billing/credit-service'
   );
-  const gate = await requireCreditsForOrg(await resolvePlatformOrgId(db), db);
+  const gate = await requireCreditsForOrg(
+    await resolvePlatformOrgId(db),
+    db,
+    CREDIT_FLOORS.templateGeneration,
+  );
   if (!gate.ok) return gate.response;
 
   try {

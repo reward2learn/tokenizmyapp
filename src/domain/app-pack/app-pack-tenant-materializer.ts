@@ -19,7 +19,7 @@ import {
   mockGenerateAppDefinition,
 } from './app-pack-generator';
 import { getTemplate } from '@/domain/tenant/template-catalog';
-import { requireCreditsForTenant } from '@/domain/billing/credit-service';
+import { CREDIT_FLOORS, requireCreditsForTenant } from '@/domain/billing/credit-service';
 import type {
   AppPackDecomposition,
   AppPackAppDefinition,
@@ -140,7 +140,12 @@ export async function materializeAppPackForTenant(
     // the platform key (env), so an empty balance blocks with an actionable
     // message instead of burning a provider call the org can't pay for.
     if (!useMock) {
-      const gate = await requireCreditsForTenant(input.tenantSlug);
+      const gate = await requireCreditsForTenant(
+        input.tenantSlug,
+        undefined,
+        undefined,
+        CREDIT_FLOORS.appPack,
+      );
       if (!gate.ok) {
         return {
           success: false,
