@@ -82,7 +82,17 @@ export function SignInPanel({ requiredTier }: SignInPanelProps) {
   const { refetch: refetchSession } = useGetSessionQuery();
 
   const oauthError = searchParams.get('auth') === 'error';
-  const showPin = requiredTier !== 'google';
+  // PIN is always offered while signed out.
+  //
+  // It used to be hidden whenever a page required the `google` tier, which is
+  // most of them — so a staff member who only has a PIN reached a panel with
+  // Google as the sole option and no way in at all. Their credential existed
+  // and the product refused to ask for it.
+  //
+  // A PIN authenticates at staff level, so on a google-only page it signs the
+  // user in without unlocking *that* page. That is a real limitation, and the
+  // panel says so below rather than letting the form look like it failed.
+  const pinUnlocksThisPage = requiredTier !== 'google';
   const googleHref = googleAuthHref(pathname || '/');
 
   const handlePinSubmit = async (event: FormEvent) => {
@@ -111,7 +121,7 @@ export function SignInPanel({ requiredTier }: SignInPanelProps) {
         </Typography>
         <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
           {requiredTier === 'google'
-            ? 'Unlocks the full review, AI chat, and ops tracking.'
+            ? 'Sign in with Google for full access, or use a staff PIN.'
             : 'Enter the ops PIN, or sign in with Google for full access.'}
         </Typography>
 
@@ -142,14 +152,17 @@ export function SignInPanel({ requiredTier }: SignInPanelProps) {
             // no border has nothing to separate it from the page.
             border: '1px solid',
             borderColor: 'divider',
-            mb: showPin ? 2 : 0,
+            mb: 2,
             '&:hover': { bgcolor: 'action.hover', borderColor: 'divider' },
           }}
         >
           Sign in with Google
         </Button>
 
-        {showPin ? (
+        {/* Hidden only when there is genuinely nothing to offer: no PIN users
+            exist AND this page does not depend on PIN access. On a PIN-tier
+            page the absence IS the story, so the notice below explains it. */}
+        {personOptions.length > 0 || usersLoading || pinUnlocksThisPage ? (
           <>
             <Divider sx={{ my: 2.5 }}>
               <Typography variant="caption" color="text.secondary">
@@ -161,10 +174,12 @@ export function SignInPanel({ requiredTier }: SignInPanelProps) {
                 <CircularProgress size={28} />
               </Box>
             ) : personOptions.length === 0 ? (
-              <Alert severity="warning" sx={{ textAlign: 'left' }}>
-                No PIN-configured user accounts found. PIN users are managed via
-                user_accounts + roles (listConfiguredPinUsers). Use Google sign-in or
-                configure in admin settings.
+              // Public-facing copy. This used to name internal functions and
+              // tables, which was tolerable while the panel only appeared on
+              // staff pages — it is now shown to every signed-out visitor.
+              <Alert severity="info" sx={{ textAlign: 'left' }}>
+                No staff PIN accounts have been set up yet. Sign in with Google,
+                or ask an administrator to add a PIN user.
               </Alert>
             ) : (
               <Stack
@@ -214,6 +229,20 @@ export function SignInPanel({ requiredTier }: SignInPanelProps) {
                 </Stack>
               </Stack>
             )}
+
+            {!pinUnlocksThisPage && personOptions.length > 0 ? (
+              // Says what a PIN will and will not do here, before it is used.
+              // Signing in successfully and still seeing the wall reads as a
+              // broken login, and the user has no way to tell it apart.
+              <Typography
+                variant="caption"
+                color="text.secondary"
+                sx={{ display: 'block', mt: 1.5, textAlign: 'left' }}
+              >
+                A PIN signs you in with staff access. This page needs Google
+                sign-in, but you will stay signed in everywhere else.
+              </Typography>
+            ) : null}
           </>
         ) : null}
       </Box>

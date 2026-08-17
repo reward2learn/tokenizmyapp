@@ -1,5 +1,5 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
-import { cleanup, render, screen } from '@testing-library/react';
+import { cleanup, render, screen, waitFor } from '@testing-library/react';
 import { Provider } from 'react-redux';
 import { configureStore } from '@reduxjs/toolkit';
 import { SignInPanel } from '@/components/auth/sign-in-panel';
@@ -24,7 +24,7 @@ function mockFetchResponse(data: unknown) {
   };
 }
 
-function renderPanel() {
+function renderPanel(requiredTier: 'pin' | 'google' = 'pin') {
   const store = configureStore({
     reducer: {
       auth: authSlice.reducer,
@@ -35,7 +35,7 @@ function renderPanel() {
 
   return render(
     <Provider store={store}>
-      <SignInPanel requiredTier="pin" />
+      <SignInPanel requiredTier={requiredTier} />
     </Provider>,
   );
 }
@@ -81,5 +81,85 @@ describe('SignInPanel', () => {
     expect(screen.getByText('Sign in with Google')).toBeInTheDocument();
     // The PIN form renders after list-pin-users resolves (async user list).
     expect(await screen.findByTestId('pin-input')).toBeInTheDocument();
+  });
+
+  it('offers PIN on a google-tier page too', async () => {
+    // Regression: the PIN form was hidden whenever a page required the google
+    // tier — which is most of them — so a staff member holding only a PIN met
+    // a panel with Google as the sole option and no way in at all. Their
+    // credential existed and the product never asked for it.
+    renderPanel('google');
+
+    expect(screen.getByText('Sign in with Google')).toBeInTheDocument();
+    expect(await screen.findByTestId('pin-input')).toBeInTheDocument();
+    expect(await screen.findByTestId('pin-submit')).toBeInTheDocument();
+  });
+
+  it('warns that a PIN will not unlock a google-only page', async () => {
+    // Signing in successfully and still seeing the wall is indistinguishable
+    // from a failed login, so the limitation is stated before it is hit.
+    renderPanel('google');
+    await screen.findByTestId('pin-input');
+
+    expect(screen.getByText(/staff access/i)).toBeInTheDocument();
+    expect(screen.getByText(/needs Google/i)).toBeInTheDocument();
+  });
+
+  it('does not claim the page is google-only when a PIN would work', async () => {
+    renderPanel('pin');
+    await screen.findByTestId('pin-input');
+
+    expect(screen.queryByText(/needs Google/i)).not.toBeInTheDocument();
+  });
+});
+
+describe('SignInPanel with no PIN accounts configured', () => {
+  beforeEach(() => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockImplementation((input: RequestInfo | URL) => {
+        const url = typeof input === 'string' ? input : (input as Request).url;
+        if (url.includes('action=list-pin-users')) {
+          return Promise.resolve(
+            mockFetchResponse({
+              success: true,
+              data: { users: [], lastUsedName: null, lastUsedSub: null },
+            }),
+          );
+        }
+        return Promise.resolve(mockFetchResponse({ ok: true, success: true }));
+      }),
+    );
+  });
+
+  afterEach(() => {
+    cleanup();
+    vi.unstubAllGlobals();
+  });
+
+  it('says nothing about PIN on a google page when no PIN users exist', async () => {
+    // Nothing to offer, so nothing is shown. The panel is now public-facing,
+    // and an empty "or / no PIN accounts" block is noise to a visitor who was
+    // only ever going to use Google.
+    renderPanel('google');
+    await screen.findByText('Sign in with Google');
+
+    await waitFor(() => {
+      expect(screen.queryByRole('progressbar')).not.toBeInTheDocument();
+    });
+    expect(screen.queryByText(/staff PIN accounts/i)).not.toBeInTheDocument();
+  });
+
+  it('explains the absence on a PIN page, where it is the story', async () => {
+    renderPanel('pin');
+    expect(await screen.findByText(/No staff PIN accounts have been set up/i)).toBeInTheDocument();
+  });
+
+  it('keeps internal table and function names out of public copy', async () => {
+    // This message used to name listConfiguredPinUsers and user_accounts.
+    // Tolerable on a staff-only page; not on one every visitor can reach.
+    renderPanel('pin');
+    const alert = await screen.findByText(/No staff PIN accounts have been set up/i);
+    expect(alert.textContent).not.toMatch(/listConfiguredPinUsers|user_accounts|roles/);
   });
 });
