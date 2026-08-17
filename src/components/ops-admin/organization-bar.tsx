@@ -188,7 +188,19 @@ export function OrganizationBar({ tenantSlug }: { tenantSlug?: string | null }) 
           sx={{ alignItems: { xs: 'stretch', sm: 'center' } }}
         >
           <FormControl size="small" sx={{ minWidth: 260, flex: 1 }}>
-            <InputLabel id="org-selector-label">Organization</InputLabel>
+            {/*
+              `shrink` and `notched` are required together with `displayEmpty`.
+
+              An outlined Select floats its label only when the value is
+              non-empty. `displayEmpty` renders the "All organizations" row at
+              rest — the default filter state — while the label was still
+              sitting in the middle of the field, so the two overlapped on load.
+              Pinning the label up and cutting the outline notch to match makes
+              the empty state look like every other populated field.
+            */}
+            <InputLabel id="org-selector-label" shrink>
+              Organization
+            </InputLabel>
             <Select
               labelId="org-selector-label"
               label="Organization"
@@ -196,6 +208,7 @@ export function OrganizationBar({ tenantSlug }: { tenantSlug?: string | null }) 
               onChange={(e) => handleOrgChange(e.target.value)}
               disabled={busy}
               displayEmpty
+              notched
             >
               {/* Clears the filter. Without it the panel could never get back
                   to showing every tenant once an organization was picked. */}
