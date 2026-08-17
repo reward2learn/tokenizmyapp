@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "next dev",
-    "prebuild": "node scripts/enforce-redux.mjs",
+    "prebuild": "node scripts/enforce-redux.mjs && node scripts/enforce-index-names.mjs",
     "build": "bash scripts/vercel-build.sh",
     "start": "next start",
     "type-check": "tsc --noEmit",
@@ -15,7 +15,8 @@
     "seed": "bun run scripts/seed-from-sources.ts",
     "seed:chatbot-key": "bun run scripts/seed-chatbot-openai-key.ts",
     "test-webhook": "bun run scripts/test-webhook.ts",
-    "register-webhooks": "bun run scripts/register-vercel-webhooks.ts"
+    "register-webhooks": "bun run scripts/register-vercel-webhooks.ts",
+    "enforce:index-names": "node scripts/enforce-index-names.mjs"
   },
   "dependencies": {
     "@ai-sdk/openai": "^4.0.20",

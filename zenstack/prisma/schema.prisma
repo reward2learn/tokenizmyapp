@@ -95,8 +95,8 @@ model AppPage {
   appId      String?       @map("app_id")
   sections   PageSection[]
 
-  @@index([tenantSlug])
-  @@index([tenantSlug, appId])
+  @@index([tenantSlug, appId], map: "idx_app_pages_tenant_app")
+  @@index([tenantSlug], map: "idx_app_pages_tenant_slug")
   @@map("app_pages")
 }
 
@@ -125,7 +125,7 @@ model BusinessReviewPart {
 
   @@unique([partKey, appId])
   @@unique([slug, appId])
-  @@index([appId])
+  @@index([appId], map: "idx_business_review_parts_app_id")
   @@map("business_review_parts")
 }
 
@@ -139,7 +139,7 @@ model Lever {
   appId       String @default("") @map("app_id")
 
   @@unique([num, appId])
-  @@index([appId])
+  @@index([appId], map: "idx_levers_app_id")
   @@map("levers")
 }
 
@@ -152,7 +152,7 @@ model ActionItem {
   /// Suite-mode app id — empty string means the tenant's own (single-app) copy.
   appId     String         @default("") @map("app_id")
 
-  @@index([appId])
+  @@index([appId], map: "idx_action_items_app_id")
   @@map("action_items")
 }
 
@@ -174,7 +174,7 @@ model Role {
   tasks           TaskAssignment[]
   createdAt       DateTime         @default(now()) @map("created_at")
 
-  @@index([tenantSlug, appId])
+  @@index([tenantSlug, appId], map: "idx_roles_tenant_app")
   @@map("roles")
 }
 
@@ -197,8 +197,8 @@ model UserAccount {
   groups          UserGroup[]
   taskAssignments TaskUserAssignment[]
 
-  @@index([tenantSlug, appId])
   @@index([tenantSlug], map: "idx_user_accounts_tenant_slug")
+  @@index([tenantSlug, appId], map: "idx_user_accounts_tenant_app")
   @@map("user_accounts")
 }
 
@@ -218,7 +218,7 @@ model SecurityGroup {
   createdAt   DateTime    @default(now()) @map("created_at")
   members     UserGroup[]
 
-  @@index([tenantSlug, appId])
+  @@index([tenantSlug, appId], map: "idx_security_groups_tenant_app")
   @@map("security_groups")
 }
 
@@ -232,8 +232,8 @@ model UserGroup {
   createdAt DateTime      @default(now()) @map("created_at")
 
   @@unique([userId, groupId])
-  @@index([userId])
-  @@index([groupId])
+  @@index([groupId], map: "idx_user_groups_group")
+  @@index([userId], map: "idx_user_groups_user")
   @@map("user_groups")
 }
 
@@ -256,7 +256,7 @@ model Task {
   appId           String               @default("") @map("app_id")
 
   @@index([status])
-  @@index([appId])
+  @@index([appId], map: "idx_tasks_app_id")
   @@map("tasks")
 }
 
@@ -300,7 +300,7 @@ model KnowledgeSnippet {
   appId    String @default("") @map("app_id")
 
   @@unique([key, appId])
-  @@index([appId])
+  @@index([appId], map: "idx_knowledge_snippets_app_id")
   @@map("knowledge_snippets")
 }
 
@@ -338,8 +338,8 @@ model NavigationItem {
   updatedAt      DateTime         @updatedAt() @map("updated_at")
 
   @@index([parentId, sortOrder])
-  @@index([tenantSlug, appId])
   @@index([tenantSlug], map: "idx_navigation_items_tenant_slug")
+  @@index([tenantSlug, appId], map: "idx_navigation_items_tenant_app")
   @@map("navigation_items")
 }
 
@@ -415,7 +415,7 @@ model Conversation {
   createdAt    DateTime @default(now()) @map("created_at")
   updatedAt    DateTime @updatedAt() @map("updated_at")
 
-  @@index([tenantSlug, appId])
+  @@index([tenantSlug, appId], map: "idx_conversations_tenant_app")
   @@map("conversations")
 }
 
@@ -428,7 +428,7 @@ model PdfJob {
   updatedAt          DateTime  @updatedAt() @map("updated_at")
   completedData      Json?     @map("completed_data")
 
-  @@index([status])
+  @@index([status], map: "idx_job_queue_by_status")
   @@map("job_queue")
 }
 
@@ -451,7 +451,7 @@ model FinancialProjection {
 
   @@unique([period, dataType, scenario, appId])
   @@index([period])
-  @@index([appId])
+  @@index([appId], map: "idx_financial_projections_app_id")
   @@map("financial_projections")
 }
 
@@ -539,7 +539,7 @@ model DailyZReport {
   appId                   String    @default("") @map("app_id")
 
   @@unique([reportDate, department, appId])
-  @@index([appId])
+  @@index([appId], map: "idx_daily_z_reports_app_id")
   @@map("daily_z_reports")
 }
 
@@ -551,6 +551,7 @@ model MonthlyActualInput {
   appId     String   @default("") @map("app_id")
 
   @@id([period, appId])
+  @@index([appId], map: "idx_monthly_actual_inputs_app_id")
   @@map("monthly_actual_inputs")
 }
 
@@ -588,7 +589,7 @@ model DailyMetric {
   appId         String   @default("") @map("app_id")
 
   @@unique([date, appId])
-  @@index([appId])
+  @@index([appId], map: "idx_daily_metrics_app_id")
   @@map("daily_metrics")
 }
 
@@ -604,7 +605,7 @@ model MonthlyTarget {
   appId              String  @default("") @map("app_id")
 
   @@unique([month, appId])
-  @@index([appId])
+  @@index([appId], map: "idx_monthly_targets_app_id")
   @@map("monthly_targets")
 }
 

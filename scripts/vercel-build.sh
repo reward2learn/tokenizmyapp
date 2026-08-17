@@ -1,6 +1,13 @@
 #!/usr/bin/env bash
 set -e
 
+# Fail fast on the mismatch that has broken this build twice: an index created
+# by runtime DDL but not pinned in the zmodel makes `prisma db push` emit a
+# DropIndex, which errors out on any database where the helper has not run.
+# Cheap, and it fails here with an actionable message instead of 20s later
+# inside the schema engine.
+node scripts/enforce-index-names.mjs
+
 zenstack generate --schema zenstack/schema.zmodel
 
 if [ -n "$POSTGRES_URL" ]; then

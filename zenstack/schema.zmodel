@@ -102,9 +102,8 @@ model AppPage {
   /// Suite-mode app id, when this page is scoped to a single app within a tenant.
   appId       String?   @map("app_id")
   sections  PageSection[]
-
-  @@index([tenantSlug])
-  @@index([tenantSlug, appId])
+  @@index([tenantSlug, appId], map: "idx_app_pages_tenant_app")
+  @@index([tenantSlug], map: "idx_app_pages_tenant_slug")
   @@map("app_pages")
 }
 
@@ -136,7 +135,7 @@ model BusinessReviewPart {
   @@allow('read', true)
   @@unique([partKey, appId])
   @@unique([slug, appId])
-  @@index([appId])
+  @@index([appId], map: "idx_business_review_parts_app_id")
   @@map("business_review_parts")
 }
 
@@ -150,7 +149,7 @@ model Lever {
   appId       String @default("") @map("app_id")
 
   @@unique([num, appId])
-  @@index([appId])
+  @@index([appId], map: "idx_levers_app_id")
   @@map("levers")
 }
 
@@ -162,8 +161,7 @@ model ActionItem {
   sortOrder Int            @default(0) @map("sort_order")
   /// Suite-mode app id — empty string means the tenant's own (single-app) copy.
   appId     String         @default("") @map("app_id")
-
-  @@index([appId])
+  @@index([appId], map: "idx_action_items_app_id")
   @@map("action_items")
 }
 
@@ -189,7 +187,7 @@ model Role {
 
   @@allow('read', true)
   @@allow('create,update,delete', auth().tier == pin || auth().tier == google)
-  @@index([tenantSlug, appId])
+  @@index([tenantSlug, appId], map: "idx_roles_tenant_app")
   @@map("roles")
 }
 
@@ -214,8 +212,8 @@ model UserAccount {
 
   @@allow('read', auth().tier == pin || auth().tier == google)
   @@allow('update', auth().tier == pin || auth().tier == google)
-  @@index([tenantSlug, appId])
   @@index([tenantSlug], map: "idx_user_accounts_tenant_slug")
+  @@index([tenantSlug, appId], map: "idx_user_accounts_tenant_app")
   @@map("user_accounts")
 }
 
@@ -237,7 +235,7 @@ model SecurityGroup {
 
   @@allow('read', auth().tier == pin || auth().tier == google)
   @@allow('create,update,delete', auth().tier == pin || auth().tier == google)
-  @@index([tenantSlug, appId])
+  @@index([tenantSlug, appId], map: "idx_security_groups_tenant_app")
   @@map("security_groups")
 }
 
@@ -251,8 +249,8 @@ model UserGroup {
   createdAt DateTime     @default(now()) @map("created_at")
 
   @@unique([userId, groupId])
-  @@index([userId])
-  @@index([groupId])
+  @@index([groupId], map: "idx_user_groups_group")
+  @@index([userId], map: "idx_user_groups_user")
   @@map("user_groups")
 }
 
@@ -275,9 +273,9 @@ model Task {
   appId       String           @default("") @map("app_id")
 
   @@index([status])
-  @@index([appId])
   @@allow('read', true)
   @@allow('create,update,delete', auth().tier == pin || auth().tier == google)
+  @@index([appId], map: "idx_tasks_app_id")
   @@map("tasks")
 }
 
@@ -327,7 +325,7 @@ model KnowledgeSnippet {
   @@allow('read', true)
   @@allow('create,update,delete', auth().tier == pin || auth().tier == google)
   @@unique([key, appId])
-  @@index([appId])
+  @@index([appId], map: "idx_knowledge_snippets_app_id")
   @@map("knowledge_snippets")
 }
 
@@ -369,8 +367,8 @@ model NavigationItem {
   @@allow('read', true)
   @@allow('create,update,delete', auth().tier == pin || auth().tier == google)
   @@index([parentId, sortOrder])
-  @@index([tenantSlug, appId])
   @@index([tenantSlug], map: "idx_navigation_items_tenant_slug")
+  @@index([tenantSlug, appId], map: "idx_navigation_items_tenant_app")
   @@map("navigation_items")
 }
 
@@ -455,7 +453,7 @@ model Conversation {
 
   // Server-side only (/api/chat?resource=conversations) — session enforced in route handler
   @@allow('all', true)
-  @@index([tenantSlug, appId])
+  @@index([tenantSlug, appId], map: "idx_conversations_tenant_app")
   @@map("conversations")
 }
 
@@ -470,7 +468,7 @@ model PdfJob {
 
   // Server-side only (/api/auth?action=pdf, /api/vjobs) — google tier enforced in route handler
   @@allow('all', true)
-  @@index([status])
+  @@index([status], map: "idx_job_queue_by_status")
   @@map("job_queue")
 }
 
@@ -494,11 +492,11 @@ model FinancialProjection {
 
   @@unique([period, dataType, scenario, appId])
   @@index([period])
-  @@index([appId])
   // Public dashboard chart + P&L reads (server-side createClient, tier public)
   @@allow('read', true)
   // Z-report / monthly-actuals sync upserts data_type=actual rows (route-gated pin|google)
   @@allow('create,update,delete', auth().tier == pin || auth().tier == google)
+  @@index([appId], map: "idx_financial_projections_app_id")
   @@map("financial_projections")
 }
 
@@ -586,8 +584,8 @@ model DailyZReport {
   appId                 String    @default("") @map("app_id")
 
   @@unique([reportDate, department, appId])
-  @@index([appId])
   @@allow('all', true)
+  @@index([appId], map: "idx_daily_z_reports_app_id")
   @@map("daily_z_reports")
 }
 
@@ -600,6 +598,7 @@ model MonthlyActualInput {
 
   @@id([period, appId])
   @@allow('all', true)
+  @@index([appId], map: "idx_monthly_actual_inputs_app_id")
   @@map("monthly_actual_inputs")
 }
 
@@ -638,8 +637,8 @@ model DailyMetric {
   appId         String   @default("") @map("app_id")
 
   @@unique([date, appId])
-  @@index([appId])
   @@allow('all', true)
+  @@index([appId], map: "idx_daily_metrics_app_id")
   @@map("daily_metrics")
 }
 
@@ -655,8 +654,8 @@ model MonthlyTarget {
   appId              String  @default("") @map("app_id")
 
   @@unique([month, appId])
-  @@index([appId])
   @@allow('all', true)
+  @@index([appId], map: "idx_monthly_targets_app_id")
   @@map("monthly_targets")
 }
 
