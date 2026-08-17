@@ -17,12 +17,78 @@ export interface SuiteAppDefinition {
   kpis?: string[];
 }
 
+/**
+ * Social login providers offered by the wallet.
+ *
+ * ⚠️ Bounded by the Reown project dashboard, not by what Reown supports.
+ * AppKit renders a button for every social listed here, but the login only
+ * completes for providers enabled under "Social & Email" on the Reown project.
+ * Ours has Google and Apple enabled — listing X or Discord would render a
+ * button that dead-ends. Widen this union only after enabling the provider in
+ * the Reown dashboard.
+ *
+ * Email is NOT a social: Reown models it as a separate `features.email` flag,
+ * so it lives on `emailLogin` below rather than in this list.
+ */
+export type WalletSocialProvider = 'google' | 'apple';
+
+/**
+ * Web3 wallet configuration for a template.
+ *
+ * "Social wallet" means the user signs in with a familiar identity (Google,
+ * Apple, email) and a non-custodial wallet is derived for them — no seed
+ * phrase, no extension. That is the only variant appropriate for the SMB
+ * audience these templates target; `injected` is offered for tenants whose
+ * users already hold wallets.
+ *
+ * Provider: Reown AppKit (reown.com). The shape below maps 1:1 onto
+ * `createAppKit()` options so the runtime adapter is a straight translation
+ * rather than an interpretation — see shared/src/lib/config/web3.ts.
+ *
+ * Deliberately declarative: this is stored configuration that a generated app
+ * reads, not an SDK binding. Nothing here signs a transaction or holds a key,
+ * and no key material is ever stored on a template. The Reown project id is
+ * platform-level configuration (REOWN_PROJECT_ID), never a template field —
+ * one Reown project fronts every tenant app.
+ */
+export interface Web3WalletConfig {
+  enabled: boolean;
+  /**
+   * `social` — social/email login, wallet derived for the user.
+   * `injected` — MetaMask and friends.
+   * `both` — offer either.
+   */
+  connectMode: 'social' | 'injected' | 'both';
+  /** Socials offered when connectMode includes `social`. Maps to AppKit `features.socials`. */
+  socialProviders: WalletSocialProvider[];
+  /** Offer email sign-in. Maps to AppKit `features.email`. */
+  emailLogin: boolean;
+  /** EVM chain ids the app targets. 1 = Ethereum, 137 = Polygon, 8453 = Base. */
+  chains: number[];
+  /** Show token balances in the app UI. */
+  showBalances: boolean;
+  /** Gate specific pages behind holding a token/NFT. */
+  tokenGating: boolean;
+}
+
+/** Optional capabilities a template can switch on for apps built from it. */
+export interface TemplateCapabilities {
+  web3Wallet?: Web3WalletConfig;
+}
+
 export interface TemplateDefinition {
   id: string;
   label: string;
   description: string;
   icon: string; // MUI icon name
   templateType: 'single' | 'suite';
+  /**
+   * Where this template came from. Built-ins live in TEMPLATE_CATALOG below;
+   * `custom` templates are AI-generated and stored in the platform root DB
+   * (see custom-template-service.ts).
+   */
+  source?: 'builtin' | 'custom';
+  capabilities?: TemplateCapabilities;
   defaultColors: { primary: string; secondary: string };
   defaultPages: {
     slug: string;

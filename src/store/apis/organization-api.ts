@@ -35,8 +35,20 @@ export interface Subscription {
 }
 
 export interface CreditBalance {
+  /** Spendable credits. Never negative. */
   available: number;
+  /** The subset of `available` expiring within 7 days. */
   expiringSoon: number;
+  /**
+   * Credits consumed beyond the balance and not yet settled.
+   *
+   * A generation that runs past its balance completes and records the overage
+   * as debt rather than being cut off mid-run; the NEXT generation is blocked
+   * until it is cleared. Any new grant settles it automatically.
+   */
+  debt: number;
+  /** `available - debt`. Negative means the org is in arrears. */
+  net: number;
 }
 
 export interface CreditGrant {
@@ -66,7 +78,7 @@ export interface CreditLedgerEntry {
 export const organizationApi = createApi({
   reducerPath: 'organizationApi',
   baseQuery,
-  tagTypes: ['Organization', 'TenantOrg', 'Credits'],
+  tagTypes: ['Organization', 'TenantOrg', 'Credits', 'Subscription'],
   endpoints: (builder) => ({
     listOrganizations: builder.query<ApiEnvelope<{ organizations: Organization[] }>, void>({
       query: () => ({ url: 'admin/organizations' }),
@@ -152,14 +164,29 @@ export const organizationApi = createApi({
       providesTags: ['Credits'],
     }),
 
+    /**
+     * Add credits to an organization.
+     *
+     * Redeeming a pack (`packId`) is not the same call as a manual grant
+     * (`source` + `amount`): the server splits a pack into a purchased `addon`
+     * grant and a separate `promo` grant for the bonus, so promotional
+     * generosity stays measurable and separately reversible. Sending the
+     * combined total as one `addon` would silently destroy that split.
+     */
     grantOrganizationCredits: builder.mutation<
-      ApiEnvelope<{ grant: CreditGrant; balance: CreditBalance }>,
-      {
-        orgId: string;
-        source: 'addon' | 'promo' | 'onetime';
-        amount: number;
-        metadata?: Record<string, unknown>;
-      }
+      ApiEnvelope<{
+        grant: CreditGrant;
+        bonusGrant?: CreditGrant | null;
+        balance: CreditBalance;
+      }>,
+      { orgId: string } & (
+        | { packId: string; paymentRef?: string }
+        | {
+            source: 'addon' | 'promo' | 'onetime';
+            amount: number;
+            metadata?: Record<string, unknown>;
+          }
+      )
     >({
       query: ({ orgId, ...body }) => ({
         url: `admin/organizations/${orgId}/credits`,
@@ -167,6 +194,77 @@ export const organizationApi = createApi({
         body,
       }),
       invalidatesTags: ['Credits'],
+    }),
+
+    /** Stripe readiness plus the plan × interval combinations this deploy can sell. */
+    getBillingCheckout: builder.query<
+      ApiEnvelope<{
+        readiness: {
+          ready: boolean;
+          hasSecretKey: boolean;
+          hasWebhookSecret: boolean;
+          hasPublishableKey: boolean;
+          configuredPrices: number;
+          liveMode: boolean;
+          configError: string | null;
+        };
+        purchasable: Array<{ planId: string; interval: 'monthly' | 'yearly' }>;
+        linkage: {
+          customerId: string | null;
+          subscriptionId: string | null;
+          priceId: string | null;
+          gracePeriodEndsAt: string | null;
+          pendingPlanId: string | null;
+        };
+      }>,
+      string
+    >({
+      query: (orgId) => ({ url: `admin/organizations/${orgId}/checkout` }),
+      providesTags: ['Subscription'],
+    }),
+
+    /**
+     * Start a paid plan change.
+     *
+     * Returns either a hosted Checkout URL (no subscription yet) or the result
+     * of an in-place change. The caller must handle both — an existing
+     * subscription MUST be modified rather than re-checked-out, or the customer
+     * ends up with two subscriptions and two charges.
+     */
+    startCheckout: builder.mutation<
+      ApiEnvelope<
+        | { mode: 'checkout'; url: string; sessionId: string }
+        | { mode: 'plan_change'; applied: 'immediate' | 'scheduled'; planId: string; interval: string }
+      >,
+      { orgId: string; planId: string; interval: 'monthly' | 'yearly' }
+    >({
+      query: ({ orgId, ...body }) => ({
+        url: `admin/organizations/${orgId}/checkout`,
+        method: 'POST',
+        body,
+      }),
+      invalidatesTags: ['Subscription'],
+    }),
+
+    /** Create a PaymentIntent for a paid top-up. Credits arrive via webhook. */
+    createTopUpIntent: builder.mutation<
+      ApiEnvelope<{
+        clientSecret: string;
+        paymentIntentId: string;
+        amountCents: number;
+        publishableKey: string | null;
+        pack: { id: string; label: string; baseCredits: number; bonusCredits: number };
+      }>,
+      { orgId: string; packId: string }
+    >({
+      query: ({ orgId, packId }) => ({
+        url: `admin/organizations/${orgId}/topup`,
+        method: 'POST',
+        body: { packId },
+      }),
+      // Credits land asynchronously when payment_intent.succeeded arrives, so
+      // this does NOT invalidate Credits — the balance is refetched after the
+      // client confirms payment instead.
     }),
   }),
 });
@@ -180,4 +278,7 @@ export const {
   useAssignTenantOrganizationMutation,
   useGetOrganizationCreditsQuery,
   useGrantOrganizationCreditsMutation,
+  useGetBillingCheckoutQuery,
+  useStartCheckoutMutation,
+  useCreateTopUpIntentMutation,
 } = organizationApi;

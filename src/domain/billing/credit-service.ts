@@ -20,12 +20,28 @@
  * provider directly. Only platform-key usage is metered.
  */
 import type { createRawClient } from '@/lib/db';
-import { getPlan } from '@/lib/billing/plans';
+import { getPlan, CREDIT_PACKS, type CreditPack } from '@/lib/billing/plans';
 import { creditsForUsage } from '@/lib/billing/credit-rates';
 import { jsonErrorLite } from '@/lib/api/response-lite';
 
 /** Grants expire 30 days after issue (roadmap §3.2 — documented decision). */
 export const CREDIT_EXPIRY_DAYS = 30;
+
+/**
+ * Balance a generation must have before it is allowed to start.
+ *
+ * ⚠️ Currently 1, which means the gate only stops a *completely* empty org. A
+ * real generation costs many credits, so an org with 1 credit passes the gate,
+ * runs, and the platform collects 1 credit for the whole job — the rest is
+ * given away (see the `shortfall` field on MeterResult).
+ *
+ * Raising this to a realistic floor is a pricing decision, not a code one: too
+ * low leaks revenue, too high refuses work from customers who could have
+ * afforded most of it. Left at the pre-existing behaviour until that number is
+ * chosen. `requireCreditsForOrg(orgId, db, n)` overrides it per call site for
+ * generations known to be expensive.
+ */
+export const MIN_CREDITS_TO_START = 1;
 
 export type CreditSource = 'plan' | 'addon' | 'onetime' | 'promo';
 
@@ -164,12 +180,55 @@ const SOURCE_REASONS: Record<CreditSource, string> = {
   promo: 'promo_bonus',
 };
 
+/** Ledger reason for the two halves of the debt cycle. */
+const DEBT_INCURRED_REASON = 'ai_generation_unbilled';
+const DEBT_SETTLED_REASON = 'debt_settlement';
+
 /**
- * Current spendable balance for an org.
+ * Outstanding debt for an org, in credits. Zero when the books are clear.
  *
- * `available` = SUM(remaining) over grants that are not yet expired and not
- * fully consumed; `expiringSoon` is the subset of that expiring within 7 days
- * (drives the "expiring soon" warning in the billing UI).
+ * Debt is represented as ledger entries with `grant_id IS NULL` — the schema
+ * already reserves that for "balance-level" entries. Incurring debt writes a
+ * negative marker; settling it writes an offsetting positive one, so the
+ * markers net to zero once paid and the outstanding amount is just their
+ * negated sum. No separate table, and the audit trail shows both events.
+ */
+export async function getOutstandingDebt(orgId: string, db?: RawDb): Promise<number> {
+  db ??= await getDb();
+  await ensureCreditTables(db);
+
+  const rows = (await db.$queryRawUnsafe(
+    `SELECT COALESCE(SUM(delta), 0) AS total
+     FROM credit_ledger
+     WHERE org_id = $1 AND grant_id IS NULL AND reason IN ($2, $3);`,
+    orgId,
+    DEBT_INCURRED_REASON,
+    DEBT_SETTLED_REASON,
+  )) as Record<string, unknown>[];
+
+  // Markers are negative when owed. Floored at zero so an over-settlement can
+  // never read as "negative debt", which would silently inflate the balance.
+  return Math.max(0, -Number(rows[0]?.total ?? 0));
+}
+
+export interface CreditBalance {
+  /** Spendable credits: SUM(remaining) over unexpired grants. Never negative. */
+  available: number;
+  /** The subset of `available` expiring within 7 days. */
+  expiringSoon: number;
+  /** Credits consumed beyond the balance and not yet settled. */
+  debt: number;
+  /** `available - debt`. Negative means the org is in arrears. */
+  net: number;
+}
+
+/**
+ * Current balance for an org.
+ *
+ * `available` and `debt` are tracked separately rather than netted into one
+ * number: they mean different things to the UI (one is spendable, the other is
+ * owed) and collapsing them would make an org holding fresh credits *and*
+ * carrying debt look solvent when the next generation is about to be blocked.
  *
  * Lazily grants the monthly allowance first — same self-healing pattern as
  * getSubscription(): an org that has never been seen by this code converges
@@ -178,7 +237,7 @@ const SOURCE_REASONS: Record<CreditSource, string> = {
 export async function getCreditBalance(
   orgId: string,
   db?: RawDb,
-): Promise<{ available: number; expiringSoon: number }> {
+): Promise<CreditBalance> {
   db ??= await getDb();
   await grantMonthlyAllowanceIfDue(orgId, db);
   await ensureCreditTables(db);
@@ -192,9 +251,14 @@ export async function getCreditBalance(
     orgId,
   )) as Record<string, unknown>[];
 
+  const available = Number(rows[0]?.available ?? 0);
+  const debt = await getOutstandingDebt(orgId, db);
+
   return {
-    available: Number(rows[0]?.available ?? 0),
+    available,
     expiringSoon: Number(rows[0]?.expiring_soon ?? 0),
+    debt,
+    net: available - debt,
   };
 }
 
@@ -247,7 +311,73 @@ export async function grantCredits(
     JSON.stringify(input.metadata ?? null),
   );
 
+  // New credits pay off arrears first. Without this an org that ran up debt
+  // would top up and immediately spend the top-up on new work while the old
+  // debt kept it blocked — the balance would look healthy and every generation
+  // would still be refused.
+  await settleDebt(orgId, db);
+
   return grant;
+}
+
+export interface RedeemPackResult {
+  pack: CreditPack;
+  /** The purchased credits (source 'addon'). */
+  baseGrant: CreditGrant;
+  /** The promotional bonus, when the pack carries one (source 'promo'). */
+  bonusGrant: CreditGrant | null;
+  balance: { available: number; expiringSoon: number };
+}
+
+/**
+ * Redeem a top-up pack into credits.
+ *
+ * Writes the base and bonus as **two separate grants** — purchased credits as
+ * `source='addon'`, the promotional bonus as `source='promo'` (roadmap §3.7).
+ * One combined grant would be simpler and wrong: promo generosity has to stay
+ * measurable, and a refund or a withdrawn promotion must be able to claw back
+ * the bonus without touching credits the customer actually paid for.
+ *
+ * Takes no money. Phase 4 (Stripe) calls this after a successful payment; today
+ * it is the admin top-up path, which is why the route behind it is platform-admin
+ * only.
+ */
+export async function redeemCreditPack(
+  orgId: string,
+  packId: string,
+  options: { paymentRef?: string | null } = {},
+  db?: RawDb,
+): Promise<RedeemPackResult> {
+  db ??= await getDb();
+
+  const pack = CREDIT_PACKS.find((p) => p.id === packId);
+  if (!pack) {
+    throw new Error(
+      `Unknown credit pack "${packId}". Available: ${CREDIT_PACKS.map((p) => p.id).join(', ')}`,
+    );
+  }
+
+  const metadata = {
+    packId: pack.id,
+    priceCents: pack.priceCents,
+    paymentRef: options.paymentRef ?? null,
+  };
+
+  const baseGrant = await grantCredits(
+    orgId,
+    { source: 'addon', amount: pack.baseCredits, metadata },
+    db,
+  );
+
+  const bonusGrant = pack.bonusCredits > 0
+    ? await grantCredits(
+        orgId,
+        { source: 'promo', amount: pack.bonusCredits, metadata },
+        db,
+      )
+    : null;
+
+  return { pack, baseGrant, bonusGrant, balance: await getCreditBalance(orgId, db) };
 }
 
 export interface ConsumeCreditsInput {
@@ -256,6 +386,11 @@ export interface ConsumeCreditsInput {
   refType?: string | null;
   refId?: string | null;
   metadata?: Record<string, unknown> | null;
+  /**
+   * Record consumption beyond the available balance as debt rather than
+   * silently taking only what is there. Defaults to false.
+   */
+  allowDebt?: boolean;
 }
 
 /**
@@ -266,15 +401,20 @@ export interface ConsumeCreditsInput {
  * touched grant with `delta = -consumedFromGrant`. Never mutates a balance
  * column — the ledger is the audit trail and the balance is always derived.
  *
- * If `amount` exceeds the available balance, everything available is consumed
- * and `consumed < amount` is returned; the caller decides policy (the
- * pre-flight gate `requireCreditsForTenant` should prevent this in practice).
+ * When `amount` exceeds the available balance the behaviour depends on
+ * `allowDebt`:
+ *
+ *   - `false` (default) — consume what is there and return `consumed < amount`.
+ *     Right for speculative or pre-flight consumption.
+ *   - `true` — record the overage as debt so the full cost is captured. Right
+ *     for metering, where the tokens are already spent and refusing to record
+ *     them would just give the work away (see meterAiUsageForOrg).
  */
 export async function consumeCredits(
   orgId: string,
   input: ConsumeCreditsInput,
   db?: RawDb,
-): Promise<{ consumed: number; balance: number }> {
+): Promise<{ consumed: number; debtIncurred: number; balance: number }> {
   db ??= await getDb();
   await ensureCreditTables(db);
 
@@ -317,19 +457,171 @@ export async function consumeCredits(
     );
   }
 
+  // The overage. Written as a single balance-level ledger entry (grant_id NULL)
+  // rather than pushing a grant negative — grants model money that was issued,
+  // and a negative one would corrupt both the balance sum and expiry handling.
+  const debtIncurred = input.allowDebt ? input.amount - consumed : 0;
+  if (debtIncurred > 0) {
+    await db.$executeRawUnsafe(
+      `INSERT INTO credit_ledger (id, org_id, grant_id, delta, reason, ref_type, ref_id, metadata)
+       VALUES (gen_random_uuid()::TEXT, $1, NULL, $2, $3, $4, $5, $6::jsonb);`,
+      orgId,
+      -debtIncurred,
+      DEBT_INCURRED_REASON,
+      input.refType ?? null,
+      input.refId ?? null,
+      JSON.stringify({ ...(input.metadata ?? {}), originalReason: input.reason }),
+    );
+  }
+
   const { available } = await getCreditBalance(orgId, db);
-  return { consumed, balance: available };
+  return { consumed, debtIncurred, balance: available };
 }
 
-/** Whether an org can afford `amount` credits right now. */
+/**
+ * Pay off outstanding debt from the org's current grants.
+ *
+ * Called after every grant, so credits arriving by any route — plan allowance,
+ * top-up, promo, admin adjustment — clear arrears before they can be spent on
+ * new work. That is the whole point of allowing debt: the org is unblocked the
+ * moment it is funded, without anyone having to remember to settle.
+ *
+ * Deliberately does NOT go through consumeCredits(): that ends by reading the
+ * balance, which lazily grants the monthly allowance, which grants credits,
+ * which would re-enter here. Direct SQL keeps the cycle impossible rather than
+ * merely unlikely.
+ */
+export async function settleDebt(
+  orgId: string,
+  db?: RawDb,
+): Promise<{ settled: number; remainingDebt: number }> {
+  db ??= await getDb();
+  await ensureCreditTables(db);
+
+  const debt = await getOutstandingDebt(orgId, db);
+  if (debt <= 0) return { settled: 0, remainingDebt: 0 };
+
+  const grants = (await db.$queryRawUnsafe(
+    `SELECT * FROM credit_grants
+     WHERE org_id = $1 AND remaining > 0 AND expires_at > CURRENT_TIMESTAMP
+     ORDER BY expires_at ASC, granted_at ASC;`,
+    orgId,
+  )) as Record<string, unknown>[];
+
+  let toSettle = debt;
+  let settled = 0;
+
+  for (const row of grants) {
+    if (toSettle <= 0) break;
+    const grantId = String(row.id);
+    const take = Math.min(Number(row.remaining), toSettle);
+
+    await db.$executeRawUnsafe(
+      `UPDATE credit_grants SET remaining = remaining - $1 WHERE id = $2;`,
+      take,
+      grantId,
+    );
+    await db.$executeRawUnsafe(
+      `INSERT INTO credit_ledger (id, org_id, grant_id, delta, reason, metadata)
+       VALUES (gen_random_uuid()::TEXT, $1, $2, $3, $4, $5::jsonb);`,
+      orgId,
+      grantId,
+      -take,
+      DEBT_SETTLED_REASON,
+      JSON.stringify({ settledAgainstDebt: take }),
+    );
+
+    toSettle -= take;
+    settled += take;
+  }
+
+  if (settled > 0) {
+    // The offsetting marker. Debt markers net to zero once paid, so the
+    // outstanding amount stays derivable from the ledger alone.
+    await db.$executeRawUnsafe(
+      `INSERT INTO credit_ledger (id, org_id, grant_id, delta, reason, metadata)
+       VALUES (gen_random_uuid()::TEXT, $1, NULL, $2, $3, $4::jsonb);`,
+      orgId,
+      settled,
+      DEBT_SETTLED_REASON,
+      JSON.stringify({ debtBefore: debt, debtAfter: debt - settled }),
+    );
+  }
+
+  return { settled, remainingDebt: debt - settled };
+}
+
+export interface CreditReconciliation {
+  /** SUM(delta) over the whole ledger — every grant and every consumption. */
+  ledgerTotal: number;
+  /** SUM(remaining) over ALL grants, expired ones included. */
+  grantsRemaining: number;
+  /** Credits consumed beyond the balance and not yet settled. */
+  debt: number;
+  /** ledgerTotal − (grantsRemaining − debt). Zero when the books balance. */
+  drift: number;
+  balanced: boolean;
+}
+
+/**
+ * Check the ledger against the grants — Phase 3's exit criterion.
+ *
+ * The invariant, with debt:
+ *
+ *     SUM(ledger.delta) === SUM(grants.remaining) − outstandingDebt
+ *
+ * Debt is the only ledger movement with no matching change to a grant (the
+ * credits were never issued), so it is exactly the gap between the two sums.
+ * When nothing is owed this reduces to the simple `ledger === grants` form.
+ *
+ * Expired grants are deliberately included: expiry makes credits unspendable,
+ * it does not un-grant them, so excluding them would report drift on every org
+ * with an expired grant.
+ *
+ * A non-zero drift means a grant or a consumption was written without its
+ * ledger entry — a bookkeeping bug, not a customer-visible one, which is
+ * exactly why it needs a check rather than waiting to be noticed.
+ */
+export async function reconcileCredits(
+  orgId: string,
+  db?: RawDb,
+): Promise<CreditReconciliation> {
+  db ??= await getDb();
+  await ensureCreditTables(db);
+
+  const [ledgerRows, grantRows] = await Promise.all([
+    db.$queryRawUnsafe(
+      `SELECT COALESCE(SUM(delta), 0) AS total FROM credit_ledger WHERE org_id = $1;`,
+      orgId,
+    ) as Promise<Record<string, unknown>[]>,
+    db.$queryRawUnsafe(
+      `SELECT COALESCE(SUM(remaining), 0) AS total FROM credit_grants WHERE org_id = $1;`,
+      orgId,
+    ) as Promise<Record<string, unknown>[]>,
+  ]);
+
+  const ledgerTotal = Number(ledgerRows[0]?.total ?? 0);
+  const grantsRemaining = Number(grantRows[0]?.total ?? 0);
+  const debt = await getOutstandingDebt(orgId, db);
+  const drift = ledgerTotal - (grantsRemaining - debt);
+
+  return { ledgerTotal, grantsRemaining, debt, drift, balanced: drift === 0 };
+}
+
+/**
+ * Whether an org can afford `amount` credits right now.
+ *
+ * Measured against `net`, not `available`: an org carrying debt cannot afford
+ * anything until it is settled, however many fresh credits it is holding.
+ */
 export async function hasSufficientCredits(
   orgId: string,
   amount: number,
   db?: RawDb,
 ): Promise<boolean> {
   db ??= await getDb();
-  const { available } = await getCreditBalance(orgId, db);
-  return available >= amount;
+  const { net } = await getCreditBalance(orgId, db);
+  return net >= amount;
 }
 
 /**
@@ -385,6 +677,117 @@ export async function grantMonthlyAllowanceIfDue(
   );
 }
 
+/**
+ * Resolve the org that pays for a tenant's AI usage, creating the default org
+ * if the tenant predates the org layer.
+ *
+ * Extracted because metering and the pre-flight gate must agree on the payer —
+ * a gate that checks one org while metering debits another would let a tenant
+ * generate forever against a balance nobody is watching.
+ */
+async function resolvePayingOrgId(tenantSlug: string, db: RawDb): Promise<string> {
+  const { resolveOrgForTenant, backfillDefaultOrganization } = await import(
+    '@/domain/billing/organization-service'
+  );
+  const org = await resolveOrgForTenant(tenantSlug, db);
+  if (org) return org.id;
+
+  // Tenant predates the org layer (or is unknown) — converge on the default
+  // org so metering never 500s. Same self-healing as resolveOrgForTenant().
+  const { orgId } = await backfillDefaultOrganization(db);
+  return orgId;
+}
+
+/**
+ * The org that pays for platform-level AI work — generation an administrator
+ * runs that is not on behalf of any one tenant, such as building a reusable
+ * custom template.
+ *
+ * Charged to the default organization rather than left free: the token cost is
+ * real, and an unmetered path is exactly the unbounded spend this phase exists
+ * to close. When the platform is split into multiple orgs, this is the seam
+ * where the acting admin's own org should be resolved instead.
+ */
+export async function resolvePlatformOrgId(db?: RawDb): Promise<string> {
+  db ??= await getDb();
+  const { backfillDefaultOrganization } = await import('@/domain/billing/organization-service');
+  const { orgId } = await backfillDefaultOrganization(db);
+  return orgId;
+}
+
+/** What metering actually did — `consumed` is authoritative, `credits` is the price. */
+export interface MeterResult {
+  /** False for BYOK, where the tenant pays the provider directly. */
+  charged: boolean;
+  /** What the usage cost at the rate card. */
+  credits: number;
+  /** What was actually taken from the balance — may be less than `credits`. */
+  consumed: number;
+  /** `credits - consumed`. Non-zero means work was delivered unbilled. */
+  shortfall: number;
+  /** Remaining spendable balance after this call. */
+  balance: number;
+}
+
+export interface MeterAiUsageForOrgInput {
+  orgId: string;
+  model: string | null;
+  promptTokens: number;
+  completionTokens: number;
+  /** 'db' = tenant's own BYOK key; 'env' = platform key. */
+  keySource: 'db' | 'env';
+  refType?: string | null;
+  refId?: string | null;
+}
+
+/**
+ * Meter usage against a known org.
+ *
+ * The org-level primitive; `meterAiUsage()` is the tenant-scoped wrapper. Use
+ * this directly for platform-level generation that has no tenant.
+ */
+export async function meterAiUsageForOrg(
+  input: MeterAiUsageForOrgInput,
+  db?: RawDb,
+): Promise<MeterResult> {
+  db ??= await getDb();
+  if (input.keySource === 'db') {
+    return { charged: false, credits: 0, consumed: 0, shortfall: 0, balance: 0 };
+  }
+
+  await grantMonthlyAllowanceIfDue(input.orgId, db);
+
+  const credits = creditsForUsage(input.model, input.promptTokens, input.completionTokens);
+  const { consumed, debtIncurred, balance } = await consumeCredits(
+    input.orgId,
+    {
+      amount: credits,
+      reason: 'ai_generation',
+      refType: input.refType,
+      refId: input.refId,
+      metadata: {
+        model: input.model,
+        promptTokens: input.promptTokens,
+        completionTokens: input.completionTokens,
+      },
+      // The tokens are already spent by the time metering runs. Recording only
+      // what the balance could cover would hand the rest of the work over for
+      // free; the overage becomes debt and blocks the NEXT generation instead.
+      allowDebt: true,
+    },
+    db,
+  );
+
+  if (debtIncurred > 0) {
+    console.warn(
+      `[credits] Org ${input.orgId} went into debt: usage cost ${credits}, ` +
+        `${consumed} collected, ${debtIncurred} owed. Further generation is blocked until settled.`,
+    );
+  }
+
+  return { charged: true, credits, consumed, shortfall: debtIncurred, balance };
+}
+
 export interface MeterAiUsageInput {
   tenantSlug: string;
   model: string | null;
@@ -407,44 +810,14 @@ export interface MeterAiUsageInput {
 export async function meterAiUsage(
   input: MeterAiUsageInput,
   db?: RawDb,
-): Promise<{ charged: boolean; credits: number; balance: number }> {
+): Promise<MeterResult> {
   db ??= await getDb();
   if (input.keySource === 'db') {
-    return { charged: false, credits: 0, balance: 0 };
+    return { charged: false, credits: 0, consumed: 0, shortfall: 0, balance: 0 };
   }
 
-  const { resolveOrgForTenant, backfillDefaultOrganization, getOrganization } = await import(
-    '@/domain/billing/organization-service'
-  );
-  let org = await resolveOrgForTenant(input.tenantSlug, db);
-  if (!org) {
-    // Tenant predates the org layer (or is unknown) — converge on the default
-    // org so metering never 500s. Same self-healing as resolveOrgForTenant().
-    const { orgId } = await backfillDefaultOrganization(db);
-    org = await getOrganization(db, orgId);
-    if (!org) throw new Error(`Default organization vanished after backfill`);
-  }
-
-  await grantMonthlyAllowanceIfDue(org.id, db);
-
-  const credits = creditsForUsage(input.model, input.promptTokens, input.completionTokens);
-  const { balance } = await consumeCredits(
-    org.id,
-    {
-      amount: credits,
-      reason: 'ai_generation',
-      refType: input.refType,
-      refId: input.refId,
-      metadata: {
-        model: input.model,
-        promptTokens: input.promptTokens,
-        completionTokens: input.completionTokens,
-      },
-    },
-    db,
-  );
-
-  return { charged: true, credits, balance };
+  const orgId = await resolvePayingOrgId(input.tenantSlug, db);
+  return meterAiUsageForOrg({ ...input, orgId }, db);
 }
 
 export type CreditGateResult =
@@ -465,25 +838,48 @@ export async function requireCreditsForTenant(
   db?: RawDb,
 ): Promise<CreditGateResult> {
   db ??= await getDb();
-  const { resolveOrgForTenant, backfillDefaultOrganization, getOrganization } = await import(
-    '@/domain/billing/organization-service'
-  );
-  let org = await resolveOrgForTenant(tenantSlug, db);
-  if (!org) {
-    const { orgId } = await backfillDefaultOrganization(db);
-    org = await getOrganization(db, orgId);
-    if (!org) throw new Error(`Default organization vanished after backfill`);
+  const orgId = await resolvePayingOrgId(tenantSlug, db);
+  return requireCreditsForOrg(orgId, db);
+}
+
+/**
+ * Pre-flight gate against a known org — the primitive behind
+ * requireCreditsForTenant(), and what platform-level generation uses.
+ */
+export async function requireCreditsForOrg(
+  orgId: string,
+  db?: RawDb,
+  minimum: number = MIN_CREDITS_TO_START,
+): Promise<CreditGateResult> {
+  db ??= await getDb();
+  await grantMonthlyAllowanceIfDue(orgId, db);
+
+  const { available, debt, net } = await getCreditBalance(orgId, db);
+
+  // Arrears block first and say so plainly. Reporting "no credits remaining"
+  // to an org that is actually carrying debt would send them to top up by the
+  // wrong amount — they need to clear the debt AND fund the next run.
+  if (debt > 0) {
+    return {
+      ok: false,
+      balance: net,
+      response: jsonErrorLite(
+        `This organization owes ${debt} AI credit(s) from a previous generation that ran past ` +
+          `its balance. Add at least ${debt + minimum} credits to settle and continue.`,
+        402,
+      ),
+    };
   }
 
-  await grantMonthlyAllowanceIfDue(org.id, db);
-
-  const { available } = await getCreditBalance(org.id, db);
-  if (available < 1) {
+  if (available < minimum) {
     return {
       ok: false,
       balance: available,
       response: jsonErrorLite(
-        'This organization has no AI credits remaining. Upgrade your plan or add credits to continue generating.',
+        minimum > 1
+          ? `This organization has ${available} AI credit(s) but a generation needs at least ` +
+            `${minimum}. Upgrade your plan or add credits to continue.`
+          : 'This organization has no AI credits remaining. Upgrade your plan or add credits to continue generating.',
         402,
       ),
     };

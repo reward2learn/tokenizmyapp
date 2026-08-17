@@ -33,6 +33,7 @@ import ExpandLessIcon from '@mui/icons-material/ExpandLess';
 import FolderIcon from '@mui/icons-material/Folder';
 import type { ReactNode } from 'react';
 import { SavedConversationsMenu } from '@/components/chat/saved-conversations-menu';
+import { WalletConnectButton } from '@/components/web3/wallet-connect-button';
 import { getReviewPartDisplayTitle, listNavPages, resolvePage, resolveReviewPart } from '@/lib/page-catalog';
 import { useAppDispatch, useAppSelector } from '@/store/hooks';
 import { setChatDrawerOpen, setDrawerOpen, toggleChatDrawer } from '@/store/ui-slice';
@@ -349,7 +350,9 @@ export function AppShell({ children }: { children: ReactNode }) {
           <Box sx={{ flex: 1 }} />
 
           {/* Right-aligned controls */}
-          <Box sx={{ display: 'flex', alignItems: 'center' }}>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75 }}>
+            {/* Renders nothing unless the app's template enabled the wallet. */}
+            <WalletConnectButton />
             <Tooltip title={chatDrawerOpen ? 'Close AI chat' : 'Open AI chat'}>
               <IconButton
                 aria-label={chatDrawerOpen ? 'Close AI chat drawer' : 'Open AI chat drawer'}

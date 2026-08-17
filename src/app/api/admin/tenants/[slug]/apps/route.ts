@@ -10,7 +10,7 @@ import { createRawClient } from '@/lib/db';
 import { requireWriteAuth } from '@/lib/auth/guards';
 import { jsonError, jsonOk } from '@/lib/api/response';
 import { ensureTenantsTable } from '@/domain/tenant/tenant-service';
-import { getTemplate } from '@/domain/tenant/template-catalog';
+import { templateExists } from '@/domain/tenant/custom-template-service';
 import type { AppPackConfig, SuiteAppInstance } from '@/store/apis/tenant-api';
 
 export const dynamic = 'force-dynamic';
@@ -62,10 +62,11 @@ export async function POST(
       return jsonError('Missing required fields: appId, name, templateId', 400);
     }
 
-    // Validate template exists
-    try {
-      getTemplate(templateId);
-    } catch {
+    // Validate template exists. getTemplate() falls back to `default` for an
+    // unknown id instead of throwing, so a try/catch here would never fire and
+    // a typo would quietly provision the wrong app. templateExists() also
+    // covers custom (AI-generated) templates, which live in the DB.
+    if (!(await templateExists(templateId))) {
       return jsonError(`Unknown template: ${templateId}`, 400);
     }
 

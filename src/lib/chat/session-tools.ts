@@ -6,7 +6,8 @@ export type ChatSessionAction =
   | 'clear_conversation'
   | 'close_conversation'
   | 'save_conversation'
-  | 'update_review_documents';
+  | 'update_review_documents'
+  | 'build_custom_template';
 
 export const CHAT_SESSION_ACTIONS: ChatSessionAction[] = [
   'new_chat_session',
@@ -14,6 +15,35 @@ export const CHAT_SESSION_ACTIONS: ChatSessionAction[] = [
   'close_conversation',
   'save_conversation',
   'update_review_documents',
+  'build_custom_template',
+];
+
+/**
+ * Tools an administrator can pick explicitly from the chat composer.
+ *
+ * Distinct from ChatSessionAction: those mirror UI buttons and are inferred
+ * from the message text. A composer tool is chosen deliberately and is passed
+ * to the chat route as `activeTool`, which attaches the tool regardless of how
+ * the message happens to be phrased.
+ */
+export type ChatComposerTool = 'build_custom_template';
+
+export interface ChatComposerToolDef {
+  id: ChatComposerTool;
+  label: string;
+  /** Shown under the label in the picker — one line, concrete. */
+  description: string;
+  /** Placeholder swapped into the composer while the tool is active. */
+  placeholder: string;
+}
+
+export const CHAT_COMPOSER_TOOLS: ChatComposerToolDef[] = [
+  {
+    id: 'build_custom_template',
+    label: 'Custom Template Build',
+    description: 'Generate a reusable app template from a website or written requirements.',
+    placeholder: 'Describe the app template — paste a website URL or the requirements…',
+  },
 ];
 
 export function isChatSessionAction(value: unknown): value is ChatSessionAction {
@@ -37,6 +67,19 @@ export const CHAT_SESSION_TOOL_INSTRUCTIONS = `You can manage the active chat se
 Only call a session tool when the user explicitly asks to start a new chat, clear the chat, close the conversation, or save the conversation.
 Never call session tools for business questions, metrics, revenue, operations, or general knowledge requests.
 When a session tool is appropriate, call the matching tool before confirming the action in your reply.
+
+To build a reusable app template ("Custom Template Build"):
+- Call "build_custom_template" when the administrator asks to create a template, or when the
+  Custom Template Build tool is selected in the chat composer.
+- Source it from a web address (sourceKind "url" + the url) when they give you a site to model,
+  or from written requirements (sourceKind "knowledge" + knowledgeContent) when they paste or
+  describe the requirements.
+- Always pass a "brief" describing the kind of business the template serves.
+- Only set web3Wallet true when the business genuinely involves tokens, NFTs, crypto payments or
+  on-chain memberships. Do not enable it speculatively. The wallet is Reown AppKit with Google,
+  Apple and email sign-in — users never handle a seed phrase.
+- The template is generated, validated and stored; afterwards it appears in the template picker
+  when a tenant creates an app. Report the template name back to the administrator.
 
 To update the Business Review and Executive Summary with insights from your conversation:
 - When the user says something like "update the review" or "save this to the review" or provides substantive new financial/operational information, call the "update_review_documents" tool.
@@ -98,6 +141,42 @@ export const CHAT_SESSION_OPENAI_TOOLS = [
           },
         },
         required: ['summary'],
+        additionalProperties: false,
+      },
+    },
+  },
+  {
+    type: 'function' as const,
+    function: {
+      name: 'build_custom_template',
+      description:
+        'Generate a reusable custom app template from a web address or written requirements, and store it so tenants can build apps from it.',
+      parameters: {
+        type: 'object',
+        properties: {
+          brief: {
+            type: 'string',
+            description: 'What kind of business or application this template should serve.',
+          },
+          sourceKind: {
+            type: 'string',
+            enum: ['url', 'knowledge', 'prompt'],
+            description: 'Where the source material comes from: a website, pasted knowledge content, or the brief alone.',
+          },
+          url: {
+            type: 'string',
+            description: 'Website to model the template on. Required when sourceKind is "url".',
+          },
+          knowledgeContent: {
+            type: 'string',
+            description: 'Written requirements or knowledge-base content. Required when sourceKind is "knowledge".',
+          },
+          web3Wallet: {
+            type: 'boolean',
+            description: 'Force the Reown social wallet (Google/Apple/email sign-in) on or off. Omit to let the design decide (defaults to off).',
+          },
+        },
+        required: ['brief', 'sourceKind'],
         additionalProperties: false,
       },
     },
@@ -169,6 +248,96 @@ export async function executeSessionTool(
         toolMessage: `Conversation saved (id ${saved.id}).`,
         clientAction: 'save_conversation',
       };
+    }
+    case 'build_custom_template': {
+      const brief = typeof args.brief === 'string' ? args.brief.trim() : '';
+      if (!brief) {
+        return { toolMessage: 'A brief is required — describe the kind of app the template should build.' };
+      }
+
+      const sourceKind = args.sourceKind === 'url' || args.sourceKind === 'knowledge'
+        ? args.sourceKind
+        : 'prompt';
+      const url = typeof args.url === 'string' ? args.url.trim() : undefined;
+      const knowledgeContent = typeof args.knowledgeContent === 'string' ? args.knowledgeContent : undefined;
+
+      if (sourceKind === 'url' && !url) {
+        return { toolMessage: 'Ask the administrator for the web address to model the template on.' };
+      }
+      if (sourceKind === 'knowledge' && !knowledgeContent?.trim()) {
+        return { toolMessage: 'Ask the administrator to paste the requirements or knowledge content.' };
+      }
+
+      // Imported lazily: the generator reaches the AI provider and the platform
+      // root DB, neither of which should load for an ordinary chat turn.
+      const [{ generateCustomTemplate }, { saveCustomTemplate }, { createRawClient }, credits] =
+        await Promise.all([
+          import('@/domain/tenant/custom-template-generator'),
+          import('@/domain/tenant/custom-template-service'),
+          import('@/lib/db'),
+          import('@/domain/billing/credit-service'),
+        ]);
+
+      // Same pre-flight gate as POST /api/admin/custom-templates. The tool
+      // calls the generator directly rather than going through the route, so
+      // without this the chat path would be an unmetered way to spend the
+      // platform key. Reported as a message, not a 402 — the caller is the
+      // model, and it needs something to say to the administrator.
+      const gate = await credits.requireCreditsForOrg(await credits.resolvePlatformOrgId());
+      if (!gate.ok) {
+        return {
+          toolMessage:
+            'Cannot build a template: this organization has no AI credits remaining. ' +
+            'Tell the administrator to upgrade the plan or add credits.',
+        };
+      }
+
+      try {
+        const generated = await generateCustomTemplate({
+          brief,
+          sourceKind,
+          url,
+          knowledgeContent,
+          web3WalletOverride: typeof args.web3Wallet === 'boolean' ? { enabled: args.web3Wallet } : undefined,
+        });
+
+        // Custom templates are control-plane config shared across tenants, so
+        // they go to the platform root DB — not ctx.db, which is tenant-scoped.
+        const record = await saveCustomTemplate(
+          {
+            label: generated.definition.label,
+            description: generated.definition.description,
+            icon: generated.definition.icon,
+            templateType: generated.definition.templateType,
+            definition: generated.definition,
+            capabilities: generated.capabilities,
+            sourceKind,
+            sourceRef: generated.sourceRef,
+            prompt: brief,
+            createdBy: ctx.userName,
+          },
+          createRawClient(),
+        );
+
+        const wallet = generated.capabilities.web3Wallet;
+        const pages = generated.definition.defaultPages.map((p) => p.title).join(', ');
+        return {
+          toolMessage: [
+            `Created custom template "${record.label}" (id ${record.id}).`,
+            `Pages: ${pages}.`,
+            wallet?.enabled
+              ? `Reown wallet enabled — ${wallet.connectMode} sign-in via ${[
+                  ...wallet.socialProviders,
+                  ...(wallet.emailLogin ? ['email'] : []),
+                ].join('/') || 'wallet extension'}, chains ${wallet.chains.join(', ')}.`
+              : 'Web3 wallet not enabled.',
+            'It is now selectable when creating a tenant app.',
+          ].join(' '),
+          clientAction: 'build_custom_template',
+        };
+      } catch (err) {
+        return { toolMessage: `Could not build the template: ${(err as Error).message}` };
+      }
     }
     case 'update_review_documents': {
       const summary = typeof args.summary === 'string' ? args.summary.trim() : '';

@@ -1,6 +1,6 @@
 import { createAsyncThunk, createSlice } from '@reduxjs/toolkit';
 import { consumeSseStream } from '@/lib/chat/sse-parser';
-import { isChatSessionAction, type ChatSessionAction } from '@/lib/chat/session-tools';
+import { isChatSessionAction, type ChatComposerTool, type ChatSessionAction } from '@/lib/chat/session-tools';
 import type { ChatAttachment } from '@/lib/chat/attachments';
 
 export interface ChatStreamMessage {
@@ -15,6 +15,14 @@ export interface ChatStreamState {
   isStreaming: boolean;
   error: string | null;
   pendingSessionActions: ChatSessionAction[];
+  /**
+   * Tool selected in the chat composer, e.g. "Custom Template Build".
+   *
+   * Lives in the store rather than component state: the composer sets it, the
+   * send thunk reads it, and it must survive the panel unmounting (the chat
+   * drawer closes and reopens between turns). Sticky until explicitly cleared.
+   */
+  activeTool: ChatComposerTool | null;
 }
 
 const initialState: ChatStreamState = {
@@ -23,17 +31,22 @@ const initialState: ChatStreamState = {
   isStreaming: false,
   error: null,
   pendingSessionActions: [],
+  activeTool: null,
 };
 
 export const sendStreamingMessage = createAsyncThunk<
   void,
   { message: string; history: ChatStreamMessage[]; attachments?: ChatAttachment[] },
-  { rejectValue: string }
->('chatStream/sendStreamingMessage', async ({ message, history, attachments }, { dispatch, rejectWithValue }) => {
+  { rejectValue: string; state: { chatStream: ChatStreamState } }
+>('chatStream/sendStreamingMessage', async ({ message, history, attachments }, { dispatch, getState, rejectWithValue }) => {
   const trimmedMessage = message.trim();
   if (!trimmedMessage && !attachments?.length) {
     return;
   }
+
+  // Read from the store rather than an argument so every caller sends the
+  // selected tool without having to thread it through.
+  const activeTool = getState().chatStream.activeTool;
 
   dispatch(resetStream());
   dispatch(addMessage({
@@ -54,6 +67,9 @@ export const sendStreamingMessage = createAsyncThunk<
         history,
         stream: true,
         ...(attachments?.length ? { attachments } : {}),
+        // Explicit composer selection — forces the matching tool on server-side
+        // instead of relying on the message-phrasing heuristic.
+        ...(activeTool ? { activeTool } : {}),
       }),
     });
 
@@ -143,6 +159,9 @@ export const chatStreamSlice = createSlice({
       state.error = null;
       state.pendingSessionActions = [];
     },
+    setActiveTool(state, action: { payload: ChatComposerTool | null }) {
+      state.activeTool = action.payload;
+    },
     queueSessionAction(state, action: { payload: ChatSessionAction }) {
       state.pendingSessionActions.push(action.payload);
     },
@@ -159,6 +178,7 @@ export const {
   clearPendingSessionActions,
   queueSessionAction,
   resetStream,
+  setActiveTool,
   setMessages,
   setStreamError,
   setStreaming,

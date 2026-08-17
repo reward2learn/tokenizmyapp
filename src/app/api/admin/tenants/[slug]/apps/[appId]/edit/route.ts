@@ -10,7 +10,7 @@ import { createRawClient, createClientForUrl } from '@/lib/db';
 import { requireWriteAuth } from '@/lib/auth/guards';
 import { jsonError, jsonOk } from '@/lib/api/response';
 import { ensureTenantsTable } from '@/domain/tenant/tenant-service';
-import { getTemplate } from '@/domain/tenant/template-catalog';
+import { templateExists } from '@/domain/tenant/custom-template-service';
 import type { AppPackConfig, AppScopedConfig } from '@/store/apis/tenant-api';
 
 export const dynamic = 'force-dynamic';
@@ -55,9 +55,9 @@ export async function PATCH(
     };
 
     if (body.templateId) {
-      try {
-        getTemplate(body.templateId);
-      } catch {
+      // getTemplate() cannot signal "unknown" — it returns `default`. Use the
+      // explicit existence check, which also sees custom templates.
+      if (!(await templateExists(body.templateId))) {
         return jsonError(`Unknown template: ${body.templateId}`, 400);
       }
     }

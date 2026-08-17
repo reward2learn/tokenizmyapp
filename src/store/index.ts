@@ -21,6 +21,7 @@ import { brandConfigApi } from '@shared/store/apis/brand-config-api';
 import { navigationApi } from '@/store/apis/navigation-api';
 import { tenantApi } from '@/store/apis/tenant-api';
 import { organizationApi } from '@/store/apis/organization-api';
+import { templateApi } from '@/store/apis/template-api';
 
 const apiMiddleware = [
   authApi.middleware,
@@ -40,6 +41,7 @@ const apiMiddleware = [
   navigationApi.middleware,
   tenantApi.middleware,
   organizationApi.middleware,
+  templateApi.middleware,
   sheetViewerListenerMiddleware,
   undoRedoListenerMiddleware,
 ] as const;
@@ -69,6 +71,7 @@ export function makeStore() {
       [navigationApi.reducerPath]: navigationApi.reducer,
       [tenantApi.reducerPath]: tenantApi.reducer,
       [organizationApi.reducerPath]: organizationApi.reducer,
+      [templateApi.reducerPath]: templateApi.reducer,
     },
     middleware: (getDefaultMiddleware) =>
       getDefaultMiddleware().concat(...apiMiddleware),

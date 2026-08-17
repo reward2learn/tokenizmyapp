@@ -2,6 +2,7 @@ import { configureStore } from '@reduxjs/toolkit';
 import { authSlice } from '@/store/auth-slice';
 import { uiSlice } from '@/store/ui-slice';
 import { chatStreamSlice } from '@/store/chat-stream-slice';
+import { walletSlice } from '@/store/wallet-slice';
 import { sheetViewerSlice, sheetViewerListenerMiddleware } from '@/store/sheet-viewer-slice';
 import { undoRedoSlice, undoRedoListenerMiddleware } from '@/store/undo-redo-slice';
 import { authApi } from '@/store/apis/auth-api';
@@ -43,11 +44,12 @@ const apiMiddleware = [
 ] as const;
 
 export function makeStore() {
-  return configureStore({
+  const store = configureStore({
     reducer: {
       auth: authSlice.reducer,
       ui: uiSlice.reducer,
       chatStream: chatStreamSlice.reducer,
+      wallet: walletSlice.reducer,
       sheetViewer: sheetViewerSlice.reducer,
       undoRedo: undoRedoSlice.reducer,
       [authApi.reducerPath]: authApi.reducer,
@@ -70,6 +72,19 @@ export function makeStore() {
     middleware: (getDefaultMiddleware) =>
       getDefaultMiddleware().concat(...apiMiddleware),
   });
+
+  // Wallet state is pushed in from Reown AppKit rather than fetched, so the
+  // subscription is set up with the store instead of inside a component. It
+  // no-ops on the server and whenever the wallet capability is switched off.
+  // Imported lazily so @reown/appkit stays out of the bundle for the majority
+  // of apps that never enable a wallet.
+  if (typeof window !== 'undefined') {
+    void import('@/store/wallet-watcher').then(({ attachWalletWatcher }) =>
+      attachWalletWatcher(store),
+    );
+  }
+
+  return store;
 }
 
 export type AppStore = ReturnType<typeof makeStore>;

@@ -46,8 +46,15 @@ export const RATE_CARD: Record<string, CreditRate> = {
   'deepseek-reasoner': { inputPer1K: 0.2, outputPer1K: 0.8 },
 };
 
-/** Fallback for unknown models — slightly above the flagship rate, so an
- *  unmapped model never undercharges the platform. */
+/**
+ * Fallback for unknown models — set slightly above the flagship rate, so an
+ * unmapped mainstream model never undercharges the platform.
+ *
+ * ⚠️ It does NOT cover the reasoning tier: `o3` is priced above this on
+ * purpose, so an unmapped reasoning-class model is undercharged until it gets
+ * its own entry. Add new reasoning models to RATE_CARD rather than relying on
+ * this fallback.
+ */
 export const DEFAULT_RATE: CreditRate = { inputPer1K: 0.5, outputPer1K: 2.0 };
 
 function rateForModel(model: string | null | undefined): CreditRate {

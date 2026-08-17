@@ -135,7 +135,13 @@ export function OrganizationBar({ tenantSlug }: { tenantSlug?: string | null }) 
     if (!activeOrgId || topUpAmount < 1) return;
     setTopUpError(null);
     try {
-      await grantCredits({ orgId: activeOrgId, source: 'addon', amount: topUpAmount }).unwrap();
+      // A pack goes over as `packId` so the server can split base from bonus
+      // into two grants. Only an off-catalog amount is sent as a manual grant.
+      await grantCredits(
+        selectedPack
+          ? { orgId: activeOrgId, packId: selectedPack.id }
+          : { orgId: activeOrgId, source: 'addon', amount: topUpAmount },
+      ).unwrap();
       setTopUpOpen(false);
       setCustomAmount('');
       setSelectedPackId(CREDIT_PACKS[0]?.id ?? null);
@@ -207,17 +213,34 @@ export function OrganizationBar({ tenantSlug }: { tenantSlug?: string | null }) 
               {activeOrgId && balance && (
                 <Tooltip
                   title={
-                    balance.expiringSoon > 0
-                      ? `${balance.expiringSoon} expiring soon`
-                      : 'AI credits balance'
+                    // Debt outranks the expiry warning: an org in arrears is
+                    // blocked right now, which matters more than credits that
+                    // will lapse later.
+                    balance.debt > 0
+                      ? `Blocked — owes ${balance.debt} credit(s) from a generation that ran past its balance. Add ${balance.debt}+ to settle.`
+                      : balance.expiringSoon > 0
+                        ? `${balance.expiringSoon} expiring soon`
+                        : 'AI credits balance'
                   }
                 >
                   <Chip
                     icon={<BoltIcon sx={{ fontSize: 16 }} />}
-                    label={`${balance.available} credits`}
+                    label={
+                      balance.debt > 0
+                        ? `${balance.debt} owed`
+                        : `${balance.available} credits`
+                    }
                     size="small"
-                    color={balance.expiringSoon > 0 ? 'warning' : 'default'}
-                    variant={balance.expiringSoon > 0 ? 'filled' : 'outlined'}
+                    color={
+                      balance.debt > 0
+                        ? 'error'
+                        : balance.expiringSoon > 0
+                          ? 'warning'
+                          : 'default'
+                    }
+                    variant={
+                      balance.debt > 0 || balance.expiringSoon > 0 ? 'filled' : 'outlined'
+                    }
                   />
                 </Tooltip>
               )}

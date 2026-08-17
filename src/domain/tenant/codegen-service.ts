@@ -77,6 +77,7 @@ const COPY_DIRS = [
   'src/lib/schema',
   'src/lib/schemas',
   'src/lib/seo',
+  'src/lib/web3',
   // Theme + Store + Hooks + WASM
   'src/theme',
   'src/store',
@@ -98,6 +99,7 @@ const COPY_DIRS = [
   'src/components/charts',
   'src/components/ops-admin',
   'src/components/ui',
+  'src/components/web3',
   // App pages
   'src/app/(app)',
   'src/app/config',
@@ -816,6 +818,31 @@ async function patchPackageJson(outputDir: string): Promise<void> {
 // ── Tenant config injection ───────────────────────────────────────
 
 /**
+ * Reown wallet env for the generated app's vercel.json.
+ *
+ * Duplicated into vercel.json as well as the Vercel project env (see
+ * buildEnvVarsForProject) because the two are read at different times: the
+ * project env is what a redeploy from git uses, while vercel.json is what the
+ * very first build of a freshly generated codebase sees.
+ */
+async function resolveWalletEnv(templateId: string): Promise<Record<string, string>> {
+  try {
+    const [{ resolveTemplate }, { buildWeb3EnvVars }] = await Promise.all([
+      import('@/domain/tenant/custom-template-service'),
+      import('@/lib/web3/reown'),
+    ]);
+    const template = await resolveTemplate(templateId);
+    return buildWeb3EnvVars(template.capabilities?.web3Wallet);
+  } catch (err) {
+    console.warn(
+      `[codegen] Could not resolve wallet config for template "${templateId}":`,
+      err instanceof Error ? err.message : err,
+    );
+    return { NEXT_PUBLIC_WEB3_WALLET_ENABLED: 'false' };
+  }
+}
+
+/**
  * Inject tenant config (slug, displayName, templateId, colors) into the
  * vercel.json env section. Also sets NEXT_PUBLIC_APP_URL for the tenant's
  * Vercel subdomain.
@@ -846,6 +873,7 @@ export async function injectTenantConfig(
     NEXT_PUBLIC_TENANT_PRIMARY_COLOR: config.primaryColor,
     NEXT_PUBLIC_TENANT_SECONDARY_COLOR: config.secondaryColor,
     NEXT_PUBLIC_TENANT_TEMPLATE_ID: config.templateId,
+    ...(await resolveWalletEnv(config.templateId)),
   };
 
   await writeFile(vercelJsonPath, JSON.stringify(vercelConfig, null, 2) + '\n', 'utf8');

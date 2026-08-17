@@ -66,6 +66,7 @@ import VerifiedUserIcon from '@mui/icons-material/VerifiedUser';
 import WarningIcon from '@mui/icons-material/Warning';
 
 import { getTemplate, listTemplates } from '@/domain/tenant/template-catalog';
+import { useListAllTemplatesQuery } from '@/store/apis/template-api';
 import { DEFAULT_PLATFORM_ADMIN_EMAIL } from '@/domain/security/persons';
 import {
   useListTenantsQuery,
@@ -206,7 +207,12 @@ export function EditAppModal({ open, onClose, tenantSlug, app, onSnackbar }: Edi
   const [provisionDeployHook, { isLoading: generatingHook }] = useProvisionAppDeployHookMutation();
   const { data: rolesData, isLoading: rolesLoading } = useListRoleConfigsQuery();
 
-  const templates = listTemplates();
+  // Built-ins come from the compiled catalog; custom (AI-generated) templates
+  // only exist in the platform DB, so the merged list has to be fetched. Falls
+  // back to the built-ins if the request has not resolved or fails, which keeps
+  // template selection working even when the endpoint is unavailable.
+  const { data: templateData } = useListAllTemplatesQuery();
+  const templates = templateData?.data?.templates ?? listTemplates();
   const tenant = tenantsData?.data?.tenants?.find((t) => t.slug === tenantSlug);
   const rolesList = useMemo(() => rolesData?.data?.roles || [], [rolesData]);
 

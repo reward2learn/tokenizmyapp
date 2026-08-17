@@ -19,6 +19,7 @@ import { jsonError, jsonOk } from '@/lib/api/response';
 import { ensureTenantsTable } from '@/domain/tenant/tenant-service';
 import { seedTenantDefaults, seedTemplateSecurityGroups, resolveTenantAdminEmail } from '@/domain/tenant/tenant-seed-service';
 import { getTemplate } from '@/domain/tenant/template-catalog';
+import { resolveTemplate } from '@/domain/tenant/custom-template-service';
 import type { AppPackConfig, SuiteAppInstance } from '@/store/apis/tenant-api';
 
 export const dynamic = 'force-dynamic';
@@ -123,7 +124,7 @@ export async function POST(
     // a combined key) so admin queries scoped by {tenantSlug, appId} can
     // find these rows within the shared database.
     const tenantDbUrl = tenant.db_url as string | null;
-    const tpl = getTemplate(app.templateId);
+    const tpl = await resolveTemplate(app.templateId);
     const dedicatedSeedClient = tenantDbUrl
       ? new PrismaClient({ datasources: { db: { url: tenantDbUrl } } })
       : null;
@@ -222,7 +223,7 @@ export async function PUT(
     // database (not a new one of its own; see suite-provisioning.ts).
     const { deployTenant } = await import('@/domain/tenant/vercel-deploy-service');
     const appSlug = `${slug}-${appId}`;
-    const tpl = getTemplate(app.templateId);
+    const tpl = await resolveTemplate(app.templateId);
     const tenantDbUrl = tenant.db_url as string | null;
 
     // Merge the app-scoped config over the tenant config so the deploy

@@ -56,5 +56,11 @@
       ]
     }
   ],
-  "installCommand": "bun install"
+  "installCommand": "bun install",
+  "crons": [
+    {
+      "path": "/api/cron/dunning",
+      "schedule": "0 3 * * *"
+    }
+  ]
 }

@@ -55,6 +55,7 @@ import {
   clearMessages,
   clearPendingSessionActions,
   sendStreamingMessage,
+  setActiveTool,
   type ChatStreamMessage,
 } from '@/store/chat-stream-slice';
 import { getClientTenantConfig } from '@shared/lib/config/tenant';
@@ -72,6 +73,8 @@ import {
   formatFileSize,
   type ChatAttachment,
 } from '@/lib/chat/attachments';
+import { ActiveToolBadge, ComposerToolPicker } from '@/components/chat/composer-tool-picker';
+import { CHAT_COMPOSER_TOOLS } from '@/lib/chat/session-tools';
 
 const ICON_BUTTON_SX = { width: 48, height: 48 };
 
@@ -112,6 +115,9 @@ export function ChatPanel({ variant = 'page' }: { variant?: 'page' | 'drawer' } 
   );
   const [input, setInput] = useState('');
   const [attachments, setAttachments] = useState<ChatAttachment[]>([]);
+  // Composer tool selection lives in the store (chat-stream-slice), not local
+  // state — the send thunk reads it directly and it survives the drawer closing.
+  const activeTool = useAppSelector((s) => s.chatStream.activeTool);
   const [attachmentLoading, setAttachmentLoading] = useState(false);
   const [status, setStatus] = useState<string | null>(null);
   const [saveConversation, { isLoading: isSaving }] = useSaveConversationMutation();
@@ -816,8 +822,13 @@ export function ChatPanel({ variant = 'page' }: { variant?: 'page' | 'drawer' } 
               </DialogActions>
             </Dialog>
 
+            <ActiveToolBadge activeTool={activeTool} onClear={() => dispatch(setActiveTool(null))} />
+
             <TextField
               label="Message"
+              placeholder={
+                CHAT_COMPOSER_TOOLS.find((t) => t.id === activeTool)?.placeholder ?? undefined
+              }
               value={input}
               onChange={(event) => setInput(event.target.value)}
               onKeyDown={(event) => {
@@ -973,6 +984,11 @@ export function ChatPanel({ variant = 'page' }: { variant?: 'page' | 'drawer' } 
                   </IconButton>
                 </span>
               </Tooltip>
+              <ComposerToolPicker
+                activeTool={activeTool}
+                onChange={(tool) => dispatch(setActiveTool(tool))}
+                iconButtonSx={ICON_BUTTON_SX}
+              />
               <VoiceProfileMenu voice={ttsVoice} onVoiceChange={setTtsVoice} />
               <Tooltip title={assistantMuted ? 'Unmute assistant voice' : 'Mute assistant voice'}>
                 <IconButton

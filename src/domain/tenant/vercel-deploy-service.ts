@@ -6,6 +6,8 @@
  */
 import { getVercelClient, withTeamId, withTeamId404Null, TEAM_ID, resolveBearerToken, VERCEL_API } from './vercel-sdk-client';
 import { DEFAULT_RELAY_REDIRECT_URI } from '@/lib/auth/google-relay';
+import { buildWeb3EnvVars } from '@/lib/web3/reown';
+import { resolveTemplate } from '@/domain/tenant/custom-template-service';
 import type { UpdateProjectRequestBody } from '@vercel/sdk/models/updateprojectbranchmatcher.js';
 
 
@@ -258,8 +260,14 @@ async function upsertEnvVar(
  * saved metadata.config — Google OAuth creds, database, PINs, custom env).
  * Exported so the per-app "Vercel Save & Push" flow pushes the exact same set
  * without duplicating the mapping logic.
+ *
+ * Async because the app's template decides whether it gets a wallet, and a
+ * custom template lives in the database rather than the compiled catalog.
+ * Resolving here rather than at each of the eight deployTenant call sites means
+ * every deploy path — new tenant, redeploy, suite app, app-pack materializer,
+ * "Vercel Save & Push" — picks the wallet up without being told to.
  */
-export function buildEnvVarsForProject(input: DeployTenantInput): Record<string, string> {
+export async function buildEnvVarsForProject(input: DeployTenantInput): Promise<Record<string, string>> {
   const appUrl = `https://${input.slug}.vercel.app`;
 
   const envVars: Record<string, string> = {
@@ -323,6 +331,23 @@ export function buildEnvVarsForProject(input: DeployTenantInput): Record<string,
     process.env.PLATFORM_ADMIN_EMAIL ||
     'reward2learn@gmail.com';
 
+  // Reown wallet: driven by the template's capabilities, not by tenant config.
+  // A failure to resolve the template must not sink an otherwise valid deploy —
+  // fall back to the wallet being off, which is what every built-in template
+  // asks for anyway.
+  try {
+    const template = await resolveTemplate(input.template);
+    Object.assign(envVars, buildWeb3EnvVars(template.capabilities?.web3Wallet));
+  } catch (err) {
+    console.warn(
+      `[vercel-deploy] Could not resolve template "${input.template}" for wallet config; deploying without a wallet:`,
+      err instanceof Error ? err.message : err,
+    );
+    envVars.NEXT_PUBLIC_WEB3_WALLET_ENABLED = 'false';
+  }
+
+  // Applied last so a tenant's explicit custom env vars (config.env) can
+  // override anything derived above, wallet keys included.
   const configVars = extractConfigEnvVars(input.metadata);
   for (const [key, value] of Object.entries(configVars)) {
     if (value) envVars[key] = value;
@@ -335,7 +360,7 @@ export async function syncEnvVars(
   projectId: string,
   input: DeployTenantInput,
 ): Promise<number> {
-  const envVars = buildEnvVarsForProject(input);
+  const envVars = await buildEnvVarsForProject(input);
 
   // Upsert each env var — the function handles token/teamId fallback internally
   let envCount = 0;
@@ -723,6 +748,65 @@ export async function getVercelDomains(projectId: string): Promise<{ name: strin
     console.warn(`[vercel-deploy] Failed to fetch domains for ${projectId}:`, err instanceof Error ? err.message : err);
     return [];
   }
+}
+
+/**
+ * Detach a custom domain from a Vercel project.
+ *
+ * Removes the domain from the project only — it does not release or transfer
+ * the domain itself, so the customer keeps ownership and can re-point it after
+ * paying. Used by billing when a plan lapses (see the dunning path in
+ * stripe-webhook-service.ts).
+ *
+ * Idempotent: a domain that is already absent counts as success, so retrying a
+ * partially-completed downgrade is safe.
+ */
+export async function removeVercelDomain(
+  projectId: string,
+  domain: string,
+): Promise<{ removed: boolean; reason?: string }> {
+  const client = await getVercelClient();
+  try {
+    await withTeamId((teamId) =>
+      client.projects.removeProjectDomain({ idOrName: projectId, domain, teamId }),
+    );
+    console.log(`[vercel-deploy] Removed domain ${domain} from ${projectId}`);
+    return { removed: true };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    if (message.includes('404')) {
+      // Already gone, or the project no longer exists. Either way there is
+      // nothing left to detach.
+      return { removed: true, reason: 'not_found' };
+    }
+    console.warn(`[vercel-deploy] Failed to remove domain ${domain} from ${projectId}: ${message}`);
+    return { removed: false, reason: message };
+  }
+}
+
+/**
+ * Detach every non-`.vercel.app` domain from a project.
+ *
+ * The auto-assigned `*.vercel.app` subdomain is deliberately kept: it is what
+ * the app is actually served on, and removing it would take a downgraded
+ * customer's site offline entirely rather than just removing the paid custom
+ * domain feature.
+ */
+export async function removeCustomDomains(
+  projectId: string,
+): Promise<{ removed: string[]; failed: string[] }> {
+  const domains = await getVercelDomains(projectId);
+  const removed: string[] = [];
+  const failed: string[] = [];
+
+  for (const { name } of domains) {
+    if (name.endsWith('.vercel.app')) continue;
+    const result = await removeVercelDomain(projectId, name);
+    if (result.removed) removed.push(name);
+    else failed.push(name);
+  }
+
+  return { removed, failed };
 }
 
 export interface SetCustomDomainResult {

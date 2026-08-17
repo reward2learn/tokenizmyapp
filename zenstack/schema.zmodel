@@ -115,7 +115,7 @@ model PageSection {
   blockType BlockType @map("block_type")
   config    Json      @default("{}")
 
-  @@index([pageId, sortOrder])
+  @@index([pageId, sortOrder], map: "page_sections_page_id_sort_order_idx")
   @@map("page_sections")
 }
 
@@ -290,7 +290,7 @@ model TaskAssignment {
   assigned    Boolean  @default(true)
 
   @@unique([taskId, roleId])
-  @@index([roleId])
+  @@index([roleId], map: "task_assignments_role_id_idx")
   @@allow('read', true)
   @@allow('create,update,delete', auth().tier == pin || auth().tier == google)
   @@map("task_assignments")
@@ -308,7 +308,7 @@ model TaskUserAssignment {
   assigned Boolean     @default(true)
 
   @@unique([taskId, userId])
-  @@index([userId])
+  @@index([userId], map: "task_user_assignments_user_account_id_idx")
   @@allow('read', true)
   @@allow('create,update,delete', auth().tier == pin || auth().tier == google)
   @@map("task_user_assignments")
@@ -411,7 +411,7 @@ model AppSetting {
   themeMode           String   @default("system") @map("theme_mode")
   updatedAt           DateTime @updatedAt @map("updated_at")
 
-  @@index([tenantSlug, appId], name: "idx_app_settings_tenant_app")
+  @@index([tenantSlug, appId], map: "idx_app_settings_tenant_app")
   @@allow('all', true)
   @@map("app_settings")
 }
@@ -702,7 +702,7 @@ model Tenant {
   // Webhook integration (one-to-many)
   webhookConfigs  WebhookConfig[]
 
-  @@index([organizationId])
+  @@index([organizationId], map: "idx_tenants_organization")
 
   @@allow('read', true)
   @@allow('create,update,delete', auth().tier == pin || auth().tier == google)
@@ -824,13 +824,53 @@ model Subscription {
   /// Billing anchor. Held separately from currentPeriodStart so an upgrade
   /// mid-cycle does not reset the cycle and hand out a free extension.
   anchorDate         DateTime @default(now()) @map("anchor_date")
+
+  /// ── Stripe linkage (Phase 4) ──
+  /// Stripe customer for this org. Also carries orgId in its own metadata so
+  /// the mapping survives loss of this row.
+  stripeCustomerId     String?   @map("stripe_customer_id")
+  stripeSubscriptionId String?   @map("stripe_subscription_id")
+  /// The price Stripe is actually billing — authoritative over planId when the
+  /// two disagree, since the price is what the customer is charged.
+  stripePriceId        String?   @map("stripe_price_id")
+  /// Dunning: when the 7-day grace period after a failed payment lapses. Null
+  /// when billing is healthy.
+  gracePeriodEndsAt    DateTime? @map("grace_period_ends_at")
+  /// Plan this org drops to at the next period boundary (scheduled downgrade).
+  pendingPlanId        String?   @map("pending_plan_id")
+
   createdAt          DateTime @default(now()) @map("created_at")
   updatedAt          DateTime @updatedAt @map("updated_at")
 
   @@index([planId, status])
+  @@index([stripeCustomerId], map: "idx_subscriptions_stripe_customer")
+  @@index([stripeSubscriptionId], map: "idx_subscriptions_stripe_subscription")
   @@allow('read', true)
   @@allow('create,update,delete', auth().tier == google)
   @@map("subscriptions")
+}
+
+/// Stripe webhook delivery log — the idempotency ledger.
+///
+/// The primary key IS the Stripe event id: processing claims the row with an
+/// INSERT, so a concurrent retry loses the race and skips the work rather than
+/// granting the same credits twice. Never truncate this table casually — doing
+/// so re-opens every historical event to reprocessing.
+model StripeEvent {
+  /// Stripe's event id (evt_…), not a generated one.
+  id           String    @id
+  type         String
+  /// Resolved org, when the event carried enough to identify one.
+  orgId        String?   @map("org_id")
+  /// processing | processed | failed | ignored
+  status       String    @default("processing")
+  errorMessage String?   @map("error_message")
+  receivedAt   DateTime  @default(now()) @map("received_at")
+  processedAt  DateTime? @map("processed_at")
+
+  @@index([type, receivedAt], map: "idx_stripe_events_type_received")
+  @@allow('read', auth().tier == google)
+  @@map("stripe_events")
 }
 
 model CreditGrant {
@@ -854,7 +894,7 @@ model CreditGrant {
   metadata     Json?
 
   /// Balance queries consume oldest-expiring-first.
-  @@index([orgId, expiresAt])
+  @@index([orgId, expiresAt], map: "idx_credit_grants_org_expires")
   @@allow('read', true)
   @@allow('create,update,delete', auth().tier == google)
   @@map("credit_grants")
@@ -877,8 +917,37 @@ model CreditLedger {
   createdAt    DateTime     @default(now()) @map("created_at")
   metadata     Json?
 
-  @@index([orgId, createdAt])
+  @@index([orgId, createdAt], map: "idx_credit_ledger_org_created")
   @@allow('read', true)
   @@allow('create,update,delete', auth().tier == google)
   @@map("credit_ledger")
+}
+
+/// AI-generated app template, stored in the platform root DB.
+/// Built-in templates live in code (src/domain/tenant/template-catalog.ts);
+/// these are created by an administrator via the chat assistant's
+/// "Custom Template Build" tool and appear alongside the built-ins in every
+/// template picker. Control-plane config — never created in a tenant DB.
+model CustomTemplate {
+  id           String   @id
+  label        String
+  description  String   @default("")
+  icon         String   @default("Dashboard")
+  /// single | suite
+  templateType String   @default("single") @map("template_type")
+  /// Full TemplateDefinition payload (pages, nav, colours, schema.org type).
+  definition   Json     @default("{}")
+  /// Optional capabilities, e.g. the Web3 social wallet config.
+  capabilities Json     @default("{}")
+  /// url | knowledge | prompt — how the template was produced.
+  sourceKind   String   @default("prompt") @map("source_kind")
+  sourceRef    String?  @map("source_ref")
+  prompt       String?
+  createdBy    String?  @map("created_by")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  @@allow('read', true)
+  @@allow('create,update,delete', auth().tier == google)
+  @@map("custom_templates")
 }

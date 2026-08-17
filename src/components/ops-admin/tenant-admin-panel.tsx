@@ -38,6 +38,7 @@ import EditIcon from '@mui/icons-material/Edit';
 
 import { useListTenantsQuery, type TenantEntry, type AppPackConfig } from '@/store/apis/tenant-api';
 import { getTemplate } from '@/domain/tenant/template-catalog';
+import { OrganizationBar } from './organization-bar';
 import { TenantDashboard } from './tenant-dashboard';
 import { TenantInfoTab } from './tenant-info-tab';
 import { NavigationManager } from './navigation-manager';
@@ -155,6 +156,11 @@ export function TenantAdminPanel() {
   
   return (
     <Box sx={{ pb: 4 }}>
+      {/* Billing owner sits above the tenant selector: Organization → Tenant →
+          Apps. Passing the selected slug pins the bar to that tenant's paying
+          org and lets it be moved; with no tenant selected it manages orgs. */}
+      <OrganizationBar tenantSlug={selectedTenantSlug} />
+
       {/* Tenant Selector */}
       <Paper elevation={0} sx={{ p: 2, mb: 3, border: '1px solid', borderColor: 'divider', bgcolor: 'background.paper' }}>
         <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} sx={{ alignItems: { xs: 'stretch', sm: 'center' } }}>

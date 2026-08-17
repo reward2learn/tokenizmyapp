@@ -6,10 +6,11 @@
  *   ledger entries (50) — the audit trail behind the balance.
  *
  * POST /api/admin/organizations/[orgId]/credits
- *   Body: { source: 'addon'|'promo'|'onetime', amount: number, metadata?: object }
+ *   Body: { packId: string, paymentRef?: string }             — redeem a catalog pack
+ *      or { source: 'addon'|'promo'|'onetime', amount, metadata? } — manual adjustment
  *   Grants credits to the org (30-day expiry, oldest-expiring-first
  *   consumption). This is the admin top-up path; the Stripe purchase flow
- *   (Phase 4) will call the same grantCredits() with source 'addon'.
+ *   (Phase 4) will call the same redeemCreditPack() with the payment reference.
  *
  * Auth: requireWriteAuth + platform admin — credits are control-plane money.
  */
@@ -22,6 +23,8 @@ import { getOrganization } from '@/domain/billing/organization-service';
 import {
   getCreditBalance,
   grantCredits,
+  redeemCreditPack,
+  reconcileCredits,
   mapCreditGrant,
   mapCreditLedgerEntry,
 } from '@/domain/billing/credit-service';
@@ -31,11 +34,28 @@ export const dynamic = 'force-dynamic';
 const GRANTS_LIMIT = 50;
 const LEDGER_LIMIT = 50;
 
-const postSchema = z.object({
-  source: z.enum(['addon', 'promo', 'onetime']),
-  amount: z.number().int().positive('Amount must be a positive integer'),
-  metadata: z.record(z.unknown()).optional(),
-});
+/**
+ * Two ways to add credits, and they are not interchangeable:
+ *
+ *  - `{ packId }`  — redeem a catalog pack. Writes the base as an `addon` grant
+ *                    and the bonus as a separate `promo` grant, so promotional
+ *                    generosity stays measurable and separately reversible.
+ *  - `{ source, amount }` — a manual adjustment (support credit, negotiated
+ *                    volume deal). Deliberately kept: packs must not become the
+ *                    only lever, or every off-catalog grant gets mislabelled as
+ *                    a purchase and pollutes revenue reporting.
+ */
+const postSchema = z.union([
+  z.object({
+    packId: z.string().min(1),
+    paymentRef: z.string().min(1).optional(),
+  }),
+  z.object({
+    source: z.enum(['addon', 'promo', 'onetime']),
+    amount: z.number().int().positive('Amount must be a positive integer'),
+    metadata: z.record(z.unknown()).optional(),
+  }),
+]);
 
 export async function GET(
   request: Request,
@@ -66,6 +86,9 @@ export async function GET(
 
     return jsonOk({
       balance,
+      // Surfaced with the balance so a bookkeeping bug is visible where the
+      // numbers are read, rather than only when someone thinks to go looking.
+      reconciliation: await reconcileCredits(orgId, db),
       grants: grants.map(mapCreditGrant),
       ledger: ledger.map(mapCreditLedgerEntry),
     });
@@ -103,6 +126,24 @@ export async function POST(
   try {
     const organization = await getOrganization(db, orgId);
     if (!organization) return jsonError('Organization not found', 404);
+
+    if ('packId' in parsed.data) {
+      const result = await redeemCreditPack(
+        orgId,
+        parsed.data.packId,
+        { paymentRef: parsed.data.paymentRef ?? null },
+        db,
+      );
+      return jsonOk(
+        {
+          pack: result.pack,
+          grant: result.baseGrant,
+          bonusGrant: result.bonusGrant,
+          balance: result.balance,
+        },
+        { status: 201 },
+      );
+    }
 
     const grant = await grantCredits(
       orgId,

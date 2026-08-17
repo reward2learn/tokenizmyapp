@@ -66,6 +66,15 @@ const chatBodySchema = z.object({
   })).optional(),
   attachments: z.array(attachmentSchema).optional(),
   stream: z.boolean().optional(),
+  /**
+   * Tool explicitly selected in the chat composer.
+   *
+   * Session tools are normally attached only when the message text clearly asks
+   * for one (isExplicitSessionRequest), which keeps them away from ordinary
+   * business questions. An explicit pick from the composer is a stronger signal
+   * than any phrasing heuristic, so it turns them on directly.
+   */
+  activeTool: z.enum(['build_custom_template']).optional(),
 });
 
 const voiceBodySchema = z.object({
@@ -377,7 +386,7 @@ async function handleChatPost(request: Request): Promise<Response> {
     return legacyError('Message is required', 400);
   }
 
-  const { message, history = [], stream, attachments = [] } = parsed.data;
+  const { message, history = [], stream, attachments = [], activeTool } = parsed.data;
   const session = await getSessionFromRequest(request);
   const userName = session?.name || session?.email || 'Anonymous';
   const db = createClient({
@@ -431,11 +440,14 @@ async function handleChatPost(request: Request): Promise<Response> {
     // capability would just produce misleading answers, so this degrades to
     // off rather than sending a broken request.
     const webSearchEnabled = appSettings.webSearchEnabled && ai.provider.id === 'openai';
-    const sessionToolsEnabled = isExplicitSessionRequest(message);
+    const sessionToolsEnabled = Boolean(activeTool) || isExplicitSessionRequest(message);
 
     const systemSections = [
       systemPrompt,
       ...(sessionToolsEnabled ? [CHAT_SESSION_TOOL_INSTRUCTIONS] : []),
+      ...(activeTool === 'build_custom_template'
+        ? ['The administrator selected the Custom Template Build tool. Call build_custom_template for this request. If you are missing the web address or the requirements content, ask for it before calling the tool.']
+        : []),
       ...(webSearchEnabled ? [CHAT_WEB_SEARCH_INSTRUCTIONS] : []),
     ];
 

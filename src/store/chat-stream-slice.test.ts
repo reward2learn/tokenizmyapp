@@ -4,6 +4,7 @@ import {
   appendToken,
   chatStreamSlice,
   resetStream,
+  setActiveTool,
   setMessages,
   setStreamError,
   setStreaming,
@@ -39,7 +40,17 @@ describe('chatStreamSlice', () => {
       isStreaming: false,
       error: null,
       pendingSessionActions: [],
+      activeTool: null,
     });
+  });
+
+  it('keeps the selected composer tool across a send', () => {
+    // resetStream runs at the start of every send, not per session. Building a
+    // template takes several turns (supply a URL, review, adjust), so clearing
+    // the tool here would silently disarm it after the first message.
+    let state = chatStreamSlice.reducer(undefined, setActiveTool('build_custom_template'));
+    state = chatStreamSlice.reducer(state, resetStream());
+    expect(state.activeTool).toBe('build_custom_template');
   });
 
   it('setMessages replaces the conversation history', () => {

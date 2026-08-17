@@ -29,23 +29,40 @@
  *
  * Runs in prebuild, alongside enforce-redux.mjs.
  */
-import { readFileSync, existsSync } from 'node:fs';
+import { readFileSync, existsSync, readdirSync, statSync } from 'node:fs';
+import { join } from 'node:path';
 
 const ZMODEL = 'zenstack/schema.zmodel';
-
-/** Files containing runtime `CREATE INDEX IF NOT EXISTS` statements. */
-const DDL_SOURCES = [
-  'src/domain/tenant/tenant-seed-service.ts',
-  'src/lib/db-migrate.ts',
-  'src/domain/security/security-service.ts',
-];
+const SCAN_ROOT = 'src';
 
 const CREATE_INDEX = /CREATE\s+INDEX\s+IF\s+NOT\s+EXISTS\s+(\w+)\s+ON\s+(\w+)\s*\(/gi;
+/** Tables the zmodel actually owns — only these can be touched by `db push`. */
+const ZMODEL_TABLE = /@@map\(\s*"(\w+)"\s*\)/g;
+
+/**
+ * Walk src/ rather than keeping a hand-maintained file list.
+ *
+ * The list used to be three hardcoded paths, which is precisely how the billing
+ * tables slipped through: a new service added runtime DDL and the guard had no
+ * idea it existed. Discovery is the only version of this check that stays
+ * correct as the codebase grows.
+ */
+function* walk(dir) {
+  for (const entry of readdirSync(dir)) {
+    const path = join(dir, entry);
+    if (statSync(path).isDirectory()) {
+      if (entry === 'node_modules' || entry === 'generated') continue;
+      yield* walk(path);
+    } else if (path.endsWith('.ts') && !path.endsWith('.test.ts')) {
+      yield path;
+    }
+  }
+}
 
 function collectRuntimeIndexes() {
   const found = new Map(); // name -> { table, file }
-  for (const file of DDL_SOURCES) {
-    if (!existsSync(file)) continue;
+  if (!existsSync(SCAN_ROOT)) return found;
+  for (const file of walk(SCAN_ROOT)) {
     const src = readFileSync(file, 'utf8');
     for (const m of src.matchAll(CREATE_INDEX)) {
       found.set(m[1], { table: m[2], file });
@@ -60,10 +77,21 @@ if (!zmodel) {
   process.exit(1);
 }
 
+const zmodelTables = new Set(Array.from(zmodel.matchAll(ZMODEL_TABLE), (m) => m[1]));
+
 const runtimeIndexes = collectRuntimeIndexes();
 const unpinned = [];
+let skipped = 0;
 
 for (const [name, { table, file }] of runtimeIndexes) {
+  // Only tables the zmodel declares are at risk. `db push` reconciles the
+  // schema it knows about; an index on a table it has never heard of (tenant
+  // data-plane tables, app-pack generated tables) is invisible to it and
+  // flagging it would be noise that trains people to ignore this guard.
+  if (!zmodelTables.has(table)) {
+    skipped++;
+    continue;
+  }
   // The generated Prisma schema must carry this exact name, which only happens
   // when the zmodel pins it with `map:`.
   if (!zmodel.includes(`map: "${name}"`)) {
@@ -89,5 +117,6 @@ if (unpinned.length > 0) {
 }
 
 console.log(
-  `[enforce-index-names] ok — ${runtimeIndexes.size} runtime index name(s) pinned in ${ZMODEL}`,
+  `[enforce-index-names] ok — ${runtimeIndexes.size - skipped} runtime index name(s) pinned in ` +
+    `${ZMODEL}; ${skipped} on tables the zmodel does not own (not at risk)`,
 );

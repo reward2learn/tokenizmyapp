@@ -20,6 +20,7 @@ import TextField from '@mui/material/TextField';
 import AddIcon from '@mui/icons-material/Add';
 
 import { listTemplates } from '@/domain/tenant/template-catalog';
+import { useListAllTemplatesQuery } from '@/store/apis/template-api';
 import { useAddAppToSuiteMutation } from '@/store/apis/tenant-api';
 
 /** Extracts the API envelope's `error` string off an RTK Query error, without `any`. */
@@ -42,7 +43,12 @@ export function AddAppButton({ tenantSlug, onSnackbar }: AddAppButtonProps) {
   const [department, setDepartment] = useState('');
   const [templateId, setTemplateId] = useState('default');
   const [addApp, { isLoading }] = useAddAppToSuiteMutation();
-  const templates = listTemplates();
+  // Built-ins come from the compiled catalog; custom (AI-generated) templates
+  // only exist in the platform DB, so the merged list has to be fetched. Falls
+  // back to the built-ins if the request has not resolved or fails, which keeps
+  // template selection working even when the endpoint is unavailable.
+  const { data: templateData } = useListAllTemplatesQuery();
+  const templates = templateData?.data?.templates ?? listTemplates();
 
   const slugify = (v: string) => v.toLowerCase().trim().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
 

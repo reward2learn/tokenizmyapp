@@ -30,6 +30,8 @@
     "@prisma/client": "6.12.0",
     "@reduxjs/toolkit": "^2.6.0",
     "@sparticuz/chromium": "^133.0.0",
+    "@stripe/react-stripe-js": "^6.8.1",
+    "@stripe/stripe-js": "^9.13.0",
     "@tenants/shared": "file:./shared",
     "@vercel/sdk": "^1.28.11",
     "@zenstackhq/runtime": "2.22.3",
@@ -45,6 +47,7 @@
     "react-dom": "^19.0.0",
     "react-hook-form": "^7.54.0",
     "react-redux": "^9.2.0",
+    "stripe": "^22.5.0",
     "workflow": "^4.7.0",
     "xlsx": "^0.18.5",
     "zod": "^3.24.0"

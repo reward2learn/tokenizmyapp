@@ -19,6 +19,7 @@ import { requireWriteAuth } from '@/lib/auth/guards';
 import { jsonError, jsonOk } from '@/lib/api/response';
 import { ensureTenantsTable } from '@/domain/tenant/tenant-service';
 import { getTemplate } from '@/domain/tenant/template-catalog';
+import { resolveTemplate } from '@/domain/tenant/custom-template-service';
 import type { AppPackConfig } from '@/store/apis/tenant-api';
 
 export const dynamic = 'force-dynamic';
@@ -61,7 +62,7 @@ export async function POST(
     }
 
     const { buildEnvVarsForProject, syncEnvVars } = await import('@/domain/tenant/vercel-deploy-service');
-    const tpl = getTemplate(app.templateId);
+    const tpl = await resolveTemplate(app.templateId);
     const tenantDbUrl = tenant.db_url as string | null;
 
     // Merge the app-scoped config over the tenant config: keys in
@@ -88,7 +89,7 @@ export async function POST(
       metadata: { ...mergedMeta, appId },
     };
 
-    const envVars = buildEnvVarsForProject(input);
+    const envVars = await buildEnvVarsForProject(input);
     const envCount = await syncEnvVars(app.vercelProjectId, input);
 
     console.log(`[app-vercel-env] Pushed ${envCount}/${Object.keys(envVars).length} env vars to "${appId}" (${app.vercelProjectId})`);
