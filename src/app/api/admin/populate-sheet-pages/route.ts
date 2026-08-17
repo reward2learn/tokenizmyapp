@@ -57,9 +57,9 @@ export async function POST(request: Request): Promise<NextResponse> {
         folderId = existing[0].id;
       } else {
         const created = await prisma.$queryRawUnsafe<{ id: string }[]>(
-          `INSERT INTO navigation_items (id, parent_id, sort_order, title, path, icon, auth_tier, required_groups, is_visible, is_dynamic)
+          `INSERT INTO navigation_items (id, parent_id, sort_order, title, path, icon, auth_tier, required_groups, is_visible, is_dynamic, updated_at)
            VALUES (gen_random_uuid()::TEXT, NULL, (SELECT COALESCE(MAX(sort_order), 0) + 1 FROM navigation_items WHERE parent_id IS NULL),
-           $1, '/excel', 'Folder', CAST('google' AS "AuthTier"), '', true, true)
+           $1, '/excel', 'Folder', CAST('google' AS "AuthTier"), '', true, true, CURRENT_TIMESTAMP)
            RETURNING id`,
           folderName,
         );
@@ -86,8 +86,8 @@ export async function POST(request: Request): Promise<NextResponse> {
       );
       if (existing.length === 0) {
         await prisma.$executeRawUnsafe(
-          `INSERT INTO navigation_items (id, parent_id, sort_order, title, path, icon, auth_tier, required_groups, is_visible, is_dynamic)
-           VALUES (gen_random_uuid()::TEXT, $1, $2, $3, $4, 'Description', CAST('google' AS "AuthTier"), '', true, true)`,
+          `INSERT INTO navigation_items (id, parent_id, sort_order, title, path, icon, auth_tier, required_groups, is_visible, is_dynamic, updated_at)
+           VALUES (gen_random_uuid()::TEXT, $1, $2, $3, $4, 'Description', CAST('google' AS "AuthTier"), '', true, true, CURRENT_TIMESTAMP)`,
           folderId, navSort++, sheet.title, `/${sheet.slug}`,
         );
         created++;

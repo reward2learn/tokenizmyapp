@@ -7,6 +7,7 @@ set -e
 # Cheap, and it fails here with an actionable message instead of 20s later
 # inside the schema engine.
 node scripts/enforce-index-names.mjs
+node scripts/enforce-updated-at.mjs
 
 zenstack generate --schema zenstack/schema.zmodel
 

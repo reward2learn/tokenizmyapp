@@ -113,8 +113,8 @@ export async function POST(request: Request): Promise<NextResponse> {
       for (const row of data) {
         if (!row.title) continue;
         await prisma.$executeRawUnsafe(
-          `INSERT INTO tasks (id, title, description, priority, status, sort_order)
-           VALUES (gen_random_uuid()::text, $1, $2, $3, $4, $5)`,
+          `INSERT INTO tasks (id, title, description, priority, status, sort_order, updated_at)
+           VALUES (gen_random_uuid()::text, $1, $2, $3, $4, $5, CURRENT_TIMESTAMP)`,
           String(row.title), String(row.description ?? ''), String(row.priority ?? 'P1'), String(row.status ?? 'pending'), Number(row.sortOrder ?? 0),
         );
         imported++;

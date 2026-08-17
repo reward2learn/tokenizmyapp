@@ -80,6 +80,8 @@ export async function ensureBillingTables(db: RawDb): Promise<void> {
   const { ensureOrganizationTables } = await import('@/domain/billing/organization-service');
   await ensureOrganizationTables(db);
   await db.$executeRawUnsafe(SUBSCRIPTIONS_DDL);
+  const { ensureUpdatedAtDefaults } = await import('@/lib/db-updated-at');
+  await ensureUpdatedAtDefaults(db, ['subscriptions']);
 }
 
 function mapSubscription(row: Record<string, unknown>): Subscription {
@@ -119,8 +121,8 @@ export async function getSubscription(
   if (rows.length > 0) return mapSubscription(rows[0]);
 
   await db.$executeRawUnsafe(
-    `INSERT INTO subscriptions (id, org_id, plan_id)
-     VALUES (gen_random_uuid()::TEXT, $1, $2)
+    `INSERT INTO subscriptions (id, org_id, plan_id, updated_at)
+     VALUES (gen_random_uuid()::TEXT, $1, $2, CURRENT_TIMESTAMP)
      ON CONFLICT (org_id) DO NOTHING;`,
     orgId,
     DEFAULT_PLAN_ID,

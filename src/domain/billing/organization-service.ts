@@ -98,6 +98,12 @@ export async function ensureOrganizationTables(db: RawDb): Promise<void> {
   await db.$executeRawUnsafe(ORGANIZATIONS_DDL);
   await db.$executeRawUnsafe(ORG_MEMBERS_DDL);
 
+  // `prisma db push` creates these tables first, from the zmodel, where
+  // `@updatedAt` yields NOT NULL with no default — so the DEFAULT in the DDL
+  // above never lands and raw inserts fail with 23502. See db-updated-at.ts.
+  const { ensureUpdatedAtDefaults } = await import('@/lib/db-updated-at');
+  await ensureUpdatedAtDefaults(db, ['organizations']);
+
   // Columns added after the table first shipped.
   for (const col of ['ADD COLUMN IF NOT EXISTS referred_by TEXT', 'ADD COLUMN IF NOT EXISTS logo_url TEXT']) {
     try {
@@ -170,8 +176,8 @@ export async function createOrganization(
   const slug = slugify(input.slug ?? input.displayName);
 
   await db.$executeRawUnsafe(
-    `INSERT INTO organizations (id, slug, display_name, owner_user_id, referred_by)
-     VALUES ($1, $2, $3, $4, $5);`,
+    `INSERT INTO organizations (id, slug, display_name, owner_user_id, referred_by, updated_at)
+     VALUES ($1, $2, $3, $4, $5, CURRENT_TIMESTAMP);`,
     id,
     slug,
     input.displayName,
@@ -284,8 +290,8 @@ export async function backfillDefaultOrganization(
     orgId = newOrgId();
     created = true;
     await db.$executeRawUnsafe(
-      `INSERT INTO organizations (id, slug, display_name)
-       VALUES ($1, $2, $3)
+      `INSERT INTO organizations (id, slug, display_name, updated_at)
+       VALUES ($1, $2, $3, CURRENT_TIMESTAMP)
        ON CONFLICT (slug) DO NOTHING;`,
       orgId,
       DEFAULT_ORG_SLUG,

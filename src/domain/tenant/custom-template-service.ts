@@ -69,6 +69,8 @@ CREATE TABLE IF NOT EXISTS custom_templates (
 
 export async function ensureCustomTemplateTables(db: RawDb): Promise<void> {
   await db.$executeRawUnsafe(CUSTOM_TEMPLATES_DDL);
+  const { ensureUpdatedAtDefaults } = await import('@/lib/db-updated-at');
+  await ensureUpdatedAtDefaults(db, ['custom_templates']);
 }
 
 /**
@@ -206,8 +208,8 @@ export async function saveCustomTemplate(
   await db.$executeRawUnsafe(
     `INSERT INTO custom_templates
        (id, label, description, icon, template_type, definition, capabilities,
-        source_kind, source_ref, prompt, created_by)
-     VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7::jsonb, $8, $9, $10, $11)
+        source_kind, source_ref, prompt, created_by, updated_at)
+     VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7::jsonb, $8, $9, $10, $11, CURRENT_TIMESTAMP)
      ON CONFLICT (id) DO UPDATE SET
        label = EXCLUDED.label,
        description = EXCLUDED.description,
