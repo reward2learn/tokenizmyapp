@@ -792,6 +792,15 @@ model Organization {
   @@map("organizations")
 }
 
+model OrgAttribution {
+  id        String   @id @default(cuid())
+  orgId     String   @map("org_id")
+  organization Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  channel   String
+  capturedAt DateTime @default(now())
+  @@index([orgId, channel], map: "idx_org_attribution_org_channel")
+}
+
 model OrgMember {
   id           String   @id @default(cuid())
   orgId        String   @map("org_id")

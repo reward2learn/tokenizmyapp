@@ -316,6 +316,9 @@ function AiCreditsTab({
   readiness: { ready: boolean } | null;
 }) {
   const [topUpPackId, setTopUpPackId] = useState<string | null>(null);
+  const [autoReload, setAutoReload] = useState(false);
+  const [autoThreshold, setAutoThreshold] = useState<number | null>(null);
+  const [autoPackId, setAutoPackId] = useState<string | null>(null);
 
   const byPlan = grants
     .filter((g) => g.source === 'plan')
@@ -324,6 +327,16 @@ function AiCreditsTab({
     .filter((g) => g.source === 'addon' || g.source === 'onetime')
     .reduce((sum, g) => sum + g.remaining, 0);
   const byPromo = grants.filter((g) => g.source === 'promo').reduce((sum, g) => sum + g.remaining, 0);
+
+  // Derive which pack(s) are purchasable based on current plan
+  const purchasablePacks = CREDIT_PACKS.filter((pack) => {
+    // Free plan can only buy the $25 pack (minimum floor)
+    if (balance?.net !== null) {
+      const orgIdFromBalance = /* would need org lookup */ null;
+      // TODO: check organization's plan and restrict accordingly
+    }
+    return true;
+  });
 
   return (
     <Stack spacing={3}>
@@ -334,6 +347,73 @@ function AiCreditsTab({
           <strong>{balance.debt}</strong> credits. Adding credits settles the debt automatically
           before anything else is spent.
         </Alert>
+      )}
+
+      <Box>
+        <Typography variant="overline" color="text.secondary">
+          AI credit balance
+        </Typography>
+        <Stack direction="row" sx={{ alignItems: 'baseline', gap: 1 }}>
+          <Typography variant="h3" sx={{ fontWeight: 600, fontVariantNumeric: 'tabular-nums' }}>
+            {balance?.available ?? 0}
+          </Typography>
+          <Typography variant="body1" color="text.secondary">
+            credits
+          </Typography>
+          {balance && balance.expiringSoon > 0 && (
+            <Chip
+              label={`${balance.expiringSoon} expiring within 7 days`}
+              size="small"
+              color="warning"
+              sx={{ ml: 1 }}
+            />
+          )}
+        </Stack>
+      </Box>
+
+      {/* Auto-reload configuration */}
+      {readiness?.ready && (
+        <Box sx={{ mb: 2 }}>
+          <Typography variant="subtitle2" sx={{ mb: 1 }}>
+            Auto-reload
+          </Typography>
+          <Typography variant="body2" color="text.secondary">
+            Auto-reload: {autoReload ? 'Enabled' : 'Disabled'}
+          </Typography>
+          {autoReload && (
+            <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap' }}>
+              <Typography variant="caption" color="text.secondary">
+                Top up when balance falls below
+              </Typography>
+              <ToggleButton
+                value="10"
+                onChange={(value) => setAutoThreshold(value ? Number(value) : null)}
+                selected={autoThreshold === 10}
+              >
+                10
+              </ToggleButton>
+              <ToggleButton
+                value="25"
+                onChange={(value) => setAutoThreshold(value ? Number(value) : null)}
+                selected={autoThreshold === 25}
+              >
+                25
+              </ToggleButton>
+              <ToggleButton
+                value="50"
+                onChange={(value) => setAutoThreshold(value ? Number(value) : null)}
+                selected={autoThreshold === 50}
+              >
+                50
+              </ToggleButton>
+            </Stack>
+          )}
+          {autoThreshold && autoPackId && (
+            <Typography variant="caption" color="text.secondary">
+              Top up pack: {autoPackId}
+            </Typography>
+          )}
+        </Box>
       )}
 
       <Box>
@@ -399,12 +479,12 @@ function AiCreditsTab({
             </Button>
           ))}
         </Stack>
-        {!readiness?.ready && (
-          <Typography variant="caption" color="text.secondary">
-            Payments are not configured, so credits can only be granted by a platform admin.
-          </Typography>
-        )}
       </Box>
+      {!readiness?.ready && (
+        <Typography variant="caption" color="text.secondary">
+          Payments are not configured, so credits can only be granted by a platform admin.
+        </Typography>
+      )}
 
       <Box>
         <Typography variant="subtitle2" sx={{ mb: 1 }}>
@@ -420,6 +500,43 @@ function AiCreditsTab({
           packId={topUpPackId}
           onClose={() => setTopUpPackId(null)}
         />
+      )}
+
+      {/* Usage History */}
+      {balance && (
+        <Box>
+          <Typography variant="subtitle2" sx={{ mb: 1 }}>
+            Usage History
+          </Typography>
+          <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap' }}>
+            <Typography variant="caption" color="text.secondary">
+              Last {Math.min(grants.length, 10)} generation events
+            </Typography>
+          </Stack>
+          <Table size="small">
+            <TableHead>
+              <TableRow>
+                <TableCell>Date</TableCell>
+                <TableCell>Model</TableCell>
+                <TableCell align="right">Prompt</TableCell>
+                <TableCell align="right">Completion</TableCell>
+                <TableCell align="right">Credits</TableCell>
+                <TableCell>Reason</TableCell>
+              </TableRow>
+            </TableHead>
+            <TableBody>
+              {/* Ledger entries would be fetched here */}
+              <TableRow>
+                <TableCell>—</TableCell>
+                <TableCell>No consumption data yet</TableCell>
+                <TableCell align="right">—</TableCell>
+                <TableCell align="right">—</TableCell>
+                <TableCell align="right">—</TableCell>
+                <TableCell>—</TableCell>
+              </TableRow>
+            </TableBody>
+          </Table>
+        </Box>
       )}
     </Stack>
   );
