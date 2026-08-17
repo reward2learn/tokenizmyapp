@@ -140,6 +140,12 @@ export interface GenerateTemplateInput {
   knowledgeContent?: string;
   /** Force the wallet on/off regardless of the model's judgement. */
   web3WalletOverride?: Partial<Web3WalletConfig> & { enabled: boolean };
+  /**
+   * Administrator this generation runs for. Must be the same identity the
+   * caller's pre-flight gate used, or an exempt operator passes the gate and is
+   * then charged anyway — accruing debt that blocks the whole platform org.
+   */
+  viewerEmail?: string | null;
 }
 
 export interface GenerateTemplateResult {
@@ -258,6 +264,7 @@ export async function generateCustomTemplate(
         keySource: ai.keySource,
         refType: 'custom_template_generation',
         refId: input.sourceKind,
+        viewerEmail: input.viewerEmail,
       });
     } catch (err) {
       console.warn(

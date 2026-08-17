@@ -41,16 +41,18 @@ function makeDb() {
     ledger,
     $executeRawUnsafe: vi.fn(async (sql: string, ...args: unknown[]) => {
       if (sql.includes('INSERT INTO credit_ledger')) {
-        // Four INSERT shapes reach here and their placeholders do NOT line up:
-        // grant_id is either a bound parameter or the literal NULL (debt
-        // markers), and ref_type/ref_id are present only on consumption. Read
-        // the shape off the SQL rather than assuming fixed positions — that
-        // assumption is what made this double silently record NaN deltas.
+        // Five INSERT shapes reach here and their placeholders do NOT line up:
+        // grant_id is either a bound parameter or the literal NULL (debt and
+        // exempt markers), delta is literal 0 on the exempt shape, and
+        // ref_type/ref_id are present only on consumption. Read the shape off
+        // the SQL rather than assuming fixed positions — that assumption is
+        // what made this double silently record NaN deltas.
         const grantIsNull = sql.includes(', NULL,');
+        const deltaIsLiteralZero = sql.includes(', NULL, 0,');
         const hasRefColumns = sql.includes('ref_type');
         let i = 1; // args[0] is always org_id
         const grantId = grantIsNull ? null : (args[i++] as string);
-        const delta = Number(args[i++]);
+        const delta = deltaIsLiteralZero ? 0 : Number(args[i++]);
         const reason = args[i++] as string;
         const refType = hasRefColumns ? ((args[i++] as string) ?? null) : null;
         const refId = hasRefColumns ? ((args[i++] as string) ?? null) : null;
@@ -319,6 +321,105 @@ describe('meterAiUsageForOrg', () => {
     expect(result).toMatchObject({ charged: false, credits: 0, consumed: 0, shortfall: 0 });
     expect(db.ledger.filter((l) => l.delta < 0)).toHaveLength(0);
     expect(await service.getOutstandingDebt(ORG, db)).toBe(0);
+  });
+});
+
+describe('credit exemption', () => {
+  const EXEMPT = 'reward2learn@gmail.com';
+
+  it('recognises the platform owner regardless of case or padding', () => {
+    expect(service.isCreditExemptEmail(EXEMPT)).toBe(true);
+    expect(service.isCreditExemptEmail('  Reward2Learn@Gmail.com  ')).toBe(true);
+    expect(service.isCreditExemptEmail('someone@else.com')).toBe(false);
+    expect(service.isCreditExemptEmail(undefined)).toBe(false);
+    expect(service.isCreditExemptEmail('')).toBe(false);
+  });
+
+  it('lets an exempt viewer through a gate with a zero balance', async () => {
+    const db = makeDb();
+    const blocked = await service.requireCreditsForOrg(ORG, db);
+    expect(blocked.ok).toBe(false);
+
+    const allowed = await service.requireCreditsForOrg(ORG, db, 1, EXEMPT);
+    expect(allowed.ok).toBe(true);
+  });
+
+  it('lets an exempt viewer through even while the org is in arrears', async () => {
+    const db = makeDb();
+    await service.grantCredits(ORG, { source: 'addon', amount: 1 }, db);
+    await meterExpensiveRun(db);
+    expect(await service.getOutstandingDebt(ORG, db)).toBeGreaterThan(0);
+
+    // Debt blocks before the balance check does, so this is the branch that
+    // would strand the owner if the exemption were checked any later.
+    expect((await service.requireCreditsForOrg(ORG, db, 1, EXEMPT)).ok).toBe(true);
+  });
+
+  it('records exempt usage at zero cost without touching the balance', async () => {
+    const db = makeDb();
+    await service.grantCredits(ORG, { source: 'addon', amount: 100 }, db);
+
+    const result = await service.meterAiUsageForOrg(
+      {
+        orgId: ORG,
+        model: 'gpt-4o',
+        promptTokens: 200_000,
+        completionTokens: 200_000,
+        keySource: 'env',
+        viewerEmail: EXEMPT,
+      },
+      db,
+    );
+
+    // The price is still reported — exempt means unbilled, not unmeasured.
+    expect(result.credits).toBeGreaterThan(0);
+    expect(result).toMatchObject({ charged: false, consumed: 0, shortfall: 0, balance: 100 });
+
+    const entry = db.ledger.find((l) => l.reason === 'ai_generation_exempt');
+    expect(entry).toBeDefined();
+    expect(entry?.delta).toBe(0);
+    expect(entry?.grant_id).toBeNull();
+    expect(db.grants[0].remaining).toBe(100);
+  });
+
+  it('never puts an exempt viewer into debt', async () => {
+    const db = makeDb();
+    await service.meterAiUsageForOrg(
+      {
+        orgId: ORG,
+        model: 'gpt-4o',
+        promptTokens: 200_000,
+        completionTokens: 200_000,
+        keySource: 'env',
+        viewerEmail: EXEMPT,
+      },
+      db,
+    );
+
+    // A zero-delta row must not read as arrears, or the owner's own usage would
+    // block every other generation on the platform org.
+    expect(await service.getOutstandingDebt(ORG, db)).toBe(0);
+    expect((await service.reconcileCredits(ORG, db)).balanced).toBe(true);
+  });
+
+  it('charges a non-exempt viewer normally', async () => {
+    const db = makeDb();
+    await service.grantCredits(ORG, { source: 'addon', amount: 100 }, db);
+
+    const result = await service.meterAiUsageForOrg(
+      {
+        orgId: ORG,
+        model: 'gpt-4o',
+        promptTokens: 200_000,
+        completionTokens: 200_000,
+        keySource: 'env',
+        viewerEmail: 'someone@else.com',
+      },
+      db,
+    );
+
+    expect(result.charged).toBe(true);
+    expect(result.consumed).toBe(100);
   });
 });
 

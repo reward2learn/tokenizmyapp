@@ -423,7 +423,10 @@ async function handleChatPost(request: Request): Promise<Response> {
     // friendly reply instead of a hard error — chat must keep working.
     if (ai.keySource === 'env') {
       const tenantSlug = process.env.NEXT_PUBLIC_TENANT_SLUG ?? 'tokenizmyapp';
-      const gate = await requireCreditsForTenant(tenantSlug);
+      // The platform owner is exempt (see isCreditExemptEmail) — they pay the
+      // providers directly, so gating them on their own currency would only
+      // lock them out of their own console.
+      const gate = await requireCreditsForTenant(tenantSlug, undefined, session?.email);
       if (!gate.ok) {
         return friendlyChatReply(
           'This workspace has no AI credits remaining. The owner can upgrade the plan or add credits to continue chatting.',
@@ -505,6 +508,7 @@ async function handleChatPost(request: Request): Promise<Response> {
       db,
       userName,
       messages: sessionMessages,
+      viewerEmail: session?.email,
     };
 
     return completeChatWithSessionTools({
@@ -521,6 +525,7 @@ async function handleChatPost(request: Request): Promise<Response> {
       sessionToolsEnabled,
       tenantSlug: process.env.NEXT_PUBLIC_TENANT_SLUG ?? 'tokenizmyapp',
       keySource: ai.keySource,
+      viewerEmail: session?.email,
     });
   } catch (err) {
     console.error('CHAT ERROR:', err);

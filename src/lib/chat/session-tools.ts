@@ -187,6 +187,12 @@ export interface SessionToolContext {
   db: DbClient;
   userName: string;
   messages: ConversationMessageInput[];
+  /**
+   * Signed-in viewer's email. Session tools that spend the platform AI key
+   * gate on credits, so they need the same identity the chat route used —
+   * otherwise an exempt operator passes the route's gate and is stopped here.
+   */
+  viewerEmail?: string | null;
 }
 
 export interface SessionToolResult {
@@ -283,7 +289,12 @@ export async function executeSessionTool(
       // without this the chat path would be an unmetered way to spend the
       // platform key. Reported as a message, not a 402 — the caller is the
       // model, and it needs something to say to the administrator.
-      const gate = await credits.requireCreditsForOrg(await credits.resolvePlatformOrgId());
+      const gate = await credits.requireCreditsForOrg(
+        await credits.resolvePlatformOrgId(),
+        undefined,
+        credits.MIN_CREDITS_TO_START,
+        ctx.viewerEmail,
+      );
       if (!gate.ok) {
         return {
           toolMessage:
@@ -299,6 +310,7 @@ export async function executeSessionTool(
           url,
           knowledgeContent,
           web3WalletOverride: typeof args.web3Wallet === 'boolean' ? { enabled: args.web3Wallet } : undefined,
+          viewerEmail: ctx.viewerEmail,
         });
 
         // Custom templates are control-plane config shared across tenants, so

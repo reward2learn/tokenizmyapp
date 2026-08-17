@@ -1,0 +1,166 @@
+#!/usr/bin/env node
+/**
+ * Guard: every raw-SQL INSERT must supply the columns Postgres has no default
+ * for, or it fails at runtime with `23502 not-null violation`.
+ *
+ * Two production 500s came from exactly this, one day apart:
+ *
+ *   POST /api/admin/organizations
+ *     Failing row contains (org_…, tokenizinfinance, TokenizinFinance,
+ *                           null, null, null, 2026-08-17 18:58:05.237, null)
+ *                                                                    ^ updated_at
+ *
+ *   GET  /api/admin/organizations/…/credits
+ *     Failing row contains (51da93ae…, org_…, free, active, monthly,
+ *                           2026-08-17 19:14:48.486, null, f, …)
+ *                                                    ^ current_period_end
+ *
+ * A column gets a database default only if the zmodel field carries `@default`.
+ * Two kinds of field therefore do NOT get one:
+ *
+ *   1. `@updatedAt` — a CLIENT-side feature. Prisma stamps the value on write;
+ *      the generated column is `NOT NULL` with no DEFAULT.
+ *   2. A required field with no `@default` at all (`currentPeriodEnd DateTime`).
+ *
+ * Both are invisible in review because the neighbouring `@default(now())`
+ * columns in the same failing row ARE populated.
+ *
+ * The idempotent DDL helpers declare sensible defaults, but
+ * `CREATE TABLE IF NOT EXISTS` no-ops when the table already exists — and
+ * `prisma db push` runs first, during the build. So on any real deployment the
+ * helper's default never lands and the raw INSERT is on its own.
+ *
+ * Checked here:
+ *   1. Every model using `@updatedAt` is listed in UPDATED_AT_TABLES
+ *      (src/lib/db-updated-at.ts), which drives the runtime repair.
+ *   2. No raw `INSERT INTO <table> (...)` omits a column that has no default —
+ *      whether that is `updated_at` or an ordinary required field.
+ *
+ * Runs in prebuild, alongside enforce-redux and enforce-index-names.
+ */
+import { readFileSync, existsSync, readdirSync, statSync } from 'node:fs';
+import { join } from 'node:path';
+
+const ZMODEL = 'zenstack/schema.zmodel';
+const REGISTRY = 'src/lib/db-updated-at.ts';
+const SCAN_ROOT = 'src';
+
+/** Scalar types; anything else is a relation or enum and has no own column. */
+const SCALARS = new Set([
+  'String', 'Int', 'Float', 'Boolean', 'DateTime', 'Json', 'BigInt', 'Decimal', 'Bytes',
+]);
+
+function* walk(dir) {
+  for (const entry of readdirSync(dir)) {
+    const path = join(dir, entry);
+    if (statSync(path).isDirectory()) {
+      if (entry === 'node_modules' || entry === 'generated') continue;
+      yield* walk(path);
+    } else if (path.endsWith('.ts') && !path.endsWith('.test.ts')) {
+      yield path;
+    }
+  }
+}
+
+if (!existsSync(ZMODEL)) {
+  console.error(`[enforce-required-columns] ${ZMODEL} not found`);
+  process.exit(1);
+}
+
+const zmodel = readFileSync(ZMODEL, 'utf8');
+
+/** table -> { defaultless: string[], usesUpdatedAt: boolean } */
+const tables = new Map();
+
+for (const [, body] of zmodel.matchAll(/model\s+\w+\s*\{([\s\S]*?)\n\}/g)) {
+  const mapped = body.match(/@@map\("(\w+)"\)/);
+  if (!mapped) continue;
+
+  const defaultless = [];
+  let usesUpdatedAt = false;
+
+  for (const rawLine of body.split('\n')) {
+    const line = rawLine.trim();
+    if (!line || line.startsWith('//') || line.startsWith('@@')) continue;
+
+    const field = line.match(/^(\w+)\s+(\w+)(\[\])?(\?)?\s*(.*)$/);
+    if (!field) continue;
+    const [, name, type, list, optional, attrs] = field;
+
+    if (!SCALARS.has(type)) continue;
+
+    // A list, an optional field, or a relation's own object side is nullable or
+    // not a column at all — neither can raise 23502.
+    if (list || optional) continue;
+    if (attrs.includes('@relation(fields:')) continue;
+
+    const column = attrs.match(/@map\("(\w+)"\)/)?.[1] ?? name;
+
+    if (attrs.includes('@updatedAt')) {
+      usesUpdatedAt = true;
+      defaultless.push(column);
+    } else if (!attrs.includes('@default')) {
+      defaultless.push(column);
+    }
+  }
+
+  if (defaultless.length > 0 || usesUpdatedAt) {
+    tables.set(mapped[1], { defaultless, usesUpdatedAt });
+  }
+}
+
+const problems = [];
+
+// ── 1. Registry completeness for @updatedAt tables ──
+const registry = existsSync(REGISTRY) ? readFileSync(REGISTRY, 'utf8') : '';
+for (const [table, { usesUpdatedAt }] of tables) {
+  if (!usesUpdatedAt) continue;
+  if (!registry.includes(`'${table}'`)) {
+    problems.push({
+      table,
+      detail: `uses @updatedAt but is not listed in UPDATED_AT_TABLES in ${REGISTRY}`,
+      fix: `add '${table}' to UPDATED_AT_TABLES`,
+    });
+  }
+}
+
+// ── 2. Raw INSERTs omitting a column with no default ──
+for (const file of walk(SCAN_ROOT)) {
+  const src = readFileSync(file, 'utf8');
+  for (const [table, { defaultless }] of tables) {
+    if (defaultless.length === 0) continue;
+    const pattern = new RegExp(`INSERT\\s+INTO\\s+${table}\\s*\\(([^)]*)\\)`, 'gis');
+    for (const match of src.matchAll(pattern)) {
+      const supplied = new Set(match[1].match(/\w+/g) ?? []);
+      const missing = defaultless.filter((column) => !supplied.has(column));
+      if (missing.length > 0) {
+        problems.push({
+          table,
+          detail: `raw INSERT in ${file} omits: ${missing.join(', ')}`,
+          fix: `add ${missing.join(', ')} to the column list and supply a value`,
+        });
+      }
+    }
+  }
+}
+
+if (problems.length > 0) {
+  console.error('\n[enforce-required-columns] Problems found:\n');
+  for (const { table, detail, fix } of problems) {
+    console.error(`  ${table}`);
+    console.error(`    ${detail}`);
+    console.error(`    fix: ${fix}\n`);
+  }
+  console.error(
+    `${problems.length} problem(s). These columns are NOT NULL with no database ` +
+      'default on any database created by `prisma db push`, so the INSERT fails ' +
+      'at runtime with Postgres 23502.\n',
+  );
+  process.exit(1);
+}
+
+const columnCount = [...tables.values()].reduce((n, t) => n + t.defaultless.length, 0);
+console.log(
+  `[enforce-required-columns] ok — ${columnCount} defaultless column(s) across ` +
+    `${tables.size} table(s); every raw INSERT supplies them`,
+);

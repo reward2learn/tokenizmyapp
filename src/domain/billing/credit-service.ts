@@ -23,9 +23,45 @@ import type { createRawClient } from '@/lib/db';
 import { getPlan, CREDIT_PACKS, type CreditPack } from '@/lib/billing/plans';
 import { creditsForUsage } from '@/lib/billing/credit-rates';
 import { jsonErrorLite } from '@/lib/api/response-lite';
+import { DEFAULT_PLATFORM_ADMIN_EMAIL } from '@/domain/security/persons';
 
 /** Grants expire 30 days after issue (roadmap §3.2 — documented decision). */
 export const CREDIT_EXPIRY_DAYS = 30;
+
+/** Ledger reason for usage by an exempt operator — recorded, never charged. */
+const EXEMPT_USAGE_REASON = 'ai_generation_exempt';
+
+/**
+ * Operators who are never gated or charged for AI usage.
+ *
+ * The platform owner runs the console on their own infrastructure and pays the
+ * providers directly; billing them in their own currency is circular, and a
+ * zero balance locking the owner out of the chat is a support call with nobody
+ * to call. `CREDIT_EXEMPT_EMAILS` (comma-separated) adds to the default.
+ *
+ * This is an *identity* exemption, not a tenant one — it follows the signed-in
+ * person, so an exempt operator working inside a customer's tenant does not
+ * spend that customer's credits either.
+ */
+export function creditExemptEmails(): string[] {
+  const extra = (process.env.CREDIT_EXEMPT_EMAILS ?? '')
+    .split(',')
+    .map((entry) => entry.trim().toLowerCase())
+    .filter(Boolean);
+  return [DEFAULT_PLATFORM_ADMIN_EMAIL.toLowerCase(), ...extra];
+}
+
+/**
+ * Is this viewer exempt from credit gating and charging?
+ *
+ * Deliberately keyed on email rather than the platform-admin *role*: every
+ * tenant seeds its own admin accounts, so exempting the role would hand a free
+ * unmetered AI budget to every customer's administrator.
+ */
+export function isCreditExemptEmail(email?: string | null): boolean {
+  if (!email) return false;
+  return creditExemptEmails().includes(email.trim().toLowerCase());
+}
 
 /**
  * Balance a generation must have before it is allowed to start.
@@ -61,7 +97,10 @@ export interface CreditLedgerEntry {
   id: string;
   orgId: string;
   grantId: string | null;
-  /** Positive for grants, negative for consumption. Never zero. */
+  /**
+   * Positive for grants, negative for consumption. Zero only for exempt usage
+   * (`ai_generation_exempt`), which is recorded for visibility but not charged.
+   */
   delta: number;
   reason: string;
   refType: string | null;
@@ -738,6 +777,51 @@ export interface MeterAiUsageForOrgInput {
   keySource: 'db' | 'env';
   refType?: string | null;
   refId?: string | null;
+  /**
+   * Email of the person the work is running for. When it matches
+   * `isCreditExemptEmail()` the usage is recorded but not charged.
+   */
+  viewerEmail?: string | null;
+}
+
+/**
+ * Record usage that is exempt from charging.
+ *
+ * Writes one ledger entry with `delta = 0` rather than writing nothing. The
+ * cost is real even when nobody is billed for it, and a silent path is exactly
+ * the unmetered spend this phase exists to make visible — the waived amount is
+ * in the metadata, so exempt usage can be reported on without ever touching a
+ * grant or the balance.
+ *
+ * `delta = 0` keeps every invariant intact: the balance sum is unchanged, and
+ * `getOutstandingDebt()` counts only the two debt reasons, so this can never
+ * create arrears.
+ */
+async function recordExemptUsage(
+  input: MeterAiUsageForOrgInput,
+  db: RawDb,
+): Promise<MeterResult> {
+  const credits = creditsForUsage(input.model, input.promptTokens, input.completionTokens);
+  await ensureCreditTables(db);
+
+  await db.$executeRawUnsafe(
+    `INSERT INTO credit_ledger (id, org_id, grant_id, delta, reason, ref_type, ref_id, metadata)
+     VALUES (gen_random_uuid()::TEXT, $1, NULL, 0, $2, $3, $4, $5::jsonb);`,
+    input.orgId,
+    EXEMPT_USAGE_REASON,
+    input.refType ?? null,
+    input.refId ?? null,
+    JSON.stringify({
+      waivedCredits: credits,
+      model: input.model,
+      promptTokens: input.promptTokens,
+      completionTokens: input.completionTokens,
+      viewerEmail: input.viewerEmail ?? null,
+    }),
+  );
+
+  const { available } = await getCreditBalance(input.orgId, db);
+  return { charged: false, credits, consumed: 0, shortfall: 0, balance: available };
 }
 
 /**
@@ -753,6 +837,10 @@ export async function meterAiUsageForOrg(
   db ??= await getDb();
   if (input.keySource === 'db') {
     return { charged: false, credits: 0, consumed: 0, shortfall: 0, balance: 0 };
+  }
+
+  if (isCreditExemptEmail(input.viewerEmail)) {
+    return recordExemptUsage(input, db);
   }
 
   await grantMonthlyAllowanceIfDue(input.orgId, db);
@@ -797,6 +885,8 @@ export interface MeterAiUsageInput {
   keySource: 'db' | 'env';
   refType?: string | null;
   refId?: string | null;
+  /** See MeterAiUsageForOrgInput.viewerEmail. */
+  viewerEmail?: string | null;
 }
 
 /**
@@ -821,7 +911,12 @@ export async function meterAiUsage(
 }
 
 export type CreditGateResult =
-  | { ok: true; balance: number }
+  /**
+   * `exempt` viewers pass without any balance being read, so `balance` is
+   * `Infinity` — "no limit applies", not a real figure. Do not serialize it
+   * without checking `exempt` first; JSON.stringify turns Infinity into null.
+   */
+  | { ok: true; balance: number; exempt?: boolean }
   | { ok: false; balance: number; response: Response };
 
 /**
@@ -836,10 +931,12 @@ export type CreditGateResult =
 export async function requireCreditsForTenant(
   tenantSlug: string,
   db?: RawDb,
+  viewerEmail?: string | null,
 ): Promise<CreditGateResult> {
+  if (isCreditExemptEmail(viewerEmail)) return { ok: true, balance: Infinity, exempt: true };
   db ??= await getDb();
   const orgId = await resolvePayingOrgId(tenantSlug, db);
-  return requireCreditsForOrg(orgId, db);
+  return requireCreditsForOrg(orgId, db, MIN_CREDITS_TO_START, viewerEmail);
 }
 
 /**
@@ -850,7 +947,12 @@ export async function requireCreditsForOrg(
   orgId: string,
   db?: RawDb,
   minimum: number = MIN_CREDITS_TO_START,
+  viewerEmail?: string | null,
 ): Promise<CreditGateResult> {
+  // Checked before any org resolution or balance read: the exemption follows
+  // the person, not the org, so there is nothing here worth looking up.
+  if (isCreditExemptEmail(viewerEmail)) return { ok: true, balance: Infinity, exempt: true };
+
   db ??= await getDb();
   await grantMonthlyAllowanceIfDue(orgId, db);
 

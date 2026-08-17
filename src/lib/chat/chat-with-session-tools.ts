@@ -254,7 +254,12 @@ export async function consumeOpenAiStream(
  * the route is the enforcement point).
  */
 async function meterChatUsage(
-  options: { tenantSlug: string; keySource: 'db' | 'env'; model: string },
+  options: {
+    tenantSlug: string;
+    keySource: 'db' | 'env';
+    model: string;
+    viewerEmail?: string | null;
+  },
   usage: { promptTokens: number; completionTokens: number } | null | undefined,
 ): Promise<void> {
   if (options.keySource !== 'env') return;
@@ -266,6 +271,10 @@ async function meterChatUsage(
       completionTokens: usage?.completionTokens ?? 0,
       keySource: options.keySource,
       refType: 'chat',
+      // Must match the identity the pre-flight gate used. An exempt viewer who
+      // passed the gate but got charged here would accrue debt that then blocks
+      // everyone else on the same org.
+      viewerEmail: options.viewerEmail,
     });
   } catch (err) {
     console.warn('[chat] Metering failed (non-blocking):', err instanceof Error ? err.message : err);
@@ -282,6 +291,8 @@ async function completeChatWithoutStreaming(options: {
   sessionToolsEnabled: boolean;
   tenantSlug: string;
   keySource: 'db' | 'env';
+  /** Signed-in viewer; exempt operators are recorded but never charged. */
+  viewerEmail?: string | null;
 }): Promise<Response> {
   const clientActions: ChatSessionAction[] = [];
   let currentMessages = [...options.messages];
@@ -362,6 +373,8 @@ async function completeChatWithStreaming(options: {
   sessionToolsEnabled: boolean;
   tenantSlug: string;
   keySource: 'db' | 'env';
+  /** Signed-in viewer; exempt operators are recorded but never charged. */
+  viewerEmail?: string | null;
 }): Promise<Response> {
   const encoder = new TextEncoder();
   const { readable, writable } = new TransformStream<Uint8Array>();
@@ -469,6 +482,8 @@ export async function completeChatWithSessionTools(options: {
   sessionToolsEnabled: boolean;
   tenantSlug: string;
   keySource: 'db' | 'env';
+  /** Signed-in viewer; exempt operators are recorded but never charged. */
+  viewerEmail?: string | null;
 }): Promise<Response> {
   if (options.stream) {
     return completeChatWithStreaming(options);

@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "next dev",
-    "prebuild": "node scripts/enforce-redux.mjs && node scripts/enforce-index-names.mjs && node scripts/enforce-updated-at.mjs",
+    "prebuild": "node scripts/enforce-redux.mjs && node scripts/enforce-index-names.mjs && node scripts/enforce-required-columns.mjs",
     "build": "bash scripts/vercel-build.sh",
     "start": "next start",
     "type-check": "tsc --noEmit",
@@ -17,7 +17,7 @@
     "test-webhook": "bun run scripts/test-webhook.ts",
     "register-webhooks": "bun run scripts/register-vercel-webhooks.ts",
     "enforce:index-names": "node scripts/enforce-index-names.mjs",
-    "enforce:updated-at": "node scripts/enforce-updated-at.mjs"
+    "enforce:required-columns": "node scripts/enforce-required-columns.mjs"
   },
   "dependencies": {
     "@ai-sdk/openai": "^4.0.20",
