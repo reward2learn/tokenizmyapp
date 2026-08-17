@@ -104,6 +104,9 @@ describe('build_custom_template draft', () => {
       requireCreditsForOrg: async () => ({ ok: true, balance: 100 }),
       resolvePlatformOrgId: async () => 'org_platform',
       MIN_CREDITS_TO_START: 1,
+      // The tool passes a per-operation floor, so the mock has to carry it —
+      // without this the call reads `.templateGeneration` off undefined.
+      CREDIT_FLOORS: { templateGeneration: 5 },
     }));
 
     const { executeSessionTool: execute } = await import('@/lib/chat/session-tools');
