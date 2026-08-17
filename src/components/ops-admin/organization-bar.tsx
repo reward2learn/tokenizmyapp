@@ -1,6 +1,8 @@
 'use client';
 
 import { useState } from 'react';
+import { useAppDispatch, useAppSelector } from '@/store/hooks';
+import { setAdminSelectedOrg } from '@/store/ui-slice';
 import Box from '@mui/material/Box';
 import Button from '@mui/material/Button';
 import Chip from '@mui/material/Chip';
@@ -62,20 +64,28 @@ export function OrganizationBar({ tenantSlug }: { tenantSlug?: string | null }) 
   const [updateOrganization, { isLoading: isUpdating }] = useUpdateOrganizationMutation();
   const [assignTenant, { isLoading: isAssigning }] = useAssignTenantOrganizationMutation();
 
+  const dispatch = useAppDispatch();
+  const selectedOrgId = useAppSelector((state) => state.ui.adminSelectedOrgId) ?? '';
+
   const [createOpen, setCreateOpen] = useState(false);
   const [newName, setNewName] = useState('');
-  const [selectedOrgId, setSelectedOrgId] = useState<string>('');
 
   const [topUpOpen, setTopUpOpen] = useState(false);
   const [selectedPackId, setSelectedPackId] = useState<string | null>(CREDIT_PACKS[0]?.id ?? null);
   const [customAmount, setCustomAmount] = useState('');
   const [topUpError, setTopUpError] = useState<string | null>(null);
 
-  // A selected tenant pins the context to its owning org; otherwise the user
-  // picks one. Falls back to the first org so the plan controls are never
-  // rendered without a target.
+  // The picker drives the panel, not the other way round.
+  //
+  // It used to derive from the selected tenant's owning org, which made sense
+  // while this bar only displayed billing context. Now that the tenant list
+  // below filters on it, that direction is inverted: choosing an organization
+  // scopes the panel, and '' means "all organizations".
+  //
+  // The billing controls still need a concrete target, so with no filter set
+  // they follow the selected tenant's org, falling back to the first.
   const activeOrgId =
-    tenantOrg?.data?.organization.id ?? (selectedOrgId || organizations[0]?.id) ?? '';
+    selectedOrgId || tenantOrg?.data?.organization.id || organizations[0]?.id || '';
   const activeOrg = organizations.find((o) => o.id === activeOrgId) ?? null;
   const plan = tenantOrg?.data?.plan ?? null;
   const subscription = tenantOrg?.data?.subscription ?? null;
@@ -100,7 +110,9 @@ export function OrganizationBar({ tenantSlug }: { tenantSlug?: string | null }) 
     const displayName = newName.trim();
     if (!displayName) return;
     const result = await createOrganization({ displayName }).unwrap().catch(() => null);
-    if (result?.data?.organization) setSelectedOrgId(result.data.organization.id);
+    // Jump straight to the new organization — it has no tenants yet, so the
+    // filtered list below is empty and the next action is obviously to add one.
+    if (result?.data?.organization) dispatch(setAdminSelectedOrg(result.data.organization.id));
     setNewName('');
     setCreateOpen(false);
   };
@@ -110,13 +122,25 @@ export function OrganizationBar({ tenantSlug }: { tenantSlug?: string | null }) 
     await updateOrganization({ orgId: activeOrgId, planId }).unwrap().catch(() => null);
   };
 
-  const handleOrgChange = async (orgId: string) => {
-    setSelectedOrgId(orgId);
-    // With a tenant in context, changing the org moves that tenant's billing owner.
-    if (tenantSlug && orgId) {
-      await assignTenant({ tenantSlug, orgId }).unwrap().catch(() => null);
-    }
+  // Filtering only. This used to reassign the selected tenant's billing owner
+  // as a side effect of changing the picker — with the picker now driving the
+  // tenant list, that would silently move a tenant every time someone browsed
+  // to another organization. Moving a tenant is an explicit action below.
+  const handleOrgChange = (orgId: string) => {
+    dispatch(setAdminSelectedOrg(orgId || null));
   };
+
+  /** Move the selected tenant into the organization currently being viewed. */
+  const handleMoveTenant = async () => {
+    if (!tenantSlug || !activeOrgId) return;
+    await assignTenant({ tenantSlug, orgId: activeOrgId }).unwrap().catch(() => null);
+  };
+
+  // Shown only when the selected tenant is somewhere else — the move is
+  // meaningless otherwise, and an always-visible button invites a misclick
+  // that changes who pays for a tenant.
+  const tenantOrgId = tenantOrg?.data?.organization.id ?? null;
+  const canMoveTenant = Boolean(tenantSlug && activeOrgId && tenantOrgId && tenantOrgId !== activeOrgId);
 
   const handleTopUpOpen = () => {
     setSelectedPackId(CREDIT_PACKS[0]?.id ?? null);
@@ -168,10 +192,21 @@ export function OrganizationBar({ tenantSlug }: { tenantSlug?: string | null }) 
             <Select
               labelId="org-selector-label"
               label="Organization"
-              value={activeOrgId}
+              value={selectedOrgId}
               onChange={(e) => handleOrgChange(e.target.value)}
               disabled={busy}
+              displayEmpty
             >
+              {/* Clears the filter. Without it the panel could never get back
+                  to showing every tenant once an organization was picked. */}
+              <MenuItem value="">
+                <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
+                  <CorporateFareIcon fontSize="small" color="disabled" />
+                  <Typography variant="body2" sx={{ fontWeight: 500 }}>
+                    All organizations
+                  </Typography>
+                </Stack>
+              </MenuItem>
               {organizations.map((o) => (
                 <MenuItem key={o.id} value={o.id}>
                   <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
@@ -206,6 +241,17 @@ export function OrganizationBar({ tenantSlug }: { tenantSlug?: string | null }) 
                   sx={{ fontFamily: 'var(--font-geist-mono, monospace)', fontSize: '0.7rem' }}
                 />
               </Tooltip>
+
+              {canMoveTenant ? (
+                <Button
+                  size="small"
+                  variant="outlined"
+                  onClick={handleMoveTenant}
+                  disabled={isAssigning}
+                >
+                  {isAssigning ? 'Moving…' : `Move ${tenantSlug} here`}
+                </Button>
+              ) : null}
 
               {/* Which tenants this org actually pays for. Without it the
                   Organization -> Tenant mapping was only ever visible in

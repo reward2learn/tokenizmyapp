@@ -5,7 +5,6 @@ import { usePathname, useSearchParams } from 'next/navigation';
 import Alert from '@mui/material/Alert';
 import Box from '@mui/material/Box';
 import Button from '@mui/material/Button';
-import CircularProgress from '@mui/material/CircularProgress';
 import Divider from '@mui/material/Divider';
 import FormControl from '@mui/material/FormControl';
 import InputLabel from '@mui/material/InputLabel';
@@ -159,92 +158,100 @@ export function SignInPanel({ requiredTier }: SignInPanelProps) {
           Sign in with Google
         </Button>
 
-        {/* Hidden only when there is genuinely nothing to offer: no PIN users
-            exist AND this page does not depend on PIN access. On a PIN-tier
-            page the absence IS the story, so the notice below explains it. */}
-        {personOptions.length > 0 || usersLoading || pinUnlocksThisPage ? (
-          <>
-            <Divider sx={{ my: 2.5 }}>
-              <Typography variant="caption" color="text.secondary">
-                or
-              </Typography>
-            </Divider>
-            {usersLoading ? (
-              <Box sx={{ py: 4, display: 'flex', justifyContent: 'center' }}>
-                <CircularProgress size={28} />
-              </Box>
-            ) : personOptions.length === 0 ? (
-              // Public-facing copy. This used to name internal functions and
-              // tables, which was tolerable while the panel only appeared on
-              // staff pages — it is now shown to every signed-out visitor.
-              <Alert severity="info" sx={{ textAlign: 'left' }}>
-                No staff PIN accounts have been set up yet. Sign in with Google,
-                or ask an administrator to add a PIN user.
-              </Alert>
+        <>
+          <Divider sx={{ my: 2.5 }}>
+            <Typography variant="caption" color="text.secondary">
+              or
+            </Typography>
+          </Divider>
+
+          {/*
+            The PIN form never waits on the account list.
+
+            It used to replace the whole form with a spinner until
+            list-pin-users resolved. That query reads the database; verify-pin
+            deliberately does not, falling back to DEFAULT_ADMIN_PIN /
+            DEFAULT_PIN_<sub> from the environment precisely so sign-in survives
+            the database being unavailable. Blocking on the list made that
+            fallback unreachable — a slow or failed query locked everyone out of
+            the one path built to work without a database, and left the PIN
+            section looking empty on a fresh local environment.
+
+            The list is now an enhancement: it upgrades a text field into a
+            picker when it arrives, and changes nothing when it does not.
+          */}
+          <Stack component="form" direction="column" spacing={1.5} onSubmit={handlePinSubmit}>
+            {personOptions.length > 0 ? (
+              <FormControl size="small" fullWidth>
+                <InputLabel id="pin-role-label">User Account</InputLabel>
+                <Select
+                  labelId="pin-role-label"
+                  label="User Account"
+                  value={personName}
+                  onChange={(e) => setPersonName(e.target.value)}
+                  data-testid="pin-role-select"
+                >
+                  {personOptions.map((opt) => (
+                    <MenuItem key={opt.sub} value={opt.value}>
+                      {opt.value}
+                    </MenuItem>
+                  ))}
+                </Select>
+              </FormControl>
             ) : (
-              <Stack
-                component="form"
-                direction="column"
-                spacing={1.5}
-                onSubmit={handlePinSubmit}
-              >
-                <FormControl size="small" fullWidth>
-                  <InputLabel id="pin-role-label">User Account</InputLabel>
-                  <Select
-                    labelId="pin-role-label"
-                    label="User Account"
-                    value={personName}
-                    onChange={(e) => setPersonName(e.target.value)}
-                    data-testid="pin-role-select"
-                  >
-                    {personOptions.map((opt) => (
-                      <MenuItem key={opt.sub} value={opt.value}>
-                        {opt.value}
-                      </MenuItem>
-                    ))}
-                  </Select>
-                </FormControl>
-                <Stack direction="row" spacing={1}>
-                  <TextField
-                    type="password"
-                    placeholder="PIN"
-                    value={pin}
-                    onChange={(e) => setPin(e.target.value)}
-                    size="small"
-                    fullWidth
-                    autoComplete="off"
-                    slotProps={{
-                      htmlInput: { 'data-testid': 'pin-input', maxLength: 12 },
-                    }}
-                  />
-                  <Button
-                    type="submit"
-                    variant="contained"
-                    color="primary"
-                    disabled={!pin.trim() || isLoading}
-                    data-testid="pin-submit"
-                  >
-                    {isLoading ? '…' : 'Unlock'}
-                  </Button>
-                </Stack>
-              </Stack>
+              <TextField
+                label="Account name"
+                placeholder="Admin"
+                value={personName}
+                onChange={(e) => setPersonName(e.target.value)}
+                size="small"
+                fullWidth
+                autoComplete="username"
+                slotProps={{ htmlInput: { 'data-testid': 'pin-name-input' } }}
+              />
             )}
 
-            {!pinUnlocksThisPage && personOptions.length > 0 ? (
+            <Stack direction="row" spacing={1}>
+              <TextField
+                type="password"
+                placeholder="PIN"
+                value={pin}
+                onChange={(e) => setPin(e.target.value)}
+                size="small"
+                fullWidth
+                autoComplete="off"
+                slotProps={{ htmlInput: { 'data-testid': 'pin-input', maxLength: 12 } }}
+              />
+              <Button
+                type="submit"
+                variant="contained"
+                color="primary"
+                disabled={!pin.trim() || !personName.trim() || isLoading}
+                data-testid="pin-submit"
+              >
+                {isLoading ? '\u2026' : 'Unlock'}
+              </Button>
+            </Stack>
+
+            {personOptions.length === 0 ? (
+              <Typography variant="caption" color="text.secondary" sx={{ textAlign: 'left' }}>
+                {usersLoading
+                  ? 'Loading staff accounts \u2014 you can type the name instead.'
+                  : 'No staff accounts are listed, so enter the account name directly.'}
+              </Typography>
+            ) : null}
+
+            {!pinUnlocksThisPage ? (
               // Says what a PIN will and will not do here, before it is used.
               // Signing in successfully and still seeing the wall reads as a
               // broken login, and the user has no way to tell it apart.
-              <Typography
-                variant="caption"
-                color="text.secondary"
-                sx={{ display: 'block', mt: 1.5, textAlign: 'left' }}
-              >
+              <Typography variant="caption" color="text.secondary" sx={{ textAlign: 'left' }}>
                 A PIN signs you in with staff access. This page needs Google
                 sign-in, but you will stay signed in everywhere else.
               </Typography>
             ) : null}
-          </>
-        ) : null}
+          </Stack>
+        </>
       </Box>
     </Box>
   );

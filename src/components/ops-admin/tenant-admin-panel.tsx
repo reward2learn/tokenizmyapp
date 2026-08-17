@@ -37,6 +37,7 @@ import ClearIcon from '@mui/icons-material/Clear';
 import EditIcon from '@mui/icons-material/Edit';
 
 import { useListTenantsQuery, type TenantEntry, type AppPackConfig } from '@/store/apis/tenant-api';
+import { useListOrganizationsQuery } from '@/store/apis/organization-api';
 import { getTemplate } from '@/domain/tenant/template-catalog';
 import { OrganizationBar } from './organization-bar';
 import { TenantDashboard } from './tenant-dashboard';
@@ -90,13 +91,41 @@ export function TenantAdminPanel() {
 
   // Fetch tenants
   const { data, isLoading, refetch } = useListTenantsQuery();
-  const tenants = data?.data?.tenants ?? [];
+  // Memoised so the `?? []` fallback does not mint a new array each render and
+  // invalidate every downstream useMemo.
+  const allTenants = useMemo(() => data?.data?.tenants ?? [], [data]);
+
+  // Scope the list to the organization selected in the bar above.
+  //
+  // A tenant belongs to exactly one organization, so an organization filter is
+  // the natural way to narrow this panel — without it, an operator running
+  // several customers had to recognise every tenant by name in one flat list.
+  //
+  // Membership comes from the organization list rather than the tenant list:
+  // listOrganizations already returns each org's tenants, the query is warm
+  // (the bar above issues it), and TenantEntry carries no organizationId.
+  const selectedOrgId = useAppSelector((s) => s.ui.adminSelectedOrgId);
+  const { data: orgList } = useListOrganizationsQuery();
+
+  const tenants = useMemo(() => {
+    if (!selectedOrgId) return allTenants;
+    const org = orgList?.data?.organizations?.find((o) => o.id === selectedOrgId);
+    // Until the organization list resolves we cannot filter, and showing every
+    // tenant would contradict the filter the operator just set. An empty list
+    // for one render is the honest reading of "not known yet".
+    const slugs = new Set((org?.tenants ?? []).map((t) => t.slug));
+    return allTenants.filter((t) => slugs.has(t.slug));
+  }, [allTenants, orgList, selectedOrgId]);
 
   // Get selected tenant
   const selectedTenant = useMemo(() => {
     if (!selectedTenantSlug) return null;
-    return tenants.find((t) => t.slug === selectedTenantSlug) ?? null;
-  }, [tenants, selectedTenantSlug]);
+    // Resolved against every tenant, not the filtered list: the selection is
+    // cleared when the filter changes, so anything still selected here is
+    // legitimately in scope, and matching on the filtered list would blank the
+    // panel for a render while the organization list refetches.
+    return allTenants.find((t) => t.slug === selectedTenantSlug) ?? null;
+  }, [allTenants, selectedTenantSlug]);
 
   // Check if selected tenant is a suite
   const selectedAppPack = selectedTenant ? getAppPack(selectedTenant) : null;
@@ -178,6 +207,15 @@ export function TenantAdminPanel() {
               <MenuItem value="">
                 <em>All Tenants (Dashboard)</em>
               </MenuItem>
+              {/* An organization that owns nothing must not read as "no tenants
+                  exist" — the operator would go looking for a data problem. */}
+              {selectedOrgId && tenants.length === 0 ? (
+                <MenuItem value="" disabled>
+                  <Typography variant="body2" color="text.secondary">
+                    No tenants in this organization
+                  </Typography>
+                </MenuItem>
+              ) : null}
               {tenants.map((t) => {
                 const suite = isSuiteTenant(t);
                 const appPack = getAppPack(t);

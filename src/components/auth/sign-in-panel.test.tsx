@@ -1,5 +1,5 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
-import { cleanup, render, screen, waitFor } from '@testing-library/react';
+import { cleanup, render, screen } from '@testing-library/react';
 import { Provider } from 'react-redux';
 import { configureStore } from '@reduxjs/toolkit';
 import { SignInPanel } from '@/components/auth/sign-in-panel';
@@ -137,29 +137,45 @@ describe('SignInPanel with no PIN accounts configured', () => {
     vi.unstubAllGlobals();
   });
 
-  it('says nothing about PIN on a google page when no PIN users exist', async () => {
-    // Nothing to offer, so nothing is shown. The panel is now public-facing,
-    // and an empty "or / no PIN accounts" block is noise to a visitor who was
-    // only ever going to use Google.
-    renderPanel('google');
-    await screen.findByText('Sign in with Google');
+  it('still offers a usable PIN form with a free-text name field', async () => {
+    // The account list is an enhancement, not a prerequisite. verify-pin falls
+    // back to DEFAULT_ADMIN_PIN / DEFAULT_PIN_<sub> from the environment so
+    // sign-in survives the database being unavailable — a form that cannot
+    // render without the list makes that fallback unreachable.
+    renderPanel('pin');
 
-    await waitFor(() => {
-      expect(screen.queryByRole('progressbar')).not.toBeInTheDocument();
-    });
-    expect(screen.queryByText(/staff PIN accounts/i)).not.toBeInTheDocument();
+    expect(await screen.findByTestId('pin-name-input')).toBeInTheDocument();
+    expect(screen.getByTestId('pin-input')).toBeInTheDocument();
+    expect(screen.getByTestId('pin-submit')).toBeInTheDocument();
+    // No dropdown to populate, so none is rendered.
+    expect(screen.queryByTestId('pin-role-select')).not.toBeInTheDocument();
   });
 
-  it('explains the absence on a PIN page, where it is the story', async () => {
+  it('offers the same fallback on a google-tier page', async () => {
+    renderPanel('google');
+    expect(await screen.findByTestId('pin-name-input')).toBeInTheDocument();
+    expect(screen.getByTestId('pin-submit')).toBeInTheDocument();
+  });
+
+  it('tells the user to type the name rather than showing a dead end', async () => {
     renderPanel('pin');
-    expect(await screen.findByText(/No staff PIN accounts have been set up/i)).toBeInTheDocument();
+    await screen.findByTestId('pin-name-input');
+    expect(screen.getByText(/enter the account name directly/i)).toBeInTheDocument();
   });
 
   it('keeps internal table and function names out of public copy', async () => {
-    // This message used to name listConfiguredPinUsers and user_accounts.
+    // This copy used to name listConfiguredPinUsers and user_accounts.
     // Tolerable on a staff-only page; not on one every visitor can reach.
+    const { container } = renderPanel('pin');
+    await screen.findByTestId('pin-name-input');
+    expect(container.textContent).not.toMatch(/listConfiguredPinUsers|user_accounts/);
+  });
+
+  it('never leaves the form behind a spinner', async () => {
+    // The regression the user hit locally: the whole form was replaced by a
+    // spinner until the list resolved, and a hanging query meant it never did.
     renderPanel('pin');
-    const alert = await screen.findByText(/No staff PIN accounts have been set up/i);
-    expect(alert.textContent).not.toMatch(/listConfiguredPinUsers|user_accounts|roles/);
+    await screen.findByTestId('pin-input');
+    expect(screen.queryByRole('progressbar')).not.toBeInTheDocument();
   });
 });
