@@ -5,6 +5,8 @@ const minTierSchema = z.enum(['public', 'pin', 'google']).optional();
 
 export const heroConfigSchema = z.object({
   headline: z.string().optional(),
+  /** Second headline line, shown in the brand colour. Omit for a single line. */
+  accent: z.string().optional(),
   subtitle: z.string().optional(),
   badge: z.string().optional(),
   minTier: minTierSchema,
@@ -92,6 +94,72 @@ export const featureGridConfigSchema = z.object({
   minTier: minTierSchema,
 });
 
+// ── Marketing landing blocks (roadmap Phase 7) ──
+//
+// Each block also reads its own config defensively at render time, so these
+// schemas are the strict contract for authored page data rather than the only
+// guard. Config reaching a block from the database has not been through here.
+
+export const marketingHeroConfigSchema = z.object({
+  headline: z.string(),
+  subheadline: z.string(),
+  audiences: z.array(z.string()).optional(),
+  quickStarts: z.array(z.string()).optional(),
+  placeholder: z.string().optional(),
+  ctaLabel: z.string().optional(),
+  ctaHref: z.string().optional(),
+  minTier: minTierSchema,
+});
+
+export const capabilityMarqueeConfigSchema = z.object({
+  heading: z.string().optional(),
+  subheading: z.string().optional(),
+  rows: z.array(z.array(z.string())).optional(),
+  minTier: minTierSchema,
+});
+
+export const productShowcaseConfigSchema = z.object({
+  heading: z.string().optional(),
+  subheading: z.string().optional(),
+  items: z
+    .array(z.object({ icon: z.string().optional(), title: z.string(), body: z.string() }))
+    .optional(),
+  minTier: minTierSchema,
+});
+
+export const customerProofConfigSchema = z.object({
+  heading: z.string().optional(),
+  /**
+   * Real, permissioned customers only. Empty is the correct default — the
+   * block renders nothing rather than inventing social proof.
+   */
+  items: z
+    .array(
+      z.object({
+        industry: z.string(),
+        name: z.string(),
+        metrics: z.array(z.object({ value: z.string(), label: z.string() })),
+        href: z.string().optional(),
+      }),
+    )
+    .optional(),
+  minTier: minTierSchema,
+});
+
+export const faqConfigSchema = z.object({
+  heading: z.string().optional(),
+  items: z.array(z.object({ question: z.string(), answer: z.string() })).optional(),
+  minTier: minTierSchema,
+});
+
+export const ctaBannerConfigSchema = z.object({
+  heading: z.string().optional(),
+  subheading: z.string().optional(),
+  ctaLabel: z.string().optional(),
+  ctaHref: z.string().optional(),
+  minTier: minTierSchema,
+});
+
 export const testimonialsConfigSchema = z.object({
   heading: z.string().optional(),
   subheading: z.string().optional(),
@@ -130,6 +198,12 @@ export const blockConfigSchemas = {
   pack_table: packTableConfigSchema,
   feature_grid: featureGridConfigSchema,
   testimonials: testimonialsConfigSchema,
+  marketing_hero: marketingHeroConfigSchema,
+  capability_marquee: capabilityMarqueeConfigSchema,
+  product_showcase: productShowcaseConfigSchema,
+  customer_proof: customerProofConfigSchema,
+  faq: faqConfigSchema,
+  cta_banner: ctaBannerConfigSchema,
 } as const satisfies Record<BlockType, z.ZodType>;
 
 export type BlockConfigMap = {

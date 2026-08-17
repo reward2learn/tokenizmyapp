@@ -14,7 +14,16 @@ const FALLBACK_TITLE = tenantConfig.displayName;
 const FALLBACK_SUBTITLE = 'Business Operations';
 
 export function HeroBlock({ config }: { config: Record<string, unknown> }) {
-  const { headline, subtitle, badge } = parseBlockConfig('hero', config);
+  const { headline, subtitle, badge, accent: configuredAccent } = parseBlockConfig('hero', config);
+
+  // Second line of the headline, rendered in the brand colour.
+  //
+  // This used to be the literal string '& Turnaround Strategy' whenever a
+  // headline was set — one tenant's phrase compiled into the block every app
+  // is built from, so a hotel's landing page announced a turnaround strategy.
+  // Same class of bug as the hardcoded assistant persona: shared code carrying
+  // one customer's copy.
+  const accent = configuredAccent ?? (headline ? null : FALLBACK_SUBTITLE);
 
   return (
     <Box
@@ -55,10 +64,14 @@ export function HeroBlock({ config }: { config: Record<string, unknown> }) {
         }}
       >
         {headline ?? FALLBACK_TITLE}
-        <br />
-        <Box component="span" sx={{ color: 'primary.main' }}>
-          {headline ? '& Turnaround Strategy' : FALLBACK_SUBTITLE}
-        </Box>
+        {accent ? (
+          <>
+            <br />
+            <Box component="span" sx={{ color: 'primary.main' }}>
+              {accent}
+            </Box>
+          </>
+        ) : null}
       </Typography>
       {subtitle ? (
         <Typography

@@ -13,6 +13,12 @@ import { SheetViewerBlock } from '@/components/blocks/sheet-viewer-block';
 import { PackTableBlock } from '@/components/blocks/pack-table-block';
 import { FeatureGridBlock } from '@/components/blocks/feature-grid-block';
 import { TestimonialsBlockAdapter } from '@/components/blocks/testimonials-block';
+import { MarketingHeroBlock } from '@/components/blocks/marketing-hero-block';
+import { CapabilityMarqueeBlock } from '@/components/blocks/capability-marquee-block';
+import { ProductShowcaseBlock } from '@/components/blocks/product-showcase-block';
+import { CustomerProofBlock } from '@/components/blocks/customer-proof-block';
+import { FaqBlock } from '@/components/blocks/faq-block';
+import { CtaBannerBlock } from '@/components/blocks/cta-banner-block';
 import {
   OpsAdminTabsBlock,
   ZReportFormBlock,
@@ -44,6 +50,12 @@ export const BLOCK_REGISTRY: Record<BlockType, BlockComponent> = {
   pack_table: PackTableBlock,
   feature_grid: FeatureGridBlock,
   testimonials: TestimonialsBlockAdapter,
+  marketing_hero: MarketingHeroBlock,
+  capability_marquee: CapabilityMarqueeBlock,
+  product_showcase: ProductShowcaseBlock,
+  customer_proof: CustomerProofBlock,
+  faq: FaqBlock,
+  cta_banner: CtaBannerBlock,
 };
 
 export function getBlockComponent(blockType: BlockType): BlockComponent {

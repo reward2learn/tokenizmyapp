@@ -26,7 +26,14 @@ export type BlockType =
   | 'sheet_viewer'
   | 'pack_table'
   | 'feature_grid'
-  | 'testimonials';
+  | 'testimonials'
+  // Marketing landing blocks (roadmap Phase 7).
+  | 'marketing_hero'
+  | 'capability_marquee'
+  | 'product_showcase'
+  | 'customer_proof'
+  | 'faq'
+  | 'cta_banner';
 
 export interface PageSectionDefinition {
   blockType: BlockType;
@@ -147,19 +154,77 @@ export const PAGE_CATALOG: Record<string, PageDefinition> = {
     navLabel: 'Home',
     showInNav: true,
     authTier: 'public',
+    // Landing arc per roadmap §1.12: capability -> proof -> objections -> CTA.
+    // The ordering is the argument; moving a section changes what the page
+    // claims even when every section still reads correctly on its own.
     sections: [
       {
-        blockType: 'hero',
+        blockType: 'marketing_hero',
         config: {
-          headline: 'Run the business on private AI',
-          subtitle:
-            'Planning, analytics, budgeting and forecasting in one tenant — with your data scoped to your own database, not a shared model.',
+          headline: 'The best AI app builder for business',
+          subheadline:
+            'Build custom software for your business without hiring a developer.',
+          audiences: ['Internal software', 'Customer software', 'Marketing & SEO', 'Mobile apps'],
+          quickStarts: ['CRM', 'ERP', 'HR portal', 'Inventory tracker', 'Operations dashboard'],
+          placeholder: 'Describe the app you want — "a CRM for my 75 person sales team"…',
+          ctaLabel: 'Try it',
+          ctaHref: '/admin',
           minTier: 'public',
         },
       },
       {
-        blockType: 'feature_grid',
-        config: { minTier: 'public' },
+        // Empty until real customers agree to appear. See customer-proof-block.
+        blockType: 'customer_proof',
+        config: { heading: 'Customer results', minTier: 'public' },
+      },
+      {
+        blockType: 'product_showcase',
+        config: {
+          heading: 'From idea to published app in minutes',
+          items: [
+            {
+              icon: 'chat',
+              title: 'Build by chatting',
+              body: 'Describe what you want and watch it get built. Change your mind and say so — the app updates with you.',
+            },
+            {
+              icon: 'builtin',
+              title: 'Everything is built in',
+              body: 'Auth, database, hosting, file storage, AI and API integrations ship with every app. Nothing to wire up, nothing extra to buy.',
+            },
+            {
+              icon: 'publish',
+              title: 'Publish in a click',
+              body: 'Every app deploys to its own URL immediately. Connect a custom domain when you are ready to make it yours.',
+            },
+            {
+              icon: 'scale',
+              title: 'Scale without thinking about it',
+              body: 'Apps run serverless on Vercel with a Postgres database per tenant, so traffic spikes are the platform\u2019s problem, not yours.',
+            },
+            {
+              icon: 'govern',
+              title: 'Govern with confidence',
+              body: 'Roles, security groups and per-app permissions decide who sees what. Each tenant\u2019s data lives in its own database.',
+            },
+          ],
+          minTier: 'public',
+        },
+      },
+      {
+        blockType: 'capability_marquee',
+        config: {
+          heading: 'Everything you need is built-in',
+          subheading:
+            'Auth, hosting, database, payments, email, AI and hundreds of other features, available the moment your app exists.',
+          rows: [
+            ['Auth', 'Users', 'Database', 'Backend', 'Payments', 'Email', 'Storage', 'Hosting', 'Domains'],
+            ['Files & media', 'CMS', 'Search', 'Branding', 'SEO', 'Mobile', 'Internationalization', 'Chat', 'Notifications'],
+            ['AI text generation', 'AI image generation', 'AI speech', 'AI transcription', 'Chatbots', 'AI Gateway', 'Realtime'],
+            ['Roles & permissions', 'Security', 'Secrets', 'Analytics', 'Audits', 'Version control', 'Scheduled events'],
+          ],
+          minTier: 'public',
+        },
       },
       {
         // No quotes are shipped by default — the block renders its empty state
@@ -167,6 +232,60 @@ export const PAGE_CATALOG: Record<string, PageDefinition> = {
         blockType: 'testimonials',
         config: {
           heading: 'What customers say',
+          minTier: 'public',
+        },
+      },
+      {
+        blockType: 'faq',
+        config: {
+          heading: 'Frequently asked questions',
+          items: [
+            {
+              question: 'What is TokenizMyApp?',
+              answer:
+                'An AI app builder for businesses. You describe the software your business needs and it builds a working application — database, screens, permissions and hosting included — without hiring a developer.',
+            },
+            {
+              question: 'How does it work?',
+              answer:
+                '1. Chat with the AI about what you want to build.\n2. Watch it get built.\n3. Publish the app to its own URL, or to a domain you own.\n4. Keep chatting to change it.',
+            },
+            {
+              question: 'What can I build?',
+              answer:
+                'Internal tools like CRMs, ERPs, HR portals, inventory trackers and operations dashboards, as well as customer-facing sites and portals. Templates cover restaurants, hotels, retail, healthcare, logistics, property, education, professional services, manufacturing and wellness.',
+            },
+            {
+              question: 'Do I need coding experience?',
+              answer:
+                'No. You describe what you need in plain language. Everything technical — the database, the API, authentication, deployment — is handled for you.',
+            },
+            {
+              question: 'Can I publish to my own domain?',
+              answer:
+                'Yes. Every app gets a free URL immediately, and you can connect a custom domain on a paid plan.',
+            },
+            {
+              question: 'Who can see my data?',
+              answer:
+                'Each tenant gets its own Postgres database rather than sharing one. Access inside an app is controlled by roles and security groups that you configure.',
+            },
+            {
+              question: 'What does it cost?',
+              answer:
+                'There is a free plan with a monthly allowance of AI credits, and paid plans that add custom domains, more apps and a larger allowance. You can start without a card.',
+            },
+          ],
+          minTier: 'public',
+        },
+      },
+      {
+        blockType: 'cta_banner',
+        config: {
+          heading: 'Start building for free',
+          subheading: 'No credit card required. Describe your idea and start building in seconds.',
+          ctaLabel: 'Start building',
+          ctaHref: '/admin',
           minTier: 'public',
         },
       },
