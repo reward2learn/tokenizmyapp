@@ -390,6 +390,27 @@ export const tenantApi = createApi({
       }),
       invalidatesTags: ['Tenants'],
     }),
+    /** POST .../stripe-env — push the tenant's saved Stripe keys
+     *  (metadata.config.stripe) to its own Vercel project and every suite
+     *  app's project, redeploying via deploy hooks so the NEXT_PUBLIC_
+     *  publishable key reaches the client bundle. */
+    pushStripeEnvVars: builder.mutation<
+      ApiEnvelope<{
+        projects: number;
+        envCount: number;
+        pushed: string[];
+        redeployTriggered: string[];
+        note?: string;
+      }>,
+      { slug: string }
+    >({
+      query: ({ slug }) => ({
+        url: `admin/tenants/${slug}/stripe-env`,
+        method: 'POST',
+      }),
+      invalidatesTags: ['Tenants'],
+    }),
+
     /** POST .../apps/{appId}/deploy-hook — auto-provision this app's own
      *  Vercel Deploy Hook instead of hand-copying one from the dashboard. */
     provisionAppDeployHook: builder.mutation<
@@ -748,6 +769,7 @@ export const {
   useLazyRefreshAppStatusQuery,
   useEditAppMutation,
   usePushAppEnvVarsMutation,
+  usePushStripeEnvVarsMutation,
   useProvisionAppDeployHookMutation,
   useGetAppDomainsQuery,
   useLazyGetAppDomainsQuery,

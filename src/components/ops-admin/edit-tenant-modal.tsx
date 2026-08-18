@@ -100,6 +100,7 @@ import {
   useLazyGetAiFindingsQuery,
   useAddAppToSuiteMutation,
   useRemoveAppFromSuiteMutation,
+  usePushStripeEnvVarsMutation,
   type TenantEntry
 } from '@/store/apis/tenant-api';
 import {
@@ -286,6 +287,7 @@ interface ConfigFieldsInput {
   vercelProjectId: string;
   adminEmail: string;
   pinSignInEnabled: boolean;
+  stripe: { secretKey: string; webhookSecret: string; publishableKey: string };
 }
 
 /**
@@ -296,7 +298,7 @@ interface ConfigFieldsInput {
  * Each caller wraps this the way its own endpoint expects.
  */
 function buildConfigFields(input: ConfigFieldsInput) {
-  const { tenant, license, googleOAuth, dbConfig, envPairs, deployHookUrl, vercelProjectId, adminEmail, pinSignInEnabled } = input;
+  const { tenant, license, googleOAuth, dbConfig, envPairs, deployHookUrl, vercelProjectId, adminEmail, pinSignInEnabled, stripe } = input;
   const env: Record<string, string> = {};
   for (const pair of envPairs) {
     if (pair.key) env[pair.key] = pair.value;
@@ -328,6 +330,13 @@ function buildConfigFields(input: ConfigFieldsInput) {
       directUrl: dbConfig.directUrl,
     },
     env,
+    // Stripe payment keys — pushed to Vercel env by the stripe-env route on
+    // Save Changes (see docs/STRIPE-SETUP.md; keys are never committed).
+    stripe: {
+      secretKey: stripe.secretKey || undefined,
+      webhookSecret: stripe.webhookSecret || undefined,
+      publishableKey: stripe.publishableKey || undefined,
+    },
     hooks: { deployHookUrl: deployHookUrl || undefined },
     vercelProjectId: vercelProjectId || undefined,
     adminEmail: adminEmail || DEFAULT_PLATFORM_ADMIN_EMAIL,
@@ -424,6 +433,21 @@ export function EditTenantModal({ open, tenant, onClose, onSnackbar }: EditTenan
   const [assignTenantOrg, { isLoading: assigningOrg }] = useAssignTenantOrganizationMutation();
   const [createOrg, { isLoading: creatingOrg }] = useCreateOrganizationMutation();
   const [newOrgName, setNewOrgName] = useState('');
+
+  // ── Stripe payment keys (Organization & Billing step) ──
+  // Stored in metadata.config.stripe; pushed to Vercel env on Save Changes.
+  const initStripe = (): { secretKey: string; webhookSecret: string; publishableKey: string } => {
+    const cfg = (tenant?.metadata?.config ?? {}) as Record<string, unknown>;
+    const stripe = (cfg.stripe ?? {}) as Record<string, unknown>;
+    return {
+      secretKey: String(stripe.secretKey ?? ''),
+      webhookSecret: String(stripe.webhookSecret ?? ''),
+      publishableKey: String(stripe.publishableKey ?? ''),
+    };
+  };
+  const [stripeKeys, setStripeKeys] = useState(initStripe);
+  const [showStripeSecrets, setShowStripeSecrets] = useState(false);
+  const [pushStripeEnv, { isLoading: pushingStripeEnv }] = usePushStripeEnvVarsMutation();
 
   const applySuiteChanges = useCallback(async () => {
     if (!tenant) return;
@@ -824,7 +848,7 @@ export function EditTenantModal({ open, tenant, onClose, onSnackbar }: EditTenan
   const buildDeployPayload = useCallback(() => {
     if (!tenant) return {};
 
-    const fields = buildConfigFields({ tenant, license, googleOAuth, dbConfig, envPairs, deployHookUrl, vercelProjectId, adminEmail, pinSignInEnabled });
+    const fields = buildConfigFields({ tenant, license, googleOAuth, dbConfig, envPairs, deployHookUrl, vercelProjectId, adminEmail, pinSignInEnabled, stripe: stripeKeys });
 
     return {
       template: editTemplate,
@@ -837,7 +861,7 @@ export function EditTenantModal({ open, tenant, onClose, onSnackbar }: EditTenan
         ...fields,
       },
     };
-  }, [tenant, editTemplate, displayName, editPrimaryColor, editSecondaryColor, license, googleOAuth, dbConfig, envPairs, deployHookUrl, vercelProjectId, adminEmail, pinSignInEnabled]);
+  }, [tenant, editTemplate, displayName, editPrimaryColor, editSecondaryColor, license, googleOAuth, dbConfig, envPairs, deployHookUrl, vercelProjectId, adminEmail, pinSignInEnabled, stripeKeys]);
 
   // ── Save handler ──────────────────────────────────────────
   const handleSave = useCallback(async () => {
@@ -852,7 +876,7 @@ export function EditTenantModal({ open, tenant, onClose, onSnackbar }: EditTenan
         secondaryColor: editSecondaryColor,
         vercelProjectId: vercelProjectId || undefined,
         metadata: {
-          config: buildConfigFields({ tenant, license, googleOAuth, dbConfig, envPairs, deployHookUrl, vercelProjectId, adminEmail, pinSignInEnabled }),
+          config: buildConfigFields({ tenant, license, googleOAuth, dbConfig, envPairs, deployHookUrl, vercelProjectId, adminEmail, pinSignInEnabled, stripe: stripeKeys }),
         },
       };
 
@@ -867,6 +891,25 @@ export function EditTenantModal({ open, tenant, onClose, onSnackbar }: EditTenan
         const orgName = organizations.find((o) => o.id === orgId)?.displayName ?? orgId;
         message += ` — billing owner: ${orgName}`;
       }
+      // Push the Stripe keys to Vercel env (own project + suite apps) when
+      // any key is present, so Payment Methods can be enabled for the app.
+      if (stripeKeys.secretKey.trim() || stripeKeys.webhookSecret.trim() || stripeKeys.publishableKey.trim()) {
+        try {
+          const stripeRes = await pushStripeEnv({ slug: tenant.slug }).unwrap();
+          const envCount = stripeRes.data?.envCount ?? 0;
+          message += ` — Stripe keys pushed to Vercel (${envCount} env var${envCount === 1 ? '' : 's'})`;
+          if (stripeRes.data?.redeployTriggered?.length) {
+            message += `, redeploy triggered`;
+          } else if (stripeRes.data?.note) {
+            message += ` — ${stripeRes.data.note}`;
+          }
+        } catch (stripeErr) {
+          const stripeMsg = stripeErr && typeof stripeErr === 'object' && 'data' in stripeErr
+            ? String((stripeErr as { data?: { error?: string } }).data?.error || 'Stripe env push failed')
+            : 'Stripe env push failed';
+          message += ` — ⚠️ config saved, but Stripe env push failed: ${stripeMsg}`;
+        }
+      }
       onSnackbar({ message, severity: 'success' });
     } catch (err: any) {
       const msg = err?.data?.error || (err instanceof Error ? err.message : 'Save failed');
@@ -874,7 +917,7 @@ export function EditTenantModal({ open, tenant, onClose, onSnackbar }: EditTenan
     } finally {
       setSaving(false);
     }
-  }, [tenant, displayName, editTemplate, editPrimaryColor, editSecondaryColor, license, googleOAuth, dbConfig, envPairs, deployHookUrl, vercelProjectId, adminEmail, pinSignInEnabled, updateTenant, onSnackbar, orgId, currentOrg, organizations, assignTenantOrg]);
+  }, [tenant, displayName, editTemplate, editPrimaryColor, editSecondaryColor, license, googleOAuth, dbConfig, envPairs, deployHookUrl, vercelProjectId, adminEmail, pinSignInEnabled, updateTenant, onSnackbar, orgId, currentOrg, organizations, assignTenantOrg, stripeKeys, pushStripeEnv]);
 
   // ── Flight Check run ───────────────────────────────────────
   const runFlightCheck = useCallback(async () => {
@@ -1765,6 +1808,70 @@ export function EditTenantModal({ open, tenant, onClose, onSnackbar }: EditTenan
           Create
         </Button>
       </Stack>
+
+      {/* Stripe payment keys — pushed to Vercel env on Save Changes */}
+      <Paper variant="outlined" sx={{ p: 2 }}>
+        <Stack direction="row" spacing={1} sx={{ alignItems: 'center', justifyContent: 'space-between', mb: 1 }}>
+          <Typography variant="subtitle2" sx={{ fontWeight: 600 }}>
+            Stripe Payment Keys
+          </Typography>
+          <Button
+            size="small"
+            variant="text"
+            onClick={() => setShowStripeSecrets((s) => !s)}
+            startIcon={showStripeSecrets ? <VisibilityOff /> : <Visibility />}
+          >
+            {showStripeSecrets ? 'Hide' : 'Show'}
+          </Button>
+        </Stack>
+        <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+          These are the Vercel Global Variables that enable Payment Methods for this
+          tenant&apos;s application. Create them in your Stripe dashboard (test keys{' '}
+          <code>sk_test_</code>/<code>pk_test_</code> locally, live keys for production) and
+          register the webhook endpoint at <code>https://&lt;domain&gt;/api/webhooks/stripe</code>{' '}
+          — see <strong>docs/STRIPE-SETUP.md</strong>. Secret and publishable key must be in
+          the same mode. Saved on <strong>Save Changes</strong> and pushed to Vercel env for
+          this app (and every suite app); a redeploy is triggered automatically so the
+          publishable key reaches the client bundle.
+        </Typography>
+        <Stack spacing={2}>
+          <TextField
+            label="STRIPE_SECRET_KEY"
+            type={showStripeSecrets ? 'text' : 'password'}
+            value={stripeKeys.secretKey}
+            onChange={(e) => setStripeKeys((s) => ({ ...s, secretKey: e.target.value }))}
+            fullWidth
+            placeholder="sk_test_… / sk_live_…"
+            helperText={stripeKeys.secretKey && !stripeKeys.secretKey.startsWith('sk_') ? '⚠️ Expected an "sk_" prefix.' : 'Server-only key — never exposed to the browser.'}
+          />
+          <TextField
+            label="STRIPE_WEBHOOK_SECRET"
+            type={showStripeSecrets ? 'text' : 'password'}
+            value={stripeKeys.webhookSecret}
+            onChange={(e) => setStripeKeys((s) => ({ ...s, webhookSecret: e.target.value }))}
+            fullWidth
+            placeholder="whsec_…"
+            helperText={stripeKeys.webhookSecret && !stripeKeys.webhookSecret.startsWith('whsec_') ? '⚠️ Expected a "whsec_" prefix (the webhook signing secret).' : 'Signing secret for /api/webhooks/stripe — from the dashboard-registered endpoint.'}
+          />
+          <TextField
+            label="NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY"
+            type={showStripeSecrets ? 'text' : 'password'}
+            value={stripeKeys.publishableKey}
+            onChange={(e) => setStripeKeys((s) => ({ ...s, publishableKey: e.target.value }))}
+            fullWidth
+            placeholder="pk_test_… / pk_live_…"
+            helperText={stripeKeys.publishableKey && !stripeKeys.publishableKey.startsWith('pk_') ? '⚠️ Expected a "pk_" prefix.' : 'Public key — inlined into the client bundle at build time.'}
+          />
+          {stripeKeys.secretKey && stripeKeys.publishableKey &&
+            stripeKeys.secretKey.startsWith('sk_test_') !== stripeKeys.publishableKey.startsWith('pk_test_') && (
+            <Alert severity="warning">
+              Secret and publishable key are in different modes (test vs live). The config
+              guard rejects a mix — keep them in the same mode.
+            </Alert>
+          )}
+          {pushingStripeEnv && <LinearProgress />}
+        </Stack>
+      </Paper>
     </Stack>
   );
 

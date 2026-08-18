@@ -372,6 +372,33 @@ export async function buildEnvVarsForProject(input: DeployTenantInput): Promise<
   return envVars;
 }
 
+/**
+ * Push the Stripe payment keys to a Vercel project. Only non-empty values are
+ * written, so clearing a field keeps the previously pushed value. The
+ * NEXT_PUBLIC_ key is inlined at build time — a redeploy is required before
+ * the client bundle picks it up (callers trigger the deploy hook).
+ */
+export async function syncStripeEnvVars(
+  projectId: string,
+  stripe: { secretKey?: string; webhookSecret?: string; publishableKey?: string },
+): Promise<number> {
+  const entries: [string, string][] = [];
+  if (stripe.secretKey?.trim()) entries.push(['STRIPE_SECRET_KEY', stripe.secretKey.trim()]);
+  if (stripe.webhookSecret?.trim()) entries.push(['STRIPE_WEBHOOK_SECRET', stripe.webhookSecret.trim()]);
+  if (stripe.publishableKey?.trim()) entries.push(['NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY', stripe.publishableKey.trim()]);
+
+  let envCount = 0;
+  for (const [key, value] of entries) {
+    try {
+      const ok = await upsertEnvVar(projectId, key, value);
+      if (ok) envCount++;
+    } catch (err) {
+      console.error(`[vercel-deploy] Failed to set env ${key}:`, err);
+    }
+  }
+  return envCount;
+}
+
 export async function syncEnvVars(
   projectId: string,
   input: DeployTenantInput,
