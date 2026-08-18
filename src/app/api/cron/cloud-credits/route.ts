@@ -82,8 +82,8 @@ export async function GET(request: Request): Promise<Response> {
 
             // Write UsageRecord for function invocations (idempotent)
             await db.$executeRawUnsafe(
-              `INSERT INTO usage_records (tenant_slug, resource, period_start, period_end, quantity)
-               VALUES ($1, $2, $3, $4, $5)
+              `INSERT INTO usage_records (id, tenant_slug, resource, period_start, period_end, quantity)
+               VALUES (gen_random_uuid()::TEXT, $1, $2, $3, $4, $5)
                ON CONFLICT (tenant_slug, resource, period_start)
                DO UPDATE SET quantity = EXCLUDED.quantity, period_end = EXCLUDED.period_end, created_at = NOW()`,
               [tenantSlug, 'function_invocations', periodStart.toISOString(), periodEnd.toISOString(), metrics?.functionExecutionCount ?? 0]
@@ -91,8 +91,8 @@ export async function GET(request: Request): Promise<Response> {
 
             // Write UsageRecord for function duration (GB-hrs)
             await db.$executeRawUnsafe(
-              `INSERT INTO usage_records (tenant_slug, resource, period_start, period_end, quantity)
-               VALUES ($1, $2, $3, $4, $5)
+              `INSERT INTO usage_records (id, tenant_slug, resource, period_start, period_end, quantity)
+               VALUES (gen_random_uuid()::TEXT, $1, $2, $3, $4, $5)
                ON CONFLICT (tenant_slug, resource, period_start)
                DO UPDATE SET quantity = EXCLUDED.quantity, period_end = EXCLUDED.period_end, created_at = NOW()`,
               [tenantSlug, 'function_duration', periodStart.toISOString(), periodEnd.toISOString(), Math.round((metrics?.functionDuration ?? 0) * 100) / 100]
@@ -100,8 +100,8 @@ export async function GET(request: Request): Promise<Response> {
 
             // Write UsageRecord for bandwidth (GB)
             await db.$executeRawUnsafe(
-              `INSERT INTO usage_records (tenant_slug, resource, period_start, period_end, quantity)
-               VALUES ($1, $2, $3, $4, $5)
+              `INSERT INTO usage_records (id, tenant_slug, resource, period_start, period_end, quantity)
+               VALUES (gen_random_uuid()::TEXT, $1, $2, $3, $4, $5)
                ON CONFLICT (tenant_slug, resource, period_start)
                DO UPDATE SET quantity = EXCLUDED.quantity, period_end = EXCLUDED.period_end, created_at = NOW()`,
               [tenantSlug, 'bandwidth', periodStart.toISOString(), periodEnd.toISOString(), Math.round((metrics?.bandwidth ?? 0) * 100) / 100]
@@ -112,16 +112,16 @@ export async function GET(request: Request): Promise<Response> {
         // Write placeholder UsageRecord for database usage
         // (Neon API integration would go here in full implementation)
         await db.$executeRawUnsafe(
-          `INSERT INTO usage_records (tenant_slug, resource, period_start, period_end, quantity)
-           VALUES ($1, $2, $3, $4, $5)
+          `INSERT INTO usage_records (id, tenant_slug, resource, period_start, period_end, quantity)
+           VALUES (gen_random_uuid()::TEXT, $1, $2, $3, $4, $5)
            ON CONFLICT (tenant_slug, resource, period_start)
            DO UPDATE SET quantity = EXCLUDED.quantity, period_end = EXCLUDED.period_end, created_at = NOW()`,
           [tenantSlug, 'database_storage', periodStart.toISOString(), periodEnd.toISOString(), 0]
         );
 
         await db.$executeRawUnsafe(
-          `INSERT INTO usage_records (tenant_slug, resource, period_start, period_end, quantity)
-           VALUES ($1, $2, $3, $4, $5)
+          `INSERT INTO usage_records (id, tenant_slug, resource, period_start, period_end, quantity)
+           VALUES (gen_random_uuid()::TEXT, $1, $2, $3, $4, $5)
            ON CONFLICT (tenant_slug, resource, period_start)
            DO UPDATE SET quantity = EXCLUDED.quantity, period_end = EXCLUDED.period_end, created_at = NOW()`,
           [tenantSlug, 'database_compute_hours', periodStart.toISOString(), periodEnd.toISOString(), 0]
@@ -141,8 +141,8 @@ export async function GET(request: Request): Promise<Response> {
     for (const org of orgs) {
       const orgId = (org as any).id;
       await db.$executeRawUnsafe(
-        `INSERT INTO cloud_balances (org_id, balance_cents, auto_top_up_threshold, auto_top_up_amount)
-         VALUES ($1, 0, 20, 0)
+        `INSERT INTO cloud_balances (id, org_id, balance_cents, auto_top_up_threshold, auto_top_up_amount)
+         VALUES (gen_random_uuid()::TEXT, $1, 0, 20, 0)
          ON CONFLICT (org_id)
          DO UPDATE SET balance_cents = 0, auto_top_up_threshold = 20, auto_top_up_amount = 0,
            recorded_at = NOW()`,

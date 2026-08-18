@@ -205,8 +205,8 @@ export async function createOrganization(
   const slug = slugify(input.slug ?? input.displayName);
 
   await db.$executeRawUnsafe(
-    `INSERT INTO organizations (id, slug, display_name, owner_user_id, referred_by, updated_at)
-     VALUES ($1, $2, $3, $4, $5, CURRENT_TIMESTAMP);`,
+    `INSERT INTO organizations (id, org_id, slug, display_name, owner_user_id, referred_by, updated_at)
+     VALUES ($1, $1, $2, $3, $4, CURRENT_TIMESTAMP);`,
     id,
     slug,
     input.displayName,
@@ -319,8 +319,8 @@ export async function backfillDefaultOrganization(
     orgId = newOrgId();
     created = true;
     await db.$executeRawUnsafe(
-      `INSERT INTO organizations (id, slug, display_name, updated_at)
-       VALUES ($1, $2, $3, CURRENT_TIMESTAMP)
+      `INSERT INTO organizations (id, org_id, slug, display_name, updated_at)
+       VALUES ($1, $1, $2, CURRENT_TIMESTAMP)
        ON CONFLICT (slug) DO NOTHING;`,
       orgId,
       DEFAULT_ORG_SLUG,

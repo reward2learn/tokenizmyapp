@@ -770,6 +770,7 @@ model WebhookEvent {
 
 model Organization {
   id            String   @id @default(cuid())
+  orgId         String   @map("org_id")
   /// URL-safe identifier, editable by the owner.
   slug          String   @unique
   displayName   String   @map("display_name")
@@ -786,6 +787,9 @@ model Organization {
   subscription  Subscription?
   creditGrants  CreditGrant[]
   creditLedger  CreditLedger[]
+
+  orgAttribution OrgAttribution @relation("orgAttribution", fields: [orgId], references: [id])
+  cloudBalance CloudBalance @relation("cloudBalance", fields: [orgId], references: [id])
 
   @@allow('read', true)
   @@allow('create,update,delete', auth().tier == google)
