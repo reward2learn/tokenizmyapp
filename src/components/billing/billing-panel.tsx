@@ -81,6 +81,7 @@ export function BillingPanel({ orgId }: { orgId: string }) {
   const readiness = checkoutData?.data?.readiness ?? null;
   const linkage = checkoutData?.data?.linkage ?? null;
   const reconcileNote = checkoutData?.data?.reconcileNote ?? null;
+  const priceMismatches = checkoutData?.data?.priceMismatches ?? [];
 
   return (
     <Paper elevation={0} sx={{ border: '1px solid', borderColor: 'divider' }}>
@@ -104,6 +105,16 @@ export function BillingPanel({ orgId }: { orgId: string }) {
           <Alert severity="error" sx={{ mb: 2 }}>
             <AlertTitle>Stripe configuration problem</AlertTitle>
             {readiness.configError}
+          </Alert>
+        )}
+        {priceMismatches.length > 0 && (
+          <Alert severity="error" sx={{ mb: 2 }}>
+            <AlertTitle>Advertised price does not match Stripe</AlertTitle>
+            {priceMismatches.map((message) => (
+              <Typography key={message} variant="body2">
+                {message}
+              </Typography>
+            ))}
           </Alert>
         )}
         {reconcileNote && (
@@ -288,8 +299,20 @@ function PlanTab({
                 </Typography>
                 <Divider sx={{ mb: 1.5 }} />
                 <Stack spacing={0.5}>
+                  {/*
+                    Enterprise has no published allowance, and rendering its
+                    zero as "0 AI credits / month" reads as "this plan includes
+                    none" — the opposite of "yours is negotiated". The public
+                    pricing table already says "Negotiated"; this card said 0.
+                  */}
                   <Typography variant="body2">
-                    <strong>{plan.aiCreditsPerMonth}</strong> AI credits / month
+                    {plan.aiCreditsPerMonth > 0 ? (
+                      <>
+                        <strong>{plan.aiCreditsPerMonth}</strong> AI credits / month
+                      </>
+                    ) : (
+                      'Negotiated AI credit allowance'
+                    )}
                   </Typography>
                   <Typography variant="body2">
                     {plan.maxTenants === null ? 'Unlimited' : plan.maxTenants} tenant

@@ -19,12 +19,13 @@ import {
   requireStripeFor,
   listConfiguredPrices,
   planForPriceId,
+  getPriceId as resolvePriceId,
   stripeConfigError,
   isLiveKey,
   type StripeEnvConfig,
 } from '@/lib/billing/stripe-client';
 import type { PlanId, BillingInterval } from '@/lib/billing/plans';
-import { CREDIT_PACKS } from '@/lib/billing/plans';
+import { CREDIT_PACKS, PLANS } from '@/lib/billing/plans';
 
 type RawDb = ReturnType<typeof createRawClient>;
 
@@ -663,4 +664,109 @@ export async function reconcileSubscriptionFromStripe(
     status,
     reason: `Repaired from Stripe: ${planId} (${mapped.interval}), status ${status}.`,
   };
+}
+
+export interface PriceMismatch {
+  planId: PlanId;
+  interval: BillingInterval;
+  /** What the pricing card shows, in cents. */
+  catalogCents: number;
+  /** What Stripe will actually charge, in cents. Null when the price is unreadable. */
+  stripeCents: number | null;
+  currency: string | null;
+  message: string;
+}
+
+/**
+ * Compare every purchasable plan's advertised price against the Stripe price
+ * object that would actually be charged.
+ *
+ * `PlanDef.priceMonthly` is display text. Stripe bills from the price id in
+ * STRIPE_PRICE_<PLAN>_<INTERVAL>, and nothing keeps the two in step — so
+ * editing the catalog to $199 while the Stripe price is still $99 produces a
+ * card that advertises one amount and a checkout that charges another. The
+ * customer sees the discrepancy on their statement, not in the product.
+ *
+ * Returns one entry per disagreement, empty when everything lines up. Callers
+ * treat a mismatched plan as unsellable rather than merely warning: showing
+ * "Choose" on a plan we know is mispriced is the failure this exists to stop.
+ *
+ * Recurring prices only. A `unit_amount` of null (tiered or metered pricing)
+ * is reported as unreadable rather than assumed correct.
+ */
+export async function findPriceMismatches(
+  config?: StripeEnvConfig,
+): Promise<PriceMismatch[]> {
+  const stripe = getStripeFor(config);
+  if (!stripe) return [];
+
+  const out: PriceMismatch[] = [];
+
+  for (const plan of PLANS) {
+    for (const interval of ['monthly', 'yearly'] as const) {
+      const priceId = resolvePriceId(plan.id, interval, config);
+      if (!priceId) continue;
+
+      const catalogCents = interval === 'yearly' ? plan.priceYearly : plan.priceMonthly;
+      if (catalogCents === null) continue;
+
+      let price: Stripe.Price;
+      try {
+        price = await stripe.prices.retrieve(priceId);
+      } catch (err) {
+        out.push({
+          planId: plan.id,
+          interval,
+          catalogCents,
+          stripeCents: null,
+          currency: null,
+          message:
+            `${plan.label} (${interval}): Stripe price ${priceId} could not be read — ` +
+            `${(err as Error).message}`,
+        });
+        continue;
+      }
+
+      // Stripe states a yearly price as the whole-year total; the catalog
+      // states it per month. Comparing them raw would flag every yearly plan.
+      const perMonth =
+        price.unit_amount === null
+          ? null
+          : price.recurring?.interval === 'year'
+            ? Math.round(price.unit_amount / 12)
+            : price.unit_amount;
+
+      if (perMonth === null) {
+        out.push({
+          planId: plan.id,
+          interval,
+          catalogCents,
+          stripeCents: null,
+          currency: price.currency ?? null,
+          message:
+            `${plan.label} (${interval}): Stripe price ${priceId} has no flat unit amount ` +
+            `(tiered or metered), so the advertised price cannot be verified.`,
+        });
+        continue;
+      }
+
+      // A cent of slack: yearly is derived by rounding, so an exact match is
+      // not always achievable even when the two are in agreement.
+      if (Math.abs(perMonth - catalogCents) > 1) {
+        out.push({
+          planId: plan.id,
+          interval,
+          catalogCents,
+          stripeCents: perMonth,
+          currency: price.currency,
+          message:
+            `${plan.label} (${interval}): the pricing card shows ` +
+            `$${(catalogCents / 100).toFixed(2)}/mo but Stripe would charge ` +
+            `$${(perMonth / 100).toFixed(2)}/mo. Update the Stripe price object or the plan catalog.`,
+        });
+      }
+    }
+  }
+
+  return out;
 }

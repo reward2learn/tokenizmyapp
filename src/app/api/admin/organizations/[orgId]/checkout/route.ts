@@ -33,6 +33,7 @@ import { getOrganization, resolveTenantStripeConfig } from '@/domain/billing/org
 import {
   createCheckoutSession,
   changePlan,
+  findPriceMismatches,
   getStripeLinkage,
   reconcileSubscriptionFromStripe,
   stripeReadiness,
@@ -90,15 +91,30 @@ export async function GET(
       console.warn(`[billing] Reconcile failed for ${orgId}:`, (err as Error).message);
     }
 
+    // A plan whose card and Stripe price disagree is not sellable: the customer
+    // would be charged an amount the page never showed them. Dropping it from
+    // `purchasable` greys out its Choose button, which is the same mechanism
+    // already used for a plan with no configured price at all.
+    let mismatches: Awaited<ReturnType<typeof findPriceMismatches>> = [];
+    try {
+      mismatches = await findPriceMismatches(stripeConfig ?? undefined);
+    } catch (err) {
+      console.warn(`[billing] Price check failed for ${orgId}:`, (err as Error).message);
+    }
+    const mispriced = new Set(mismatches.map((m) => `${m.planId}:${m.interval}`));
+
     return jsonOk({
       // Tenant orgs report the tenant's own Stripe configuration, so the
       // billing panel shows the tenant's real readiness instead of this
       // deployment's (the factory env has no per-tenant keys).
       readiness: stripeReadiness(stripeConfig ?? undefined),
-      purchasable: listConfiguredPrices(stripeConfig ?? undefined).map(({ planId, interval }) => ({
-        planId,
-        interval,
-      })),
+      purchasable: listConfiguredPrices(stripeConfig ?? undefined)
+        .filter(({ planId, interval }) => !mispriced.has(`${planId}:${interval}`))
+        .map(({ planId, interval }) => ({
+          planId,
+          interval,
+        })),
+      priceMismatches: mismatches.map((m) => m.message),
       linkage: await getStripeLinkage(orgId, db),
       // Read after the reconcile so the Plan tab marks the plan Stripe agrees
       // with, rather than the one the organization GET cached a moment ago.

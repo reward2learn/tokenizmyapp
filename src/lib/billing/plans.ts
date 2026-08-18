@@ -7,10 +7,16 @@
  * the `ai-providers-catalog.ts` split: `entitlement-service.ts` re-exports these
  * alongside the DB-backed functions.
  *
- * Prices and credit allowances below are a CALIBRATION REFERENCE derived from a
- * competitor's public pricing (see docs/MONETIZATION-CREDITS-ROADMAP.md §1.4),
- * not a commercial decision. Our COGS are Vercel's and Neon's. Change these
- * before charging anyone.
+ * ⚠️ `priceMonthly` / `priceYearly` are DISPLAY ONLY. Stripe charges whatever
+ * the price object behind STRIPE_PRICE_<PLAN>_<INTERVAL> says, so editing a
+ * number here changes the pricing card and nothing else. The two drifting
+ * apart bills a customer an amount the page never showed them — the billing
+ * panel now compares them on every read and refuses to sell a plan whose
+ * Stripe price disagrees. Update the Stripe price object first, then this.
+ *
+ * Changing `aiCreditsPerMonth` is not display-only: it is the amount
+ * `grantMonthlyAllowanceIfDue` mints at the start of each period, and it
+ * applies to existing organizations from their next period onward.
  */
 
 export type PlanId = 'free' | 'pro' | 'business' | 'enterprise';
@@ -73,7 +79,7 @@ export const PLANS: PlanDef[] = [
     tagline: 'Build and preview one app.',
     priceMonthly: 0,
     priceYearly: 0,
-    aiCreditsPerMonth: 15,
+    aiCreditsPerMonth: 50,
     cloudMultiplier: 1,
     maxTenants: 1,
     maxAppsPerTenant: 1,
@@ -83,9 +89,9 @@ export const PLANS: PlanDef[] = [
     id: 'pro',
     label: 'Pro',
     tagline: 'Publish on your own domain.',
-    priceMonthly: 2500,
-    priceYearly: yearlyMonthlyPrice(2500),
-    aiCreditsPerMonth: 50,
+    priceMonthly: 5000,
+    priceYearly: yearlyMonthlyPrice(5000),
+    aiCreditsPerMonth: 100,
     cloudMultiplier: 20,
     maxTenants: 3,
     maxAppsPerTenant: 5,
@@ -95,9 +101,9 @@ export const PLANS: PlanDef[] = [
     id: 'business',
     label: 'Business',
     tagline: 'Departments, roles and access control.',
-    priceMonthly: 9900,
-    priceYearly: yearlyMonthlyPrice(9900),
-    aiCreditsPerMonth: 50,
+    priceMonthly: 19900,
+    priceYearly: yearlyMonthlyPrice(19900),
+    aiCreditsPerMonth: 250,
     cloudMultiplier: 20,
     maxTenants: 10,
     maxAppsPerTenant: null,

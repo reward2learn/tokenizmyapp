@@ -342,6 +342,12 @@ export const organizationApi = createApi({
         subscription: Subscription;
         /** Why a reconcile declined to change anything, when that is worth showing. */
         reconcileNote: string | null;
+        /**
+         * Plans whose advertised price disagrees with the Stripe price that
+         * would be charged. Each is also absent from `purchasable`, so the
+         * panel greys the plan out as well as explaining why.
+         */
+        priceMismatches: string[];
       }>,
       string
     >({

@@ -85,10 +85,15 @@ export const MIN_CREDITS_TO_START = 1;
  * mean — the floor's job is to stop an org starting work it plainly cannot
  * cover, not to predict the bill.
  *
- * Reference: Free grants 15 credits/month, Pro 50. A floor above the Free
- * allowance would make an operation unreachable on Free, which is a pricing
- * decision — `appPack` at 30 is deliberately the one that does this, since a
- * full app-pack materialization is not a Free-tier operation.
+ * Reference: Free grants 50 credits/month, Pro 100. A floor above the Free
+ * allowance makes an operation unreachable on Free, which is a pricing
+ * decision rather than a sizing one.
+ *
+ * ⚠️ No floor does that any more. `appPack` at 30 used to sit above the Free
+ * allowance of 15 on purpose — a full app-pack materialization was not meant
+ * to be a Free-tier operation — and raising Free to 50 silently opened it up.
+ * Whether that is intended is a pricing call, not a code one; the floors are
+ * left at their measured-cost values until it is made.
  */
 export const CREDIT_FLOORS = {
   /** ~4 credits/turn. Kept at 1: blocking a cheap turn is worse than absorbing it. */
