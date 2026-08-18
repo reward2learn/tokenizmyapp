@@ -67,6 +67,14 @@ CREATE TABLE IF NOT EXISTS organizations (
   updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );`;
 
+const ORG_ATTRIBUTION_DDL = `
+CREATE TABLE IF NOT EXISTS org_attribution (
+  id TEXT PRIMARY KEY,
+  org_id TEXT NOT NULL UNIQUE,
+  channel TEXT NOT NULL,
+  captured_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);`;
+
 const ORG_MEMBERS_DDL = `
 CREATE TABLE IF NOT EXISTS org_members (
   id TEXT PRIMARY KEY,
@@ -108,6 +116,22 @@ function slugify(input: string): string {
 export async function ensureOrganizationTables(db: RawDb): Promise<void> {
   await db.$executeRawUnsafe(ORGANIZATIONS_DDL);
   await db.$executeRawUnsafe(ORG_MEMBERS_DDL);
+  await db.$executeRawUnsafe(ORG_ATTRIBUTION_DDL);
+
+  // `createOrganization` upserts attribution with ON CONFLICT (org_id), which
+  // Postgres rejects (42P10) unless a unique index covers that column. The
+  // CREATE TABLE above declares it, but a database where the table predates
+  // that declaration would have no such index — and the name here is the one
+  // Prisma derives from `@unique`, so `db push` sees a match and leaves it be
+  // rather than dropping and recreating it on every deploy.
+  try {
+    await db.$executeRawUnsafe(
+      `CREATE UNIQUE INDEX IF NOT EXISTS org_attribution_org_id_key ON org_attribution (org_id)`,
+    );
+  } catch {
+    // Duplicate rows would make this impossible; attribution is advisory, so
+    // never let it block organization reads.
+  }
 
   // `prisma db push` creates these tables first, from the zmodel, where
   // `@updatedAt` yields NOT NULL with no default — so the DEFAULT in the DDL
@@ -206,14 +230,16 @@ export async function createOrganization(
   const slug = slugify(input.slug ?? input.displayName);
 
   await db.$executeRawUnsafe(
-    `INSERT INTO organizations (id, org_id, slug, display_name, owner_user_id, referred_by, channel, updated_at)
-     VALUES ($1, $1, $2, $3, $4, $5, $6, CURRENT_TIMESTAMP);`,
+    // No `org_id` and no `channel` here: the first is not a column (the primary
+    // key is `id`), and the second lives in org_attribution. Naming either one
+    // fails the whole statement with 42703 — every organization creation 500s.
+    `INSERT INTO organizations (id, slug, display_name, owner_user_id, referred_by, updated_at)
+     VALUES ($1, $2, $3, $4, $5, CURRENT_TIMESTAMP);`,
     id,
     slug,
     input.displayName,
     input.ownerUserId ?? null,
     input.referredBy ?? null,
-    input.channel ?? 'unknown',
   );
 
   if (input.ownerUserId) {
@@ -227,7 +253,10 @@ export async function createOrganization(
      VALUES (gen_random_uuid()::TEXT, $1, $2, CURRENT_TIMESTAMP)
      ON CONFLICT (org_id)
      DO UPDATE SET channel = EXCLUDED.channel, captured_at = NOW()`,
-    [id, attributionChannel],
+    // Varargs, not an array — `[id, channel]` binds $1 to the array itself and
+    // leaves $2 unbound.
+    id,
+    attributionChannel,
   );
 
   const created = await getOrganization(db, id);

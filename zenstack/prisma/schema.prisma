@@ -690,24 +690,45 @@ model WebhookEvent {
 }
 
 model Organization {
-  id           String         @id() @default(cuid())
+  id             String          @id() @default(cuid())
   /// URL-safe identifier, editable by the owner.
-  slug         String         @unique()
-  displayName  String         @map("display_name")
-  logoUrl      String?        @map("logo_url")
+  slug           String          @unique()
+  displayName    String          @map("display_name")
+  logoUrl        String?         @map("logo_url")
   /// Account that owns billing for this organization.
-  ownerUserId  String?        @map("owner_user_id")
+  ownerUserId    String?         @map("owner_user_id")
   /// Affiliate attribution. Recorded at signup — impossible to backfill later.
-  referredBy   String?        @map("referred_by")
-  createdAt    DateTime       @default(now()) @map("created_at")
-  updatedAt    DateTime       @updatedAt() @map("updated_at")
-  members      OrgMember[]
-  tenants      Tenant[]
-  subscription Subscription?
-  creditGrants CreditGrant[]
-  creditLedger CreditLedger[]
+  referredBy     String?         @map("referred_by")
+  createdAt      DateTime        @default(now()) @map("created_at")
+  updatedAt      DateTime        @updatedAt() @map("updated_at")
+  members        OrgMember[]
+  tenants        Tenant[]
+  subscription   Subscription?
+  creditGrants   CreditGrant[]
+  creditLedger   CreditLedger[]
+  /// Where this organization came from. Written once, at signup.
+  orgAttribution OrgAttribution?
 
   @@map("organizations")
+}
+
+/// Marketing channel an organization arrived through, captured at signup.
+///
+/// Distinct from `Organization.referredBy`, which names the affiliate who gets
+/// paid; this is *how* they found the product, and it only exists for as long
+/// as the signup request does — there is no backfilling it later.
+///
+/// One row per organization. `orgId` is unique because the service upserts with
+/// `ON CONFLICT (org_id)`, which needs a constraint to land on; without it
+/// Postgres rejects the statement outright (42P10).
+model OrgAttribution {
+  id           String       @id() @default(cuid())
+  orgId        String       @unique() @map("org_id")
+  organization Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  channel      String
+  capturedAt   DateTime     @default(now()) @map("captured_at")
+
+  @@map("org_attribution")
 }
 
 model OrgMember {

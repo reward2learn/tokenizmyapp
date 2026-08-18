@@ -381,31 +381,28 @@ function AiCreditsTab({
             Auto-reload: {autoReload ? 'Enabled' : 'Disabled'}
           </Typography>
           {autoReload && (
-            <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap' }}>
+            <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap', alignItems: 'center' }}>
               <Typography variant="caption" color="text.secondary">
                 Top up when balance falls below
               </Typography>
-              <ToggleButton
-                value="10"
-                onChange={(value) => setAutoThreshold(value ? Number(value) : null)}
-                selected={autoThreshold === 10}
+              {/*
+                A group, not three loose buttons. Standalone ToggleButtons hand
+                their onChange the click event first and the value second, so
+                `(value) => Number(value)` read the MouseEvent and set the
+                threshold to NaN — which is falsy, so the pack selector below
+                (gated on `autoThreshold &&`) could never appear.
+              */}
+              <ToggleButtonGroup
+                exclusive
+                size="small"
+                value={autoThreshold}
+                onChange={(_event, value: number | null) => setAutoThreshold(value)}
+                aria-label="auto top-up threshold"
               >
-                10
-              </ToggleButton>
-              <ToggleButton
-                value="25"
-                onChange={(value) => setAutoThreshold(value ? Number(value) : null)}
-                selected={autoThreshold === 25}
-              >
-                25
-              </ToggleButton>
-              <ToggleButton
-                value="50"
-                onChange={(value) => setAutoThreshold(value ? Number(value) : null)}
-                selected={autoThreshold === 50}
-              >
-                50
-              </ToggleButton>
+                <ToggleButton value={10}>10</ToggleButton>
+                <ToggleButton value={25}>25</ToggleButton>
+                <ToggleButton value={50}>50</ToggleButton>
+              </ToggleButtonGroup>
             </Stack>
           )}
           {/* Pack selector - shows when threshold is set */}
@@ -414,32 +411,23 @@ function AiCreditsTab({
               <Typography variant="caption" color="text.secondary">
                 Top up pack
               </Typography>
+              {/*
+                Pack ids are the catalog's, not display strings — they travel to
+                Stripe as `metadata.packId` and redeemCreditPack rejects anything
+                CREDIT_PACKS does not contain.
+              */}
               <ToggleButtonGroup
+                exclusive
+                size="small"
                 value={autoPackId}
-                onChange={(e: React.ChangeEvent<HTMLInputElement>, value: string | string[] | null) => {
-                  setAutoPackId(value as string);
-                }}
-                disableSelection
-                aria-label="auto top-up pack selection"
+                onChange={(_event, value: string | null) => setAutoPackId(value)}
+                aria-label="auto top-up pack"
               >
-                <ToggleButton
-                  value="pack-25"
-                  controlId="topup-pack-25"
-                >
-                  $25
-                </ToggleButton>
-                <ToggleButton
-                  value="pack-50"
-                  controlId="topup-pack-50"
-                >
-                  $50
-                </ToggleButton>
-                <ToggleButton
-                  value="pack-100"
-                  controlId="topup-pack-100"
-                >
-                  $100
-                </ToggleButton>
+                {CREDIT_PACKS.map((pack) => (
+                  <ToggleButton key={pack.id} value={pack.id}>
+                    {pack.label}
+                  </ToggleButton>
+                ))}
               </ToggleButtonGroup>
             </Stack>
           )}
@@ -451,7 +439,7 @@ function AiCreditsTab({
           {/* Auto top-up notification */}
           {autoReload && autoThreshold && balance && balance.available !== null && balance.available <= autoThreshold && (
             <Box sx={{ mt: 1, p: 1, border: '1px solid', borderColor: 'primary.main', borderRadius: 1 }}>
-              <Typography variant="caption" color="warning">
+              <Typography variant="caption" color="warning.main">
                 Balance <strong>{balance.available}</strong> credits ≤ threshold <strong>{autoThreshold}</strong> — auto-reload enabled. 
                 <Button 
                   variant="contained" 
