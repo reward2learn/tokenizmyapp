@@ -455,10 +455,18 @@ export function AppShell({ children }: { children: ReactNode }) {
           >
             {user?.name?.[0] ?? 'R'}
           </Avatar>
-          <Box sx={{ flex: 1, minWidth: 0 }}>
+          <Box sx={{ flex: 1, minWidth: 0, position: 'relative' }}>
             <Typography variant="body2" sx={{ fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
               {user?.name ?? 'Guest'}
             </Typography>
+            <Box sx={{ position: 'absolute', top: 0, right: 0 }}>
+              <IconButton
+                aria-label="Settings"
+                onClick={() => console.log('Open settings')}
+              >
+                <MenuIcon fontSize="small" />
+              </IconButton>
+            </Box>
             <Typography variant="caption" color="text.secondary" sx={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
               {user?.email ?? `Tier: ${tier}`}
             </Typography>
