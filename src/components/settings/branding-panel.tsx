@@ -35,7 +35,7 @@ export function BrandingPanel({
   orgId,
   logoUrl,
   backgroundImageUrl,
-  backgroundVideoUrl,
+  
   customCss,
   onUpdate,
 }: BrandingPanelProps) {
