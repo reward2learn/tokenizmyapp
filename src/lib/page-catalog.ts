@@ -553,3 +553,18 @@ export function listReviewParts(): ReviewPartDefinition[] {
 export function getReviewPartDisplayTitle(title: string): string {
   return title.replace(/^Part [A-O]: /, '');
 }
+
+// === Settings page ===
+
+const SETTINGS_PAGE: PageDefinition = {
+  slug: 'settings',
+  title: 'Settings',
+  authTier: 'google',
+  navLabel: 'Settings',
+  showInNav: true,
+  pdfExport: false,
+  requiredGroups: [],
+  sections: [],
+};
+
+export { SETTINGS_PAGE };
