@@ -200,7 +200,7 @@ export async function createCheckoutSession(
     );
   }
 
-  const customerId = await ensureStripeCustomer(input.orgId, db);
+  const customerId = await ensureStripeCustomer(input.orgId, db, stripe);
 
   const session = await stripe.checkout.sessions.create({
     mode: 'subscription',
