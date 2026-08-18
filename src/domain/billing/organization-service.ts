@@ -194,6 +194,7 @@ export interface CreateOrganizationInput {
   slug?: string;
   ownerUserId?: string | null;
   referredBy?: string | null;
+  channel?: string;
 }
 
 export async function createOrganization(
@@ -205,18 +206,29 @@ export async function createOrganization(
   const slug = slugify(input.slug ?? input.displayName);
 
   await db.$executeRawUnsafe(
-    `INSERT INTO organizations (id, org_id, slug, display_name, owner_user_id, referred_by, updated_at)
-     VALUES ($1, $1, $2, $3, $4, CURRENT_TIMESTAMP);`,
+    `INSERT INTO organizations (id, org_id, slug, display_name, owner_user_id, referred_by, channel, updated_at)
+     VALUES ($1, $1, $2, $3, $4, $5, $6, CURRENT_TIMESTAMP);`,
     id,
     slug,
     input.displayName,
     input.ownerUserId ?? null,
     input.referredBy ?? null,
+    input.channel ?? 'unknown',
   );
 
   if (input.ownerUserId) {
     await addOrgMember(db, id, input.ownerUserId, 'owner');
   }
+
+  // Record attribution at signup — impossible to backfill later
+  const attributionChannel = input.channel ?? 'unknown';
+  await db.$executeRawUnsafe(
+    `INSERT INTO org_attribution (id, org_id, channel, captured_at)
+     VALUES (gen_random_uuid()::TEXT, $1, $2, CURRENT_TIMESTAMP)
+     ON CONFLICT (org_id)
+     DO UPDATE SET channel = EXCLUDED.channel, captured_at = NOW()`,
+    [id, attributionChannel],
+  );
 
   const created = await getOrganization(db, id);
   if (!created) throw new Error(`Organization ${id} vanished immediately after insert`);
