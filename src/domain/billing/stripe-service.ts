@@ -305,7 +305,7 @@ export async function createTopUpIntent(
     );
   }
 
-  const customerId = await ensureStripeCustomer(orgId, db);
+  const customerId = await ensureStripeCustomer(orgId, db, stripe);
 
   const intent = await stripe.paymentIntents.create({
     amount: pack.priceCents,
@@ -389,7 +389,7 @@ export async function createSetupIntent(
 ): Promise<{ clientSecret: string; customerId: string }> {
   db = await getDb(db);
   stripe = stripe ?? requireStripe();
-  const customerId = await ensureStripeCustomer(orgId, db);
+  const customerId = await ensureStripeCustomer(orgId, db, stripe);
 
   const intent = await stripe.setupIntents.create({
     customer: customerId,
