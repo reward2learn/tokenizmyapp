@@ -4,30 +4,29 @@
  * Phase 5: meter what deployed tenant apps consume on Vercel + Neon and debit
  * the owning organization's cloud balance for the overage.
  *
- * NOT IMPLEMENTED YET. The cron stays registered in vercel.json so the schedule
- * is in place the day the collector is, but this handler deliberately does no
- * work, because none of the three things it needs exist:
+ * Usage sources, decided 2026-08-18 and verified live:
  *
- *  1. A usage source. The previous draft polled `GET /v9/projects/{id}` and read
- *     `.metrics` off the response — that endpoint returns project configuration
- *     and carries no such field. Per-project consumption has to come from a real
- *     source (Vercel Observability export, the marketplace billing API, or
- *     Neon's own consumption API), and which one is a decision, not a detail.
- *  2. Storage. That draft wrote to `usage_records` and `cloud_balances`, neither
- *     of which is declared in zenstack/schema.zmodel or created by any runtime
- *     DDL helper. Every INSERT would have failed with 42P01 (undefined_table).
- *  3. A rate card. What an invocation or a GB-hour costs in credits, and the
- *     per-plan multiplier applied to it, are pricing decisions.
+ *  1. Vercel `GET /v1/billing/charges` — the FOCUS v1.3 billing export (new
+ *     Feb 2026), streamed JSONL, 1-day granularity. Team-level only: no
+ *     ResourceId, empty Tags, so charges are recorded as platform overhead on
+ *     the operator org (attribution decision (a)).
+ *  2. Neon `GET /projects/{id}` — the Free-plan usage endpoint (the
+ *     consumption_history v2 API requires a Launch plan). Current-billing-
+ *     period totals per project; all tenant databases are endpoints inside one
+ *     project, so this is platform overhead too.
  *
- * Until then this answers 200 with `metered: false` rather than 500. A missing
- * feature is not an incident, and a scheduled job that fails every night is how
- * people learn to ignore the alerts that matter.
+ * Storage exists: usage_records and cloud_balances are declared in the zmodel
+ * and `db push` owns them. Rate card: pass-through at provider cost — Vercel
+ * rows carry the FOCUS billed cost, Neon on the Free plan costs nothing.
  *
- * The Cloud Credits tab in the billing panel shows the matching empty state.
+ * Env: CRON_SECRET (auth), VERCEL_TOKEN + VERCEL_TEAM_ID, NEON_API_KEY +
+ * NEON_ORG_ID, OPERATOR_ORG_ID (optional — falls back to the 'default' org).
  *
  * Auth: Vercel sends `Authorization: Bearer $CRON_SECRET` on scheduled runs.
  */
 import { jsonError, jsonOk } from '@/lib/api/response';
+import { createRawClient } from '@/lib/db';
+import { runCloudUsageCollection } from '@/domain/billing/cloud-usage-collector';
 
 export const dynamic = 'force-dynamic';
 
@@ -44,10 +43,23 @@ export async function GET(request: Request): Promise<Response> {
     return jsonError('Unauthorized', 401);
   }
 
-  return jsonOk({
-    metered: false,
-    reason:
-      'Cloud usage metering is not implemented: no usage source is wired, and the ' +
-      'usage_records / cloud_balances tables are not part of the schema.',
-  });
+  try {
+    const db = createRawClient();
+    const summary = await runCloudUsageCollection(db, {
+      vercelToken: process.env.VERCEL_TOKEN,
+      vercelTeamId: process.env.VERCEL_TEAM_ID,
+      neonApiKey: process.env.NEON_API_KEY,
+      neonOrgId: process.env.NEON_ORG_ID,
+      operatorOrgId: process.env.OPERATOR_ORG_ID,
+    });
+    return jsonOk({
+      metered: true,
+      ...summary,
+    });
+  } catch (error) {
+    return jsonError(
+      `Cloud credits collection failed: ${error instanceof Error ? error.message : String(error)}`,
+      500,
+    );
+  }
 }

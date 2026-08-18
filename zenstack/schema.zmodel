@@ -849,16 +849,19 @@ model UsageRecord {
   tenantSlug  String   @map("tenant_slug")
   /// Suite-mode app id, when the usage is attributable to one app.
   appId       String?  @map("app_id")
-  /// function_invocations | function_duration | bandwidth | db_storage | db_compute | ai_gateway
+  /// function_invocations | function_duration | bandwidth | db_storage | db_compute | build_cpu_minutes
   resource    String
-  /// invocations | gb_hours | gb | requests
+  /// invocations | gb_hours | gb | requests | cu_hours | minutes
   unit        String   @default("units")
   quantity    Float    @default(0)
+  /// Billed cost in cents, when the provider reports it (Vercel FOCUS).
+  /// Null where no cost applies (Neon Free plan) — the rate card covers those.
+  costCents   Int?     @map("cost_cents")
   periodStart DateTime @map("period_start")
   periodEnd   DateTime @map("period_end")
   recordedAt  DateTime @default(now()) @map("recorded_at")
 
-  @@unique([tenantSlug, resource, periodStart], map: "usage_records_tenant_resource_period_key")
+  @@unique([tenantSlug, appId, resource, periodStart], map: "usage_records_tenant_app_resource_period_key")
   @@index([orgId, periodStart], map: "idx_usage_records_org_period")
   @@allow('read', true)
   @@allow('create,update,delete', auth().tier == google)

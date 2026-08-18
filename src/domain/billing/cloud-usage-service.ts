@@ -38,9 +38,16 @@ export interface ResourceUsage {
  * The resources this platform can bill for, in the order the table shows them.
  *
  * Ours deliberately differs from Hercules': these are what Vercel and Neon
- * actually expose, and the rates must come from our own COGS. No rate card is
- * set, hence `costPerUnitCents: null` throughout — a made-up rate would produce
- * invoices we cannot defend.
+ * actually expose. The rate card is pass-through at provider cost, decided
+ * 2026-08-18:
+ *
+ *  - Vercel rows carry the billed cost directly from the FOCUS export
+ *    (`cost_cents` on the row), so `costPerUnitCents` stays null there — a
+ *    static rate could not reproduce regional, tiered billing.
+ *  - Neon rows are metered on the Free plan (no costs), and the documented
+ *    Launch rates are the pass-through ceiling if the account upgrades:
+ *    compute $0.106/CU-hr, storage $0.35/GB-mo, transfer $0.10/GB past the
+ *    500 GB org allowance.
  */
 const RESOURCES: {
   resource: string;
@@ -61,8 +68,9 @@ const RESOURCES: {
   { resource: 'function_invocations', label: 'Function invocations', unit: 'invocations', costPerUnitCents: null, needsCollector: true },
   { resource: 'function_duration', label: 'Function duration', unit: 'GB-hr', costPerUnitCents: null, needsCollector: true },
   { resource: 'bandwidth', label: 'Data egress', unit: 'GB', costPerUnitCents: null, needsCollector: true },
-  { resource: 'db_storage', label: 'Database storage', unit: 'GB', costPerUnitCents: null, needsCollector: true },
-  { resource: 'db_compute', label: 'Database compute', unit: 'GB-hr', costPerUnitCents: null, needsCollector: true },
+  { resource: 'db_storage', label: 'Database storage', unit: 'GB', costPerUnitCents: 35, needsCollector: true },
+  { resource: 'db_compute', label: 'Database compute', unit: 'CU-hr', costPerUnitCents: 10.6, needsCollector: true },
+  { resource: 'build_cpu_minutes', label: 'Build CPU minutes', unit: 'minutes', costPerUnitCents: null, needsCollector: true },
 ];
 
 const USAGE_RECORDS_DDL = `
@@ -74,6 +82,7 @@ CREATE TABLE IF NOT EXISTS usage_records (
   resource TEXT NOT NULL,
   unit TEXT NOT NULL DEFAULT 'units',
   quantity DOUBLE PRECISION NOT NULL DEFAULT 0,
+  cost_cents INTEGER,
   period_start TIMESTAMP NOT NULL,
   period_end TIMESTAMP NOT NULL,
   recorded_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
@@ -115,7 +124,7 @@ export async function getCloudUsage(
   let rows: Record<string, unknown>[] = [];
   try {
     rows = (await db.$queryRawUnsafe(
-      `SELECT resource, unit, SUM(quantity) AS quantity
+      `SELECT resource, unit, SUM(quantity) AS quantity, SUM(cost_cents) AS cost_cents
          FROM usage_records
         WHERE org_id = $1 AND period_start >= $2
         GROUP BY resource, unit;`,
@@ -129,8 +138,10 @@ export async function getCloudUsage(
   }
 
   const measured = new Map<string, number>();
+  const measuredCost = new Map<string, number>();
   for (const row of rows) {
     measured.set(String(row.resource), Number(row.quantity) || 0);
+    measuredCost.set(String(row.resource), Number(row.cost_cents) || 0);
   }
 
   // AI Gateway is the one resource already metered, by Phase 3, in the credit
@@ -143,6 +154,14 @@ export async function getCloudUsage(
     // A resource that does not need the collector is metered by definition.
     // One that does is metered only once a row exists for it.
     const isMeasured = !def.needsCollector || used !== undefined;
+    // Billed cost wins when the provider reported it (Vercel FOCUS rows carry
+    // cost_cents). Otherwise fall back to the rate card — Neon's documented
+    // pass-through rates — and to zero where no rate is set.
+    const billed = measuredCost.get(def.resource);
+    const cost =
+      billed !== undefined
+        ? billed
+        : (used ?? 0) * (def.costPerUnitCents ?? 0);
     return {
       resource: def.resource,
       label: def.label,
@@ -150,7 +169,7 @@ export async function getCloudUsage(
       included: null,
       used: used ?? 0,
       additional: 0,
-      additionalCostCents: 0,
+      additionalCostCents: Math.round(cost),
       state: isMeasured ? 'metered' : 'not_collected',
     };
   });
