@@ -15,6 +15,7 @@
  * runtime, same as ensureTenantsTable() / ensureSecurityTables().
  */
 import { createRawClient } from '@/lib/db';
+import type { StripeEnvConfig } from '@/lib/billing/stripe-client';
 import { ensureTenantsTable } from '@/domain/tenant/tenant-service';
 
 export type OrgMemberRole = 'owner' | 'admin' | 'member' | 'billing';
@@ -568,6 +569,42 @@ export async function resolveOrgForTenant(
 
   const { orgId } = await backfillDefaultOrganization(db);
   return getOrganization(db, orgId);
+}
+
+/**
+ * Resolve the Stripe configuration a tenant saved for its own billing
+ * (metadata.config.stripe, set in the Organization & Billing wizard step).
+ *
+ * The factory control plane manages tenant billing from its own deployment,
+ * whose env has no per-tenant keys — so org-scoped billing routes resolve the
+ * owning tenant's keys here and use them instead of process.env. Returns null
+ * when the org has no tenant (the platform's own org) or the tenant saved no
+ * keys, in which case callers fall back to this deployment's env.
+ */
+export async function resolveTenantStripeConfig(
+  orgId: string,
+  db: RawDb = createRawClient(),
+): Promise<StripeEnvConfig | null> {
+  await ensureOrganizationTables(db);
+  const rows = (await db.$queryRawUnsafe(
+    `SELECT metadata FROM tenants WHERE organization_id = $1 LIMIT 1;`,
+    orgId,
+  )) as Record<string, unknown>[];
+  if (rows.length === 0) return null;
+
+  const meta = (rows[0].metadata ?? {}) as Record<string, unknown>;
+  const cfg = (meta.config ?? {}) as Record<string, unknown>;
+  const stripe = (cfg.stripe ?? {}) as Record<string, unknown>;
+  const secretKey = String(stripe.secretKey ?? '').trim();
+  const webhookSecret = String(stripe.webhookSecret ?? '').trim();
+  const publishableKey = String(stripe.publishableKey ?? '').trim();
+  if (!secretKey && !webhookSecret && !publishableKey) return null;
+
+  return {
+    secretKey: secretKey || undefined,
+    webhookSecret: webhookSecret || undefined,
+    publishableKey: publishableKey || undefined,
+  };
 }
 
 /** Assign a tenant to an organization. Used by the admin org selector. */

@@ -22,7 +22,7 @@ import { createRawClient } from '@/lib/db';
 import { requireWriteAuth } from '@/lib/auth/guards';
 import { sessionIsPlatformAdmin } from '@/lib/auth/jwt';
 import { jsonError, jsonOk } from '@/lib/api/response';
-import { getOrganization } from '@/domain/billing/organization-service';
+import { getOrganization, resolveTenantStripeConfig } from '@/domain/billing/organization-service';
 import {
   createCheckoutSession,
   changePlan,
@@ -64,8 +64,12 @@ export async function GET(
     const organization = await getOrganization(db, orgId);
     if (!organization) return jsonError('Organization not found', 404);
 
+    const stripeConfig = await resolveTenantStripeConfig(orgId, db);
     return jsonOk({
-      readiness: stripeReadiness(),
+      // Tenant orgs report the tenant's own Stripe configuration, so the
+      // billing panel shows the tenant's real readiness instead of this
+      // deployment's (the factory env has no per-tenant keys).
+      readiness: stripeReadiness(stripeConfig ?? undefined),
       purchasable: listConfiguredPrices().map(({ planId, interval }) => ({ planId, interval })),
       linkage: await getStripeLinkage(orgId, db),
     });

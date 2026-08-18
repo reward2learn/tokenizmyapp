@@ -19,9 +19,9 @@ import { createRawClient } from '@/lib/db';
 import { requireWriteAuth } from '@/lib/auth/guards';
 import { sessionIsPlatformAdmin } from '@/lib/auth/jwt';
 import { jsonError, jsonOk } from '@/lib/api/response';
-import { getOrganization } from '@/domain/billing/organization-service';
+import { getOrganization, resolveTenantStripeConfig } from '@/domain/billing/organization-service';
 import { createTopUpIntent, stripeReadiness } from '@/domain/billing/stripe-service';
-import { getStripePublishableKey } from '@/lib/billing/stripe-client';
+import { getStripePublishableKey, requireStripeFor } from '@/lib/billing/stripe-client';
 import { CREDIT_PACKS } from '@/lib/billing/plans';
 
 export const dynamic = 'force-dynamic';
@@ -39,8 +39,11 @@ export async function POST(
   if (!sessionIsPlatformAdmin(guard.session)) return jsonError('Platform admin only', 403);
 
   const { orgId } = await params;
+  const db = createRawClient();
+  const stripeConfig = await resolveTenantStripeConfig(orgId, db);
+  const stripe = stripeConfig ? requireStripeFor(stripeConfig) : undefined;
 
-  const readiness = stripeReadiness();
+  const readiness = stripeReadiness(stripeConfig ?? undefined);
   if (!readiness.hasSecretKey || !readiness.hasWebhookSecret) {
     // The webhook secret is required even though this endpoint does not use it:
     // without a working webhook the payment would succeed and the credits would
@@ -74,18 +77,17 @@ export async function POST(
     );
   }
 
-  const db = createRawClient();
   try {
     const organization = await getOrganization(db, orgId);
     if (!organization) return jsonError('Organization not found', 404);
 
-    const intent = await createTopUpIntent(orgId, pack.id, db);
+    const intent = await createTopUpIntent(orgId, pack.id, db, stripe);
 
     return jsonOk({
       clientSecret: intent.clientSecret,
       paymentIntentId: intent.paymentIntentId,
       amountCents: intent.amountCents,
-      publishableKey: getStripePublishableKey(),
+      publishableKey: stripeConfig?.publishableKey ?? getStripePublishableKey(),
       pack,
     });
   } catch (err) {

@@ -14,7 +14,9 @@
  */
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
+import { createRawClient } from '@/lib/db';
 import { requireWriteAuth } from '@/lib/auth/guards';
+import { requireStripeFor } from '@/lib/billing/stripe-client';
 import { sessionIsPlatformAdmin } from '@/lib/auth/jwt';
 import { jsonError, jsonOk } from '@/lib/api/response';
 import {
@@ -24,6 +26,7 @@ import {
   setDefaultPaymentMethod,
   stripeReadiness,
 } from '@/domain/billing/stripe-service';
+import { resolveTenantStripeConfig } from '@/domain/billing/organization-service';
 
 export const dynamic = 'force-dynamic';
 
@@ -43,16 +46,22 @@ export async function GET(
   const denied = await guardOf(request);
   if (denied) return denied;
 
-  const readiness = stripeReadiness();
+  const { orgId } = await params;
+  const db = createRawClient();
+  // Tenant orgs use the tenant's own Stripe keys (saved in the wizard's
+  // Organization & Billing step and pushed to the tenant app's Vercel env);
+  // the factory's own env only serves the platform's own org.
+  const stripeConfig = await resolveTenantStripeConfig(orgId, db);
+  const readiness = stripeReadiness(stripeConfig ?? undefined);
   // An empty list plus the reason, not a 500. Payments being unconfigured is a
   // deployment state the page should explain, not an error it should report.
   if (!readiness.hasSecretKey) {
     return jsonOk({ methods: [], readiness });
   }
 
-  const { orgId } = await params;
   try {
-    return jsonOk({ methods: await listPaymentMethods(orgId), readiness });
+    const stripe = stripeConfig ? requireStripeFor(stripeConfig) : undefined;
+    return jsonOk({ methods: await listPaymentMethods(orgId, db, stripe), readiness });
   } catch (err) {
     return jsonError('Failed to list payment methods: ' + (err as Error).message, 500);
   }
@@ -66,11 +75,15 @@ export async function POST(
   if (denied) return denied;
 
   const { orgId } = await params;
+  const db = createRawClient();
   try {
-    const { clientSecret } = await createSetupIntent(orgId);
+    const stripeConfig = await resolveTenantStripeConfig(orgId, db);
+    const stripe = stripeConfig ? requireStripeFor(stripeConfig) : undefined;
+    const { clientSecret } = await createSetupIntent(orgId, db, stripe);
     return jsonOk({
       clientSecret,
-      publishableKey: process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY ?? null,
+      publishableKey:
+        stripeConfig?.publishableKey ?? process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY ?? null,
     });
   } catch (err) {
     return jsonError('Could not start card setup: ' + (err as Error).message, 500);
@@ -95,9 +108,12 @@ export async function PATCH(
   const parsed = idSchema.safeParse(body);
   if (!parsed.success) return jsonError('paymentMethodId is required', 400);
 
+  const db = createRawClient();
   try {
-    await setDefaultPaymentMethod(orgId, parsed.data.paymentMethodId);
-    return jsonOk({ methods: await listPaymentMethods(orgId) });
+    const stripeConfig = await resolveTenantStripeConfig(orgId, db);
+    const stripe = stripeConfig ? requireStripeFor(stripeConfig) : undefined;
+    await setDefaultPaymentMethod(orgId, parsed.data.paymentMethodId, db, stripe);
+    return jsonOk({ methods: await listPaymentMethods(orgId, db, stripe) });
   } catch (err) {
     return jsonError((err as Error).message, 400);
   }
@@ -114,9 +130,12 @@ export async function DELETE(
   const paymentMethodId = new URL(request.url).searchParams.get('paymentMethodId')?.trim();
   if (!paymentMethodId) return jsonError('paymentMethodId is required', 400);
 
+  const db = createRawClient();
   try {
-    await removePaymentMethod(orgId, paymentMethodId);
-    return jsonOk({ methods: await listPaymentMethods(orgId) });
+    const stripeConfig = await resolveTenantStripeConfig(orgId, db);
+    const stripe = stripeConfig ? requireStripeFor(stripeConfig) : undefined;
+    await removePaymentMethod(orgId, paymentMethodId, db, stripe);
+    return jsonOk({ methods: await listPaymentMethods(orgId, db, stripe) });
   } catch (err) {
     return jsonError((err as Error).message, 400);
   }

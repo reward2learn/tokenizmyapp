@@ -10,14 +10,18 @@
  *
  * ⚠️ Placement: platform root DB. Billing is control-plane state.
  */
+import type Stripe from 'stripe';
 import type { createRawClient } from '@/lib/db';
 import {
   getStripe,
   getPriceId,
+  getStripeFor,
   requireStripe,
+  requireStripeFor,
   listConfiguredPrices,
   stripeConfigError,
   isLiveKey,
+  type StripeEnvConfig,
 } from '@/lib/billing/stripe-client';
 import type { PlanId, BillingInterval } from '@/lib/billing/plans';
 import { CREDIT_PACKS } from '@/lib/billing/plans';
@@ -144,9 +148,9 @@ export async function orgIdForCustomer(
  * the only way to recover the mapping if the subscriptions row is ever lost,
  * and webhook payloads carry the customer, not the org.
  */
-export async function ensureStripeCustomer(orgId: string, db?: RawDb): Promise<string> {
+export async function ensureStripeCustomer(orgId: string, db?: RawDb, stripe?: Stripe): Promise<string> {
   db = await getDb(db);
-  const stripe = requireStripe();
+  stripe = stripe ?? requireStripe();
 
   const existing = await getStripeLinkage(orgId, db);
   if (existing.customerId) return existing.customerId;
@@ -289,9 +293,10 @@ export async function createTopUpIntent(
   orgId: string,
   packId: string,
   db?: RawDb,
+  stripe?: Stripe,
 ): Promise<{ clientSecret: string; paymentIntentId: string; amountCents: number }> {
   db = await getDb(db);
-  const stripe = requireStripe();
+  stripe = stripe ?? requireStripe();
 
   const pack = CREDIT_PACKS.find((p) => p.id === packId);
   if (!pack) {
@@ -322,7 +327,7 @@ export async function createTopUpIntent(
 }
 
 /** Whether payments are usable end-to-end (key + webhook secret + a price). */
-export function stripeReadiness(): {
+export function stripeReadiness(override?: StripeEnvConfig): {
   ready: boolean;
   hasSecretKey: boolean;
   hasWebhookSecret: boolean;
@@ -333,11 +338,14 @@ export function stripeReadiness(): {
   /** Set when the configuration is self-inconsistent — see stripeConfigError(). */
   configError: string | null;
 } {
-  const hasSecretKey = Boolean(getStripe());
-  const hasWebhookSecret = Boolean(process.env.STRIPE_WEBHOOK_SECRET?.trim());
-  const hasPublishableKey = Boolean(process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY?.trim());
+  // The factory control plane passes the tenant's own keys (from
+  // metadata.config.stripe) so tenant billing reflects the tenant's Stripe
+  // account; every field falls back to this deployment's env.
+  const hasSecretKey = Boolean(getStripeFor(override));
+  const hasWebhookSecret = Boolean((override?.webhookSecret ?? process.env.STRIPE_WEBHOOK_SECRET)?.trim());
+  const hasPublishableKey = Boolean((override?.publishableKey ?? process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY)?.trim());
   const configuredPrices = listConfiguredPrices().length;
-  const configError = stripeConfigError();
+  const configError = stripeConfigError(override);
 
   return {
     ready: hasSecretKey && hasWebhookSecret && configuredPrices > 0 && !configError,
@@ -345,7 +353,7 @@ export function stripeReadiness(): {
     hasWebhookSecret,
     hasPublishableKey,
     configuredPrices,
-    liveMode: isLiveKey(process.env.STRIPE_SECRET_KEY),
+    liveMode: isLiveKey(override?.secretKey ?? process.env.STRIPE_SECRET_KEY),
     configError,
   };
 }
@@ -377,9 +385,10 @@ export interface StoredPaymentMethod {
 export async function createSetupIntent(
   orgId: string,
   db?: RawDb,
+  stripe?: Stripe,
 ): Promise<{ clientSecret: string; customerId: string }> {
   db = await getDb(db);
-  const stripe = requireStripe();
+  stripe = stripe ?? requireStripe();
   const customerId = await ensureStripeCustomer(orgId, db);
 
   const intent = await stripe.setupIntents.create({
@@ -406,9 +415,10 @@ export async function createSetupIntent(
 export async function listPaymentMethods(
   orgId: string,
   db?: RawDb,
+  stripe?: Stripe,
 ): Promise<StoredPaymentMethod[]> {
   db = await getDb(db);
-  const stripe = requireStripe();
+  stripe = stripe ?? requireStripe();
 
   const linkage = await getStripeLinkage(orgId, db);
   if (!linkage.customerId) return [];
@@ -445,9 +455,10 @@ export async function setDefaultPaymentMethod(
   orgId: string,
   paymentMethodId: string,
   db?: RawDb,
+  stripe?: Stripe,
 ): Promise<void> {
   db = await getDb(db);
-  const stripe = requireStripe();
+  stripe = stripe ?? requireStripe();
 
   const linkage = await getStripeLinkage(orgId, db);
   if (!linkage.customerId) throw new Error('This organization has no Stripe customer.');
@@ -470,9 +481,10 @@ export async function removePaymentMethod(
   orgId: string,
   paymentMethodId: string,
   db?: RawDb,
+  stripe?: Stripe,
 ): Promise<void> {
   db = await getDb(db);
-  const stripe = requireStripe();
+  stripe = stripe ?? requireStripe();
 
   const linkage = await getStripeLinkage(orgId, db);
   if (!linkage.customerId) throw new Error('This organization has no Stripe customer.');

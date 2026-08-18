@@ -25,6 +25,21 @@ const STRIPE_API_VERSION = '2026-07-29.dahlia';
 
 let cached: Stripe | null = null;
 
+/** Per-secret-key clients for tenant-scoped billing (factory control plane). */
+const clientCache = new Map<string, Stripe>();
+
+/**
+ * Explicit Stripe configuration — used by the factory control plane when it
+ * manages billing for a tenant org: the tenant's own keys (saved in
+ * metadata.config.stripe) are used instead of this deployment's env vars.
+ * Every field falls back to process.env when absent.
+ */
+export interface StripeEnvConfig {
+  secretKey?: string;
+  webhookSecret?: string;
+  publishableKey?: string;
+}
+
 /** True when the platform has Stripe configured at all. */
 export function isStripeConfigured(): boolean {
   return Boolean(process.env.STRIPE_SECRET_KEY?.trim());
@@ -55,8 +70,8 @@ function liveKeysPermitted(): boolean {
  * secret makes every event fail verification and puts Stripe into a retry loop
  * that looks like an outage.
  */
-export function stripeConfigError(): string | null {
-  const secretKey = process.env.STRIPE_SECRET_KEY?.trim();
+export function stripeConfigError(config?: StripeEnvConfig): string | null {
+  const secretKey = config?.secretKey?.trim() || process.env.STRIPE_SECRET_KEY?.trim();
   if (!secretKey) return null; // Unconfigured is fine — payments are optional.
 
   if (!secretKey.startsWith('sk_')) {
@@ -71,7 +86,7 @@ export function stripeConfigError(): string | null {
     );
   }
 
-  const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET?.trim();
+  const webhookSecret = config?.webhookSecret?.trim() || process.env.STRIPE_WEBHOOK_SECRET?.trim();
   if (webhookSecret && !webhookSecret.startsWith('whsec_')) {
     return (
       'STRIPE_WEBHOOK_SECRET must be the webhook signing secret (it starts with "whsec_"), ' +
@@ -79,7 +94,7 @@ export function stripeConfigError(): string | null {
     );
   }
 
-  const publishable = process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY?.trim();
+  const publishable = config?.publishableKey?.trim() || process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY?.trim();
   if (publishable && !publishable.startsWith('pk_')) {
     return 'NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY does not look like a publishable key (expected a "pk_" prefix).';
   }
@@ -101,20 +116,50 @@ export function stripeConfigError(): string | null {
  * misconfiguration is treated the same way, loudly: refusing to construct the
  * client is what stops a live key from being used by accident.
  */
-export function getStripe(): Stripe | null {
-  const key = process.env.STRIPE_SECRET_KEY?.trim();
+/**
+ * Stripe client for an explicit config (tenant-scoped billing on the factory
+ * control plane). Falls back to this deployment's env when no config is given.
+ * Clients are cached per secret key so tenant A's client is never reused for
+ * tenant B.
+ */
+export function getStripeFor(config?: StripeEnvConfig): Stripe | null {
+  const key = config?.secretKey?.trim() || process.env.STRIPE_SECRET_KEY?.trim();
   if (!key) return null;
 
-  const configError = stripeConfigError();
+  const configError = stripeConfigError(config);
   if (configError) {
     console.error(`[stripe] Refusing to initialize: ${configError}`);
     return null;
+  }
+
+  if (config?.secretKey) {
+    let client = clientCache.get(key);
+    if (!client) {
+      client = new Stripe(key, { apiVersion: STRIPE_API_VERSION });
+      clientCache.set(key, client);
+    }
+    return client;
   }
 
   if (!cached) {
     cached = new Stripe(key, { apiVersion: STRIPE_API_VERSION });
   }
   return cached;
+}
+
+/** Throwing variant for paths that have already checked configuration. */
+export function requireStripeFor(config?: StripeEnvConfig): Stripe {
+  const stripe = getStripeFor(config);
+  if (!stripe) {
+    throw new Error(
+      'Stripe is not configured. Set STRIPE_SECRET_KEY (and STRIPE_WEBHOOK_SECRET) to enable payments.',
+    );
+  }
+  return stripe;
+}
+
+export function getStripe(): Stripe | null {
+  return getStripeFor();
 }
 
 /** Throwing variant for paths that have already checked configuration. */
