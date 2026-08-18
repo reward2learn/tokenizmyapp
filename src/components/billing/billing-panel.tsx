@@ -408,10 +408,60 @@ function AiCreditsTab({
               </ToggleButton>
             </Stack>
           )}
+          {/* Pack selector - shows when threshold is set */}
+          {autoThreshold && (
+            <Stack direction="row" spacing={2} sx={{ mt: 1, flexWrap: 'wrap' }}>
+              <Typography variant="caption" color="text.secondary">
+                Top up pack
+              </Typography>
+              <ToggleButtonGroup
+                value={autoPackId}
+                onChange={(e: React.ChangeEvent<HTMLInputElement>, value: string | string[] | null) => {
+                  setAutoPackId(value as string);
+                }}
+                disableSelection
+                aria-label="auto top-up pack selection"
+              >
+                <ToggleButton
+                  value="pack-25"
+                  controlId="topup-pack-25"
+                >
+                  $25
+                </ToggleButton>
+                <ToggleButton
+                  value="pack-50"
+                  controlId="topup-pack-50"
+                >
+                  $50
+                </ToggleButton>
+                <ToggleButton
+                  value="pack-100"
+                  controlId="topup-pack-100"
+                >
+                  $100
+                </ToggleButton>
+              </ToggleButtonGroup>
+            </Stack>
+          )}
           {autoThreshold && autoPackId && (
             <Typography variant="caption" color="text.secondary">
               Top up pack: {autoPackId}
             </Typography>
+          )}
+          {/* Auto top-up notification */}
+          {autoReload && autoThreshold && balance && balance.available !== null && balance.available <= autoThreshold && (
+            <Box sx={{ mt: 1, p: 1, border: '1px solid', borderColor: 'primary.main', borderRadius: 1 }}>
+              <Typography variant="caption" color="warning">
+                Balance <strong>{balance.available}</strong> credits ≤ threshold <strong>{autoThreshold}</strong> — auto-reload enabled. 
+                <Button 
+                  variant="contained" 
+                  sx={{ mt: 1, width: '100%' }}
+                  onClick={() => setTopUpPackId(autoPackId)}
+                >
+                  Top up now
+                </Button>
+              </Typography>
+            </Box>
           )}
         </Box>
       )}
