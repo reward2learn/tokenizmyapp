@@ -770,7 +770,6 @@ model WebhookEvent {
 
 model Organization {
   id            String   @id @default(cuid())
-  orgId         String   @map("org_id")
   /// URL-safe identifier, editable by the owner.
   slug          String   @unique
   displayName   String   @map("display_name")
@@ -787,9 +786,6 @@ model Organization {
   subscription  Subscription?
   creditGrants  CreditGrant[]
   creditLedger  CreditLedger[]
-
-  orgAttribution OrgAttribution @relation("orgAttribution", fields: [orgId], references: [id])
-  cloudBalance CloudBalance @relation("cloudBalance", fields: [orgId], references: [id])
 
   @@allow('read', true)
   @@allow('create,update,delete', auth().tier == google)
@@ -964,52 +960,3 @@ model CustomTemplate {
   @@allow('create,update,delete', auth().tier == google)
   @@map("custom_templates")
 }
-
-// ── Cloud Credits ──────────────────────────────────────────────────
-
-/**
- * UsageRecord — per-tenant, per-resource, per-period meter reading.
- *
- * Idempotent: upsert per (tenant_slug, resource, period_start).
- * Read by billing UI and cloud balance logic.
- */
-model UsageRecord {
-  id          String   @id @default(cuid())
-  tenantSlug  String   @map("tenant_slug")
-  resource    String   @map("resource") // e.g. "function_invocations", "database_storage", "database_compute_hours"
-  periodStart DateTime @map("period_start")
-  periodEnd   DateTime @map("period_end")
-  quantity    Int      @default(0)
-  createdAt   DateTime @default(now()) @map("created_at")
-
-  @@index([tenantSlug, resource, periodStart], map: "idx_usage_record_tenant_resource_period")
-  @@allow('read', true)
-  @@allow('create,update,delete', auth().tier == google)
-  @@map("usage_records")
-}
-
-/**
- * CloudBalance — per-organization balance for cloud resource metering.
- *
- * balance_cents: stored as cents of the effective currency (derived from plan's cloud_multiplier).
- * auto_top_up_threshold: percentage of balance at which to alert/administer auto-top-up.
- * auto_top_up_amount: fixed amount to top up when threshold is crossed (in cents).
- *
- * Balance may go negative (matching Hercules model — shutting off mid-month over cents is worse).
- */
-model CloudBalance {
-  id          String   @id @default(cuid())
-  orgId       String   @map("org_id")
-  organization Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
-  balanceCents Int      @default(0) // stored in cents of effective rate
-  autoTopUpThreshold Int      @default(20) // percentage of allowance
-  autoTopUpAmount Int      @default(0) // amount to top up (cents), 0 = manual
-  recordedAt  DateTime @default(now()) @map("recorded_at")
-
-  @@index([orgId], map: "idx_cloud_balance_org")
-  @@allow('read', true)
-  @@allow('create,update,delete', auth().tier == google)
-  @@map("cloud_balances")
-}
-
-// Re-export OrgAttribution from earlier

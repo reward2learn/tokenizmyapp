@@ -131,22 +131,55 @@ export async function GET(request: Request): Promise<Response> {
       }
     }
 
-    // Update CloudBalance (placeholder: balance = 0, full rate card later)
+    // Rate card: read plan, apply cloud_multiplier, debit overage
     // Balance may go negative (Hercules model). Full implementation reads plan,
     // applies cloud_multiplier, and debits overage.
-    const allOrgs = (await db.$queryRawUnsafe(
-      `SELECT id FROM organizations`
-    )) as Record<string, unknown>[];
+    const planMap: Record<string, number> = {
+      free: 1,
+      pro: 20,
+      business: 20,
+      enterprise: 1,
+    };
 
-    for (const org of orgs) {
+    // Fetch all organizations with their plan IDs
+    const orgsWithPlan = (await db.$queryRawUnsafe(
+      `SELECT o.id, p.cloud_multiplier
+       FROM organizations o
+       LEFT JOIN (
+         SELECT 'free'::TEXT AS id, 1 AS cloud_multiplier
+         UNION ALL SELECT 'pro', 20
+         UNION ALL SELECT 'business', 20
+         UNION ALL SELECT 'enterprise', 1
+       ) p ON o.plan_id = p.id
+    ) as Record<string, unknown>[];
+
+    for (const org of orgsWithPlan) {
       const orgId = (org as any).id;
+      const cloudMultiplier = (org as any).cloud_multiplier ? Number((org as any).cloud_multiplier) : 1;
+
+      // Calculate total usage cost for this organization
+      const usageRecords = (await db.$queryRawUnsafe(
+        `SELECT resource, quantity FROM usage_records
+         WHERE period_start >= DATE_TRUNC('day', CURRENT_DATE - INTERVAL '30 day')
+         AND period_end < DATE_TRUNC('day', CURRENT_DATE + INTERVAL '1 day')
+         AND tenant_slug IN (SELECT slug FROM tenants WHERE organization_id = $1::TEXT)`,
+        orgId
+      )) as Record<string, unknown>[];
+
+      let totalUsageCents = 0;
+      for (const record of usageRecords) {
+        const quantity = Number((record as any).quantity) || 0;
+        totalUsageCents += quantity * cloudMultiplier;
+      }
+
+      // Update CloudBalance: debit usage overage (balance may go negative)
       await db.$executeRawUnsafe(
         `INSERT INTO cloud_balances (id, org_id, balance_cents, auto_top_up_threshold, auto_top_up_amount)
          VALUES (gen_random_uuid()::TEXT, $1, 0, 20, 0)
          ON CONFLICT (org_id)
-         DO UPDATE SET balance_cents = 0, auto_top_up_threshold = 20, auto_top_up_amount = 0,
+         DO UPDATE SET balance_cents = cloud_balances.balance_cents - $2,
            recorded_at = NOW()`,
-        [orgId]
+        [orgId, totalUsageCents]
       );
     }
 
