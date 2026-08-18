@@ -1033,6 +1033,33 @@ export function EditTenantModal({ open, tenant, onClose, onSnackbar }: EditTenan
     const openaiKey = (cfg?.openaiApiKey as string) || '';
     addResult('OpenAI API Key', openaiKey ? 'pass' : 'warn', openaiKey ? 'Configured' : 'Not set - add OPENAI_API_KEY env var');
 
+    // Stripe payment keys — Payment Methods availability
+    const stripeCfg = (cfg?.stripe ?? {}) as Record<string, unknown>;
+    const stripeSecret = String(stripeCfg.secretKey ?? '');
+    const stripeWebhook = String(stripeCfg.webhookSecret ?? '');
+    const stripePublishable = String(stripeCfg.publishableKey ?? '');
+    const stripeComplete = !!(stripeSecret && stripeWebhook && stripePublishable);
+    const goToOrgStep = async () => {
+      setActiveStep(EDIT_STEPS.findIndex((s) => s.key === 'org'));
+      onSnackbar({ message: 'Set the Stripe keys in the Organization & Billing step', severity: 'success' });
+    };
+    if (stripeComplete) {
+      const mode = stripeSecret.startsWith('sk_test_') ? 'test' : 'live';
+      addResult('Stripe Payment Keys', 'pass', 'Configured (' + mode + ' mode) — Payment Methods available');
+    } else {
+      const missing = [
+        !stripeSecret && 'STRIPE_SECRET_KEY',
+        !stripeWebhook && 'STRIPE_WEBHOOK_SECRET',
+        !stripePublishable && 'NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY',
+      ].filter(Boolean).join(', ');
+      addResult('Stripe Payment Keys', 'warn',
+        'Not set up (missing: ' + missing + ') — Payment Methods will NOT be available until the keys are set in the Organization & Billing step',
+        goToOrgStep, 'Go to step');
+    }
+    if (stripeSecret && stripePublishable && stripeSecret.startsWith('sk_test_') !== stripePublishable.startsWith('pk_test_')) {
+      addResult('Stripe Key Mode', 'warn', 'Secret and publishable key are in different modes (test vs live) — keep them in the same mode');
+    }
+
     // Deployment status - live check via API
     try {
       const statusResult = await getDeployStatus(tenant.slug).unwrap();
@@ -1050,7 +1077,7 @@ export function EditTenantModal({ open, tenant, onClose, onSnackbar }: EditTenan
       setFlightChecks(results);
       setFlightRunning(false);
     }
-  }, [tenant, flightRunId, getTenant, getDeployStatus]);
+  }, [tenant, flightRunId, getTenant, getDeployStatus, setActiveStep]);
 
   // ── Export tenant config ────────────────────────────────
   const handleExport = useCallback(() => {

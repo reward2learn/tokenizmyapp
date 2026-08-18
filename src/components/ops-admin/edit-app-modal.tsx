@@ -442,9 +442,23 @@ export function EditAppModal({ open, onClose, tenantSlug, app, onSnackbar }: Edi
     addResult('Admin Email', adminEmail ? 'pass' : 'fail', adminEmail || 'Not set');
     addResult('OpenAI API Key', openaiApiKey ? 'pass' : 'warn', openaiApiKey ? 'Configured' : 'Not set — add OPENAI_API_KEY env var');
 
+    // Stripe payment keys (inherited from the tenant's Organization & Billing step)
+    const stripeCfg = (cfg.stripe ?? {}) as Record<string, unknown>;
+    const stripeSecret = String(stripeCfg.secretKey ?? '');
+    const stripeWebhook = String(stripeCfg.webhookSecret ?? '');
+    const stripePublishable = String(stripeCfg.publishableKey ?? '');
+    const stripeComplete = !!(stripeSecret && stripeWebhook && stripePublishable);
+    if (stripeComplete) {
+      const mode = stripeSecret.startsWith('sk_test_') ? 'test' : 'live';
+      addResult('Stripe Payment Keys', 'pass', `Configured (${mode} mode) — Payment Methods available`);
+    } else {
+      addResult('Stripe Payment Keys', 'warn',
+        'Not set up — Payment Methods will NOT be available for this app until the Stripe keys are set in the tenant\'s Organization & Billing step');
+    }
+
     setFlightChecks(results);
     setFlightRunning(false);
-  }, [name, app, appUrl, vercelName, dbUrl, oauthClientId, oauthRedirectUris, newAppRedirectUris, licenseKey, adminEmail, openaiApiKey]);
+  }, [name, app, appUrl, vercelName, dbUrl, oauthClientId, oauthRedirectUris, newAppRedirectUris, licenseKey, adminEmail, openaiApiKey, cfg]);
 
   // ── Save (PATCH app-scoped fields + editable GCP credentials + the full
   //    per-app config snapshot — stored per app_id in the appPack AND
