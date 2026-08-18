@@ -4,32 +4,13 @@ import { Provider } from 'react-redux';
 import { configureStore } from '@reduxjs/toolkit';
 import type { ReactNode } from 'react';
 import { useOrgScopedTenants } from '@/lib/admin/use-org-scoped-tenants';
+import { makeOrganization } from '@/test/org-fixture';
 import { organizationApi } from '@/store/apis/organization-api';
 import { uiSlice, setAdminSelectedOrg } from '@/store/ui-slice';
 
 const ORGS = [
-  {
-    id: 'org_alpha',
-    slug: 'alpha',
-    displayName: 'Alpha Group',
-    logoUrl: null,
-    ownerUserId: null,
-    referredBy: null,
-    createdAt: '',
-    updatedAt: '',
-    tenants: [{ slug: 'acme', displayName: 'Acme' }],
-  },
-  {
-    id: 'org_empty',
-    slug: 'empty',
-    displayName: 'Empty Holdings',
-    logoUrl: null,
-    ownerUserId: null,
-    referredBy: null,
-    createdAt: '',
-    updatedAt: '',
-    tenants: [],
-  },
+  makeOrganization({ id: 'org_alpha', slug: 'alpha', displayName: 'Alpha Group', tenants: [{ slug: 'acme', displayName: 'Acme' }] }),
+  makeOrganization({ id: 'org_empty', slug: 'empty', displayName: 'Empty Holdings', tenants: [] }),
 ];
 
 const TENANTS = [{ slug: 'acme' }, { slug: 'globex' }, { slug: 'initech' }];

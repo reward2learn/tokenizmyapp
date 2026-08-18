@@ -47,6 +47,33 @@ export async function GET(
   }
 }
 
+/**
+ * Billing-detail fields off the request body.
+ *
+ * Absent stays absent: `undefined` means "not being changed", which is what
+ * lets this endpoint serve both the General form and the Billing Details form
+ * without either clearing the other's fields. Explicit null clears.
+ */
+function billingDetails(body: Record<string, unknown>): Record<string, string | null | undefined> {
+  const fields = [
+    'billingEmail',
+    'billingName',
+    'billingCountry',
+    'billingLine1',
+    'billingLine2',
+    'billingCity',
+    'billingPostal',
+    'taxId',
+  ] as const;
+
+  const out: Record<string, string | null | undefined> = {};
+  for (const field of fields) {
+    const value = body[field];
+    if (typeof value === 'string' || value === null) out[field] = value;
+  }
+  return out;
+}
+
 export async function PATCH(
   request: Request,
   { params }: { params: Promise<{ orgId: string }> },
@@ -74,6 +101,7 @@ export async function PATCH(
       logoUrl: typeof body.logoUrl === 'string' || body.logoUrl === null
         ? (body.logoUrl as string | null)
         : undefined,
+      ...billingDetails(body),
     });
 
     // Plan changes go through setPlan() so the billing anchor is preserved.

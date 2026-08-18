@@ -4,7 +4,13 @@ import type { ForecastScenarioKey } from '@/domain/financial/financial-projectio
 export type ChartKpi = 'ebitda' | 'revenue' | 'net_income' | 'guests' | 'staff_cost';
 
 /** Tabs in Settings → Billing. */
-export type BillingTab = 'plan' | 'ai-credits' | 'cloud-credits' | 'invoices';
+export type BillingTab =
+  | 'plan'
+  | 'ai-credits'
+  | 'cloud-credits'
+  | 'billing-details'
+  | 'payment-methods'
+  | 'invoices';
 
 /**
  * Sections in the Settings page nav.

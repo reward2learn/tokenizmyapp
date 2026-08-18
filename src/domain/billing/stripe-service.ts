@@ -349,3 +349,138 @@ export function stripeReadiness(): {
     configError,
   };
 }
+
+// ── Payment methods ─────────────────────────────────────────
+
+export interface StoredPaymentMethod {
+  id: string;
+  brand: string;
+  last4: string;
+  expMonth: number;
+  expYear: number;
+  /** True for the customer's invoice default. */
+  isDefault: boolean;
+}
+
+/**
+ * Begin attaching a card without charging it.
+ *
+ * A SetupIntent, not a PaymentIntent: this is the "card on file" flow behind
+ * auto-reload and unattended renewal, where the whole point is to authorise a
+ * future charge rather than take one now. Stripe still performs 3DS here, so
+ * the card is usable later without the customer present — which is exactly what
+ * a $0 authorisation on a PaymentIntent would not guarantee.
+ *
+ * ⚠️ No card data reaches this server. The returned client secret authorises
+ * confirming this one setup and nothing else.
+ */
+export async function createSetupIntent(
+  orgId: string,
+  db?: RawDb,
+): Promise<{ clientSecret: string; customerId: string }> {
+  db = await getDb(db);
+  const stripe = requireStripe();
+  const customerId = await ensureStripeCustomer(orgId, db);
+
+  const intent = await stripe.setupIntents.create({
+    customer: customerId,
+    usage: 'off_session',
+    automatic_payment_methods: { enabled: true },
+    metadata: { orgId, kind: 'payment_method' },
+  });
+
+  if (!intent.client_secret) {
+    throw new Error('Stripe returned a setup intent with no client secret.');
+  }
+  return { clientSecret: intent.client_secret, customerId };
+}
+
+/**
+ * Cards on file for an organization.
+ *
+ * Returns an empty list rather than throwing when the org has no Stripe
+ * customer yet: "no cards" and "never transacted" look the same to the person
+ * reading the page, and an error there would be indistinguishable from a
+ * failure to load.
+ */
+export async function listPaymentMethods(
+  orgId: string,
+  db?: RawDb,
+): Promise<StoredPaymentMethod[]> {
+  db = await getDb(db);
+  const stripe = requireStripe();
+
+  const linkage = await getStripeLinkage(orgId, db);
+  if (!linkage.customerId) return [];
+
+  const customer = await stripe.customers.retrieve(linkage.customerId);
+  const defaultId =
+    !customer.deleted && typeof customer.invoice_settings?.default_payment_method === 'string'
+      ? customer.invoice_settings.default_payment_method
+      : null;
+
+  const methods = await stripe.paymentMethods.list({
+    customer: linkage.customerId,
+    type: 'card',
+  });
+
+  return methods.data.map((pm) => ({
+    id: pm.id,
+    brand: pm.card?.brand ?? 'card',
+    last4: pm.card?.last4 ?? '••••',
+    expMonth: pm.card?.exp_month ?? 0,
+    expYear: pm.card?.exp_year ?? 0,
+    isDefault: pm.id === defaultId,
+  }));
+}
+
+/**
+ * Make a card the one invoices are charged against.
+ *
+ * Set on the customer rather than tracked in our own tables: Stripe is what
+ * actually charges the renewal, so a "default" we stored and Stripe disagreed
+ * with would be a lie the customer only discovers when the wrong card is billed.
+ */
+export async function setDefaultPaymentMethod(
+  orgId: string,
+  paymentMethodId: string,
+  db?: RawDb,
+): Promise<void> {
+  db = await getDb(db);
+  const stripe = requireStripe();
+
+  const linkage = await getStripeLinkage(orgId, db);
+  if (!linkage.customerId) throw new Error('This organization has no Stripe customer.');
+
+  // Ownership check. paymentMethods.list is scoped to the customer, so a card
+  // id from another organization simply will not appear — without this, an id
+  // guessed or copied from elsewhere would be accepted and set as the default.
+  const owned = await stripe.paymentMethods.list({ customer: linkage.customerId, type: 'card' });
+  if (!owned.data.some((pm) => pm.id === paymentMethodId)) {
+    throw new Error('That payment method does not belong to this organization.');
+  }
+
+  await stripe.customers.update(linkage.customerId, {
+    invoice_settings: { default_payment_method: paymentMethodId },
+  });
+}
+
+/** Detach a card. Same ownership check as setting the default, for the same reason. */
+export async function removePaymentMethod(
+  orgId: string,
+  paymentMethodId: string,
+  db?: RawDb,
+): Promise<void> {
+  db = await getDb(db);
+  const stripe = requireStripe();
+
+  const linkage = await getStripeLinkage(orgId, db);
+  if (!linkage.customerId) throw new Error('This organization has no Stripe customer.');
+
+  const owned = await stripe.paymentMethods.list({ customer: linkage.customerId, type: 'card' });
+  if (!owned.data.some((pm) => pm.id === paymentMethodId)) {
+    throw new Error('That payment method does not belong to this organization.');
+  }
+
+  await stripe.paymentMethods.detach(paymentMethodId);
+}

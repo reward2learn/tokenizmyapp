@@ -3,6 +3,7 @@ import { render, screen } from '@testing-library/react';
 import { Provider } from 'react-redux';
 import { configureStore } from '@reduxjs/toolkit';
 import { OrganizationBar } from '@/components/ops-admin/organization-bar';
+import { makeOrganization } from '@/test/org-fixture';
 import { organizationApi } from '@/store/apis/organization-api';
 import { uiSlice } from '@/store/ui-slice';
 
@@ -13,17 +14,7 @@ vi.mock('@/components/ops-admin/stripe-topup-dialog', () => ({
 }));
 
 const ORGS = [
-  {
-    id: 'org_alpha',
-    slug: 'alpha',
-    displayName: 'Alpha Group',
-    logoUrl: null,
-    ownerUserId: null,
-    referredBy: null,
-    createdAt: '',
-    updatedAt: '',
-    tenants: [{ slug: 'acme', displayName: 'Acme' }],
-  },
+  makeOrganization({ id: 'org_alpha', slug: 'alpha', displayName: 'Alpha Group', tenants: [{ slug: 'acme', displayName: 'Acme' }] }),
 ];
 
 async function renderBar() {

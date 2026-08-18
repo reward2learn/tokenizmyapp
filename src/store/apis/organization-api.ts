@@ -3,6 +3,34 @@ import { baseQuery } from '@shared/store/base-query';
 import type { ApiEnvelope } from '@/store/api-types';
 import type { BillingInterval, Feature, PlanDef, PlanId } from '@/lib/billing/plans';
 
+export interface ResourceUsage {
+  resource: string;
+  label: string;
+  unit: string;
+  included: number | null;
+  used: number;
+  additional: number;
+  additionalCostCents: number;
+  state: 'metered' | 'not_collected';
+}
+
+export interface CloudUsageReport {
+  resources: ResourceUsage[];
+  periodStart: string;
+  periodEnd: string;
+  awaitingCollector: boolean;
+  balanceCents: number;
+}
+
+export interface StoredPaymentMethod {
+  id: string;
+  brand: string;
+  last4: string;
+  expMonth: number;
+  expYear: number;
+  isDefault: boolean;
+}
+
 export interface Organization {
   id: string;
   slug: string;
@@ -10,6 +38,15 @@ export interface Organization {
   logoUrl: string | null;
   ownerUserId: string | null;
   referredBy: string | null;
+  billingEmail: string | null;
+  billingName: string | null;
+  billingCountry: string | null;
+  billingLine1: string | null;
+  billingLine2: string | null;
+  billingCity: string | null;
+  billingPostal: string | null;
+  /** Printed on invoices. Not a tax-calculation input — Stripe Tax is off. */
+  taxId: string | null;
   createdAt: string;
   updatedAt: string;
   /** Tenants this organization pays for. Returned by the list endpoint. */
@@ -82,7 +119,7 @@ export interface CreditLedgerEntry {
 export const organizationApi = createApi({
   reducerPath: 'organizationApi',
   baseQuery,
-  tagTypes: ['Organization', 'TenantOrg', 'Credits', 'Subscription'],
+  tagTypes: ['Organization', 'TenantOrg', 'Credits', 'Subscription', 'PaymentMethods'],
   endpoints: (builder) => ({
     listOrganizations: builder.query<
       // `assigned` reports how many tenants the read's backfill just repaired.
@@ -123,6 +160,14 @@ export const organizationApi = createApi({
         logoUrl?: string | null;
         planId?: PlanId;
         interval?: BillingInterval;
+        billingEmail?: string | null;
+        billingName?: string | null;
+        billingCountry?: string | null;
+        billingLine1?: string | null;
+        billingLine2?: string | null;
+        billingCity?: string | null;
+        billingPostal?: string | null;
+        taxId?: string | null;
       }
     >({
       query: ({ orgId, ...body }) => ({
@@ -149,6 +194,54 @@ export const organizationApi = createApi({
         body,
       }),
       invalidatesTags: ['Organization'],
+    }),
+
+    /** Cards on file. `readiness` rides along so the UI can explain an empty list. */
+    listPaymentMethods: builder.query<
+      ApiEnvelope<{ methods: StoredPaymentMethod[]; readiness: { hasSecretKey: boolean } }>,
+      string
+    >({
+      query: (orgId) => `admin/organizations/${orgId}/payment-methods`,
+      providesTags: ['PaymentMethods'],
+    }),
+
+    /** Start attaching a card. Returns a SetupIntent secret — no charge. */
+    createSetupIntent: builder.mutation<
+      ApiEnvelope<{ clientSecret: string; publishableKey: string | null }>,
+      string
+    >({
+      query: (orgId) => ({
+        url: `admin/organizations/${orgId}/payment-methods`,
+        method: 'POST',
+      }),
+    }),
+
+    setDefaultPaymentMethod: builder.mutation<
+      ApiEnvelope<{ methods: StoredPaymentMethod[] }>,
+      { orgId: string; paymentMethodId: string }
+    >({
+      query: ({ orgId, paymentMethodId }) => ({
+        url: `admin/organizations/${orgId}/payment-methods`,
+        method: 'PATCH',
+        body: { paymentMethodId },
+      }),
+      invalidatesTags: ['PaymentMethods'],
+    }),
+
+    removePaymentMethod: builder.mutation<
+      ApiEnvelope<{ methods: StoredPaymentMethod[] }>,
+      { orgId: string; paymentMethodId: string }
+    >({
+      query: ({ orgId, paymentMethodId }) => ({
+        url: `admin/organizations/${orgId}/payment-methods?paymentMethodId=${encodeURIComponent(paymentMethodId)}`,
+        method: 'DELETE',
+      }),
+      invalidatesTags: ['PaymentMethods'],
+    }),
+
+    /** Run-time consumption per resource. `state` says which are actually metered. */
+    getCloudUsage: builder.query<ApiEnvelope<CloudUsageReport>, string>({
+      query: (orgId) => `admin/organizations/${orgId}/cloud-usage`,
     }),
 
     /** Owning org + resolved entitlements for a tenant. Drives paywall UI. */
@@ -324,6 +417,11 @@ export const {
   useCreateOrganizationMutation,
   useUpdateOrganizationMutation,
   useAddOrgMemberMutation,
+  useGetCloudUsageQuery,
+  useListPaymentMethodsQuery,
+  useCreateSetupIntentMutation,
+  useSetDefaultPaymentMethodMutation,
+  useRemovePaymentMethodMutation,
   useGetTenantOrganizationQuery,
   useAssignTenantOrganizationMutation,
   useGetOrganizationCreditsQuery,

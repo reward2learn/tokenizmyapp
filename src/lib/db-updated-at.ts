@@ -50,6 +50,7 @@ export const UPDATED_AT_TABLES = [
   'organizations',
   'subscriptions',
   'custom_templates',
+  'cloud_balances',
 ] as const;
 
 interface RawExecutor {

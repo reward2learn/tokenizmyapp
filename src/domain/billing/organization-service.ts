@@ -27,6 +27,16 @@ export interface Organization {
   ownerUserId: string | null;
   /** Affiliate attribution. Cheap to record now, impossible to backfill later. */
   referredBy: string | null;
+  /** Invoice details. All optional — an org can transact without any of them. */
+  billingEmail: string | null;
+  billingName: string | null;
+  billingCountry: string | null;
+  billingLine1: string | null;
+  billingLine2: string | null;
+  billingCity: string | null;
+  billingPostal: string | null;
+  /** Printed on invoices. Not a tax-calculation input; Stripe Tax is off. */
+  taxId: string | null;
   createdAt: string;
   updatedAt: string;
   /**
@@ -173,8 +183,22 @@ async function convergeOrganizationSchema(db: RawDb): Promise<void> {
   const { ensureUpdatedAtDefaults } = await import('@/lib/db-updated-at');
   await ensureUpdatedAtDefaults(db, ['organizations']);
 
-  // Columns added after the table first shipped.
-  for (const col of ['ADD COLUMN IF NOT EXISTS referred_by TEXT', 'ADD COLUMN IF NOT EXISTS logo_url TEXT']) {
+  // Columns added after the table first shipped. Additive only — `db push`
+  // adds them too, and ADD COLUMN IF NOT EXISTS is a no-op once it has, so
+  // unlike a CREATE TABLE these two paths cannot race each other.
+  const addedColumns = [
+    'referred_by',
+    'logo_url',
+    'billing_email',
+    'billing_name',
+    'billing_country',
+    'billing_line1',
+    'billing_line2',
+    'billing_city',
+    'billing_postal',
+    'tax_id',
+  ];
+  for (const col of addedColumns.map((c) => `ADD COLUMN IF NOT EXISTS ${c} TEXT`)) {
     try {
       await db.$executeRawUnsafe(`ALTER TABLE organizations ${col}`);
     } catch {
@@ -199,6 +223,11 @@ async function convergeOrganizationSchema(db: RawDb): Promise<void> {
   }
 }
 
+/** Nullable text column → string | null, without stringifying null into "null". */
+function text(value: unknown): string | null {
+  return value == null ? null : String(value);
+}
+
 function mapOrg(row: Record<string, unknown>): Organization {
   return {
     id: String(row.id),
@@ -207,6 +236,14 @@ function mapOrg(row: Record<string, unknown>): Organization {
     logoUrl: row.logo_url == null ? null : String(row.logo_url),
     ownerUserId: row.owner_user_id == null ? null : String(row.owner_user_id),
     referredBy: row.referred_by == null ? null : String(row.referred_by),
+    billingEmail: text(row.billing_email),
+    billingName: text(row.billing_name),
+    billingCountry: text(row.billing_country),
+    billingLine1: text(row.billing_line1),
+    billingLine2: text(row.billing_line2),
+    billingCity: text(row.billing_city),
+    billingPostal: text(row.billing_postal),
+    taxId: text(row.tax_id),
     createdAt: new Date(row.created_at as string).toISOString(),
     updatedAt: new Date(row.updated_at as string).toISOString(),
   };
@@ -323,7 +360,34 @@ export interface UpdateOrganizationInput {
   displayName?: string;
   slug?: string;
   logoUrl?: string | null;
+  billingEmail?: string | null;
+  billingName?: string | null;
+  billingCountry?: string | null;
+  billingLine1?: string | null;
+  billingLine2?: string | null;
+  billingCity?: string | null;
+  billingPostal?: string | null;
+  taxId?: string | null;
 }
+
+/**
+ * Billing-detail fields, paired with their columns.
+ *
+ * A table rather than a run of `if` blocks: the previous three fields were
+ * hand-written and adding eight more that way is eight chances to bind a value
+ * to the wrong column — a mistake SQL cannot catch, since every one of these is
+ * TEXT and a swap would simply store the city in the postcode.
+ */
+const BILLING_COLUMNS: [keyof UpdateOrganizationInput, string][] = [
+  ['billingEmail', 'billing_email'],
+  ['billingName', 'billing_name'],
+  ['billingCountry', 'billing_country'],
+  ['billingLine1', 'billing_line1'],
+  ['billingLine2', 'billing_line2'],
+  ['billingCity', 'billing_city'],
+  ['billingPostal', 'billing_postal'],
+  ['taxId', 'tax_id'],
+];
 
 export async function updateOrganization(
   db: RawDb,
@@ -347,6 +411,15 @@ export async function updateOrganization(
   if (input.logoUrl !== undefined) {
     sets.push(`logo_url = $${i++}`);
     values.push(input.logoUrl);
+  }
+  for (const [field, column] of BILLING_COLUMNS) {
+    const value = input[field];
+    if (value === undefined) continue;
+    sets.push(`${column} = $${i++}`);
+    // Empty string means cleared, not "an address line that is blank" — an
+    // emptied form field should leave the invoice line off rather than print
+    // a blank one.
+    values.push(typeof value === 'string' && value.trim() === '' ? null : value);
   }
   if (sets.length === 0) return getOrganization(db, orgId);
 

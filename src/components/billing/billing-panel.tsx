@@ -36,6 +36,10 @@ import {
 } from '@/store/apis/organization-api';
 import { PLANS, CREDIT_PACKS, YEARLY_DISCOUNT, type PlanId } from '@/lib/billing/plans';
 import { CreditGrantsTable } from '@/components/billing/credit-grants-table';
+import { CreditUsageTable } from '@/components/billing/credit-usage-table';
+import { BillingDetailsTab } from '@/components/billing/billing-details-tab';
+import { CloudCreditsTab } from '@/components/billing/cloud-credits-tab';
+import { PaymentMethodsTab } from '@/components/billing/payment-methods-tab';
 import { StripeTopUpDialog } from '@/components/ops-admin/stripe-topup-dialog';
 
 /**
@@ -70,6 +74,7 @@ export function BillingPanel({ orgId }: { orgId: string }) {
   const subscription = orgData?.data?.subscription ?? null;
   const balance = creditsData?.data?.balance ?? null;
   const grants = creditsData?.data?.grants ?? [];
+  const ledger = creditsData?.data?.ledger ?? [];
   const readiness = checkoutData?.data?.readiness ?? null;
   const linkage = checkoutData?.data?.linkage ?? null;
 
@@ -85,6 +90,8 @@ export function BillingPanel({ orgId }: { orgId: string }) {
         <Tab label="Plan" value="plan" />
         <Tab label="AI Credits" value="ai-credits" />
         <Tab label="Cloud Credits" value="cloud-credits" />
+        <Tab label="Billing Details" value="billing-details" />
+        <Tab label="Payment Methods" value="payment-methods" />
         <Tab label="Invoices" value="invoices" />
       </Tabs>
 
@@ -114,9 +121,17 @@ export function BillingPanel({ orgId }: { orgId: string }) {
           />
         )}
         {tab === 'ai-credits' && (
-          <AiCreditsTab orgId={orgId} balance={balance} grants={grants} readiness={readiness} />
+          <AiCreditsTab
+            orgId={orgId}
+            balance={balance}
+            grants={grants}
+            ledger={ledger}
+            readiness={readiness}
+          />
         )}
-        {tab === 'cloud-credits' && <CloudCreditsTab />}
+        {tab === 'cloud-credits' && <CloudCreditsTab orgId={orgId} />}
+        {tab === 'billing-details' && <BillingDetailsTab orgId={orgId} />}
+        {tab === 'payment-methods' && <PaymentMethodsTab orgId={orgId} />}
         {tab === 'invoices' && <InvoicesTab orgId={orgId} />}
       </Box>
     </Paper>
@@ -308,13 +323,19 @@ function AiCreditsTab({
   orgId,
   balance,
   grants,
+  ledger,
   readiness,
 }: {
   orgId: string;
   balance: { available: number; expiringSoon: number; debt: number; net: number } | null;
   grants: React.ComponentProps<typeof CreditGrantsTable>['grants'];
+  ledger: React.ComponentProps<typeof CreditUsageTable>['ledger'];
   readiness: { ready: boolean } | null;
 }) {
+  // Which of the two histories is showing. Local, unlike the outer billing tab:
+  // it is a view toggle inside one tab rather than a place in the app, and
+  // nothing else needs to know about it.
+  const [historyTab, setHistoryTab] = useState<'usage' | 'grants'>('usage');
   const [topUpPackId, setTopUpPackId] = useState<string | null>(null);
 
   const byPlan = grants
@@ -443,11 +464,25 @@ function AiCreditsTab({
         </Typography>
       )}
 
+      {/*
+        Usage first. "Where did my credits go" is the question people arrive
+        with; "when do they expire" is the one they ask second, and only the
+        grants table can answer it — which is why both are here rather than one.
+      */}
       <Box>
-        <Typography variant="subtitle2" sx={{ mb: 1 }}>
-          Grants
-        </Typography>
-        <CreditGrantsTable grants={grants} />
+        <Tabs
+          value={historyTab}
+          onChange={(_, next: 'usage' | 'grants') => setHistoryTab(next)}
+          sx={{ mb: 2, minHeight: 36 }}
+        >
+          <Tab label="Usage history" value="usage" sx={{ minHeight: 36 }} />
+          <Tab label="Grants" value="grants" sx={{ minHeight: 36 }} />
+        </Tabs>
+        {historyTab === 'usage' ? (
+          <CreditUsageTable ledger={ledger} />
+        ) : (
+          <CreditGrantsTable grants={grants} />
+        )}
       </Box>
 
       {topUpPackId && (
@@ -499,20 +534,6 @@ function AiCreditsTab({
   );
 }
 
-// ── Cloud Credits ─────────────────────────────────────────────────
-
-function CloudCreditsTab() {
-  // Honest empty state. Phase 5 has no collector, so there is no usage data —
-  // a mocked table here would imply metering that does not exist.
-  return (
-    <Alert severity="info">
-      <AlertTitle>Not available yet</AlertTitle>
-      Cloud credits meter what deployed tenant apps consume on Vercel and Neon. The collector
-      that reads those usage APIs has not been built, so there is nothing to show — rather than
-      display figures that are not measured.
-    </Alert>
-  );
-}
 
 // ── Invoices ──────────────────────────────────────────────────────
 

@@ -699,6 +699,19 @@ model Organization {
   ownerUserId    String?         @map("owner_user_id")
   /// Affiliate attribution. Recorded at signup — impossible to backfill later.
   referredBy     String?         @map("referred_by")
+  /// Where invoices go. Falls back to the owner's account email when unset.
+  billingEmail   String?         @map("billing_email")
+  /// Legal entity name, when it differs from displayName.
+  billingName    String?         @map("billing_name")
+  /// ISO 3166-1 alpha-2. Drives nothing today; recorded for the invoice.
+  billingCountry String?         @map("billing_country")
+  billingLine1   String?         @map("billing_line1")
+  billingLine2   String?         @map("billing_line2")
+  billingCity    String?         @map("billing_city")
+  billingPostal  String?         @map("billing_postal")
+  /// VAT/GST/NPWP number, printed on invoices. NOT a tax calculation input —
+  /// Stripe Tax is off, so nothing here changes what is charged.
+  taxId          String?         @map("tax_id")
   createdAt      DateTime        @default(now()) @map("created_at")
   updatedAt      DateTime        @updatedAt() @map("updated_at")
   members        OrgMember[]
@@ -729,6 +742,51 @@ model OrgAttribution {
   capturedAt   DateTime     @default(now()) @map("captured_at")
 
   @@map("org_attribution")
+}
+
+/// One metered quantity, for one tenant, for one period.
+///
+/// Idempotent on (tenantSlug, resource, periodStart): re-running a collector
+/// over a period it already covered must correct the number, never add a second
+/// row, or a retried job silently doubles the bill.
+///
+/// Quantity is deliberately untyped as to unit — a resource is invocations, or
+/// GB-hours, or GB, and forcing one unit across all of them would mean storing
+/// a lie for most. `unit` records which it is.
+model UsageRecord {
+  id          String   @id() @default(cuid())
+  orgId       String   @map("org_id")
+  tenantSlug  String   @map("tenant_slug")
+  /// Suite-mode app id, when the usage is attributable to one app.
+  appId       String?  @map("app_id")
+  /// function_invocations | function_duration | bandwidth | db_storage | db_compute | ai_gateway
+  resource    String
+  /// invocations | gb_hours | gb | requests
+  unit        String   @default("units")
+  quantity    Float    @default(0)
+  periodStart DateTime @map("period_start")
+  periodEnd   DateTime @map("period_end")
+  recordedAt  DateTime @default(now()) @map("recorded_at")
+
+  @@unique([tenantSlug, resource, periodStart], map: "usage_records_tenant_resource_period_key")
+  @@index([orgId, periodStart], map: "idx_usage_records_org_period")
+  @@map("usage_records")
+}
+
+/// Run-time spend balance for an organization, in cents.
+///
+/// May go negative, deliberately: cutting an app off mid-month over a few cents
+/// is worse for both sides than carrying a small debt to the next invoice.
+model CloudBalance {
+  id                 String   @id() @default(cuid())
+  orgId              String   @unique() @map("org_id")
+  balanceCents       Int      @default(0) @map("balance_cents")
+  /// Auto top-up trigger, in cents. Null means auto top-up is off.
+  autoTopUpThreshold Int?     @map("auto_top_up_threshold")
+  autoTopUpAmount    Int?     @map("auto_top_up_amount")
+  updatedAt          DateTime @updatedAt() @map("updated_at")
+
+  @@map("cloud_balances")
 }
 
 model OrgMember {
