@@ -787,6 +787,8 @@ model Organization {
   creditGrants  CreditGrant[]
   creditLedger  CreditLedger[]
 
+  orgAttribution OrgAttribution @relation("orgAttribution")
+
   @@allow('read', true)
   @@allow('create,update,delete', auth().tier == google)
   @@map("organizations")
