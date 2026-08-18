@@ -11,33 +11,25 @@ import DialogActions from '@mui/material/DialogActions';
 import DialogContent from '@mui/material/DialogContent';
 import DialogTitle from '@mui/material/DialogTitle';
 import FormControl from '@mui/material/FormControl';
-import FormControlLabel from '@mui/material/FormControlLabel';
 import IconButton from '@mui/material/IconButton';
 import InputLabel from '@mui/material/InputLabel';
 import MenuItem from '@mui/material/MenuItem';
 import Paper from '@mui/material/Paper';
-import Radio from '@mui/material/Radio';
-import RadioGroup from '@mui/material/RadioGroup';
 import Select from '@mui/material/Select';
 import Stack from '@mui/material/Stack';
 import TextField from '@mui/material/TextField';
 import Tooltip from '@mui/material/Tooltip';
 import Typography from '@mui/material/Typography';
-import AddCardIcon from '@mui/icons-material/AddCard';
 import AddIcon from '@mui/icons-material/Add';
-import BoltIcon from '@mui/icons-material/Bolt';
 import ContentCopyIcon from '@mui/icons-material/ContentCopy';
 import CorporateFareIcon from '@mui/icons-material/CorporateFare';
 import {
   useAssignTenantOrganizationMutation,
   useCreateOrganizationMutation,
-  useGetOrganizationCreditsQuery,
   useGetTenantOrganizationQuery,
-  useGrantOrganizationCreditsMutation,
   useListOrganizationsQuery,
   useUpdateOrganizationMutation,
 } from '@/store/apis/organization-api';
-import { CREDIT_PACKS, PLANS, type PlanId } from '@/lib/billing/plans';
 
 function formatPrice(cents: number | null): string {
   if (cents === null) return 'Custom';
@@ -70,10 +62,7 @@ export function OrganizationBar({ tenantSlug }: { tenantSlug?: string | null }) 
   const [createOpen, setCreateOpen] = useState(false);
   const [newName, setNewName] = useState('');
 
-  const [topUpOpen, setTopUpOpen] = useState(false);
-  const [selectedPackId, setSelectedPackId] = useState<string | null>(CREDIT_PACKS[0]?.id ?? null);
-  const [customAmount, setCustomAmount] = useState('');
-  const [topUpError, setTopUpError] = useState<string | null>(null);
+
 
   // The picker drives the panel, not the other way round.
   //
@@ -90,21 +79,8 @@ export function OrganizationBar({ tenantSlug }: { tenantSlug?: string | null }) 
   const plan = tenantOrg?.data?.plan ?? null;
   const subscription = tenantOrg?.data?.subscription ?? null;
 
-  const { data: creditsData } = useGetOrganizationCreditsQuery(activeOrgId, {
-    skip: !activeOrgId,
-  });
-  const [grantCredits, { isLoading: isGranting }] = useGrantOrganizationCreditsMutation();
 
-  const balance = creditsData?.data?.balance ?? null;
-  const selectedPack = CREDIT_PACKS.find((p) => p.id === selectedPackId) ?? null;
-  const customCredits = Number(customAmount);
-  // Pack total when a pack is selected, otherwise the custom amount — which
-  // must be a positive integer (the $25 pricing floor is a Stripe concern).
-  const topUpAmount = selectedPack
-    ? selectedPack.baseCredits + selectedPack.bonusCredits
-    : Number.isInteger(customCredits) && customCredits >= 1
-      ? customCredits
-      : 0;
+
 
   const handleCreate = async () => {
     const displayName = newName.trim();
@@ -142,37 +118,11 @@ export function OrganizationBar({ tenantSlug }: { tenantSlug?: string | null }) 
   const tenantOrgId = tenantOrg?.data?.organization.id ?? null;
   const canMoveTenant = Boolean(tenantSlug && activeOrgId && tenantOrgId && tenantOrgId !== activeOrgId);
 
-  const handleTopUpOpen = () => {
-    setSelectedPackId(CREDIT_PACKS[0]?.id ?? null);
-    setCustomAmount('');
-    setTopUpError(null);
-    setTopUpOpen(true);
-  };
 
-  const handleTopUpClose = () => {
-    if (isGranting) return;
-    setTopUpOpen(false);
-    setTopUpError(null);
-  };
 
-  const handleTopUp = async () => {
-    if (!activeOrgId || topUpAmount < 1) return;
-    setTopUpError(null);
-    try {
-      // A pack goes over as `packId` so the server can split base from bonus
-      // into two grants. Only an off-catalog amount is sent as a manual grant.
-      await grantCredits(
-        selectedPack
-          ? { orgId: activeOrgId, packId: selectedPack.id }
-          : { orgId: activeOrgId, source: 'addon', amount: topUpAmount },
-      ).unwrap();
-      setTopUpOpen(false);
-      setCustomAmount('');
-      setSelectedPackId(CREDIT_PACKS[0]?.id ?? null);
-    } catch (err) {
-      setTopUpError(err instanceof Error ? err.message : 'Could not add credits.');
-    }
-  };
+
+
+
 
   const busy = isLoading || isCreating || isUpdating || isAssigning;
 
@@ -266,28 +216,6 @@ export function OrganizationBar({ tenantSlug }: { tenantSlug?: string | null }) 
                 </Button>
               ) : null}
 
-              {/* Which tenants this org actually pays for. Without it the
-                  Organization -> Tenant mapping was only ever visible in
-                  reverse, one selected tenant at a time. */}
-              <Tooltip
-                title={
-                  activeOrg.tenants?.length
-                    ? activeOrg.tenants.map((t) => t.displayName).join(', ')
-                    : 'No tenants are assigned to this organization'
-                }
-              >
-                <Chip
-                  label={
-                    activeOrg.tenants?.length
-                      ? `${activeOrg.tenants.length} tenant${activeOrg.tenants.length === 1 ? '' : 's'}`
-                      : 'No tenants'
-                  }
-                  size="small"
-                  variant="outlined"
-                  color={activeOrg.tenants?.length ? 'default' : 'warning'}
-                />
-              </Tooltip>
-
               {plan && (
                 <Chip
                   label={`${plan.label} · ${formatPrice(plan.priceMonthly)}`}
@@ -299,51 +227,8 @@ export function OrganizationBar({ tenantSlug }: { tenantSlug?: string | null }) 
                 <Chip label={subscription.status} size="small" color="warning" />
               )}
 
-              {activeOrgId && balance && (
-                <Tooltip
-                  title={
-                    // Debt outranks the expiry warning: an org in arrears is
-                    // blocked right now, which matters more than credits that
-                    // will lapse later.
-                    balance.debt > 0
-                      ? `Blocked — owes ${balance.debt} credit(s) from a generation that ran past its balance. Add ${balance.debt}+ to settle.`
-                      : balance.expiringSoon > 0
-                        ? `${balance.expiringSoon} expiring soon`
-                        : 'AI credits balance'
-                  }
-                >
-                  <Chip
-                    icon={<BoltIcon sx={{ fontSize: 16 }} />}
-                    label={
-                      balance.debt > 0
-                        ? `${balance.debt} owed`
-                        : `${balance.available} credits`
-                    }
-                    size="small"
-                    color={
-                      balance.debt > 0
-                        ? 'error'
-                        : balance.expiringSoon > 0
-                          ? 'warning'
-                          : 'default'
-                    }
-                    variant={
-                      balance.debt > 0 || balance.expiringSoon > 0 ? 'filled' : 'outlined'
-                    }
-                  />
-                </Tooltip>
-              )}
-              {activeOrgId && (
-                <Tooltip title="Add AI credits">
-                  <IconButton
-                    size="small"
-                    onClick={handleTopUpOpen}
-                    aria-label="Add AI credits"
-                  >
-                    <AddCardIcon fontSize="small" />
-                  </IconButton>
-                </Tooltip>
-              )}
+
+
             </Stack>
           )}
 
@@ -405,67 +290,7 @@ export function OrganizationBar({ tenantSlug }: { tenantSlug?: string | null }) 
         </DialogActions>
       </Dialog>
 
-      <Dialog open={topUpOpen} onClose={handleTopUpClose} fullWidth maxWidth="xs">
-        <DialogTitle>Add AI credits</DialogTitle>
-        <DialogContent>
-          <RadioGroup
-            value={selectedPackId ?? ''}
-            onChange={(e) => {
-              setSelectedPackId(e.target.value);
-              setCustomAmount('');
-            }}
-          >
-            {CREDIT_PACKS.map((pack) => (
-              <FormControlLabel
-                key={pack.id}
-                value={pack.id}
-                control={<Radio size="small" />}
-                label={
-                  <Box sx={{ py: 0.5 }}>
-                    <Typography variant="body2" sx={{ fontWeight: 500 }}>
-                      {pack.label} → {pack.baseCredits + pack.bonusCredits} credits
-                    </Typography>
-                    <Typography variant="caption" color="text.secondary">
-                      +{pack.bonusCredits} bonus
-                    </Typography>
-                  </Box>
-                }
-                sx={{ width: '100%', mx: 0 }}
-              />
-            ))}
-          </RadioGroup>
-          <TextField
-            fullWidth
-            margin="dense"
-            type="number"
-            label="Custom amount (credits)"
-            value={customAmount}
-            onChange={(e) => {
-              setCustomAmount(e.target.value);
-              setSelectedPackId(null);
-            }}
-            slotProps={{ htmlInput: { min: 1, step: 1 } }}
-            helperText="Positive integer — added to the balance immediately."
-          />
-          {topUpError && (
-            <Typography variant="caption" color="error" sx={{ display: 'block', mt: 1 }}>
-              {topUpError}
-            </Typography>
-          )}
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={handleTopUpClose} disabled={isGranting}>
-            Cancel
-          </Button>
-          <Button
-            variant="contained"
-            onClick={handleTopUp}
-            disabled={isGranting || topUpAmount < 1}
-          >
-            {isGranting ? 'Adding…' : 'Add credits'}
-          </Button>
-        </DialogActions>
-      </Dialog>
+
     </>
   );
 }
