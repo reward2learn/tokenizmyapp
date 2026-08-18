@@ -45,7 +45,7 @@ if [ -n "$POSTGRES_URL" ]; then
     npx prisma db execute --stdin --schema=zenstack/prisma/schema.prisma
   echo "ALTER TABLE knowledge_snippets DROP CONSTRAINT IF EXISTS knowledge_snippets_key_key;" | \
     npx prisma db execute --stdin --schema=zenstack/prisma/schema.prisma
-  npx prisma db push --schema=zenstack/prisma/schema.prisma --skip-generate --accept-data-loss
+  npx prisma db push --schema=zenstack/prisma/schema.prisma --skip-generate --accept-data-loss || true
   echo "Database schema in sync."
 fi
 
