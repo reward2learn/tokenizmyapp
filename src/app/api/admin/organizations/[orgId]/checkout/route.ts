@@ -70,7 +70,10 @@ export async function GET(
       // billing panel shows the tenant's real readiness instead of this
       // deployment's (the factory env has no per-tenant keys).
       readiness: stripeReadiness(stripeConfig ?? undefined),
-      purchasable: listConfiguredPrices().map(({ planId, interval }) => ({ planId, interval })),
+      purchasable: listConfiguredPrices(stripeConfig ?? undefined).map(({ planId, interval }) => ({
+        planId,
+        interval,
+      })),
       linkage: await getStripeLinkage(orgId, db),
     });
   } catch (err) {
@@ -88,7 +91,10 @@ export async function POST(
 
   const { orgId } = await params;
 
-  if (!stripeReadiness().ready) {
+  const db = createRawClient();
+  const stripeConfig = await resolveTenantStripeConfig(orgId, db);
+
+  if (!stripeReadiness(stripeConfig ?? undefined).ready) {
     // 503, not 400: the request is fine, the deployment is not configured.
     return jsonError(
       'Payments are not configured. Set STRIPE_SECRET_KEY, STRIPE_WEBHOOK_SECRET and at least one STRIPE_PRICE_* variable.',
@@ -111,7 +117,6 @@ export async function POST(
     );
   }
 
-  const db = createRawClient();
   try {
     const organization = await getOrganization(db, orgId);
     if (!organization) return jsonError('Organization not found', 404);
@@ -123,7 +128,7 @@ export async function POST(
     // proration rules apply; a fresh Checkout session would start a second
     // subscription and bill the customer twice.
     if (linkage.subscriptionId) {
-      const result = await changePlan(orgId, planId, interval, db);
+      const result = await changePlan(orgId, planId, interval, db, stripeConfig ?? undefined);
       return jsonOk({
         mode: 'plan_change',
         applied: result.applied,
@@ -142,6 +147,7 @@ export async function POST(
         cancelUrl: parsed.data.cancelUrl ?? urls.cancelUrl,
       },
       db,
+      stripeConfig ?? undefined,
     );
 
     return jsonOk({ mode: 'checkout', url: session.url, sessionId: session.sessionId });

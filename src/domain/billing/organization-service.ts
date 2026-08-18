@@ -600,10 +600,20 @@ export async function resolveTenantStripeConfig(
   const publishableKey = String(stripe.publishableKey ?? '').trim();
   if (!secretKey && !webhookSecret && !publishableKey) return null;
 
+  // Price ids saved alongside the keys (metadata.config.stripe.prices), keyed
+  // by the short env-var form (`PRO_MONTHLY`). Only non-empty strings are kept.
+  const prices: Record<string, string> = {};
+  const savedPrices = (stripe.prices ?? {}) as Record<string, unknown>;
+  for (const [key, value] of Object.entries(savedPrices)) {
+    const trimmed = String(value ?? '').trim();
+    if (trimmed) prices[key] = trimmed;
+  }
+
   return {
     secretKey: secretKey || undefined,
     webhookSecret: webhookSecret || undefined,
     publishableKey: publishableKey || undefined,
+    prices: Object.keys(prices).length > 0 ? prices : undefined,
   };
 }
 

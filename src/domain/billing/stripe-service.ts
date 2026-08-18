@@ -186,11 +186,12 @@ export interface CheckoutSessionInput {
 export async function createCheckoutSession(
   input: CheckoutSessionInput,
   db?: RawDb,
+  config?: StripeEnvConfig,
 ): Promise<{ url: string; sessionId: string }> {
   db = await getDb(db);
-  const stripe = requireStripe();
+  const stripe = requireStripeFor(config);
 
-  const priceId = getPriceId(input.planId, input.interval);
+  const priceId = getPriceId(input.planId, input.interval, config);
   if (!priceId) {
     throw new Error(
       `Plan "${input.planId}" (${input.interval}) is not purchasable. ` +
@@ -234,9 +235,10 @@ export async function changePlan(
   planId: PlanId,
   interval: BillingInterval,
   db?: RawDb,
+  config?: StripeEnvConfig,
 ): Promise<{ applied: 'immediate' | 'scheduled' }> {
   db = await getDb(db);
-  const stripe = requireStripe();
+  const stripe = requireStripeFor(config);
 
   const { getSubscription } = await import('@/domain/billing/entitlement-service');
   const { classifyPlanChange } = await import('@/lib/billing/stripe-client');
@@ -249,7 +251,7 @@ export async function changePlan(
     );
   }
 
-  const priceId = getPriceId(planId, interval);
+  const priceId = getPriceId(planId, interval, config);
   if (!priceId) throw new Error(`Plan "${planId}" (${interval}) has no Stripe price configured.`);
 
   const kind = classifyPlanChange(current.planId, planId);
@@ -344,7 +346,7 @@ export function stripeReadiness(override?: StripeEnvConfig): {
   const hasSecretKey = Boolean(getStripeFor(override));
   const hasWebhookSecret = Boolean((override?.webhookSecret ?? process.env.STRIPE_WEBHOOK_SECRET)?.trim());
   const hasPublishableKey = Boolean((override?.publishableKey ?? process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY)?.trim());
-  const configuredPrices = listConfiguredPrices().length;
+  const configuredPrices = listConfiguredPrices(override).length;
   const configError = stripeConfigError(override);
 
   return {

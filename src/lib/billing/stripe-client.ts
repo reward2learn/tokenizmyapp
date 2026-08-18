@@ -38,6 +38,14 @@ export interface StripeEnvConfig {
   secretKey?: string;
   webhookSecret?: string;
   publishableKey?: string;
+  /**
+   * Price ids for tenant-scoped billing, keyed by the short form of the env
+   * var name (`PRO_MONTHLY`, `BUSINESS_YEARLY`, …). The factory control plane
+   * stores a tenant's prices in metadata.config.stripe.prices because the
+   * factory deployment's own env has no per-tenant price ids; every lookup
+   * falls back to process.env when a key is absent.
+   */
+  prices?: Record<string, string>;
 }
 
 /** True when the platform has Stripe configured at all. */
@@ -197,16 +205,25 @@ export function priceEnvKey(planId: PlanId, interval: BillingInterval): string {
  * Null for plans that are not self-serve purchasable: `free` costs nothing and
  * `enterprise` is negotiated, so neither has a price in Stripe.
  */
-export function getPriceId(planId: PlanId, interval: BillingInterval): string | null {
+export function getPriceId(
+  planId: PlanId,
+  interval: BillingInterval,
+  config?: StripeEnvConfig,
+): string | null {
   const plan = PLANS.find((p) => p.id === planId);
   if (!plan) return null;
   // A null price on the plan means "not self-serve" — free or talk-to-sales.
   if (plan.priceMonthly === null || plan.priceMonthly === 0) return null;
-  return process.env[priceEnvKey(planId, interval)]?.trim() || null;
+  const shortKey = `${planId.toUpperCase()}_${interval.toUpperCase()}`;
+  return (
+    config?.prices?.[shortKey]?.trim() ||
+    process.env[priceEnvKey(planId, interval)]?.trim() ||
+    null
+  );
 }
 
 /** Every plan × interval that is purchasable and actually configured. */
-export function listConfiguredPrices(): Array<{
+export function listConfiguredPrices(config?: StripeEnvConfig): Array<{
   planId: PlanId;
   interval: BillingInterval;
   priceId: string;
@@ -214,7 +231,7 @@ export function listConfiguredPrices(): Array<{
   const out: Array<{ planId: PlanId; interval: BillingInterval; priceId: string }> = [];
   for (const plan of PLANS) {
     for (const interval of ['monthly', 'yearly'] as const) {
-      const priceId = getPriceId(plan.id, interval);
+      const priceId = getPriceId(plan.id, interval, config);
       if (priceId) out.push({ planId: plan.id, interval, priceId });
     }
   }

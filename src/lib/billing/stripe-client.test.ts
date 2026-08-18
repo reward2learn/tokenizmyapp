@@ -192,3 +192,45 @@ describe('stripeConfigError', () => {
     expect(isLiveKey(null)).toBe(false);
   });
 });
+
+describe('config-based price resolution (tenant-scoped billing)', () => {
+  it('prefers config prices over env prices', () => {
+    process.env.STRIPE_PRICE_PRO_MONTHLY = 'price_env';
+    expect(getPriceId('pro', 'monthly', { prices: { PRO_MONTHLY: 'price_tenant' } })).toBe(
+      'price_tenant',
+    );
+  });
+
+  it('falls back to env when the config has no price for that plan', () => {
+    process.env.STRIPE_PRICE_PRO_YEARLY = 'price_env_year';
+    expect(getPriceId('pro', 'yearly', { prices: { PRO_MONTHLY: 'price_tenant' } })).toBe(
+      'price_env_year',
+    );
+  });
+
+  it('returns null when neither config nor env has the price', () => {
+    delete process.env.STRIPE_PRICE_BUSINESS_MONTHLY;
+    expect(getPriceId('business', 'monthly', { prices: { PRO_MONTHLY: 'price_tenant' } })).toBeNull();
+  });
+
+  it('lists configured prices from config alone', () => {
+    for (const key of TOUCHED) delete process.env[key];
+    const configured = listConfiguredPrices({
+      prices: {
+        PRO_MONTHLY: 'price_pro_m',
+        BUSINESS_YEARLY: 'price_biz_y',
+      },
+    });
+    expect(configured).toHaveLength(2);
+    expect(configured.map((c) => c.priceId).sort()).toEqual(['price_biz_y', 'price_pro_m']);
+  });
+
+  it('ignores empty config price values', () => {
+    for (const key of TOUCHED) delete process.env[key];
+    const configured = listConfiguredPrices({
+      prices: { PRO_MONTHLY: '  ', PRO_YEARLY: 'price_pro_y' },
+    });
+    expect(configured).toHaveLength(1);
+    expect(configured[0]).toEqual({ planId: 'pro', interval: 'yearly', priceId: 'price_pro_y' });
+  });
+});
