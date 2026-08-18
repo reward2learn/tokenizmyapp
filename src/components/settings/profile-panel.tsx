@@ -6,8 +6,9 @@ import Chip from '@mui/material/Chip';
 import Stack from '@mui/material/Stack';
 import TextField from '@mui/material/TextField';
 import Typography from '@mui/material/Typography';
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { useAppSelector } from '@/store/hooks';
+import { useGetUserProfileQuery, useUpdateUserProfileMutation } from '@/store/apis/auth-api';
 import { AvatarUpload } from '@/components/settings/avatar-upload';
 
 /**
@@ -85,44 +86,29 @@ export function ProfilePanel() {
 
 function AvatarUploadSection({ userEmail }: { userEmail: string | undefined }) {
   const [customAvatarUrl, setCustomAvatarUrl] = useState<string | undefined>(undefined);
-  const [loading, setLoading] = useState(false);
+  const { data: profileData } = useGetUserProfileQuery(undefined, { skip: !userEmail });
+  const [updateProfile] = useUpdateUserProfileMutation();
 
-  useEffect(() => {
-    if (!userEmail) return;
-    // Fetch user profile
-    fetch('/api/user/profile')
-      .then((res) => res.json())
-      .then((data) => setCustomAvatarUrl(data.data?.avatarUrl || undefined))
-      .catch(() => {});
-  }, [userEmail]);
+  const customUrl = profileData?.data?.avatarUrl || undefined;
+  if (customUrl !== customAvatarUrl) {
+    setCustomAvatarUrl(customUrl);
+  }
 
   const handleUpload = async (url: string) => {
-    setLoading(true);
     try {
-      const res = await fetch('/api/user/profile', {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ avatarUrl: url }),
-      });
-      if (!res.ok) throw new Error(`${res.status}: ${await res.text()}`);
+      await updateProfile({ avatarUrl: url }).unwrap();
       setCustomAvatarUrl(url);
-    } finally {
-      setLoading(false);
+    } catch (err) {
+      // Error handled by RTK Query
     }
   };
 
   const handleClear = async () => {
-    setLoading(true);
     try {
-      const res = await fetch('/api/user/profile', {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ avatarUrl: '' }),
-      });
-      if (!res.ok) throw new Error(`${res.status}: ${await res.text()}`);
+      await updateProfile({ avatarUrl: '' }).unwrap();
       setCustomAvatarUrl(undefined);
-    } finally {
-      setLoading(false);
+    } catch (err) {
+      // Error handled by RTK Query
     }
   };
 

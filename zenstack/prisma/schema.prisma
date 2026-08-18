@@ -690,39 +690,61 @@ model WebhookEvent {
 }
 
 model Organization {
-  id             String          @id() @default(cuid())
+  id                 String          @id() @default(cuid())
   /// URL-safe identifier, editable by the owner.
-  slug           String          @unique()
-  displayName    String          @map("display_name")
-  logoUrl        String?         @map("logo_url")
+  slug               String          @unique()
+  displayName        String          @map("display_name")
+  logoUrl            String?         @map("logo_url")
+  /// Background image URL for the tenant app.
+  backgroundImageUrl String?         @map("background_image_url")
+  /// Background video URL for the tenant app (autoplay, no sound).
+  backgroundVideoUrl String?         @map("background_video_url")
+  /// Custom CSS for the tenant app (stored as-is).
+  customCss          String?         @map("custom_css")
   /// Account that owns billing for this organization.
-  ownerUserId    String?         @map("owner_user_id")
+  ownerUserId        String?         @map("owner_user_id")
   /// Affiliate attribution. Recorded at signup — impossible to backfill later.
-  referredBy     String?         @map("referred_by")
+  referredBy         String?         @map("referred_by")
   /// Where invoices go. Falls back to the owner's account email when unset.
-  billingEmail   String?         @map("billing_email")
+  billingEmail       String?         @map("billing_email")
   /// Legal entity name, when it differs from displayName.
-  billingName    String?         @map("billing_name")
+  billingName        String?         @map("billing_name")
   /// ISO 3166-1 alpha-2. Drives nothing today; recorded for the invoice.
-  billingCountry String?         @map("billing_country")
-  billingLine1   String?         @map("billing_line1")
-  billingLine2   String?         @map("billing_line2")
-  billingCity    String?         @map("billing_city")
-  billingPostal  String?         @map("billing_postal")
+  billingCountry     String?         @map("billing_country")
+  billingLine1       String?         @map("billing_line1")
+  billingLine2       String?         @map("billing_line2")
+  billingCity        String?         @map("billing_city")
+  billingPostal      String?         @map("billing_postal")
   /// VAT/GST/NPWP number, printed on invoices. NOT a tax calculation input —
   /// Stripe Tax is off, so nothing here changes what is charged.
-  taxId          String?         @map("tax_id")
-  createdAt      DateTime        @default(now()) @map("created_at")
-  updatedAt      DateTime        @updatedAt() @map("updated_at")
-  members        OrgMember[]
-  tenants        Tenant[]
-  subscription   Subscription?
-  creditGrants   CreditGrant[]
-  creditLedger   CreditLedger[]
+  taxId              String?         @map("tax_id")
+  createdAt          DateTime        @default(now()) @map("created_at")
+  updatedAt          DateTime        @updatedAt() @map("updated_at")
+  members            OrgMember[]
+  tenants            Tenant[]
+  subscription       Subscription?
+  creditGrants       CreditGrant[]
+  creditLedger       CreditLedger[]
   /// Where this organization came from. Written once, at signup.
-  orgAttribution OrgAttribution?
+  orgAttribution     OrgAttribution?
 
   @@map("organizations")
+}
+
+/// User profile extensions — data not from the auth provider.
+///
+/// The auth provider (Google) owns name, email, and picture. This table
+/// extends that with user-managed fields like a custom avatar.
+model UserProfile {
+  id        String   @id() @default(cuid())
+  /// Email from the auth provider, used as the stable identifier.
+  userEmail String   @unique() @map("user_email")
+  /// Custom avatar URL or base64 data URI. Overrides the auth provider picture.
+  avatarUrl String?  @map("avatar_url")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt() @map("updated_at")
+
+  @@map("user_profiles")
 }
 
 /// Marketing channel an organization arrived through, captured at signup.

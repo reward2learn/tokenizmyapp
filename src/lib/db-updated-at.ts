@@ -36,6 +36,7 @@
  */
 export const UPDATED_AT_TABLES = [
   'user_accounts',
+  'user_profiles',
   'tasks',
   'navigation_items',
   'secrets',

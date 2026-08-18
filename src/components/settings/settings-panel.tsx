@@ -121,22 +121,7 @@ export function SettingsPanel({ orgId }: { orgId: string | null }) {
         {section === 'general' && <OrganizationGeneralPanel orgId={orgId} />}
         {section === 'branding' &&
           (orgId ? (
-            <BrandingPanel
-              orgId={orgId}
-              onUpdate={async (data) => {
-                try {
-                  const res = await fetch(`/api/admin/organizations/${orgId}/branding`, {
-                    method: 'PATCH',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(data),
-                  });
-                  if (!res.ok) throw new Error(`${res.status}: ${await res.text()}`);
-                  // Optionally invalidate queries here to refetch branding
-                } catch (err) {
-                  throw new Error(`Failed to update branding: ${(err as Error).message}`);
-                }
-              }}
-            />
+            <BrandingPanel orgId={orgId} />
           ) : (
             <Typography color="text.secondary">Select an organization to manage branding.</Typography>
           ))}

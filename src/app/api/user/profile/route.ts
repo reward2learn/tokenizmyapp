@@ -10,6 +10,7 @@
  *
  * Auth: requireSession (any tier).
  */
+import { randomUUID } from 'crypto';
 import { createRawClient } from '@/lib/db';
 import { requireSession } from '@/lib/auth/guards';
 import { jsonError, jsonOk } from '@/lib/api/response';
@@ -70,7 +71,8 @@ export async function PATCH(request: Request) {
     if (result === 0) {
       // Row did not exist, insert it
       await db.$executeRawUnsafe(
-        `INSERT INTO user_profiles (user_email, avatar_url) VALUES ($1, $2) ON CONFLICT (user_email) DO UPDATE SET avatar_url = $2;`,
+        `INSERT INTO user_profiles (id, user_email, avatar_url, updated_at) VALUES ($1, $2, $3, CURRENT_TIMESTAMP) ON CONFLICT (user_email) DO UPDATE SET avatar_url = $3, updated_at = CURRENT_TIMESTAMP;`,
+        randomUUID(),
         userEmail,
         avatarUrl || null,
       );

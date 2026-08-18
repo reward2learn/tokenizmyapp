@@ -24,9 +24,10 @@ enum AuthTier {
 
 /// JWT session context passed to enhance({ user }) — not a DB table
 type Auth {
-  id   String    @id @default("session")
-  tier AuthTier
-  sub  String?
+  id    String    @id @default("session")
+  tier  AuthTier
+  sub   String?
+  email String?
 
   @@auth
 }
