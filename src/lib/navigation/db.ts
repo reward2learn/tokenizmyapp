@@ -72,7 +72,7 @@ interface CatalogPage {
  * These are seeded from the page catalog regardless of tenant template.
  * All other nav items come from the tenant template (app_pages).
  */
-const STATIC_NAV_SLUGS = new Set(['admin', 'config', 'ops-chat']);
+const STATIC_NAV_SLUGS = new Set(['admin', 'config', 'ops-chat', 'settings']);
 
 async function deriveNavItemsFromCatalog(): Promise<
   { id: string; title: string; path: string; authTier: string }[]

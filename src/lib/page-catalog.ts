@@ -491,6 +491,16 @@ export const PAGE_CATALOG: Record<string, PageDefinition> = {
     authTier: 'pin',
     sections: [],
   },
+  settings: {
+    slug: 'settings',
+    title: 'Settings',
+    navLabel: 'Settings',
+    showInNav: true,
+    // The page itself is gated at google (it reaches billing); the nav item
+    // must match so the drawer only offers it to signed-in admins.
+    authTier: 'google',
+    sections: [],
+  },
   'terms-of-service': {
     slug: 'terms-of-service',
     title: 'Terms of Service',
