@@ -789,6 +789,7 @@ model Organization {
 
   orgAttribution OrgAttribution @relation("orgAttribution")
 
+  orgAttribution OrgAttribution @relation("orgAttribution")
   @@allow('read', true)
   @@allow('create,update,delete', auth().tier == google)
   @@map("organizations")
