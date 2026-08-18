@@ -316,9 +316,6 @@ function AiCreditsTab({
   readiness: { ready: boolean } | null;
 }) {
   const [topUpPackId, setTopUpPackId] = useState<string | null>(null);
-  const [autoReload, setAutoReload] = useState(false);
-  const [autoThreshold, setAutoThreshold] = useState<number | null>(null);
-  const [autoPackId, setAutoPackId] = useState<string | null>(null);
 
   const byPlan = grants
     .filter((g) => g.source === 'plan')
@@ -327,16 +324,6 @@ function AiCreditsTab({
     .filter((g) => g.source === 'addon' || g.source === 'onetime')
     .reduce((sum, g) => sum + g.remaining, 0);
   const byPromo = grants.filter((g) => g.source === 'promo').reduce((sum, g) => sum + g.remaining, 0);
-
-  // Derive which pack(s) are purchasable based on current plan
-  const purchasablePacks = CREDIT_PACKS.filter((pack) => {
-    // Free plan can only buy the $25 pack (minimum floor)
-    if (balance?.net !== null) {
-      const orgIdFromBalance = /* would need org lookup */ null;
-      // TODO: check organization's plan and restrict accordingly
-    }
-    return true;
-  });
 
   return (
     <Stack spacing={3}>
@@ -371,88 +358,20 @@ function AiCreditsTab({
         </Stack>
       </Box>
 
-      {/* Auto-reload configuration */}
-      {readiness?.ready && (
-        <Box sx={{ mb: 2 }}>
-          <Typography variant="subtitle2" sx={{ mb: 1 }}>
-            Auto-reload
-          </Typography>
-          <Typography variant="body2" color="text.secondary">
-            Auto-reload: {autoReload ? 'Enabled' : 'Disabled'}
-          </Typography>
-          {autoReload && (
-            <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap', alignItems: 'center' }}>
-              <Typography variant="caption" color="text.secondary">
-                Top up when balance falls below
-              </Typography>
-              {/*
-                A group, not three loose buttons. Standalone ToggleButtons hand
-                their onChange the click event first and the value second, so
-                `(value) => Number(value)` read the MouseEvent and set the
-                threshold to NaN — which is falsy, so the pack selector below
-                (gated on `autoThreshold &&`) could never appear.
-              */}
-              <ToggleButtonGroup
-                exclusive
-                size="small"
-                value={autoThreshold}
-                onChange={(_event, value: number | null) => setAutoThreshold(value)}
-                aria-label="auto top-up threshold"
-              >
-                <ToggleButton value={10}>10</ToggleButton>
-                <ToggleButton value={25}>25</ToggleButton>
-                <ToggleButton value={50}>50</ToggleButton>
-              </ToggleButtonGroup>
-            </Stack>
-          )}
-          {/* Pack selector - shows when threshold is set */}
-          {autoThreshold && (
-            <Stack direction="row" spacing={2} sx={{ mt: 1, flexWrap: 'wrap' }}>
-              <Typography variant="caption" color="text.secondary">
-                Top up pack
-              </Typography>
-              {/*
-                Pack ids are the catalog's, not display strings — they travel to
-                Stripe as `metadata.packId` and redeemCreditPack rejects anything
-                CREDIT_PACKS does not contain.
-              */}
-              <ToggleButtonGroup
-                exclusive
-                size="small"
-                value={autoPackId}
-                onChange={(_event, value: string | null) => setAutoPackId(value)}
-                aria-label="auto top-up pack"
-              >
-                {CREDIT_PACKS.map((pack) => (
-                  <ToggleButton key={pack.id} value={pack.id}>
-                    {pack.label}
-                  </ToggleButton>
-                ))}
-              </ToggleButtonGroup>
-            </Stack>
-          )}
-          {autoThreshold && autoPackId && (
-            <Typography variant="caption" color="text.secondary">
-              Top up pack: {autoPackId}
-            </Typography>
-          )}
-          {/* Auto top-up notification */}
-          {autoReload && autoThreshold && balance && balance.available !== null && balance.available <= autoThreshold && (
-            <Box sx={{ mt: 1, p: 1, border: '1px solid', borderColor: 'primary.main', borderRadius: 1 }}>
-              <Typography variant="caption" color="warning.main">
-                Balance <strong>{balance.available}</strong> credits ≤ threshold <strong>{autoThreshold}</strong> — auto-reload enabled. 
-                <Button 
-                  variant="contained" 
-                  sx={{ mt: 1, width: '100%' }}
-                  onClick={() => setTopUpPackId(autoPackId)}
-                >
-                  Top up now
-                </Button>
-              </Typography>
-            </Box>
-          )}
-        </Box>
-      )}
+      {/*
+        Auto-reload is NOT built. There is no store behind it: no column, no
+        endpoint, nothing that would run a top-up when a balance crosses a
+        threshold. The UI that used to sit here was unreachable anyway —
+        `autoReload` was initialised false and no control ever set it — so it
+        rendered as a permanent "Auto-reload: Disabled" line, promising a
+        feature that does not exist and cannot be switched on.
+
+        Building it needs three things this file cannot supply on its own: a
+        persisted setting on the organization, a server-side check that fires
+        when a balance crosses the threshold, and a stored payment method to
+        charge without a human present. Until those exist, the manual top-up
+        below is the whole story.
+      */}
 
       <Box>
         <Typography variant="overline" color="text.secondary">

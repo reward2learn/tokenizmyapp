@@ -44,6 +44,29 @@ export async function GET(request: Request): Promise<NextResponse> {
   }
 }
 
+/**
+ * Where an organization came from, for org_attribution.
+ *
+ * Nothing used to pass this, so every row recorded the literal 'unknown' — and
+ * the value cannot be reconstructed once the request is gone, so the table was
+ * accumulating a constant. An explicit `channel` in the body wins; otherwise a
+ * `utm_source` on the request carries campaign traffic through.
+ *
+ * The floor is 'admin_console', not 'unknown': this endpoint is behind
+ * requireWriteAuth, so a request with no other signal *is* an operator creating
+ * an organization by hand, and saying so is more truthful than a shrug. When a
+ * public signup funnel exists it must pass the visitor's real channel here
+ * rather than inheriting this default.
+ */
+function attributionChannel(request: Request, body: Record<string, unknown>): string {
+  if (typeof body.channel === 'string' && body.channel.trim()) return body.channel.trim();
+
+  const utm = new URL(request.url).searchParams.get('utm_source')?.trim();
+  if (utm) return utm;
+
+  return 'admin_console';
+}
+
 export async function POST(request: Request): Promise<NextResponse> {
   const guard = await requireWriteAuth(request);
   if (!guard.ok) return guard.response;
@@ -65,6 +88,7 @@ export async function POST(request: Request): Promise<NextResponse> {
       slug: typeof body.slug === 'string' ? body.slug : undefined,
       ownerUserId: typeof body.ownerUserId === 'string' ? body.ownerUserId : null,
       referredBy: typeof body.referredBy === 'string' ? body.referredBy : null,
+      channel: attributionChannel(request, body),
     });
     return jsonOk({ organization }, { status: 201 });
   } catch (err) {

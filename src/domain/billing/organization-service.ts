@@ -67,10 +67,22 @@ CREATE TABLE IF NOT EXISTS organizations (
   updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );`;
 
+/**
+ * Attribution table.
+ *
+ * The foreign key is not decoration: the zmodel declares this relation with
+ * `onDelete: Cascade`, so a table created here without it would behave
+ * differently from the same table created by `prisma db push` — orphan rows
+ * survive a deleted organization on one path and not the other. That
+ * divergence is exactly what left tenants pointing at organizations that no
+ * longer existed, which backfillDefaultOrganization below still has to repair.
+ * The constraint name is the one Prisma derives, so neither path fights the
+ * other.
+ */
 const ORG_ATTRIBUTION_DDL = `
 CREATE TABLE IF NOT EXISTS org_attribution (
   id TEXT PRIMARY KEY,
-  org_id TEXT NOT NULL UNIQUE,
+  org_id TEXT NOT NULL UNIQUE REFERENCES organizations (id) ON DELETE CASCADE,
   channel TEXT NOT NULL,
   captured_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );`;
@@ -112,8 +124,43 @@ function slugify(input: string): string {
     .slice(0, 48) || 'org';
 }
 
-/** Idempotent DDL for the organization layer. Safe to call on every request. */
+/**
+ * In-flight or completed schema convergence for this process.
+ *
+ * Every read path calls ensureOrganizationTables before its SELECT, and the
+ * organization bar issues listOrganizations on each /admin render — so this
+ * used to spend six-plus DDL round-trips per page load. On Vercel `db.ts` pins
+ * connection_limit to 1, so they cannot even overlap: they queue against the
+ * one connection the request has, which is how P2024 pool timeouts start.
+ *
+ * The table shape does not change while the process lives, so converge once.
+ * Safe as a single module-level latch precisely because of the placement rule
+ * at the top of this file: every table here lives in the platform root DB, so
+ * there is only ever one database to converge. A service that could be handed
+ * a tenant's own database would need the latch keyed by connection.
+ * Held as the promise rather than a boolean so concurrent callers await the
+ * same work instead of racing into duplicate DDL, and cleared on failure so a
+ * transient outage does not poison every later request with a cached rejection.
+ */
+let schemaConverged: Promise<void> | null = null;
+
+/** Idempotent DDL for the organization layer. Converges once per process. */
 export async function ensureOrganizationTables(db: RawDb): Promise<void> {
+  if (!schemaConverged) {
+    schemaConverged = convergeOrganizationSchema(db).catch((err) => {
+      schemaConverged = null;
+      throw err;
+    });
+  }
+  return schemaConverged;
+}
+
+/** Test seam: drop the latch so a fresh fake database is converged again. */
+export function resetOrganizationSchemaLatch(): void {
+  schemaConverged = null;
+}
+
+async function convergeOrganizationSchema(db: RawDb): Promise<void> {
   await db.$executeRawUnsafe(ORGANIZATIONS_DDL);
   await db.$executeRawUnsafe(ORG_MEMBERS_DDL);
   await db.$executeRawUnsafe(ORG_ATTRIBUTION_DDL);
@@ -218,6 +265,12 @@ export interface CreateOrganizationInput {
   slug?: string;
   ownerUserId?: string | null;
   referredBy?: string | null;
+  /**
+   * How this organization arrived — 'admin_console', a utm_source, a partner
+   * name. Callers must supply it: it is only knowable at the moment of the
+   * request, and the 'unknown' fallback below is a last resort, not a default
+   * to lean on.
+   */
   channel?: string;
 }
 
@@ -246,18 +299,33 @@ export async function createOrganization(
     await addOrgMember(db, id, input.ownerUserId, 'owner');
   }
 
-  // Record attribution at signup — impossible to backfill later
+  // Record attribution at signup — impossible to backfill later.
+  //
+  // Guarded, because by this point the organization and its owner row are
+  // already committed and there is no transaction around them. An unguarded
+  // failure here (a database whose org_attribution predates the unique index,
+  // so ON CONFLICT raises 42P10) would throw *after* those writes: the caller
+  // sees a 500, the organization exists anyway, and retrying the same name
+  // collides on the slug and answers 409. The operator is then stuck with an
+  // organization they cannot reach through the create flow. Losing one
+  // attribution row is the cheaper failure by a wide margin.
   const attributionChannel = input.channel ?? 'unknown';
-  await db.$executeRawUnsafe(
-    `INSERT INTO org_attribution (id, org_id, channel, captured_at)
-     VALUES (gen_random_uuid()::TEXT, $1, $2, CURRENT_TIMESTAMP)
-     ON CONFLICT (org_id)
-     DO UPDATE SET channel = EXCLUDED.channel, captured_at = NOW()`,
-    // Varargs, not an array — `[id, channel]` binds $1 to the array itself and
-    // leaves $2 unbound.
-    id,
-    attributionChannel,
-  );
+  try {
+    await db.$executeRawUnsafe(
+      `INSERT INTO org_attribution (id, org_id, channel, captured_at)
+       VALUES (gen_random_uuid()::TEXT, $1, $2, CURRENT_TIMESTAMP)
+       ON CONFLICT (org_id) DO NOTHING`,
+      // Varargs, not an array — `[id, channel]` binds $1 to the array itself
+      // and leaves $2 unbound.
+      id,
+      attributionChannel,
+    );
+  } catch (err) {
+    console.warn(
+      `[organizations] Attribution not recorded for ${id} (channel "${attributionChannel}"): ` +
+        (err as Error).message,
+    );
+  }
 
   const created = await getOrganization(db, id);
   if (!created) throw new Error(`Organization ${id} vanished immediately after insert`);

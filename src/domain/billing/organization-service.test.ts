@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('@/domain/tenant/tenant-service', () => ({
   ensureTenantsTable: vi.fn(async () => {}),
@@ -31,13 +31,27 @@ interface FakeTenant {
  * fake models that predicate exactly rather than approximating it — the bug it
  * exists to catch lived in that predicate.
  */
-function makeDb(tenants: FakeTenant[] = []) {
+function makeDb(tenants: FakeTenant[] = [], opts: { attributionFails?: boolean } = {}) {
   const orgs: FakeOrg[] = [];
+  const attribution: { org_id: string; channel: string }[] = [];
 
   const db = {
     orgs,
     tenants,
+    attribution,
     $executeRawUnsafe: vi.fn(async (sql: string, ...args: unknown[]) => {
+      if (sql.includes('INSERT INTO org_attribution')) {
+        // Stands in for 42P10 — the table exists but nothing unique covers
+        // org_id, so Postgres refuses the ON CONFLICT target.
+        if (opts.attributionFails) {
+          throw new Error('there is no unique or exclusion constraint matching the ON CONFLICT specification');
+        }
+        if (!attribution.some((a) => a.org_id === args[0])) {
+          // Positional, matching the varargs the service passes: $1 org, $2 channel.
+          attribution.push({ org_id: args[0] as string, channel: args[1] as string });
+        }
+        return 1;
+      }
       if (sql.includes('INSERT INTO organizations')) {
         const slug = args[1] as string;
         if (orgs.some((o) => o.slug === slug)) return 0; // ON CONFLICT DO NOTHING
@@ -180,5 +194,44 @@ describe('listOrganizations', () => {
 
     const [defaultOrg] = await service.listOrganizations(db);
     expect(defaultOrg.tenants).toEqual([]);
+  });
+});
+
+describe('createOrganization attribution', () => {
+  beforeEach(async () => {
+    // The service converges its schema once per process. Each test brings a
+    // fresh fake database, so the latch has to be dropped or only the first
+    // test in the file would see the DDL run.
+    const service = await import('./organization-service');
+    service.resetOrganizationSchemaLatch();
+  });
+
+  it('records the channel the caller supplied', async () => {
+    const service = await import('./organization-service');
+    const db = makeDb();
+
+    const org = await service.createOrganization(db, {
+      displayName: 'Acme',
+      channel: 'admin_console',
+    });
+
+    expect(db.attribution).toEqual([{ org_id: org.id, channel: 'admin_console' }]);
+  });
+
+  it('still creates the organization when attribution fails', async () => {
+    // The failure this guards against is not losing an attribution row — it is
+    // throwing *after* the organization and its owner are already committed,
+    // with no transaction to roll them back. The caller would see a 500, the
+    // organization would exist anyway, and retrying the same name collides on
+    // the slug and answers 409: an organization the operator can neither reach
+    // nor recreate.
+    const service = await import('./organization-service');
+    const db = makeDb([], { attributionFails: true });
+
+    const org = await service.createOrganization(db, { displayName: 'Acme', channel: 'partner' });
+
+    expect(org.slug).toBe('acme');
+    expect(db.orgs).toHaveLength(1);
+    expect(db.attribution).toEqual([]);
   });
 });
