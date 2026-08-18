@@ -67,25 +67,28 @@ CREATE TABLE IF NOT EXISTS organizations (
   updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );`;
 
-/**
- * Attribution table.
+/*
+ * There is deliberately no ORG_ATTRIBUTION_DDL here.
  *
- * The foreign key is not decoration: the zmodel declares this relation with
- * `onDelete: Cascade`, so a table created here without it would behave
- * differently from the same table created by `prisma db push` — orphan rows
- * survive a deleted organization on one path and not the other. That
- * divergence is exactly what left tenants pointing at organizations that no
- * longer existed, which backfillDefaultOrganization below still has to repair.
- * The constraint name is the one Prisma derives, so neither path fights the
- * other.
+ * `db push` emitted `CreateTable` for org_attribution and Postgres answered
+ * "relation already exists", taking the deploy down. The schema engine had
+ * diffed the database and concluded the table was absent, so something else
+ * created it in between — and the engine does not use IF NOT EXISTS, so it
+ * cannot survive losing that race.
+ *
+ * Two creators for one brand-new table is the condition that makes the race
+ * possible at all, and this file supplied the second one.
+ *
+ * The tables below are grandfathered — they all long predate their zmodel entry,
+ * so `db push` finds them already present and emits nothing to race. That is not
+ * true of a table being introduced, which is the case this rule exists for: a
+ * table the zmodel declares gets exactly one creator, and `db push` runs at build
+ * time, before the app serves a request. Nothing here needs a fallback.
+ *
+ * createOrganization's attribution insert is guarded, so on a database that has
+ * somehow not been pushed yet the row is skipped with a warning instead of
+ * taking organization creation down with it.
  */
-const ORG_ATTRIBUTION_DDL = `
-CREATE TABLE IF NOT EXISTS org_attribution (
-  id TEXT PRIMARY KEY,
-  org_id TEXT NOT NULL UNIQUE REFERENCES organizations (id) ON DELETE CASCADE,
-  channel TEXT NOT NULL,
-  captured_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
-);`;
 
 const ORG_MEMBERS_DDL = `
 CREATE TABLE IF NOT EXISTS org_members (
@@ -163,22 +166,6 @@ export function resetOrganizationSchemaLatch(): void {
 async function convergeOrganizationSchema(db: RawDb): Promise<void> {
   await db.$executeRawUnsafe(ORGANIZATIONS_DDL);
   await db.$executeRawUnsafe(ORG_MEMBERS_DDL);
-  await db.$executeRawUnsafe(ORG_ATTRIBUTION_DDL);
-
-  // `createOrganization` upserts attribution with ON CONFLICT (org_id), which
-  // Postgres rejects (42P10) unless a unique index covers that column. The
-  // CREATE TABLE above declares it, but a database where the table predates
-  // that declaration would have no such index — and the name here is the one
-  // Prisma derives from `@unique`, so `db push` sees a match and leaves it be
-  // rather than dropping and recreating it on every deploy.
-  try {
-    await db.$executeRawUnsafe(
-      `CREATE UNIQUE INDEX IF NOT EXISTS org_attribution_org_id_key ON org_attribution (org_id)`,
-    );
-  } catch {
-    // Duplicate rows would make this impossible; attribution is advisory, so
-    // never let it block organization reads.
-  }
 
   // `prisma db push` creates these tables first, from the zmodel, where
   // `@updatedAt` yields NOT NULL with no default — so the DEFAULT in the DDL
