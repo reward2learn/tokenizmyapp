@@ -24,6 +24,7 @@ export type SettingsSection =
   | 'general'
   | 'billing'
   | 'teammates'
+  | 'branding'
   | 'profile'
   | 'security';
 

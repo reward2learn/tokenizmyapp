@@ -774,6 +774,12 @@ model Organization {
   slug          String   @unique
   displayName   String   @map("display_name")
   logoUrl       String?  @map("logo_url")
+  /// Background image URL for the tenant app.
+  backgroundImageUrl String? @map("background_image_url")
+  /// Background video URL for the tenant app (autoplay, no sound).
+  backgroundVideoUrl String? @map("background_video_url")
+  /// Custom CSS for the tenant app (stored as-is).
+  customCss     String?  @map("custom_css")
   /// Account that owns billing for this organization.
   ownerUserId   String?  @map("owner_user_id")
   /// Affiliate attribution. Recorded at signup — impossible to backfill later.
@@ -811,6 +817,24 @@ model Organization {
   @@allow('read', true)
   @@allow('create,update,delete', auth().tier == google)
   @@map("organizations")
+}
+
+/// User profile extensions — data not from the auth provider.
+///
+/// The auth provider (Google) owns name, email, and picture. This table
+/// extends that with user-managed fields like a custom avatar.
+model UserProfile {
+  id           String   @id @default(cuid())
+  /// Email from the auth provider, used as the stable identifier.
+  userEmail    String   @unique @map("user_email")
+  /// Custom avatar URL or base64 data URI. Overrides the auth provider picture.
+  avatarUrl    String?  @map("avatar_url")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  @@allow('read', auth().email == userEmail)
+  @@allow('create,update', auth().email == userEmail)
+  @@map("user_profiles")
 }
 
 /// Marketing channel an organization arrived through, captured at signup.

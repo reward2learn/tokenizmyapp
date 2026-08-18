@@ -14,11 +14,13 @@ import CreditCardIcon from '@mui/icons-material/CreditCard';
 import GroupIcon from '@mui/icons-material/Group';
 import HomeIcon from '@mui/icons-material/Home';
 import LockIcon from '@mui/icons-material/Lock';
+import PaletteIcon from '@mui/icons-material/Palette';
 import LogoutIcon from '@mui/icons-material/Logout';
 import PersonIcon from '@mui/icons-material/PersonOutlined';
 import { useAppDispatch, useAppSelector } from '@/store/hooks';
 import { setSettingsSection, type SettingsSection } from '@/store/ui-slice';
 import { OrganizationGeneralPanel } from '@/components/settings/organization-general-panel';
+import { BrandingPanel } from '@/components/settings/branding-panel';
 import { TeammatesPanel } from '@/components/settings/teammates-panel';
 import { ProfilePanel } from '@/components/settings/profile-panel';
 import { SecurityPanel } from '@/components/settings/security-panel';
@@ -52,6 +54,7 @@ const ORGANIZATION_SECTIONS: SectionDef[] = [
   { id: 'general', label: 'General', icon: HomeIcon },
   { id: 'billing', label: 'Billing', icon: CreditCardIcon },
   { id: 'teammates', label: 'Teammates', icon: GroupIcon },
+  { id: 'branding', label: 'Branding', icon: PaletteIcon },
 ];
 
 const PERSONAL_SECTIONS: SectionDef[] = [
@@ -116,6 +119,27 @@ export function SettingsPanel({ orgId }: { orgId: string | null }) {
 
       <Box sx={{ flexGrow: 1, p: 3, minWidth: 0 }}>
         {section === 'general' && <OrganizationGeneralPanel orgId={orgId} />}
+        {section === 'branding' &&
+          (orgId ? (
+            <BrandingPanel
+              orgId={orgId}
+              onUpdate={async (data) => {
+                try {
+                  const res = await fetch(`/api/admin/organizations/${orgId}/branding`, {
+                    method: 'PATCH',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(data),
+                  });
+                  if (!res.ok) throw new Error(`${res.status}: ${await res.text()}`);
+                  // Optionally invalidate queries here to refetch branding
+                } catch (err) {
+                  throw new Error(`Failed to update branding: ${(err as Error).message}`);
+                }
+              }}
+            />
+          ) : (
+            <Typography color="text.secondary">Select an organization to manage branding.</Typography>
+          ))}
         {section === 'billing' &&
           (orgId ? (
             <BillingPanel orgId={orgId} />

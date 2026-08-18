@@ -6,7 +6,9 @@ import Chip from '@mui/material/Chip';
 import Stack from '@mui/material/Stack';
 import TextField from '@mui/material/TextField';
 import Typography from '@mui/material/Typography';
+import { useState, useEffect } from 'react';
 import { useAppSelector } from '@/store/hooks';
+import { AvatarUpload } from '@/components/settings/avatar-upload';
 
 /**
  * Settings → Personal → Profile.
@@ -37,7 +39,7 @@ export function ProfilePanel() {
       <Typography variant="h6">Profile</Typography>
 
       <Stack direction="row" spacing={2} sx={{ alignItems: 'center' }}>
-        <Avatar src={user.picture} sx={{ width: 64, height: 64 }}>
+        <Avatar sx={{ width: 64, height: 64 }}>
           {(user.name ?? user.email ?? '?').charAt(0).toUpperCase()}
         </Avatar>
         <Stack spacing={0.5}>
@@ -48,6 +50,8 @@ export function ProfilePanel() {
           </Stack>
         </Stack>
       </Stack>
+
+      <AvatarUploadSection userEmail={user.email} />
 
       <TextField
         fullWidth
@@ -76,5 +80,57 @@ export function ProfilePanel() {
         />
       )}
     </Stack>
+  );
+}
+
+function AvatarUploadSection({ userEmail }: { userEmail: string | undefined }) {
+  const [customAvatarUrl, setCustomAvatarUrl] = useState<string | undefined>(undefined);
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    if (!userEmail) return;
+    // Fetch user profile
+    fetch('/api/user/profile')
+      .then((res) => res.json())
+      .then((data) => setCustomAvatarUrl(data.data?.avatarUrl || undefined))
+      .catch(() => {});
+  }, [userEmail]);
+
+  const handleUpload = async (url: string) => {
+    setLoading(true);
+    try {
+      const res = await fetch('/api/user/profile', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ avatarUrl: url }),
+      });
+      if (!res.ok) throw new Error(`${res.status}: ${await res.text()}`);
+      setCustomAvatarUrl(url);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleClear = async () => {
+    setLoading(true);
+    try {
+      const res = await fetch('/api/user/profile', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ avatarUrl: '' }),
+      });
+      if (!res.ok) throw new Error(`${res.status}: ${await res.text()}`);
+      setCustomAvatarUrl(undefined);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <AvatarUpload
+      avatarUrl={customAvatarUrl}
+      onUpload={handleUpload}
+      onClear={handleClear}
+    />
   );
 }
