@@ -30,6 +30,7 @@ import {
   useListOrganizationsQuery,
   useUpdateOrganizationMutation,
 } from '@/store/apis/organization-api';
+import { PLANS, type PlanId } from '@/lib/billing/plans';
 
 function formatPrice(cents: number | null): string {
   if (cents === null) return 'Custom';
