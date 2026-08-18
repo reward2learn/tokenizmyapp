@@ -87,8 +87,30 @@ DO UPDATE SET
   period_end = EXCLUDED.period_end,
   recorded_at = NOW();`;
 
-async function upsertRows(db: RawDb, rows: UsageRow[]): Promise<void> {
+/**
+ * Upsert rows and return the change in billed cost (new minus previously
+ * stored). The debit must only apply to the delta: the FOCUS payload is
+ * provisional, and a re-run over the same period must not charge the balance
+ * twice for cost that was already debited.
+ */
+async function upsertRows(db: RawDb, rows: UsageRow[]): Promise<number> {
+  let deltaCents = 0;
   for (const row of rows) {
+    let previousCents = 0;
+    try {
+      const existing = (await db.$queryRawUnsafe(
+        `SELECT cost_cents FROM usage_records
+          WHERE tenant_slug = $1 AND app_id = $2 AND resource = $3 AND period_start = $4
+          LIMIT 1;`,
+        row.tenantSlug,
+        row.appId,
+        row.resource,
+        row.periodStart,
+      )) as { cost_cents?: number | null }[];
+      previousCents = Number(existing[0]?.cost_cents) || 0;
+    } catch {
+      // Table absent on a database this release has not reached — treat as new.
+    }
     await db.$executeRawUnsafe(
       UPSERT_SQL,
       `ur_${row.tenantSlug}_${row.appId}_${row.resource}_${row.periodStart.toISOString()}`,
@@ -102,7 +124,9 @@ async function upsertRows(db: RawDb, rows: UsageRow[]): Promise<void> {
       row.periodStart,
       row.periodEnd,
     );
+    deltaCents += (row.costCents ?? 0) - previousCents;
   }
+  return deltaCents;
 }
 
 /**
@@ -114,9 +138,9 @@ export async function collectVercelUsage(
   orgId: string,
   env: CollectorEnv,
   days = 3,
-): Promise<{ rows: UsageRow[]; costCents: number }> {
+): Promise<{ rows: UsageRow[]; costCents: number; deltaCents: number }> {
   if (!env.vercelToken || !env.vercelTeamId) {
-    return { rows: [], costCents: 0 };
+    return { rows: [], costCents: 0, deltaCents: 0 };
   }
   const to = new Date();
   const from = new Date(to.getTime() - days * 86_400_000);
@@ -130,7 +154,11 @@ export async function collectVercelUsage(
     throw new Error(`Vercel billing charges failed: ${res.status} ${await res.text()}`);
   }
   const text = await res.text();
-  const rows: UsageRow[] = [];
+  // The payload carries one line per project per service per day, with no
+  // project identifier on the line. Team-level recording therefore sums the
+  // lines per (resource, day) — otherwise each line would overwrite the
+  // previous one through the upsert key and the table would understate usage.
+  const aggregated = new Map<string, { quantity: number; cost: number; unit: string; periodStart: Date; periodEnd: Date }>();
   let costCents = 0;
   for (const line of text.split('\n')) {
     if (!line.trim()) continue;
@@ -143,22 +171,40 @@ export async function collectVercelUsage(
     const quantity = Number(charge.ConsumedQuantity) || 0;
     const billed = Number(charge.BilledCost) || 0;
     if (quantity === 0 && billed === 0) continue;
+    const periodStart = new Date(String(charge.ChargePeriodStart));
+    const key = `${resource}|${periodStart.toISOString()}`;
+    const existing = aggregated.get(key);
     const cost = Math.round(billed * 100);
     costCents += cost;
-    rows.push({
+    if (existing) {
+      existing.quantity += quantity;
+      existing.cost += cost;
+    } else {
+      aggregated.set(key, {
+        quantity,
+        cost,
+        unit: String(charge.ConsumedUnit ?? 'units'),
+        periodStart,
+        periodEnd: new Date(String(charge.ChargePeriodEnd)),
+      });
+    }
+  }
+  const rows: UsageRow[] = [...aggregated.entries()].map(([key, agg]) => {
+    const [resource] = key.split('|');
+    return {
       orgId,
       tenantSlug: PLATFORM_TENANT_SLUG,
       appId: VERCEL_APP_ID,
       resource,
-      unit: String(charge.ConsumedUnit ?? 'units'),
-      quantity,
-      costCents: cost,
-      periodStart: new Date(String(charge.ChargePeriodStart)),
-      periodEnd: new Date(String(charge.ChargePeriodEnd)),
-    });
-  }
-  await upsertRows(db, rows);
-  return { rows, costCents };
+      unit: agg.unit,
+      quantity: agg.quantity,
+      costCents: agg.cost,
+      periodStart: agg.periodStart,
+      periodEnd: agg.periodEnd,
+    };
+  });
+  const deltaCents = await upsertRows(db, rows);
+  return { rows, costCents, deltaCents };
 }
 
 /**
@@ -171,9 +217,9 @@ export async function collectNeonUsage(
   db: RawDb,
   orgId: string,
   env: CollectorEnv,
-): Promise<{ rows: UsageRow[]; costCents: number }> {
+): Promise<{ rows: UsageRow[]; costCents: number; deltaCents: number }> {
   if (!env.neonApiKey || !env.neonOrgId) {
-    return { rows: [], costCents: 0 };
+    return { rows: [], costCents: 0, deltaCents: 0 };
   }
   const projects = await listNeonProjects(env);
   const rows: UsageRow[] = [];
@@ -218,8 +264,8 @@ export async function collectNeonUsage(
     push('bandwidth', 'GB', transferGb);
     push('db_storage', 'GB', storageGb);
   }
-  await upsertRows(db, rows);
-  return { rows, costCents: 0 };
+  const deltaCents = await upsertRows(db, rows);
+  return { rows, costCents: 0, deltaCents };
 }
 
 async function listNeonProjects(env: CollectorEnv): Promise<string[]> {
@@ -275,7 +321,7 @@ export async function runCloudUsageCollection(
   }
   const vercel = await collectVercelUsage(db, orgId, env);
   const neon = await collectNeonUsage(db, orgId, env);
-  const debitedCents = vercel.costCents + neon.costCents;
+  const debitedCents = vercel.deltaCents + neon.deltaCents;
   await debitOperatorOrg(db, orgId, debitedCents);
   return {
     vercel: { rows: vercel.rows.length, costCents: vercel.costCents },

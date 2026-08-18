@@ -55,13 +55,23 @@ type MockDb = Parameters<typeof collectVercelUsage>[0] & { executed: unknown[][]
 
 function makeDb(): MockDb {
   const executed: unknown[][] = [];
+  // Simulates the usage_records table: key -> stored cost_cents.
+  const stored = new Map<string, number>();
   const db = {
     $executeRawUnsafe: vi.fn(async (...args: unknown[]) => {
       executed.push(args);
+      // args: [sql, id, orgId, tenantSlug, appId, resource, unit, quantity, costCents, periodStart, periodEnd]
+      const key = `${args[3]}|${args[4]}|${args[5]}|${String(args[9])}`;
+      stored.set(key, Number(args[8]) || 0);
       return 0;
     }),
-    $queryRawUnsafe: vi.fn(async (sql: string) => {
+    $queryRawUnsafe: vi.fn(async (sql: string, ...params: unknown[]) => {
       if (sql.includes('FROM organizations')) return [{ id: 'org_operator' }];
+      if (sql.includes('FROM usage_records')) {
+        const key = `${params[0]}|${params[1]}|${params[2]}|${String(params[3])}`;
+        const cents = stored.get(key);
+        return cents === undefined ? [] : [{ cost_cents: cents }];
+      }
       return [];
     }),
   } as unknown as MockDb;
@@ -123,6 +133,29 @@ describe('collectVercelUsage', () => {
     const sql = String(db.executed[0]?.[0]);
     expect(sql).toContain('ON CONFLICT (tenant_slug, app_id, resource, period_start)');
     expect(sql).toContain('DO UPDATE SET');
+  });
+
+  it('aggregates multiple FOCUS lines per (resource, day) into one row', async () => {
+    const multi = [
+      { ChargePeriodStart: '2026-08-15T07:00:00.000Z', ChargePeriodEnd: '2026-08-16T07:00:00.000Z', ChargeCategory: 'Usage', BilledCost: 0.5, ServiceName: 'Build CPU Minutes', ConsumedQuantity: 100, ConsumedUnit: 'minute' },
+      { ChargePeriodStart: '2026-08-15T07:00:00.000Z', ChargePeriodEnd: '2026-08-16T07:00:00.000Z', ChargeCategory: 'Usage', BilledCost: 0.3, ServiceName: 'Build CPU Minutes', ConsumedQuantity: 60, ConsumedUnit: 'minute' },
+      { ChargePeriodStart: '2026-08-16T07:00:00.000Z', ChargePeriodEnd: '2026-08-17T07:00:00.000Z', ChargeCategory: 'Usage', BilledCost: 0.2, ServiceName: 'Build CPU Minutes', ConsumedQuantity: 40, ConsumedUnit: 'minute' },
+    ].map((c) => JSON.stringify(c)).join('\n');
+    stubFetch(async () => new Response(multi));
+    const db = makeDb();
+    const { rows, costCents } = await collectVercelUsage(db, 'org_1', {
+      vercelToken: 'tok',
+      vercelTeamId: 'team_x',
+    });
+
+    expect(costCents).toBe(100); // $0.50 + $0.30 + $0.20
+    expect(rows).toHaveLength(2); // one row per day, not per line
+    const day1 = rows.find((r) => r.periodStart.toISOString() === '2026-08-15T07:00:00.000Z');
+    expect(day1?.quantity).toBe(160);
+    expect(day1?.costCents).toBe(80);
+    const day2 = rows.find((r) => r.periodStart.toISOString() === '2026-08-16T07:00:00.000Z');
+    expect(day2?.quantity).toBe(40);
+    expect(day2?.costCents).toBe(20);
   });
 });
 
@@ -215,5 +248,43 @@ describe('runCloudUsageCollection', () => {
     expect(debit).toBeDefined();
     expect(debit?.[2]).toBe('org_operator');
     expect(debit?.[3]).toBe(1018);
+  });
+
+  it('debits only the delta on re-runs over the same period', async () => {
+    stubFetch(async (url) => {
+      if (url.includes('api.vercel.com')) return new Response(FOCUS_SAMPLE);
+      if (url.includes('/projects?org_id=')) {
+        return new Response(JSON.stringify({ projects: [] }));
+      }
+      return new Response(JSON.stringify({ project: {} }));
+    });
+    const db = makeDb();
+    const env = {
+      vercelToken: 'tok',
+      vercelTeamId: 'team_x',
+      neonApiKey: 'key',
+      neonOrgId: 'org-neon',
+    };
+
+    // First run: nothing stored yet -> full billed cost is debited.
+    const first = await runCloudUsageCollection(db, env);
+    expect(first.debitedCents).toBe(1018);
+
+    // Second run with the same payload: rows exist with identical cost ->
+    // the delta is zero and the balance is not charged twice.
+    const second = await runCloudUsageCollection(db, env);
+    expect(second.debitedCents).toBe(0);
+
+    // A corrected payload (higher cost) debits only the difference.
+    const corrected = FOCUS_SAMPLE.replace('10.164', '10.364');
+    stubFetch(async (url) => {
+      if (url.includes('api.vercel.com')) return new Response(corrected);
+      if (url.includes('/projects?org_id=')) {
+        return new Response(JSON.stringify({ projects: [] }));
+      }
+      return new Response(JSON.stringify({ project: {} }));
+    });
+    const third = await runCloudUsageCollection(db, env);
+    expect(third.debitedCents).toBe(20); // only the $0.20 increase
   });
 });
