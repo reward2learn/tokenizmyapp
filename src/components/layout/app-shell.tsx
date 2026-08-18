@@ -383,7 +383,7 @@ export function AppShell({ children }: { children: ReactNode }) {
           </Menu>
 
           {/* Breadcrumbs trail */}
-          {breadcrumbs.length > 0 && (
+          {/* {breadcrumbs.length > 0 && (
             <Breadcrumbs
               separator={<NavigateNextIcon fontSize="small" sx={{ color: 'text.disabled' }} />}
               sx={{ ml: 2, '& .MuiBreadcrumbs-ol': { flexWrap: 'nowrap' } }}
@@ -419,13 +419,14 @@ export function AppShell({ children }: { children: ReactNode }) {
                 );
               })}
             </Breadcrumbs>
-          )}
+          )} */}
 
           {/* Spacer */}
           <Box sx={{ flex: 1 }} />
 
           {/* Right-aligned controls */}
           <Box sx={{ display: 'flex', alignItems: 'center' }}>
+            <SavedConversationsMenu />
             <Tooltip title={chatDrawerOpen ? 'Close AI chat' : 'Open AI chat'}>
               <IconButton
                 aria-label={chatDrawerOpen ? 'Close AI chat drawer' : 'Open AI chat drawer'}
@@ -436,7 +437,7 @@ export function AppShell({ children }: { children: ReactNode }) {
                 <ChatIcon />
               </IconButton>
             </Tooltip>
-            <SavedConversationsMenu />
+            
           </Box>
         </Toolbar>
       </AppBar>

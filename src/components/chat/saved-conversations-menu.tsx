@@ -43,8 +43,7 @@ export function SavedConversationsMenu() {
         aria-expanded={open ? 'true' : undefined}
         aria-controls={open ? 'saved-conversations-menu' : undefined}
         sx={{ textTransform: 'none', color: 'text.secondary', mr: 0.5 }}
-      >
-        Saved
+      > 
       </Button>
       <Menu
         id="saved-conversations-menu"
