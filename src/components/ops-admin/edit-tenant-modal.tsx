@@ -3,8 +3,10 @@
 /**
  * EditTenantModal — Stepper wizard for editing tenant applications.
  *
- * Steps: Template → Preview → License → Features → OpenAI API-Keys
- *        → Google OAuth → Database → Custom Env → Functional Roles
+ * Steps: Template → Preview → License → Organization & Billing → Features
+ *        → OpenAI API-Keys → Google OAuth → Database → Custom Env
+ *        → Deploy Hooks → Functional Roles → Custom Domain → Admin & Auth
+ *        → Flight Check → Summary
  *
  * Footer: [Back] [Save Changes] [Continue / Deploy to Vercel]
  */
@@ -50,6 +52,7 @@ import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import CloseIcon from '@mui/icons-material/Close';
 import CloudIcon from '@mui/icons-material/Cloud';
 import CloudUploadIcon from '@mui/icons-material/CloudUpload';
+import CreditCardIcon from '@mui/icons-material/CreditCard';
 import DeleteIcon from '@mui/icons-material/Delete';
 import DnsIcon from '@mui/icons-material/Dns';
 import EditIcon from '@mui/icons-material/Edit';
@@ -106,6 +109,13 @@ import {
   useDeleteRoleMutation,
   useSetRolePinMutation,
 } from '@/store/apis/admin-api';
+import {
+  useListOrganizationsQuery,
+  useGetTenantOrganizationQuery,
+  useGetOrganizationCreditsQuery,
+  useAssignTenantOrganizationMutation,
+  useCreateOrganizationMutation,
+} from '@/store/apis/organization-api';
 
 // ── Types ──────────────────────────────────────────────────────
 
@@ -155,6 +165,7 @@ const EDIT_STEPS: Array<{ label: string; icon: React.ReactNode; key: string }> =
   { label: 'Preview', icon: <PaletteIcon fontSize="small" />, key: 'preview' },
   { label: 'Slug', icon: <EditIcon fontSize="small" />, key: 'slug' },
   { label: 'License', icon: <KeyIcon fontSize="small" />, key: 'license' },
+  { label: 'Organization & Billing', icon: <CreditCardIcon fontSize="small" />, key: 'org' },
   { label: 'Features', icon: <AutoFixHighIcon fontSize="small" />, key: 'features' },
   { label: 'OpenAI API-Keys', icon: <KeyIcon fontSize="small" />, key: 'openai' },
   { label: 'Google OAuth', icon: <VerifiedUserIcon fontSize="small" />, key: 'oauth' },
@@ -393,6 +404,26 @@ export function EditTenantModal({ open, tenant, onClose, onSnackbar }: EditTenan
     return pack ? [...new Set(pack.apps.map((a) => a.templateId))] : [];
   });
   const [suiteApplying, setSuiteApplying] = useState(false);
+
+  // ── Organization & Billing (billing owner of this tenant) ──
+  // The Organization pays for the Tenant (Organization → Tenant → Apps). The
+  // step stages a new owner in `orgId`; the assignment is persisted by
+  // handleSave alongside the rest of the wizard's data.
+  const tenantSlug = tenant?.slug ?? '';
+  const { data: tenantOrgData } = useGetTenantOrganizationQuery(tenantSlug, { skip: !tenantSlug });
+  const { data: orgListData } = useListOrganizationsQuery();
+  const organizations = orgListData?.data?.organizations ?? [];
+  const currentOrg = tenantOrgData?.data?.organization ?? null;
+  const currentPlan = tenantOrgData?.data?.plan ?? null;
+  const currentSubscription = tenantOrgData?.data?.subscription ?? null;
+  const [orgId, setOrgId] = useState<string | null>(null);
+  const effectiveOrgId = orgId ?? currentOrg?.id ?? null;
+  const { data: creditsData } = useGetOrganizationCreditsQuery(effectiveOrgId ?? '', {
+    skip: !effectiveOrgId,
+  });
+  const [assignTenantOrg, { isLoading: assigningOrg }] = useAssignTenantOrganizationMutation();
+  const [createOrg, { isLoading: creatingOrg }] = useCreateOrganizationMutation();
+  const [newOrgName, setNewOrgName] = useState('');
 
   const applySuiteChanges = useCallback(async () => {
     if (!tenant) return;
@@ -829,14 +860,21 @@ export function EditTenantModal({ open, tenant, onClose, onSnackbar }: EditTenan
       if (!result.success) {
         throw new Error(result.error || 'Save failed');
       }
-      onSnackbar({ message: `✅ ${tenant.displayName} saved successfully`, severity: 'success' });
+      let message = `✅ ${tenant.displayName} saved successfully`;
+      // Persist the organization assignment (billing owner) when changed.
+      if (orgId && orgId !== currentOrg?.id) {
+        await assignTenantOrg({ tenantSlug: tenant.slug, orgId }).unwrap();
+        const orgName = organizations.find((o) => o.id === orgId)?.displayName ?? orgId;
+        message += ` — billing owner: ${orgName}`;
+      }
+      onSnackbar({ message, severity: 'success' });
     } catch (err: any) {
       const msg = err?.data?.error || (err instanceof Error ? err.message : 'Save failed');
       onSnackbar({ message: `❌ Save failed: ${msg}`, severity: 'error' });
     } finally {
       setSaving(false);
     }
-  }, [tenant, displayName, editTemplate, editPrimaryColor, editSecondaryColor, license, googleOAuth, dbConfig, envPairs, deployHookUrl, vercelProjectId, adminEmail, pinSignInEnabled, updateTenant, onSnackbar]);
+  }, [tenant, displayName, editTemplate, editPrimaryColor, editSecondaryColor, license, googleOAuth, dbConfig, envPairs, deployHookUrl, vercelProjectId, adminEmail, pinSignInEnabled, updateTenant, onSnackbar, orgId, currentOrg, organizations, assignTenantOrg]);
 
   // ── Flight Check run ───────────────────────────────────────
   const runFlightCheck = useCallback(async () => {
@@ -1621,7 +1659,116 @@ export function EditTenantModal({ open, tenant, onClose, onSnackbar }: EditTenan
     </Stack>
   );
 
-  // ── Step 3: Features ──────────────────────────────────────
+  // ── Step 4: Organization & Billing ────────────────────────
+  const renderStepOrgBilling = () => (
+    <Stack spacing={3}>
+      <Typography variant="subtitle1" sx={{ fontWeight: 600 }}>
+        Organization & Billing
+      </Typography>
+      <Typography variant="body2" color="text.secondary">
+        Billing is owned by the Organization, not the Tenant (Organization → Tenant → Apps).
+        This tenant&apos;s plan, credits and cloud usage are charged to the organization
+        selected here. Pick an owner and press Save Changes to persist the assignment.
+      </Typography>
+
+      {/* Current owner */}
+      <Paper variant="outlined" sx={{ p: 2 }}>
+        <Typography variant="subtitle2" sx={{ fontWeight: 600, mb: 1 }}>
+          Current Billing Owner
+        </Typography>
+        {currentOrg ? (
+          <Stack spacing={0.5}>
+            <SummaryRow label="Organization" value={currentOrg.displayName} />
+            <SummaryRow
+              label="Plan"
+              value={currentPlan
+                ? `${currentPlan.id.toUpperCase()}${currentPlan.priceMonthly ? ` — $${(currentPlan.priceMonthly / 100).toFixed(0)}/mo` : ''}`
+                : 'free'}
+            />
+            <SummaryRow label="Subscription" value={currentSubscription ? currentSubscription.status : 'none'} />
+          </Stack>
+        ) : (
+          <Typography variant="body2" color="text.secondary">
+            No organization assigned yet — this tenant is not billed to anyone.
+          </Typography>
+        )}
+      </Paper>
+
+      {/* Assignment */}
+      <FormControl fullWidth>
+        <InputLabel>Billing Organization</InputLabel>
+        <Select
+          value={effectiveOrgId ?? ''}
+          label="Billing Organization"
+          onChange={(e) => setOrgId(e.target.value || null)}
+        >
+          {organizations.map((o) => (
+            <MenuItem key={o.id} value={o.id}>{o.displayName}</MenuItem>
+          ))}
+        </Select>
+        <Typography variant="caption" color="text.secondary" sx={{ mt: 0.5 }}>
+          {orgId && orgId !== currentOrg?.id
+            ? `Will move this tenant to "${organizations.find((o) => o.id === orgId)?.displayName ?? orgId}" on Save.`
+            : 'Select the organization that pays for this tenant, then press Save Changes.'}
+        </Typography>
+      </FormControl>
+
+      {/* Credits balance of the effective org */}
+      <Paper variant="outlined" sx={{ p: 2 }}>
+        <Typography variant="subtitle2" sx={{ fontWeight: 600, mb: 1 }}>
+          Credits Balance
+        </Typography>
+        {creditsData?.data?.balance ? (
+          <Stack spacing={0.5}>
+            <SummaryRow label="Available" value={`${creditsData.data.balance.available} credits`} />
+            <SummaryRow label="Expiring ≤ 7d" value={`${creditsData.data.balance.expiringSoon} credits`} />
+            <SummaryRow label="Debt" value={`${creditsData.data.balance.debt} credits`} />
+          </Stack>
+        ) : (
+          <Typography variant="body2" color="text.secondary">No balance data for this organization.</Typography>
+        )}
+      </Paper>
+
+      {/* Create a new organization */}
+      <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
+        <TextField
+          label="New organization name"
+          value={newOrgName}
+          onChange={(e) => setNewOrgName(e.target.value)}
+          size="small"
+          sx={{ flex: 1 }}
+        />
+        <Button
+          variant="outlined"
+          size="small"
+          disabled={creatingOrg || !newOrgName.trim()}
+          onClick={async () => {
+            try {
+              const res = await createOrg({ displayName: newOrgName.trim() }).unwrap();
+              const created = res.data?.organization;
+              if (created) {
+                setOrgId(created.id);
+                setNewOrgName('');
+                onSnackbar({
+                  message: `✅ Organization "${created.displayName}" created — press Save Changes to assign this tenant`,
+                  severity: 'success',
+                });
+              }
+            } catch (err) {
+              const msg = err && typeof err === 'object' && 'data' in err
+                ? String((err as { data?: { error?: string } }).data?.error || 'Failed to create organization')
+                : 'Failed to create organization';
+              onSnackbar({ message: `❌ ${msg}`, severity: 'error' });
+            }
+          }}
+        >
+          Create
+        </Button>
+      </Stack>
+    </Stack>
+  );
+
+  // ── Step 5: Features ──────────────────────────────────────
   const renderStepFeatures = () => (
     <Stack spacing={3}>
       <Typography variant="subtitle1" sx={{ fontWeight: 600 }}>
@@ -2920,6 +3067,28 @@ export function EditTenantModal({ open, tenant, onClose, onSnackbar }: EditTenan
         </Stack>
       </Paper>
 
+      {/* Organization & Billing */}
+      <Paper variant="outlined" sx={{ p: 2 }}>
+        <Typography variant="subtitle2" sx={{ fontWeight: 600, mb: 1 }}>
+          Organization & Billing
+        </Typography>
+        <Stack spacing={0.5}>
+          <SummaryRow
+            label="Billing Owner"
+            value={effectiveOrgId
+              ? (organizations.find((o) => o.id === effectiveOrgId)?.displayName ?? effectiveOrgId)
+              : '⚠️ not assigned'}
+          />
+          <SummaryRow label="Plan" value={currentPlan ? currentPlan.id.toUpperCase() : 'free'} />
+          {orgId && orgId !== currentOrg?.id ? (
+            <SummaryRow
+              label="Change"
+              value={`Will move to ${organizations.find((o) => o.id === orgId)?.displayName ?? orgId} on save`}
+            />
+          ) : null}
+        </Stack>
+      </Paper>
+
       {/* Google OAuth */}
       <Paper variant="outlined" sx={{ p: 2 }}>
         <Typography variant="subtitle2" sx={{ fontWeight: 600, mb: 1 }}>
@@ -3010,17 +3179,18 @@ export function EditTenantModal({ open, tenant, onClose, onSnackbar }: EditTenan
       case 1: return renderStepPreview();
       case 2: return renderStepSlug();
       case 3: return renderStepLicense();
-      case 4: return renderStepFeatures();
-      case 5: return renderStepOpenAi();
-      case 6: return renderStepOAuth();
-      case 7: return renderStepDatabase();
-      case 8: return renderStepEnv();
-      case 9: return renderStepHooks();
-      case 10: return renderStepRoles();
-      case 11: return renderStepCustomDomain();
-      case 12: return renderStepAuth();
-      case 13: return renderStepFlightCheck();
-      case 14: return renderStepSummary();
+      case 4: return renderStepOrgBilling();
+      case 5: return renderStepFeatures();
+      case 6: return renderStepOpenAi();
+      case 7: return renderStepOAuth();
+      case 8: return renderStepDatabase();
+      case 9: return renderStepEnv();
+      case 10: return renderStepHooks();
+      case 11: return renderStepRoles();
+      case 12: return renderStepCustomDomain();
+      case 13: return renderStepAuth();
+      case 14: return renderStepFlightCheck();
+      case 15: return renderStepSummary();
       default: return null;
     }
   };
