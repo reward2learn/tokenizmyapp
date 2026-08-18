@@ -27,14 +27,22 @@ import { jsonError, jsonOk } from '@/lib/api/response';
 import { extractExcelData } from '@/domain/excel/excel-extractor';
 
 export const dynamic = 'force-dynamic';
-export const config = {
-  api: {
-    bodyParser: {
-      // Increase size limit for Excel files (max 50MB)
-      sizeLimit: '50mb',
-    },
-  },
-};
+
+/*
+ * There is no body-size config here, and there cannot be.
+ *
+ * This used to carry `export const config = { api: { bodyParser: { sizeLimit:
+ * '50mb' } } }`. That is Pages Router syntax: the App Router has no bodyParser
+ * to configure, so Next.js parsed the export, warned that it was deprecated and
+ * ignored, and dropped it. Nothing ever raised a limit — the comment claiming
+ * 50MB described behaviour the code did not have.
+ *
+ * The real ceiling is the platform's, not the framework's: a Vercel Serverless
+ * Function rejects a request body over 4.5MB before this handler is entered, and
+ * no export can change that. A workbook larger than that needs a different
+ * route entirely — a direct-to-blob upload with the handler reading the stored
+ * object, rather than the file transiting the function.
+ */
 
 export async function POST(request: Request): Promise<NextResponse> {
   const guard = await requireWriteAuth(request);
