@@ -334,6 +334,14 @@ export const organizationApi = createApi({
           gracePeriodEndsAt: string | null;
           pendingPlanId: string | null;
         };
+        /**
+         * The subscription as of the server's reconcile against Stripe, which
+         * runs on this GET. Newer than the copy the organization query returns,
+         * so the Plan tab reads this one — see the route's GET doc comment.
+         */
+        subscription: Subscription;
+        /** Why a reconcile declined to change anything, when that is worth showing. */
+        reconcileNote: string | null;
       }>,
       string
     >({

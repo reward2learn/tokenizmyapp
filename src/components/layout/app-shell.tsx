@@ -7,7 +7,6 @@ import type { Route } from 'next';
 import AppBar from '@mui/material/AppBar';
 import Avatar from '@mui/material/Avatar';
 import Box from '@mui/material/Box';
-import Breadcrumbs from '@mui/material/Breadcrumbs';
 import Collapse from '@mui/material/Collapse';
 import Divider from '@mui/material/Divider';
 import Drawer from '@mui/material/Drawer';
@@ -24,11 +23,11 @@ import Typography from '@mui/material/Typography';
 import Button from '@mui/material/Button';
 import dynamic from 'next/dynamic';
 import MenuIcon from '@mui/icons-material/Menu';
+import SettingsOutlined from '@mui/icons-material/SettingsOutlined';
 import Menu from '@mui/material/Menu';
 import MenuItem from '@mui/material/MenuItem';
 import ChatIcon from '@mui/icons-material/Chat';
 import CloseIcon from '@mui/icons-material/Close';
-import NavigateNextIcon from '@mui/icons-material/NavigateNext';
 import SearchOutlined from '@mui/icons-material/SearchOutlined';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import ExpandLessIcon from '@mui/icons-material/ExpandLess';
@@ -37,9 +36,11 @@ import DarkModeOutlined from '@mui/icons-material/DarkModeOutlined';
 import BrightnessAutoOutlined from '@mui/icons-material/BrightnessAutoOutlined';
 import type { ReactNode } from 'react';
 import { SavedConversationsMenu } from '@/components/chat/saved-conversations-menu';
-import { getReviewPartDisplayTitle, listNavPages, resolvePage, resolveReviewPart } from '@/lib/page-catalog';
+import { HeaderCredits } from '@/components/billing/header-credits';
+import { SettingsDialog } from '@/components/settings/settings-dialog';
+import { listNavPages } from '@/lib/page-catalog';
 import { useAppDispatch, useAppSelector } from '@/store/hooks';
-import { setChatDrawerOpen, setDrawerOpen, toggleChatDrawer } from '@/store/ui-slice';
+import { openSettingsDialog, setChatDrawerOpen, setDrawerOpen, toggleChatDrawer } from '@/store/ui-slice';
 import { useListPagesQuery } from '@/store/apis/content-api';
 import { useGetBrandConfigQuery } from '@shared/store/apis/brand-config-api';
 import { useGetNavigationQuery } from '@/store/apis/navigation-api';
@@ -163,33 +164,6 @@ export function AppShell({ children }: { children: ReactNode }) {
 
   const isActive = (href: string) =>
     pathname === href || (href !== '/' && href !== '/dashboard' && pathname.startsWith(href));
-
-  /** Resolve breadcrumb trail from the current pathname. */
-  const getBreadcrumbs = useCallback((p: string) => {
-    const segments = p.split('/').filter(Boolean);
-    const crumbs: { label: string; href: string }[] = [];
-    let accumulated = '';
-    for (const segment of segments) {
-      accumulated += '/' + segment;
-      const page = resolvePage(segment);
-      if (page) {
-        crumbs.push({ label: page.title, href: accumulated });
-      } else {
-        const part = resolveReviewPart(segment);
-        if (part) {
-          crumbs.push({ label: getReviewPartDisplayTitle(part.title), href: accumulated });
-        } else {
-          crumbs.push({
-            label: segment.charAt(0).toUpperCase() + segment.slice(1).replace(/-/g, ' '),
-            href: accumulated,
-          });
-        }
-      }
-    }
-    return crumbs;
-  }, []);
-
-  const breadcrumbs = useMemo(() => getBreadcrumbs(pathname), [pathname, getBreadcrumbs]);
 
   /** Search query for filtering nav items inside the drawer. */
   const [searchQuery, setSearchQuery] = useState('');
@@ -382,50 +356,14 @@ export function AppShell({ children }: { children: ReactNode }) {
             ))}
           </Menu>
 
-          {/* Breadcrumbs trail */}
-          {/* {breadcrumbs.length > 0 && (
-            <Breadcrumbs
-              separator={<NavigateNextIcon fontSize="small" sx={{ color: 'text.disabled' }} />}
-              sx={{ ml: 2, '& .MuiBreadcrumbs-ol': { flexWrap: 'nowrap' } }}
-            >
-              {breadcrumbs.map((crumb, idx) => {
-                const isLast = idx === breadcrumbs.length - 1;
-                return isLast ? (
-                  <Typography
-                    key={crumb.href}
-                    variant="caption"
-                    sx={{ color: 'text.secondary', fontWeight: 500, whiteSpace: 'nowrap' }}
-                  >
-                    {crumb.label}
-                  </Typography>
-                ) : (
-                  <Link
-                    key={crumb.href}
-                    href={crumb.href as Route}
-                    style={{ textDecoration: 'none', color: 'inherit' }}
-                  >
-                    <Typography
-                      variant="caption"
-                      sx={{
-                        color: 'text.disabled',
-                        '&:hover': { color: 'text.primary' },
-                        '&:focus-visible': { color: 'text.primary' },
-                        whiteSpace: 'nowrap',
-                      }}
-                    >
-                      {crumb.label}
-                    </Typography>
-                  </Link>
-                );
-              })}
-            </Breadcrumbs>
-          )} */}
-
           {/* Spacer */}
           <Box sx={{ flex: 1 }} />
 
           {/* Right-aligned controls */}
           <Box sx={{ display: 'flex', alignItems: 'center' }}>
+            {/* Balance first: it is the number that decides whether the next
+                generation runs, so it reads before the tools that spend it. */}
+            <HeaderCredits />
             <SavedConversationsMenu />
             <Tooltip title={chatDrawerOpen ? 'Close AI chat' : 'Open AI chat'}>
               <IconButton
@@ -455,22 +393,34 @@ export function AppShell({ children }: { children: ReactNode }) {
           >
             {user?.name?.[0] ?? 'R'}
           </Avatar>
-          <Box sx={{ flex: 1, minWidth: 0, position: 'relative' }}>
+          <Box sx={{ flex: 1, minWidth: 0 }}>
             <Typography variant="body2" sx={{ fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
               {user?.name ?? 'Guest'}
             </Typography>
-            <Box sx={{ position: 'absolute', top: 0, right: 0 }}>
-              <IconButton
-                aria-label="Settings"
-                onClick={() => console.log('Open settings')}
-              >
-                <MenuIcon fontSize="small" />
-              </IconButton>
-            </Box>
             <Typography variant="caption" color="text.secondary" sx={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
               {user?.email ?? `Tier: ${tier}`}
             </Typography>
           </Box>
+          {/*
+            A sibling of the name/email column, not an overlay on top of it.
+            Absolutely positioning it inside that column put the button over the
+            display name, so a long name rendered underneath the icon.
+
+            Hidden for signed-out visitors: Settings is Google-tier, and an
+            entry point that only ever opens a sign-in prompt is noise next to
+            the "Sign in with Google" button already at the foot of the drawer.
+          */}
+          {tier !== 'public' && (
+            <Tooltip title="Settings">
+              <IconButton
+                aria-label="Open settings"
+                onClick={() => dispatch(openSettingsDialog({ section: 'general' }))}
+                sx={{ color: 'text.secondary', flexShrink: 0 }}
+              >
+                <SettingsOutlined fontSize="small" />
+              </IconButton>
+            </Tooltip>
+          )}
         </Box>
         <Divider />
         <Box sx={{ px: 2, py: 1 }}>
@@ -609,6 +559,12 @@ export function AppShell({ children }: { children: ReactNode }) {
           <ChatDrawerPanel variant="drawer" />
         </Box>
       </Box>
+
+      {/* Settings, over the current page. Mounted at the shell so the drawer's
+          cog and the header's billing controls all reach the same instance;
+          the Modal renders null while closed, so nothing inside it fetches
+          until someone opens it. */}
+      <SettingsDialog />
     </Box>
   );
 }

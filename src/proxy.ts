@@ -4,13 +4,27 @@ import { verifySession, COOKIE_NAME, type SessionClaims } from '@/lib/auth/jwt';
 // Public pages that don't require auth (kept in sync with page-catalog.ts)
 const PUBLIC_SLUGS = new Set(['dashboard', 'terms-of-service', 'privacy-policy']);
 
+/**
+ * Stripe.js needs three of these directives and silently produces an empty
+ * card form without them — the "Add a card" dialog rendered with no field and
+ * a permanently disabled Save button, because the script never loaded:
+ *
+ *   script-src  js.stripe.com    — Stripe.js itself
+ *   frame-src   js.stripe.com    — Elements renders card inputs in an iframe so
+ *               hooks.stripe.com   the number never touches our origin, and 3-D
+ *                                  Secure challenges open on hooks.stripe.com
+ *   connect-src api.stripe.com   — tokenization and confirmation calls
+ *
+ * A CSP violation is reported only in the browser console, so this failed as
+ * "the card form is blank" with nothing in the server logs.
+ */
 const CSP = [
   "default-src 'self'",
-  "frame-src 'self' https://vercel.live",
-  "script-src 'self' 'unsafe-eval' 'unsafe-inline' https://vercel.live",
+  "frame-src 'self' https://vercel.live https://js.stripe.com https://hooks.stripe.com",
+  "script-src 'self' 'unsafe-eval' 'unsafe-inline' https://vercel.live https://js.stripe.com",
   "style-src 'self' 'unsafe-inline'",
   "img-src 'self' data: https:",
-  "connect-src 'self' https://accounts.google.com https://oauth2.googleapis.com https://api.openai.com https://api.vercel.com https://vercel.live",
+  "connect-src 'self' https://accounts.google.com https://oauth2.googleapis.com https://api.openai.com https://api.vercel.com https://vercel.live https://api.stripe.com",
   "font-src 'self' https://fonts.gstatic.com",
   "frame-ancestors 'none'",
   "form-action 'self'",

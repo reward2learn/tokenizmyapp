@@ -248,7 +248,17 @@ export function listConfiguredPrices(config?: StripeEnvConfig): Array<{
  */
 export function planForPriceId(
   priceId: string,
+  config?: StripeEnvConfig,
 ): { planId: PlanId; interval: BillingInterval; priceId: string } | null {
+  // The tenant's own catalog first, then this deployment's. A tenant billing
+  // on its own Stripe account has its price ids in metadata.config.stripe.prices
+  // and none of them in process.env, so a config-blind lookup reported every
+  // one of its prices as "not in this deployment's catalog" and left the plan
+  // unchanged on a subscription the customer had actually paid for.
+  if (config) {
+    const scoped = listConfiguredPrices(config).find((entry) => entry.priceId === priceId);
+    if (scoped) return scoped;
+  }
   return listConfiguredPrices().find((entry) => entry.priceId === priceId) ?? null;
 }
 

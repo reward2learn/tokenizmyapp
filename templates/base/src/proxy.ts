@@ -4,12 +4,20 @@ import { verifySession, COOKIE_NAME, type SessionClaims } from '@/lib/auth/jwt';
 // Public pages that don't require auth (kept in sync with page-catalog.ts)
 const PUBLIC_SLUGS = new Set(['dashboard', 'terms-of-service', 'privacy-policy']);
 
+/**
+ * Stripe.js needs three of these directives and silently produces an empty
+ * card form without them — see the same note in the platform's proxy.ts.
+ * `frame-src` has to be spelled out here even though the platform inherits it
+ * from `default-src 'self'` reasoning: Elements renders the card inputs in an
+ * iframe on js.stripe.com, so the number never touches this origin.
+ */
 const CSP = [
   "default-src 'self'",
-  "script-src 'self' 'unsafe-eval' 'unsafe-inline'",
+  "frame-src 'self' https://js.stripe.com https://hooks.stripe.com",
+  "script-src 'self' 'unsafe-eval' 'unsafe-inline' https://js.stripe.com",
   "style-src 'self' 'unsafe-inline'",
   "img-src 'self' data: https:",
-  "connect-src 'self' https://accounts.google.com https://oauth2.googleapis.com https://api.openai.com https://api.vercel.com",
+  "connect-src 'self' https://accounts.google.com https://oauth2.googleapis.com https://api.openai.com https://api.vercel.com https://api.stripe.com",
   "font-src 'self' https://fonts.gstatic.com",
   "frame-ancestors 'none'",
   "form-action 'self'",

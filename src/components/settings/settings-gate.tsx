@@ -1,9 +1,7 @@
 'use client';
 
-import { useAppSelector } from '@/store/hooks';
 import { SettingsPanel } from '@/components/settings/settings-panel';
-import { useGetTenantOrganizationQuery, useListOrganizationsQuery } from '@/store/apis/organization-api';
-import { getClientTenantConfig } from '@shared/lib/config/tenant';
+import { useBillingOrgId } from '@/components/billing/use-billing-org';
 
 /**
  * Supplies Settings with the organization currently selected in the admin
@@ -20,19 +18,5 @@ import { getClientTenantConfig } from '@shared/lib/config/tenant';
  * actually pays for this tenant instead of a "No organization" pane.
  */
 export function SettingsGate() {
-  const selectedOrgId = useAppSelector((s) => s.ui.adminSelectedOrgId);
-  const tenantSlug = getClientTenantConfig().slug;
-
-  const { data: tenantOrg } = useGetTenantOrganizationQuery(tenantSlug, {
-    skip: !tenantSlug,
-  });
-  const { data: orgList } = useListOrganizationsQuery();
-
-  const orgId =
-    selectedOrgId ??
-    tenantOrg?.data?.organization.id ??
-    orgList?.data?.organizations?.[0]?.id ??
-    null;
-
-  return <SettingsPanel orgId={orgId} />;
+  return <SettingsPanel orgId={useBillingOrgId()} />;
 }

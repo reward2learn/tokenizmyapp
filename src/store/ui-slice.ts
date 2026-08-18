@@ -68,6 +68,16 @@ export interface UiState {
   /** Active tab in the Billing panel. */
   billingTab: BillingTab;
   settingsSection: SettingsSection;
+  /**
+   * Settings rendered as a modal over whatever page is open.
+   *
+   * In the store rather than component state because three different surfaces
+   * open it — the drawer's cog, the header credit chip and the header top-up
+   * button — and two of them also choose which section and billing tab it
+   * lands on. Local state in the shell would leave those callers reaching
+   * across the tree for a setter.
+   */
+  settingsDialogOpen: boolean;
 }
 
 const initialState: UiState = {
@@ -87,6 +97,7 @@ const initialState: UiState = {
   adminActiveSubtab: 'info',
   billingTab: 'plan',
   settingsSection: 'general',
+  settingsDialogOpen: false,
 };
 
 export const uiSlice = createSlice({
@@ -156,6 +167,30 @@ export const uiSlice = createSlice({
     setSettingsSection(state, action: { payload: SettingsSection }) {
       state.settingsSection = action.payload;
     },
+    setSettingsDialogOpen(state, action: { payload: boolean }) {
+      state.settingsDialogOpen = action.payload;
+    },
+    /**
+     * Open Settings at a specific place.
+     *
+     * One action rather than three dispatches from every call site: the header
+     * top-up button has to land on Billing → AI Credits, and doing that as
+     * separate `setSettingsSection` / `setBillingTab` / `setSettingsDialogOpen`
+     * dispatches renders the dialog once per step on whatever tab was left
+     * over from last time.
+     */
+    openSettingsDialog(
+      state,
+      action: { payload: { section?: SettingsSection; billingTab?: BillingTab } },
+    ) {
+      const { section, billingTab } = action.payload;
+      if (section) state.settingsSection = section;
+      if (billingTab) state.billingTab = billingTab;
+      state.settingsDialogOpen = true;
+      // The drawer is what the cog lives in; leaving it open puts a scrim and
+      // a 280px panel over the dialog that just opened on top of it.
+      state.drawerOpen = false;
+    },
     setAdminActiveSubtab(state, action: { payload: AdminTenantSubtab }) {
       state.adminActiveSubtab = action.payload;
     },
@@ -178,4 +213,6 @@ export const {
   setAdminActiveSubtab,
   setBillingTab,
   setSettingsSection,
+  setSettingsDialogOpen,
+  openSettingsDialog,
 } = uiSlice.actions;

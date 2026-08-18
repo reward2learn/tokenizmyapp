@@ -6,14 +6,21 @@
  *   actually sell. The UI needs this to avoid offering a plan whose price id
  *   is missing, which would fail only after the customer clicked buy.
  *
+ *   Also reconciles the stored plan against Stripe before answering, and
+ *   returns the result as `subscription`. Opening Settings → Billing is
+ *   therefore self-healing: a purchase whose webhook never arrived shows the
+ *   plan the customer actually bought instead of Free.
+ *
  * POST /api/admin/organizations/[orgId]/checkout
  *   Body: { planId, interval, successUrl?, cancelUrl? }
  *   No subscription yet → returns a hosted Checkout URL to redirect to.
  *   Already subscribed → changes the plan in place and reports whether it
  *   applied immediately (upgrade) or is scheduled (downgrade).
  *
- * Neither path writes the new plan. The webhook does — see
- * stripe-webhook-service.ts for why that asymmetry is deliberate.
+ * Neither POST path writes the new plan. The webhook does — see
+ * stripe-webhook-service.ts for why that asymmetry is deliberate. GET is the
+ * safety net for when the webhook never arrives; it converges on Stripe rather
+ * than deciding anything itself.
  *
  * Auth: requireWriteAuth + platform admin. Billing is control-plane money.
  */
@@ -27,8 +34,10 @@ import {
   createCheckoutSession,
   changePlan,
   getStripeLinkage,
+  reconcileSubscriptionFromStripe,
   stripeReadiness,
 } from '@/domain/billing/stripe-service';
+import { getSubscription } from '@/domain/billing/entitlement-service';
 import { listConfiguredPrices } from '@/lib/billing/stripe-client';
 import { isPlanId } from '@/lib/billing/plans';
 
@@ -65,6 +74,22 @@ export async function GET(
     if (!organization) return jsonError('Organization not found', 404);
 
     const stripeConfig = await resolveTenantStripeConfig(orgId, db);
+
+    // Repair before reporting. A missing STRIPE_WEBHOOK_SECRET or an
+    // unregistered endpoint leaves a paid customer on Free with nothing in the
+    // product to notice it; asking Stripe on the read that renders the plan
+    // closes that gap without depending on webhook delivery. Never fatal — a
+    // Stripe outage should degrade to the stored plan, not a 500 on Settings.
+    let reconcile: Awaited<ReturnType<typeof reconcileSubscriptionFromStripe>> | null = null;
+    try {
+      reconcile = await reconcileSubscriptionFromStripe(orgId, db, stripeConfig ?? undefined);
+      if (reconcile.changed) {
+        console.log(`[billing] ${orgId}: ${reconcile.reason}`);
+      }
+    } catch (err) {
+      console.warn(`[billing] Reconcile failed for ${orgId}:`, (err as Error).message);
+    }
+
     return jsonOk({
       // Tenant orgs report the tenant's own Stripe configuration, so the
       // billing panel shows the tenant's real readiness instead of this
@@ -75,6 +100,15 @@ export async function GET(
         interval,
       })),
       linkage: await getStripeLinkage(orgId, db),
+      // Read after the reconcile so the Plan tab marks the plan Stripe agrees
+      // with, rather than the one the organization GET cached a moment ago.
+      subscription: await getSubscription(orgId, db),
+      // Only the price-catalog mismatch. Every other outcome is ordinary, and
+      // reporting those would hang a permanent warning on healthy accounts —
+      // see ReconcileCode. This one looks exactly like "my payment did nothing"
+      // from the customer's side, so it has to be visible in the panel and not
+      // only in the server log.
+      reconcileNote: reconcile?.code === 'price_unknown' ? reconcile.reason : null,
     });
   } catch (err) {
     return jsonError('Failed to read billing state: ' + (err as Error).message, 500);

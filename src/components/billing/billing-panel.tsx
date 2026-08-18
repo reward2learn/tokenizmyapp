@@ -71,12 +71,16 @@ export function BillingPanel({ orgId }: { orgId: string }) {
   const { data: creditsData } = useGetOrganizationCreditsQuery(orgId, { skip: !orgId });
   const { data: checkoutData } = useGetBillingCheckoutQuery(orgId, { skip: !orgId });
 
-  const subscription = orgData?.data?.subscription ?? null;
+  // The checkout query reconciles against Stripe before answering, so its copy
+  // is the fresher of the two. Falling back to the organization query keeps the
+  // panel populated when Stripe is switched off entirely.
+  const subscription = checkoutData?.data?.subscription ?? orgData?.data?.subscription ?? null;
   const balance = creditsData?.data?.balance ?? null;
   const grants = creditsData?.data?.grants ?? [];
   const ledger = creditsData?.data?.ledger ?? [];
   const readiness = checkoutData?.data?.readiness ?? null;
   const linkage = checkoutData?.data?.linkage ?? null;
+  const reconcileNote = checkoutData?.data?.reconcileNote ?? null;
 
   return (
     <Paper elevation={0} sx={{ border: '1px solid', borderColor: 'divider' }}>
@@ -100,6 +104,12 @@ export function BillingPanel({ orgId }: { orgId: string }) {
           <Alert severity="error" sx={{ mb: 2 }}>
             <AlertTitle>Stripe configuration problem</AlertTitle>
             {readiness.configError}
+          </Alert>
+        )}
+        {reconcileNote && (
+          <Alert severity="warning" sx={{ mb: 2 }}>
+            <AlertTitle>Plan could not be confirmed with Stripe</AlertTitle>
+            {reconcileNote}
           </Alert>
         )}
         {readiness?.liveMode && (
@@ -394,27 +404,6 @@ function AiCreditsTab({
         below is the whole story.
       */}
 
-      <Box>
-        <Typography variant="overline" color="text.secondary">
-          AI credit balance
-        </Typography>
-        <Stack direction="row" sx={{ alignItems: 'baseline', gap: 1 }}>
-          <Typography variant="h3" sx={{ fontWeight: 600, fontVariantNumeric: 'tabular-nums' }}>
-            {balance?.available ?? 0}
-          </Typography>
-          <Typography variant="body1" color="text.secondary">
-            credits
-          </Typography>
-          {balance && balance.expiringSoon > 0 && (
-            <Chip
-              label={`${balance.expiringSoon} expiring within 7 days`}
-              size="small"
-              color="warning"
-              sx={{ ml: 1 }}
-            />
-          )}
-        </Stack>
-      </Box>
 
       {/* Where the balance comes from. Purchased and bonus credits are separate
           lines because they are separate grants — a refund can claw back a

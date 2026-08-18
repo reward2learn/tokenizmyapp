@@ -13,12 +13,12 @@
 import type Stripe from 'stripe';
 import type { createRawClient } from '@/lib/db';
 import {
-  getStripe,
   getPriceId,
   getStripeFor,
   requireStripe,
   requireStripeFor,
   listConfiguredPrices,
+  planForPriceId,
   stripeConfigError,
   isLiveKey,
   type StripeEnvConfig,
@@ -497,4 +497,170 @@ export async function removePaymentMethod(
   }
 
   await stripe.paymentMethods.detach(paymentMethodId);
+}
+
+/**
+ * Why a reconcile ended where it did.
+ *
+ * A code rather than only prose because exactly one outcome is worth showing a
+ * customer: `price_unknown` means Stripe holds a subscription this deployment
+ * cannot name, which is a misconfiguration that looks from their side like the
+ * payment did nothing. The rest are ordinary — an unconfigured Stripe, a Free
+ * org with no customer, or simple agreement — and surfacing those as a banner
+ * would put a permanent warning on every healthy account.
+ */
+export type ReconcileCode =
+  | 'not_configured'
+  | 'no_customer'
+  | 'no_subscription'
+  | 'price_unknown'
+  | 'in_sync'
+  | 'repaired';
+
+export interface ReconcileResult {
+  code: ReconcileCode;
+  /** True when the stored plan or status did not match Stripe and was rewritten. */
+  changed: boolean;
+  planId: PlanId | null;
+  status: 'active' | 'past_due' | 'canceled' | null;
+  reason: string;
+}
+
+/**
+ * Pull the live subscription from Stripe and make the database agree with it.
+ *
+ * The exception to this module's "webhooks own the write path" rule, and a
+ * deliberate one. Webhooks are the *fast* path, not the only one: if
+ * STRIPE_WEBHOOK_SECRET is unset, the endpoint is not registered in the Stripe
+ * dashboard, or a delivery is dropped, then a customer who has genuinely paid
+ * sits on Free forever and nothing in the product ever notices. That is the
+ * failure this repairs — it was reported as "the plan I paid for is not
+ * reflected in Settings".
+ *
+ * Safe to run on a read because it is a convergence, not a decision: Stripe is
+ * asked what the subscription is and the answer is written down. It grants no
+ * credits and charges nothing. `getBalance` mints the monthly allowance for
+ * whatever plan it finds, so a repaired plan produces its allowance on the
+ * next balance read without this function touching the ledger.
+ *
+ * A no-op when the org has no Stripe customer, when Stripe is not configured,
+ * or when the stored state already matches.
+ */
+export async function reconcileSubscriptionFromStripe(
+  orgId: string,
+  db?: RawDb,
+  config?: StripeEnvConfig,
+): Promise<ReconcileResult> {
+  db = await getDb(db);
+
+  const stripe = getStripeFor(config);
+  if (!stripe) {
+    return {
+      code: 'not_configured',
+      changed: false,
+      planId: null,
+      status: null,
+      reason: 'Stripe is not configured.',
+    };
+  }
+
+  const linkage = await getStripeLinkage(orgId, db);
+  if (!linkage.customerId) {
+    return {
+      code: 'no_customer',
+      changed: false,
+      planId: null,
+      status: null,
+      reason: 'No Stripe customer for this org.',
+    };
+  }
+
+  // `status: 'all'` because a canceled subscription is just as much a fact to
+  // converge on as an active one — an org whose subscription ended should not
+  // keep its paid plan because the deletion webhook was the one that went
+  // missing.
+  const list = await stripe.subscriptions.list({
+    customer: linkage.customerId,
+    status: 'all',
+    limit: 10,
+  });
+
+  // Newest live subscription wins. Stripe keeps canceled ones around forever,
+  // so picking `data[0]` blind would resurrect an old plan on an org that has
+  // since resubscribed.
+  const LIVE: Stripe.Subscription.Status[] = ['active', 'trialing', 'past_due', 'unpaid'];
+  const subscription =
+    list.data.filter((s) => LIVE.includes(s.status)).sort((a, b) => b.created - a.created)[0] ??
+    list.data.sort((a, b) => b.created - a.created)[0] ??
+    null;
+
+  const { setPlan, getSubscription } = await import('@/domain/billing/entitlement-service');
+  const stored = await getSubscription(orgId, db);
+
+  if (!subscription) {
+    return {
+      code: 'no_subscription',
+      changed: false,
+      planId: stored.planId as PlanId,
+      status: null,
+      reason: 'Stripe has no subscription for this customer.',
+    };
+  }
+
+  const priceId = subscription.items.data[0]?.price?.id ?? null;
+  const mapped = priceId ? planForPriceId(priceId, config) : null;
+  if (!mapped) {
+    // Never guess. An unrecognised price means the STRIPE_PRICE_* variables do
+    // not describe the Stripe account being read, and writing *some* plan on
+    // that basis would hand out entitlements nobody bought.
+    return {
+      code: 'price_unknown',
+      changed: false,
+      planId: stored.planId as PlanId,
+      status: null,
+      reason:
+        `Stripe price ${priceId} is not in the price catalog for this organization — ` +
+        `plan left unchanged. Check the STRIPE_PRICE_* values against this Stripe account.`,
+    };
+  }
+
+  const status: 'active' | 'past_due' | 'canceled' =
+    subscription.status === 'active' || subscription.status === 'trialing'
+      ? 'active'
+      : subscription.status === 'past_due' || subscription.status === 'unpaid'
+        ? 'past_due'
+        : 'canceled';
+
+  // A canceled subscription falls back to Free, matching what the deletion
+  // webhook does — otherwise convergence would only ever work upward.
+  const planId: PlanId = status === 'canceled' ? 'free' : mapped.planId;
+
+  const alreadyCorrect =
+    stored.planId === planId &&
+    stored.status === status &&
+    linkage.subscriptionId === subscription.id &&
+    linkage.priceId === priceId;
+
+  if (alreadyCorrect) {
+    return { code: 'in_sync', changed: false, planId, status, reason: 'Already in sync with Stripe.' };
+  }
+
+  await setPlan(orgId, { planId, interval: mapped.interval, status }, db);
+  await saveStripeLinkage(
+    orgId,
+    {
+      subscriptionId: subscription.id,
+      priceId,
+      ...(status === 'past_due' ? {} : { gracePeriodEndsAt: null }),
+    },
+    db,
+  );
+
+  return {
+    code: 'repaired',
+    changed: true,
+    planId,
+    status,
+    reason: `Repaired from Stripe: ${planId} (${mapped.interval}), status ${status}.`,
+  };
 }
