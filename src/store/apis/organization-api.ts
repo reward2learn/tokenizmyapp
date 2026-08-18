@@ -16,11 +16,13 @@ export interface Organization {
   tenants?: { slug: string; displayName: string }[];
 }
 
+export type OrgMemberRole = 'owner' | 'admin' | 'member' | 'billing';
+
 export interface OrgMember {
   id: string;
   orgId: string;
   userId: string;
-  role: 'owner' | 'admin' | 'member' | 'billing';
+  role: OrgMemberRole;
   createdAt: string;
 }
 
@@ -130,6 +132,23 @@ export const organizationApi = createApi({
       }),
       // Plan changes alter entitlements, so tenant-scoped reads go stale too.
       invalidatesTags: ['Organization', 'TenantOrg'],
+    }),
+
+    /**
+     * Add or re-role a teammate. Reads come from `getOrganization`, which
+     * already returns members — hence the Organization invalidation here
+     * rather than a tag of its own.
+     */
+    addOrgMember: builder.mutation<
+      ApiEnvelope<{ members: OrgMember[] }>,
+      { orgId: string; userId: string; role?: OrgMemberRole }
+    >({
+      query: ({ orgId, ...body }) => ({
+        url: `admin/organizations/${orgId}/members`,
+        method: 'POST',
+        body,
+      }),
+      invalidatesTags: ['Organization'],
     }),
 
     /** Owning org + resolved entitlements for a tenant. Drives paywall UI. */
@@ -304,6 +323,7 @@ export const {
   useGetOrganizationQuery,
   useCreateOrganizationMutation,
   useUpdateOrganizationMutation,
+  useAddOrgMemberMutation,
   useGetTenantOrganizationQuery,
   useAssignTenantOrganizationMutation,
   useGetOrganizationCreditsQuery,

@@ -6,6 +6,21 @@ export type ChartKpi = 'ebitda' | 'revenue' | 'net_income' | 'guests' | 'staff_c
 /** Tabs in Settings → Billing. */
 export type BillingTab = 'plan' | 'ai-credits' | 'cloud-credits' | 'invoices';
 
+/**
+ * Sections in the Settings page nav.
+ *
+ * Only sections with something real behind them are listed. A nav entry for a
+ * capability the platform does not have reads as a broken feature rather than
+ * an absent one — see the auto-reload panel that shipped as a permanent
+ * "Disabled" line and had to be removed.
+ */
+export type SettingsSection =
+  | 'general'
+  | 'billing'
+  | 'teammates'
+  | 'profile'
+  | 'security';
+
 export type AdminTenantSubtab =
   | 'info'
   | 'navigation'
@@ -46,6 +61,7 @@ export interface UiState {
   adminActiveSubtab: AdminTenantSubtab;
   /** Active tab in the Billing panel. */
   billingTab: BillingTab;
+  settingsSection: SettingsSection;
 }
 
 const initialState: UiState = {
@@ -64,6 +80,7 @@ const initialState: UiState = {
   adminSelectedAppId: null,
   adminActiveSubtab: 'info',
   billingTab: 'plan',
+  settingsSection: 'general',
 };
 
 export const uiSlice = createSlice({
@@ -130,6 +147,9 @@ export const uiSlice = createSlice({
     setBillingTab(state, action: { payload: BillingTab }) {
       state.billingTab = action.payload;
     },
+    setSettingsSection(state, action: { payload: SettingsSection }) {
+      state.settingsSection = action.payload;
+    },
     setAdminActiveSubtab(state, action: { payload: AdminTenantSubtab }) {
       state.adminActiveSubtab = action.payload;
     },
@@ -151,4 +171,5 @@ export const {
   setAdminSelectedApp,
   setAdminActiveSubtab,
   setBillingTab,
+  setSettingsSection,
 } = uiSlice.actions;

@@ -1,0 +1,80 @@
+'use client';
+
+import Alert from '@mui/material/Alert';
+import Avatar from '@mui/material/Avatar';
+import Chip from '@mui/material/Chip';
+import Stack from '@mui/material/Stack';
+import TextField from '@mui/material/TextField';
+import Typography from '@mui/material/Typography';
+import { useAppSelector } from '@/store/hooks';
+
+/**
+ * Settings → Personal → Profile.
+ *
+ * Read-only, and that is the honest shape rather than a limitation to apologise
+ * for: identity comes from the auth provider. Name, email and picture are
+ * Google's copy of the truth, and a field here that let someone edit them would
+ * either be overwritten on the next sign-in or drift from what every
+ * authorization check actually sees.
+ *
+ * Read from the auth slice, which the app shell populates once at bootstrap —
+ * no request, and no effect.
+ */
+export function ProfilePanel() {
+  const { user, tier, roleCode, platformAdmin } = useAppSelector((s) => s.auth);
+
+  if (!user) {
+    return (
+      <Stack spacing={2}>
+        <Typography variant="h6">Profile</Typography>
+        <Alert severity="info">Not signed in.</Alert>
+      </Stack>
+    );
+  }
+
+  return (
+    <Stack spacing={3} sx={{ maxWidth: 720 }}>
+      <Typography variant="h6">Profile</Typography>
+
+      <Stack direction="row" spacing={2} sx={{ alignItems: 'center' }}>
+        <Avatar src={user.picture} sx={{ width: 64, height: 64 }}>
+          {(user.name ?? user.email ?? '?').charAt(0).toUpperCase()}
+        </Avatar>
+        <Stack spacing={0.5}>
+          <Typography variant="subtitle1">{user.name ?? 'No name on file'}</Typography>
+          <Stack direction="row" spacing={1}>
+            <Chip label={`Signed in with ${user.authMethod ?? tier}`} size="small" />
+            {platformAdmin && <Chip label="Platform admin" size="small" color="primary" />}
+          </Stack>
+        </Stack>
+      </Stack>
+
+      <TextField
+        fullWidth
+        label="Email"
+        value={user.email ?? '—'}
+        slotProps={{ input: { readOnly: true } }}
+        helperText="Managed by your sign-in provider."
+      />
+
+      <TextField
+        fullWidth
+        label="Account id"
+        value={user.id}
+        slotProps={{
+          input: { readOnly: true, sx: { fontFamily: 'monospace', fontSize: '0.85rem' } },
+        }}
+        helperText="What Teammates and every authorization check key on."
+      />
+
+      {roleCode && (
+        <TextField
+          fullWidth
+          label="Role"
+          value={roleCode}
+          slotProps={{ input: { readOnly: true } }}
+        />
+      )}
+    </Stack>
+  );
+}
