@@ -31,6 +31,62 @@ interface FakeTenant {
  * fake models that predicate exactly rather than approximating it — the bug it
  * exists to catch lived in that predicate.
  */
+
+/** Columns the organizations table actually has. See ORGANIZATIONS_DDL. */
+const ORGANIZATION_COLUMNS = new Set([
+  'id',
+  'slug',
+  'display_name',
+  'logo_url',
+  'owner_user_id',
+  'referred_by',
+  'created_at',
+  'updated_at',
+]);
+
+/**
+ * Check an INSERT the way Postgres would, before the fake pretends it worked.
+ *
+ * This exists because the fake is positional: it reads args[0] as the id and
+ * args[1] as the slug and never looks at the column list, so two real bugs sat
+ * in front of it unnoticed — an INSERT naming `org_id` and `channel`, columns
+ * that do not exist (42703), and a second one naming five columns against four
+ * values. Both would have taken organization creation down in production and
+ * both left every test green.
+ *
+ * A test double that accepts SQL the database would reject is not testing the
+ * statement, only the arguments. These two checks are cheap and cover the
+ * mistakes raw SQL actually invites.
+ */
+function assertInsertIsWellFormed(sql: string, args: unknown[], columns: Set<string>) {
+  const match = /INSERT INTO \w+ \(([^)]*)\)\s*VALUES\s*\(([^)]*)\)/i.exec(sql);
+  if (!match) throw new Error(`Could not parse INSERT: ${sql}`);
+
+  const named = match[1].split(',').map((c) => c.trim());
+  const values = match[2].split(',').map((v) => v.trim());
+
+  const unknown = named.filter((c) => !columns.has(c));
+  if (unknown.length > 0) {
+    throw new Error(
+      `column "${unknown[0]}" of relation "organizations" does not exist (42703)`,
+    );
+  }
+  if (named.length !== values.length) {
+    throw new Error(
+      `INSERT has more target columns than expressions: ${named.length} columns, ${values.length} values (42601)`,
+    );
+  }
+
+  // Every $n placeholder must be bound. Literals like CURRENT_TIMESTAMP do not
+  // consume an argument.
+  const placeholders = new Set(values.filter((v) => v.startsWith('$')));
+  if (placeholders.size !== args.length) {
+    throw new Error(
+      `bind mismatch: ${placeholders.size} placeholder(s), ${args.length} argument(s)`,
+    );
+  }
+}
+
 function makeDb(tenants: FakeTenant[] = [], opts: { attributionFails?: boolean } = {}) {
   const orgs: FakeOrg[] = [];
   const attribution: { org_id: string; channel: string }[] = [];
@@ -53,6 +109,7 @@ function makeDb(tenants: FakeTenant[] = [], opts: { attributionFails?: boolean }
         return 1;
       }
       if (sql.includes('INSERT INTO organizations')) {
+        assertInsertIsWellFormed(sql, args, ORGANIZATION_COLUMNS);
         const slug = args[1] as string;
         if (orgs.some((o) => o.slug === slug)) return 0; // ON CONFLICT DO NOTHING
         orgs.push({

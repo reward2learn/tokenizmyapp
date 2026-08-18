@@ -415,8 +415,16 @@ export async function backfillDefaultOrganization(
     orgId = newOrgId();
     created = true;
     await db.$executeRawUnsafe(
-      `INSERT INTO organizations (id, org_id, slug, display_name, updated_at)
-       VALUES ($1, $1, $2, CURRENT_TIMESTAMP)
+      // Two defects lived here: `org_id` is not a column (the primary key is
+      // `id`), and the list named five columns against four values. Either one
+      // fails the whole statement, and this is the branch that runs on a
+      // platform database that has no default organization yet — so a cold
+      // deployment could not create one, and every caller below it (credit
+      // metering, entitlement checks, the admin organization list) failed with
+      // it. Invisible on an established database, where the SELECT above finds
+      // the org and this branch never runs.
+      `INSERT INTO organizations (id, slug, display_name, updated_at)
+       VALUES ($1, $2, $3, CURRENT_TIMESTAMP)
        ON CONFLICT (slug) DO NOTHING;`,
       orgId,
       DEFAULT_ORG_SLUG,
