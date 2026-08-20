@@ -27,12 +27,12 @@ import {
   CONFIG_UPLOAD_FIELD_NAMES,
   hasAnyUpload,
   validateExcelUpload,
-  validateMarkdownUpload,
+validateMarkdownUpload,
 } from '@/lib/config/upload-validation';
 import { useReseedFromSourcesMutation, useReprocessFromCacheMutation, useGetSeedDetailsQuery, useLazyGetReseedWorkflowStatusQuery } from '@/store/apis/config-api';
 import type { WorkflowAcceptedResponse } from '@/store/apis/config-api';
 import type { ReseedResponse } from '@/app/api/config/reseed/route';
-import type { ReprocessResponse } from '@/app/api/config/reprocess/route';
+
 
 interface SourceUploadFormValues {
   excel: FileList | null;
@@ -108,7 +108,7 @@ export function SourceUploadForm({ showSummaryOnly }: { showSummaryOnly?: boolea
   const [workflowProgress, setWorkflowProgress] = useState<{ step: string; message: string; pct: number } | null>(null);
   const [workflowComplete, setWorkflowComplete] = useState(false);
   const eventSourceRef = useRef<EventSource | null>(null);
-  const [triggerStatus, { data: statusData }] = useLazyGetReseedWorkflowStatusQuery();
+  const [triggerStatus] = useLazyGetReseedWorkflowStatusQuery();
 
   const {
     register,
@@ -450,7 +450,7 @@ function SeedSummary({ result }: { result: ReseedResponse }) {
   const [expandedTable, setExpandedTable] = useState<string | null>(null);
   const [showAiContent, setShowAiContent] = useState(false);
 
-  const { data: seedDetailsData, isLoading: detailsLoading } = useGetSeedDetailsQuery();
+  const { data: seedDetailsData } = useGetSeedDetailsQuery();
 
   useEffect(() => {
     if (seedDetailsData?.success) {

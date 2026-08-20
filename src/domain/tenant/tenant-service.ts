@@ -23,7 +23,7 @@ CREATE TABLE IF NOT EXISTS tenants (
   updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );`;
 
-export async function ensureTenantsTable(db: any): Promise<void> {
+export async function ensureTenantsTable(db: PrismaClient): Promise<void> {
   await db.$executeRawUnsafe(TENANTS_DDL);
 
   // Add any missing columns from schema evolution (idempotent)

@@ -21,7 +21,6 @@ import Tooltip from '@mui/material/Tooltip';
 import Typography from '@mui/material/Typography';
 import CreditCardIcon from '@mui/icons-material/CreditCard';
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutlined';
-import HistoryIcon from "@mui/icons-material/HistoryOutlined";
 import {
   useCreateSetupIntentMutation,
   useListPaymentMethodsQuery,

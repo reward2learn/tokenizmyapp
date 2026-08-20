@@ -292,7 +292,7 @@ export function TenantDashboard() {
       } else {
         setSnackbar({ message: result.error || 'Failed to deploy', severity: 'error' });
       }
-    } catch (err: any) {
+    } catch (err) {
       const msg = err?.data?.error || err?.error || 'Failed to deploy tenant';
       setSnackbar({ message: msg, severity: 'error' });
     }
@@ -315,7 +315,7 @@ export function TenantDashboard() {
       } else {
         setSnackbar({ message: result.error || 'Status check failed', severity: 'error' });
       }
-    } catch (err: any) {
+    } catch (err) {
       const msg = err?.data?.error || err?.error || 'Failed to check deployment status';
       setSnackbar({ message: msg, severity: 'error' });
     } finally {
@@ -429,7 +429,7 @@ export function TenantDashboard() {
       } else {
         setSnackbar({ message: result.error || 'Failed to fetch domains', severity: 'error' });
       }
-    } catch (err: any) {
+    } catch (err) {
       const msg = err?.data?.error || err?.error || 'Failed to refresh domains';
       setSnackbar({ message: msg, severity: 'error' });
     } finally {
@@ -460,7 +460,7 @@ export function TenantDashboard() {
       } else {
         setSnackbar({ message: 'Hook triggered successfully', severity: 'success' });
       }
-    } catch (err: any) {
+    } catch (err) {
       const msg = err?.data?.error || err?.error || 'Failed to trigger deploy hook';
       setSnackbar({ message: msg, severity: 'error' });
     } finally {

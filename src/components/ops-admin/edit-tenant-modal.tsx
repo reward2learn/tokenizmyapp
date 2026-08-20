@@ -10,7 +10,7 @@
  *
  * Footer: [Back] [Save Changes] [Continue / Deploy to Vercel]
  */
-import { useState, useCallback, useEffect, useRef } from 'react';
+import { useState, useCallback, useRef } from 'react';
 import { useTheme } from '@mui/material/styles';
 import useMediaQuery from '@mui/material/useMediaQuery';
 import Alert from '@mui/material/Alert';
@@ -587,7 +587,7 @@ export function EditTenantModal({ open, tenant, onClose, onSnackbar }: EditTenan
       } else {
         onSnackbar({ message: result.error || 'Failed to set PIN', severity: 'error' });
       }
-    } catch (err: any) {
+    } catch (err) {
       const msg = err?.data?.error || err?.error || 'Failed to set PIN';
       onSnackbar({ message: msg, severity: 'error' });
     } finally {
@@ -650,7 +650,7 @@ export function EditTenantModal({ open, tenant, onClose, onSnackbar }: EditTenan
       } else {
         onSnackbar({ message: result.error || 'Failed to delete role', severity: 'error' });
       }
-    } catch (err: any) {
+    } catch (err) {
       onSnackbar({ message: err?.data?.error || err?.error || 'Failed to delete role', severity: 'error' });
     } finally {
       setRoleSaving(false);
@@ -777,7 +777,7 @@ export function EditTenantModal({ open, tenant, onClose, onSnackbar }: EditTenan
       } else {
         throw new Error(result.error || 'Google OAuth provisioning failed');
       }
-    } catch (err: any) {
+    } catch (err) {
       const msg = err?.data?.error || (err instanceof Error ? err.message : 'Provisioning error');
       setProvisionOAuthError(msg);
       onSnackbar({ message: `❌ OAuth provisioning failed: ${msg}`, severity: 'error' });
@@ -813,7 +813,7 @@ export function EditTenantModal({ open, tenant, onClose, onSnackbar }: EditTenan
       } else {
         throw new Error(result.error || 'Neon provisioning failed');
       }
-    } catch (err: any) {
+    } catch (err) {
       const msg = err?.data?.error || (err instanceof Error ? err.message : 'Provisioning error');
       setProvisionDbError(msg);
       onSnackbar({ message: `❌ Database provisioning failed: ${msg}`, severity: 'error' });
@@ -933,7 +933,7 @@ export function EditTenantModal({ open, tenant, onClose, onSnackbar }: EditTenan
         }
       }
       onSnackbar({ message, severity: 'success' });
-    } catch (err: any) {
+    } catch (err) {
       const msg = err?.data?.error || (err instanceof Error ? err.message : 'Save failed');
       onSnackbar({ message: `❌ Save failed: ${msg}`, severity: 'error' });
     } finally {
@@ -1244,7 +1244,7 @@ export function EditTenantModal({ open, tenant, onClose, onSnackbar }: EditTenan
       setDeployingSlug(null);
       setActiveStep(0);
       onClose();
-    } catch (err: any) {
+    } catch (err) {
       const msg = err?.data?.error || (err instanceof Error ? err.message : 'Deploy failed');
       onSnackbar({ message: `❌ Deploy failed: ${msg}`, severity: 'error' });
     } finally {
@@ -1294,7 +1294,7 @@ export function EditTenantModal({ open, tenant, onClose, onSnackbar }: EditTenan
       setDeployingSlug(null);
       setActiveStep(0);
       onClose();
-    } catch (err: any) {
+    } catch (err) {
       const msg = err?.data?.error || (err instanceof Error ? err.message : 'Deploy failed');
       onSnackbar({ message: `❌ Git deploy failed: ${msg}`, severity: 'error' });
       setDeployingSlug(null);
@@ -1633,7 +1633,7 @@ export function EditTenantModal({ open, tenant, onClose, onSnackbar }: EditTenan
         } else {
           setSlugError(result.error || 'Failed to rename slug');
         }
-      } catch (err: any) {
+      } catch (err) {
         setSlugError(err?.data?.error || 'Failed to connect to rename API');
       } finally {
         setRenamingSlug(false);
@@ -2702,7 +2702,7 @@ export function EditTenantModal({ open, tenant, onClose, onSnackbar }: EditTenan
         } else {
           setDomainError(result.error || 'Failed to set domain');
         }
-      } catch (err: any) {
+      } catch (err) {
         setDomainError(err?.data?.error || 'Failed to set domain');
       } finally {
         setDomainSetting(false);
@@ -3172,7 +3172,7 @@ export function EditTenantModal({ open, tenant, onClose, onSnackbar }: EditTenan
                 try {
                   await getAiFindings().unwrap();
                   return 'Chat API responded with 200';
-                } catch (err: any) {
+                } catch (err) {
                   throw new Error(err?.data?.error || 'Chat API returned ' + (err?.status ?? 'error'));
                 }
               },

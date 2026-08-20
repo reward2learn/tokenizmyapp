@@ -21,12 +21,11 @@
 import { mkdir, rm, cp, copyFile, writeFile, readFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
-import { execSync } from 'node:child_process';
+
 import { compileToZModel, compileToPageCatalog } from '@/domain/ai/zmodel-compiler';
 import type {
   SchemaGenerationResult,
   GeneratedModel,
-  GeneratedField,
 } from '@/domain/ai/schema-generation-schema';
 
 // ── Config ────────────────────────────────────────────────────────

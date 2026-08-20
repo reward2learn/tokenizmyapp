@@ -18,7 +18,6 @@ import { requireWriteAuth } from '@/lib/auth/guards';
 import { jsonError, jsonOk } from '@/lib/api/response';
 import { ensureTenantsTable } from '@/domain/tenant/tenant-service';
 import { seedTenantDefaults, seedTemplateSecurityGroups, resolveTenantAdminEmail } from '@/domain/tenant/tenant-seed-service';
-import { getTemplate } from '@/domain/tenant/template-catalog';
 import { resolveTemplate } from '@/domain/tenant/custom-template-service';
 import type { AppPackConfig, SuiteAppInstance } from '@/store/apis/tenant-api';
 

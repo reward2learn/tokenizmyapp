@@ -75,7 +75,7 @@ export const provisionTenant = inngest.createFunction(
         const dedicatedClient = dbInfo?.pooledUrl
           ? new PrismaClient({ datasources: { db: { url: dbInfo.pooledUrl } } })
           : null;
-        const db = (dedicatedClient ?? createRawClient()) as any;
+        const db = dedicatedClient ?? createRawClient();
         try {
           await seedTenantDefaults({
             slug, displayName, template: templateId,
@@ -123,7 +123,7 @@ export const provisionTenant = inngest.createFunction(
     // Step 6: Update tenant record
     await step.run('update-tenant-record', async () => {
       const { createRawClient } = await import('@/lib/db');
-      const db = createRawClient() as any;
+      const db = createRawClient();
       await db.$executeRawUnsafe(
         `UPDATE tenants SET status = 'live', vercel_project_id = $1, app_url = $2, db_url = $3, updated_at = CURRENT_TIMESTAMP WHERE slug = $4;`,
         deployResult.projectId, deployResult.appUrl, dbInfo?.pooledUrl ?? null, slug,

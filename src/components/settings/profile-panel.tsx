@@ -98,7 +98,7 @@ function AvatarUploadSection({ userEmail }: { userEmail: string | undefined }) {
     try {
       await updateProfile({ avatarUrl: url }).unwrap();
       setCustomAvatarUrl(url);
-    } catch (err) {
+    } catch {
       // Error handled by RTK Query
     }
   };
@@ -107,7 +107,7 @@ function AvatarUploadSection({ userEmail }: { userEmail: string | undefined }) {
     try {
       await updateProfile({ avatarUrl: '' }).unwrap();
       setCustomAvatarUrl(undefined);
-    } catch (err) {
+    } catch {
       // Error handled by RTK Query
     }
   };

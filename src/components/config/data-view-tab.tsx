@@ -30,7 +30,6 @@ import Typography from '@mui/material/Typography';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import DeleteSweepIcon from '@mui/icons-material/DeleteSweep';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
-import DescriptionIcon from '@mui/icons-material/Description';
 import DownloadIcon from '@mui/icons-material/Download';
 import UploadFileIcon from '@mui/icons-material/UploadFile';
 
@@ -83,11 +82,6 @@ const TABLE_META: Record<string, { label: string; icon: string }> = {
   monthly_actual_inputs: { label: 'Monthly Actual Inputs', icon: '📥' },
   daily_z_reports: { label: 'Z-Reports', icon: '📋' },
 };
-
-function formatCount(n: number): string {
-  if (n < 0) return 'error';
-  return String(n);
-}
 
 export function DataViewTab() {
   // ── RTK Query hooks ────────────────────────────────────

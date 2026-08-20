@@ -25,6 +25,9 @@ export interface Organization {
   slug: string;
   displayName: string;
   logoUrl: string | null;
+  backgroundImageUrl: string | null;
+  backgroundVideoUrl: string | null;
+  customCss: string | null;
   ownerUserId: string | null;
   /** Affiliate attribution. Cheap to record now, impossible to backfill later. */
   referredBy: string | null;
@@ -235,6 +238,9 @@ function mapOrg(row: Record<string, unknown>): Organization {
     slug: String(row.slug),
     displayName: String(row.display_name),
     logoUrl: row.logo_url == null ? null : String(row.logo_url),
+    backgroundImageUrl: row.background_image_url == null ? null : String(row.background_image_url),
+    backgroundVideoUrl: row.background_video_url == null ? null : String(row.background_video_url),
+    customCss: row.custom_css == null ? null : String(row.custom_css),
     ownerUserId: row.owner_user_id == null ? null : String(row.owner_user_id),
     referredBy: row.referred_by == null ? null : String(row.referred_by),
     billingEmail: text(row.billing_email),

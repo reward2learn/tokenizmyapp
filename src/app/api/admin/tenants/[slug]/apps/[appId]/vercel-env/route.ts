@@ -18,7 +18,7 @@ import { createRawClient } from '@/lib/db';
 import { requireWriteAuth } from '@/lib/auth/guards';
 import { jsonError, jsonOk } from '@/lib/api/response';
 import { ensureTenantsTable } from '@/domain/tenant/tenant-service';
-import { getTemplate } from '@/domain/tenant/template-catalog';
+
 import { resolveTemplate } from '@/domain/tenant/custom-template-service';
 import type { AppPackConfig } from '@/store/apis/tenant-api';
 

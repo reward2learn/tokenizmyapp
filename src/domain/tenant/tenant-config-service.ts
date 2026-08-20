@@ -2,6 +2,7 @@
  * Tenant Config Service — manages tenant license key, configuration parameters,
  * and environment variable settings.
  */
+import { PrismaClient } from '@/generated/prisma';
 
 export interface TenantConfig {
   /** License / subscription API key */
@@ -39,7 +40,7 @@ export interface TenantConfig {
 /**
  * Ensure the `api_key` column exists on the `tenants` table.
  */
-export async function ensureTenantConfigColumns(db: any): Promise<void> {
+export async function ensureTenantConfigColumns(db: PrismaClient): Promise<void> {
   try {
     await db.$executeRawUnsafe(
       `ALTER TABLE tenants ADD COLUMN IF NOT EXISTS api_key TEXT;`,
@@ -52,7 +53,7 @@ export async function ensureTenantConfigColumns(db: any): Promise<void> {
 /**
  * Update a tenant's API key (license key).
  */
-export async function setTenantApiKey(db: any, slug: string, apiKey: string): Promise<void> {
+export async function setTenantApiKey(db: PrismaClient, slug: string, apiKey: string): Promise<void> {
   await db.$executeRawUnsafe(
     `UPDATE tenants SET api_key = $1, updated_at = CURRENT_TIMESTAMP WHERE slug = $2;`,
     apiKey, slug,
@@ -63,7 +64,7 @@ export async function setTenantApiKey(db: any, slug: string, apiKey: string): Pr
  * Update tenant metadata config (merge into existing JSONB).
  */
 export async function updateTenantConfig(
-  db: any,
+  db: PrismaClient,
   slug: string,
   config: Partial<TenantConfig>,
 ): Promise<void> {
@@ -85,7 +86,7 @@ export async function updateTenantConfig(
  * Get the full config for a tenant, including api_key and parsed metadata.
  */
 export async function getTenantConfig(
-  db: any,
+  db: PrismaClient,
   slug: string,
 ): Promise<{ apiKey: string | null; config: TenantConfig } | null> {
   const rows = await db.$queryRawUnsafe(

@@ -42,7 +42,7 @@ interface SeedTenantInput {
    *  Falls back to DEFAULT_PLATFORM_ADMIN_EMAIL via resolveTenantAdminEmail(). */
   adminEmail?: string;
   /** Override the DB to use a tenant-specific connection */
-  db?: any;
+  db?: PrismaClient | null
   /** Skip AppPage/PageSection/NavigationItem seeding — for a tenant-level
    *  seed run against a SUITE tenant, where page/nav content is each app's
    *  own responsibility (seeded via its own per-app Seed action). app_pages
@@ -61,7 +61,7 @@ interface SeedTenantInput {
  *
  * Expected to run once at seed time before tenant defaults are inserted.
  */
-export async function addTenantColumnsIfMissing(db: any): Promise<void> {
+export async function addTenantColumnsIfMissing(db: PrismaClient): Promise<void> {
   const statements: string[] = [
     // app_pages — nav display metadata + tenant/app isolation
     `ALTER TABLE app_pages ADD COLUMN IF NOT EXISTS nav_label TEXT;`,
@@ -250,7 +250,7 @@ export async function addTenantColumnsIfMissing(db: any): Promise<void> {
  * place and repeated tenant-level seeds compound duplicates. Call this
  * first, then seedTenantDefaults(), for a guaranteed clean slate.
  */
-export async function cleanTenantSeed(db: any, tenantSlug: string): Promise<void> {
+export async function cleanTenantSeed(db: PrismaClient, tenantSlug: string): Promise<void> {
   await addTenantColumnsIfMissing(db);
   try {
     await db.$executeRawUnsafe(
@@ -281,7 +281,9 @@ function genRandomId(): string {
     if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
       return crypto.randomUUID();
     }
-  } catch {}
+  } catch {
+    // Fallback - crypto not available, use timestamp-based UUID
+  }
   // Fallback
   const timestamp = Date.now().toString(36);
   const random = Math.random().toString(36).substring(2, 10);
@@ -507,7 +509,7 @@ export async function seedTenantDefaults(input: SeedTenantInput): Promise<{
  * Uses gen_random_uuid() for the id since the DB column has no default.
  */
 export async function seedTemplateSecurityGroups(
-  db: any,
+  db: PrismaClient,
   templateId: string,
 ): Promise<number> {
   const groups = [
@@ -568,7 +570,7 @@ export async function seedTemplateSecurityGroups(
  */
 export async function seedTemplateBranding(
   slug: string,
-  db: any,
+  db: PrismaClient,
   input: { primaryColor: string; secondaryColor: string },
 ): Promise<void> {
   try {
@@ -613,7 +615,7 @@ export async function seedTemplateBranding(
  * disturbing knowledge the tenant has since added under other keys.
  */
 export async function seedTenantKnowledge(
-  db: any,
+  db: PrismaClient,
   input: {
     slug: string;
     displayName: string;

@@ -7,7 +7,7 @@
  * Ensure the `tenant_slug` column exists on the `user_accounts` table.
  * Run at the start of each tenant-users API request.
  */
-export async function ensureTenantUserColumn(db: any): Promise<void> {
+export async function ensureTenantUserColumn(db: import('@/lib/db').RawDb): Promise<void> {
   try {
     await db.$executeRawUnsafe(
       `ALTER TABLE user_accounts ADD COLUMN IF NOT EXISTS tenant_slug TEXT NOT NULL DEFAULT 'tokenizmyapp';`,

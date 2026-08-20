@@ -76,18 +76,6 @@ export function BrandingPanel({ orgId }: BrandingPanelProps) {
     }
   }, [cssContent, orgId, updateBranding]);
 
-  const handleCssDownload = useCallback(() => {
-    if (!customCss) return;
-    const blob = new Blob([customCss], { type: 'text/css' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `${orgId}-style.css`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
-  }, [customCss, orgId]);
 
   return (
     <Stack spacing={3} sx={{ maxWidth: 720 }}>

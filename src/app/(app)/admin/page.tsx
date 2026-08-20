@@ -38,7 +38,6 @@ import { SignInPanelGate } from '@/components/auth/sign-in-panel';
 import { BrandConfigTab } from '@/components/ops-admin/brand-config-tab';
 import { NavigationManager } from '@/components/ops-admin/navigation-manager';
 import { TenantInfoTab } from '@/components/ops-admin/tenant-info-tab';
-import { TenantDashboard } from '@/components/ops-admin/tenant-dashboard';
 import { TenantAdminPanel } from '@/components/ops-admin/tenant-admin-panel';
 import { AppPackTab } from '@/components/ops-admin/app-pack-tab';
 import { getClientTenantConfig } from '@shared/lib/config/tenant';
