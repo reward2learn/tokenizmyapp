@@ -73,6 +73,44 @@ const EXAMPLE_PROMPT =
   'Sales Reporting (daily sales, hourly trends, payment methods), Finance (P&L, cash flow, ' +
   'costs tracking), plus a CEO Overview with cross-department KPIs and realtime actionable items.';
 
+/**
+ * Format a raw workflow error into a user-friendly message. The workflow SDK
+ * wraps provider failures in a chain like:
+ *
+ *   AI_RetryError: Failed after 3 attempts. Last error: AI_APICallError: You have no credits remaining...
+ *
+ * We surface the innermost provider message and map known failure modes
+ * (no credits, invalid key, rate limit) to actionable copy. Falls back to the
+ * raw error when nothing matches.
+ */
+function formatWorkflowError(raw: string): string {
+  const text = raw.trim();
+  if (!text) return 'The generation run failed.';
+
+  // Pull the innermost "Last error:" segment — that's the provider's own message.
+  const lastErrorIdx = text.lastIndexOf('Last error:');
+  const providerMsg = lastErrorIdx >= 0 ? text.slice(lastErrorIdx + 'Last error:'.length).trim() : text;
+
+  const lower = providerMsg.toLowerCase();
+  if (
+    /(no credits|insufficient_quota|credit_balance_exhausted|billing|payment required|402)/.test(lower)
+  ) {
+    return 'The AI provider account has no credits remaining. Add credits to the provider account (e.g. OpenAI billing) and try again.';
+  }
+  if (/(invalid.*api key|incorrect api key|authentication|401)/.test(lower)) {
+    return 'The AI provider API key appears to be invalid. Check the API key configured for this tenant and try again.';
+  }
+  if (/(rate.?limit|429|too many requests)/.test(lower)) {
+    return 'The AI service is currently rate-limited. Wait a moment and try again.';
+  }
+  if (/(model.*not found|does not exist|404)/.test(lower)) {
+    return 'The configured AI model is unavailable. Check the model name in the AI provider settings and try again.';
+  }
+
+  // No known pattern — surface the provider message (or raw error) as-is.
+  return providerMsg || text;
+}
+
 interface AppPackTabProps {
   /** Pre-selected tenant slug (when used in tenant admin context) */
   tenantSlug?: string;
@@ -291,7 +329,19 @@ export function AppPackTab({ tenantSlug: propTenantSlug, tenantName, onGenerated
           )}
         </Stack>
 
-        {error && <Alert severity="error">{error}</Alert>}
+        {error && (
+          <Alert severity="error">
+            {formatWorkflowError(error)}
+            {formatWorkflowError(error) !== error && (
+              <Box
+                component="pre"
+                sx={{ mt: 1, mb: 0, fontSize: 12, whiteSpace: 'pre-wrap', opacity: 0.8 }}
+              >
+                {error}
+              </Box>
+            )}
+          </Alert>
+        )}
 
         {running && (
           <Box>

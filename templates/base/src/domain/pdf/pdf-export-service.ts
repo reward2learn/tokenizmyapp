@@ -80,6 +80,18 @@ export async function generateDashboardPdf(
   }
 }
 
+type JobQueueRow = {
+  job_id: string;
+  status: JobStatus;
+  payload: unknown;
+  completed_data: unknown;
+};
+
+/**
+ * Template tenants store PDF jobs in the `job_queue` DDL table (see
+ * `db-migrate.ts` / `create_job_queue.mjs`), not a Prisma `PdfJob` model.
+ * The factory app has that model; this template deliberately does not.
+ */
 export class PdfExportService {
   constructor(private readonly db: DbClient) {}
 
@@ -87,22 +99,26 @@ export class PdfExportService {
     sessionId: string,
     payload: PdfJobPayload,
   ): Promise<string> {
-    const job = await this.db.pdfJob.create({
-      data: {
-        requestedBySession: sessionId,
-        payload: payload as object,
-        status: 'PENDING',
-      },
-    });
-    return job.jobId;
+    const rows = await this.db.$queryRawUnsafe<{ job_id: string }[]>(
+      `INSERT INTO job_queue (requested_by_session, payload, status)
+       VALUES ($1, $2::jsonb, 'PENDING')
+       RETURNING job_id::text AS job_id`,
+      sessionId,
+      JSON.stringify(payload),
+    );
+    const jobId = rows[0]?.job_id;
+    if (!jobId) {
+      throw new Error('Failed to queue PDF job');
+    }
+    return jobId;
   }
 
   async getJobStatus(jobId: string): Promise<PdfJobResult | null> {
-    const row = await this.db.pdfJob.findUnique({ where: { jobId } });
+    const row = await this.findJob(jobId);
     if (!row) return null;
 
-    if (row.status === 'COMPLETED' && row.completedData) {
-      const data = row.completedData as { pdfBase64?: string; filename?: string };
+    if (row.status === 'COMPLETED' && row.completed_data) {
+      const data = row.completed_data as { pdfBase64?: string; filename?: string };
       return {
         status: row.status,
         pdfBase64: data.pdfBase64,
@@ -110,8 +126,8 @@ export class PdfExportService {
       };
     }
 
-    if (row.status === 'FAILED' && row.completedData) {
-      const data = row.completedData as { error?: string };
+    if (row.status === 'FAILED' && row.completed_data) {
+      const data = row.completed_data as { error?: string };
       return { status: row.status, details: data.error };
     }
 
@@ -119,15 +135,17 @@ export class PdfExportService {
   }
 
   async claimPendingJob(jobId: string): Promise<{ jobId: string; payload: PdfJobPayload } | null> {
-    const updated = await this.db.pdfJob.updateMany({
-      where: { jobId, status: 'PENDING' },
-      data: { status: 'PROCESSING' },
-    });
-    if (!updated.count) return null;
+    const updated = await this.db.$executeRawUnsafe(
+      `UPDATE job_queue
+       SET status = 'PROCESSING', updated_at = CURRENT_TIMESTAMP
+       WHERE job_id = $1::uuid AND status = 'PENDING'`,
+      jobId,
+    );
+    if (!updated) return null;
 
-    const row = await this.db.pdfJob.findUnique({ where: { jobId } });
+    const row = await this.findJob(jobId);
     if (!row) return null;
-    return { jobId: row.jobId, payload: row.payload as unknown as PdfJobPayload };
+    return { jobId: row.job_id, payload: row.payload as PdfJobPayload };
   }
 
   async processJob(jobId: string): Promise<PdfJobResult> {
@@ -146,19 +164,39 @@ export class PdfExportService {
       const base64Pdf = Buffer.from(pdfBuffer).toString('base64');
       const completedData = { pdfBase64: base64Pdf, filename: PDF_FILENAME };
 
-      await this.db.pdfJob.update({
-        where: { jobId },
-        data: { status: 'COMPLETED', completedData },
-      });
+      await this.db.$executeRawUnsafe(
+        `UPDATE job_queue
+         SET status = 'COMPLETED'::"JobStatus",
+             completed_data = $2::jsonb,
+             updated_at = CURRENT_TIMESTAMP
+         WHERE job_id = $1::uuid`,
+        jobId,
+        JSON.stringify(completedData),
+      );
 
       return { status: 'COMPLETED', pdfBase64: base64Pdf, filename: PDF_FILENAME };
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      await this.db.pdfJob.update({
-        where: { jobId },
-        data: { status: 'FAILED', completedData: { error: message } },
-      });
+      await this.db.$executeRawUnsafe(
+        `UPDATE job_queue
+         SET status = 'FAILED'::"JobStatus",
+             completed_data = $2::jsonb,
+             updated_at = CURRENT_TIMESTAMP
+         WHERE job_id = $1::uuid`,
+        jobId,
+        JSON.stringify({ error: message }),
+      );
       return { status: 'FAILED', details: message };
     }
+  }
+
+  private async findJob(jobId: string): Promise<JobQueueRow | null> {
+    const rows = await this.db.$queryRawUnsafe<JobQueueRow[]>(
+      `SELECT job_id::text AS job_id, status, payload, completed_data
+       FROM job_queue
+       WHERE job_id = $1::uuid`,
+      jobId,
+    );
+    return rows[0] ?? null;
   }
 }

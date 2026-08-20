@@ -1,7 +1,7 @@
 import { redirect } from 'next/navigation';
 
 export default async function HomePage() {
-  let defaultPath = '/dashboard';
+  let defaultPath = '/';
   try {
     const baseUrl = process.env.VERCEL_URL
       ? `https://${process.env.VERCEL_URL}`
@@ -16,5 +16,5 @@ export default async function HomePage() {
   } catch {
     // fallback to /dashboard
   }
-  redirect(defaultPath as '/dashboard');
+  redirect(defaultPath as '/');
 }

@@ -111,11 +111,11 @@ export async function proxy(request: NextRequest) {
 
   // Phase 4: Page-level auth gating for non-API, non-NextJS routes
   if (!pathname.startsWith('/api/') && !pathname.startsWith('/_next/')) {
-    const slug = pathname.split('/')[1] || 'dashboard';
+    const slug = pathname.split('/')[1] || '';
     const isPublic = PUBLIC_SLUGS.has(slug) || slug === '';
     if (!isPublic) {
       if (!session) {
-        const redirectUrl = new URL('/dashboard', request.url);
+        const redirectUrl = new URL('/', request.url);
         redirectUrl.searchParams.set('redirect_reason', 'auth_required');
         return NextResponse.redirect(redirectUrl);
       }

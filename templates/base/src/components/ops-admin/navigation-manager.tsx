@@ -751,7 +751,7 @@ export function NavigationManager() {
                 label={newType === 'link' ? 'URL' : 'Path'}
                 value={newPath}
                 onChange={(e) => setNewPath(e.target.value)}
-                placeholder={newType === 'link' ? 'https://example.com' : '/dashboard'}
+                placeholder={newType === 'link' ? 'https://example.com' : '/'}
                 fullWidth
                 helperText={
                   newType === 'link'
