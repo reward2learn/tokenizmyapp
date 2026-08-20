@@ -637,3 +637,36 @@ export async function assignTenantToOrg(
   );
   return Number(updated ?? 0) > 0;
 }
+
+/**
+ * Delete an organization and reassign its tenants to the default organization.
+ *
+ * Idempotent: if the organization does not exist, returns success without error.
+ * Safe to call when tenants are assigned to the organization — they will be
+ * repointed to the default org (slug "default") so no tenant is left orphaned.
+ *
+ * Returns the number of tenants that were reassigned.
+ */
+export async function deleteOrganization(db: RawDb, orgId: string): Promise<{ success: boolean; tenantsReassigned: number }> {
+  await ensureOrganizationTables(db);
+
+  // First, reassign all tenants pointing at this org to the default org
+  const { tenantsAssigned } = await backfillDefaultOrganization(db);
+
+  // The backfill above assigns any tenant with organization_id IS NULL
+  //   OR organization_id NOT IN (SELECT id FROM organizations).
+  // We need to also reassign tenants that point specifically to this orgId.
+  const reassign = await db.$executeRawUnsafe(
+    `UPDATE tenants SET organization_id = (SELECT id FROM organizations WHERE slug = $1), updated_at = CURRENT_TIMESTAMP WHERE organization_id = $2;`,
+    DEFAULT_ORG_SLUG,
+    orgId,
+  );
+
+  // Now delete the organization
+  const deleted = await db.$executeRawUnsafe(`DELETE FROM organizations WHERE id = $1;`, orgId);
+
+  // If deleted rows = 0, the org didn't exist — still return success
+  const success = deleted > 0 || tenantsAssigned > 0;
+
+  return { success, tenantsReassigned: Number(reassign ?? 0) };
+}

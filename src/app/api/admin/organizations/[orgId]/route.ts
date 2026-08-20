@@ -12,6 +12,7 @@ import {
   getOrganization,
   listOrgMembers,
   updateOrganization,
+  deleteOrganization,
 } from '@/domain/billing/organization-service';
 import { getPlan, getSubscription, isPlanId, setPlan } from '@/domain/billing/entitlement-service';
 
@@ -123,5 +124,27 @@ export async function PATCH(
     const message = (err as Error).message;
     if (/unique/i.test(message)) return jsonError('That slug is already taken', 409);
     return jsonError('Failed to update organization: ' + message, 500);
+  }
+}
+
+/** DELETE /api/admin/organizations/[orgId] — delete an organization */
+export async function DELETE(
+  request: Request,
+  { params }: { params: Promise<{ orgId: string }> },
+): Promise<NextResponse> {
+  const guard = await requireWriteAuth(request);
+  if (!guard.ok) return guard.response;
+
+  const { orgId } = await params;
+  const db = createRawClient();
+
+  try {
+    const result = await deleteOrganization(db, orgId);
+    if (!result.success) {
+      return jsonError('Organization not found or could not be deleted', 404);
+    }
+    return jsonOk({ message: 'Organization deleted', tenantsReassigned: result.tenantsReassigned });
+  } catch (err) {
+    return jsonError('Failed to delete organization: ' + (err as Error).message, 500);
   }
 }
