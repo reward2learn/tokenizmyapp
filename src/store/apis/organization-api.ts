@@ -433,7 +433,7 @@ export const organizationApi = createApi({
       // Credits land asynchronously when payment_intent.succeeded arrives, so
       // this does NOT invalidate Credits — the balance is refetched after the
       // client confirms payment instead.
-    }),
+}),
   }),
 });
 
