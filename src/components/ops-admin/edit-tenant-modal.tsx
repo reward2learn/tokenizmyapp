@@ -1918,6 +1918,43 @@ export function EditTenantModal({ open, tenant, onClose, onSnackbar }: EditTenan
               guard rejects a mix — keep them in the same mode.
             </Alert>
           )}
+
+          {/* Tenant-specific price IDs — override the deployment-level defaults */}
+          <Typography variant="caption" color="text.secondary" sx={{ mb: 1, fontSize: '0.7rem' }}>
+            Tenant price IDs (override deployment defaults)
+          </Typography>
+          <TextField
+            label="STRIPE_PRICE_PRO_MONTHLY"
+            value={stripeKeys.prices?.PRO_MONTHLY}
+            onChange={(e) => setStripeKeys((s) => ({ ...s, prices: { ...s.prices, PRO_MONTHLY: e.target.value } }))}
+            fullWidth
+            placeholder="price_1U..."
+            helperText="Pro monthly price ID. Leave blank to use deployment default."
+          />
+          <TextField
+            label="STRIPE_PRICE_PRO_YEARLY"
+            value={stripeKeys.prices?.PRO_YEARLY}
+            onChange={(e) => setStripeKeys((s) => ({ ...s, prices: { ...s.prices, PRO_YEARLY: e.target.value } }))}
+            fullWidth
+            placeholder="price_1U..."
+            helperText="Pro yearly price ID. Leave blank to use deployment default."
+          />
+          <TextField
+            label="STRIPE_PRICE_BUSINESS_MONTHLY"
+            value={stripeKeys.prices?.BUSINESS_MONTHLY}
+            onChange={(e) => setStripeKeys((s) => ({ ...s, prices: { ...s.prices, BUSINESS_MONTHLY: e.target.value } }))}
+            fullWidth
+            placeholder="price_1U..."
+            helperText="Business monthly price ID. Leave blank to use deployment default."
+          />
+          <TextField
+            label="STRIPE_PRICE_BUSINESS_YEARLY"
+            value={stripeKeys.prices?.BUSINESS_YEARLY}
+            onChange={(e) => setStripeKeys((s) => ({ ...s, prices: { ...s.prices, BUSINESS_YEARLY: e.target.value } }))}
+            fullWidth
+            placeholder="price_1U..."
+            helperText="Business yearly price ID. Leave blank to use deployment default."
+          />
           {pushingStripeEnv && <LinearProgress />}
         </Stack>
       </Paper>
