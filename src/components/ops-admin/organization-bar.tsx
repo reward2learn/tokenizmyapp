@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import { useAppDispatch, useAppSelector } from '@/store/hooks';
 import { setAdminSelectedOrg } from '@/store/ui-slice';
+import Alert from '@mui/material/Alert';
 import Box from '@mui/material/Box';
 import Button from '@mui/material/Button';
 import Chip from '@mui/material/Chip';
@@ -16,6 +17,7 @@ import InputLabel from '@mui/material/InputLabel';
 import MenuItem from '@mui/material/MenuItem';
 import Paper from '@mui/material/Paper';
 import Select from '@mui/material/Select';
+import Snackbar from '@mui/material/Snackbar';
 import Stack from '@mui/material/Stack';
 import TextField from '@mui/material/TextField';
 import Tooltip from '@mui/material/Tooltip';
@@ -23,9 +25,11 @@ import Typography from '@mui/material/Typography';
 import AddIcon from '@mui/icons-material/Add';
 import ContentCopyIcon from '@mui/icons-material/ContentCopy';
 import CorporateFareIcon from '@mui/icons-material/CorporateFare';
+import DeleteIcon from '@mui/icons-material/Delete';
 import {
   useAssignTenantOrganizationMutation,
   useCreateOrganizationMutation,
+  useDeleteOrganizationMutation,
   useGetTenantOrganizationQuery,
   useListOrganizationsQuery,
   useUpdateOrganizationMutation,
@@ -56,12 +60,18 @@ export function OrganizationBar({ tenantSlug }: { tenantSlug?: string | null }) 
   const [createOrganization, { isLoading: isCreating }] = useCreateOrganizationMutation();
   const [updateOrganization, { isLoading: isUpdating }] = useUpdateOrganizationMutation();
   const [assignTenant, { isLoading: isAssigning }] = useAssignTenantOrganizationMutation();
+  const [deleteOrg, { isLoading: isDeleting }] = useDeleteOrganizationMutation();
 
   const dispatch = useAppDispatch();
   const selectedOrgId = useAppSelector((state) => state.ui.adminSelectedOrgId) ?? '';
 
   const [createOpen, setCreateOpen] = useState(false);
   const [newName, setNewName] = useState('');
+  const [confirmDeleteOrg, setConfirmDeleteOrg] = useState<string | null>(null);
+  const [snackbar, setSnackbar] = useState<{
+    message: string;
+    severity: 'success' | 'error';
+  } | null>(null);
 
 
 
@@ -97,6 +107,10 @@ export function OrganizationBar({ tenantSlug }: { tenantSlug?: string | null }) 
   const handlePlanChange = async (planId: PlanId) => {
     if (!activeOrgId) return;
     await updateOrganization({ orgId: activeOrgId, planId }).unwrap().catch(() => null);
+  };
+
+  const handleDeleteOrg = async (orgId: string) => {
+    setConfirmDeleteOrg(orgId);
   };
 
   // Filtering only. This used to reassign the selected tenant's billing owner
@@ -257,6 +271,18 @@ export function OrganizationBar({ tenantSlug }: { tenantSlug?: string | null }) 
               <AddIcon />
             </IconButton>
           </Tooltip>
+          {activeOrg && (
+            <Tooltip title="Delete organization">
+              <IconButton
+                size="small"
+                onClick={() => handleDeleteOrg(activeOrg.id)}
+                aria-label="Delete organization"
+                disabled={busy}
+              >
+                <DeleteIcon />
+              </IconButton>
+            </Tooltip>
+          )}
         </Stack>
 
         {tenantSlug && plan && (
@@ -291,7 +317,46 @@ export function OrganizationBar({ tenantSlug }: { tenantSlug?: string | null }) 
         </DialogActions>
       </Dialog>
 
+      <Dialog open={Boolean(confirmDeleteOrg)} onClose={() => setConfirmDeleteOrg(null)} fullWidth maxWidth="sm">
+        <DialogTitle>Delete organization</DialogTitle>
+        <DialogContent>
+          <p>Are you sure you want to delete this organization?</p>
+          <p style={{ color: 'error', marginBottom: 2 }}>
+            This will reassign all tenants to the default organization and cannot be undone.
+          </p>
+          <p>Organization: <strong>{confirmDeleteOrg}</strong></p>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setConfirmDeleteOrg(null)}>Cancel</Button>
+          <Button
+            variant="contained"
+            onClick={() => {
+              deleteOrg({ orgId: confirmDeleteOrg! }).unwrap()
+                .then(() => {
+                  setSnackbar({ message: 'Organization deleted successfully', severity: 'success' });
+                  setConfirmDeleteOrg(null);
+                })
+                .catch((err: any) => {
+                  setSnackbar({
+                    message: err?.data?.error ?? 'Failed to delete organization',
+                    severity: 'error',
+                  });
+                });
+            }}
+            disabled={isDeleting}
+          >
+            {isDeleting ? 'Deleting…' : 'Delete'}
+          </Button>
+        </DialogActions>
+      </Dialog>
 
+      <Snackbar open={Boolean(snackbar)} autoHideDuration={5000} onClose={() => setSnackbar(null)}>
+        {snackbar ? (
+          <Alert severity={snackbar.severity} onClose={() => setSnackbar(null)} sx={{ maxWidth: 480 }}>
+            {snackbar.message}
+          </Alert>
+        ) : undefined}
+      </Snackbar>
     </>
   );
 }
