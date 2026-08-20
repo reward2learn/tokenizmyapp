@@ -177,6 +177,8 @@ export const organizationApi = createApi({
       }),
       // Plan changes alter entitlements, so tenant-scoped reads go stale too.
       invalidatesTags: ['Organization', 'TenantOrg'],
+    }),
+
     /** Delete an organization and reassign its tenants to the default org. */
     deleteOrganization: builder.mutation<
       ApiEnvelope<{ success: boolean; tenantsReassigned: number }>,
