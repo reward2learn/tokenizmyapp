@@ -287,7 +287,12 @@ interface ConfigFieldsInput {
   vercelProjectId: string;
   adminEmail: string;
   pinSignInEnabled: boolean;
-  stripe: { secretKey: string; webhookSecret: string; publishableKey: string };
+  stripe: { 
+  secretKey: string; 
+  webhookSecret: string; 
+  publishableKey: string; 
+  prices: { PRO_MONTHLY?: string; PRO_YEARLY?: string; BUSINESS_MONTHLY?: string; BUSINESS_YEARLY?: string } 
+};
 }
 
 /**
@@ -336,6 +341,12 @@ function buildConfigFields(input: ConfigFieldsInput) {
       secretKey: stripe.secretKey || undefined,
       webhookSecret: stripe.webhookSecret || undefined,
       publishableKey: stripe.publishableKey || undefined,
+      prices: {
+        PRO_MONTHLY: stripe.prices?.PRO_MONTHLY,
+        PRO_YEARLY: stripe.prices?.PRO_YEARLY,
+        BUSINESS_MONTHLY: stripe.prices?.BUSINESS_MONTHLY,
+        BUSINESS_YEARLY: stripe.prices?.BUSINESS_YEARLY,
+      },
     },
     hooks: { deployHookUrl: deployHookUrl || undefined },
     vercelProjectId: vercelProjectId || undefined,
@@ -436,13 +447,24 @@ export function EditTenantModal({ open, tenant, onClose, onSnackbar }: EditTenan
 
   // ── Stripe payment keys (Organization & Billing step) ──
   // Stored in metadata.config.stripe; pushed to Vercel env on Save Changes.
-  const initStripe = (): { secretKey: string; webhookSecret: string; publishableKey: string } => {
+  const initStripe = (): { 
+    secretKey: string; 
+    webhookSecret: string; 
+    publishableKey: string; 
+    prices: { PRO_MONTHLY?: string; PRO_YEARLY?: string; BUSINESS_MONTHLY?: string; BUSINESS_YEARLY?: string } 
+  } => {
     const cfg = (tenant?.metadata?.config ?? {}) as Record<string, unknown>;
     const stripe = (cfg.stripe ?? {}) as Record<string, unknown>;
     return {
       secretKey: String(stripe.secretKey ?? ''),
       webhookSecret: String(stripe.webhookSecret ?? ''),
       publishableKey: String(stripe.publishableKey ?? ''),
+      prices: {
+        PRO_MONTHLY: stripe.PRO_MONTHLY as string | undefined,
+        PRO_YEARLY: stripe.PRO_YEARLY as string | undefined,
+        BUSINESS_MONTHLY: stripe.BUSINESS_MONTHLY as string | undefined,
+        BUSINESS_YEARLY: stripe.BUSINESS_YEARLY as string | undefined,
+      },
     };
   };
   const [stripeKeys, setStripeKeys] = useState(initStripe);
