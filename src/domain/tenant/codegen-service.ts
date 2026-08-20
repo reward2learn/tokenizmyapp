@@ -278,6 +278,10 @@ export async function generateTenantCode(
   // 8. Patch package.json (remove postinstall script that references missing files)
   await patchPackageJson(outputDir);
 
+  // 9. Conditionally remove Reown dependencies when web3 wallet is disabled
+  //    (ensures tree-shaking: packages not in package.json won't be installed)
+  await removeReownDependenciesWhenDisabled(outputDir, templateId);
+
   // 9. Inject tenant config into vercel.json
   await injectTenantConfig(outputDir, {
     slug,
@@ -811,6 +815,74 @@ async function patchPackageJson(outputDir: string): Promise<void> {
     delete pkg.scripts.postinstall;
     await writeFile(pkgPath, JSON.stringify(pkg, null, 2) + '\n', 'utf8');
     console.log('[codegen] Removed postinstall script from package.json');
+  }
+}
+
+// ── Conditional Reown dependency removal ──────────────────────────
+
+/**
+ * Conditionally remove Reown AppKit dependencies from package.json when the
+ * template's web3WalletConfig has enabled=false. This ensures tree-shaking:
+ * if the packages are not in package.json, bun will not install them, and the
+ * built app will not include them.
+ *
+ * Packages removed when web3 wallet is disabled:
+ *   - @reown/appkit
+ *   - @reown/appkit-adapter-wagmi
+ *   - @reown/appkit-siwe
+ *   - wagmi (v3, only needed for Reown adapter)
+ *   - viem (only needed for Reown chain/signer workflows)
+ */
+async function removeReownDependenciesWhenDisabled(outputDir: string, templateId: string): Promise<void> {
+  try {
+    // Resolve the template's web3Wallet config
+    const { resolveTemplate } = await import('@/domain/tenant/custom-template-service');
+    // DEFAULT_WEB3_WALLET is defined in '@/lib/web3/reown'
+    const { DEFAULT_WEB3_WALLET } = await import('@/lib/web3/reown');
+    const template = await resolveTemplate(templateId);
+    const web3Wallet = template.capabilities?.web3Wallet ?? DEFAULT_WEB3_WALLET;
+
+    // If web3 wallet is explicitly disabled, remove Reown packages
+    if (!web3Wallet.enabled) {
+      const pkgPath = join(outputDir, 'package.json');
+      if (!existsSync(pkgPath)) return;
+
+      const content = await readFile(pkgPath, 'utf8');
+      const pkg = JSON.parse(content);
+
+      const reownPackages = new Set([
+        '@reown/appkit',
+        '@reown/appkit-adapter-wagmi',
+        '@reown/appkit-siwe',
+        'wagmi',
+        'viem',
+      ]);
+
+      let modified = false;
+      for (const pkgKey of Object.keys(pkg.dependencies || {})) {
+        if (reownPackages.has(pkgKey)) {
+          delete pkg.dependencies[pkgKey];
+          modified = true;
+        }
+      }
+      for (const pkgKey of Object.keys(pkg.devDependencies || {})) {
+        if (reownPackages.has(pkgKey)) {
+          delete pkg.devDependencies[pkgKey];
+          modified = true;
+        }
+      }
+
+      if (modified) {
+        await writeFile(pkgPath, JSON.stringify(pkg, null, 2) + '\n', 'utf8');
+        console.log(`[codegen] Removed Reown packages from package.json for template "${templateId}" (web3 wallet disabled)`);
+      }
+    }
+  } catch (err) {
+    console.warn(
+      `[codegen] Could not resolve web3 wallet config for template "${templateId}":`,
+      err instanceof Error ? err.message : err,
+    );
+    // If we can't resolve the template config, keep the dependencies — safer to include than exclude
   }
 }
 

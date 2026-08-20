@@ -1015,6 +1015,32 @@ export function EditTenantModal({ open, tenant, onClose, onSnackbar }: EditTenan
     addResult('Redirect URI (callback/google)', hasCallbackUri ? 'pass' : 'fail',
       hasCallbackUri ? 'Configured in Google Cloud Console' : 'Missing - add /api/auth/callback/google to OAuth client in Google Cloud Console');
 
+    // ── Social Wallet ─────────────────────────────────────────────
+    const web3Wallet = (cfg?.web3Wallet ?? {}) as Record<string, unknown>;
+    const walletEnabled = web3Wallet.enabled === true;
+    const walletConnectMode = String(web3Wallet.connectMode ?? '') as string;
+    const walletSocialProviders = (web3Wallet.socialProviders as string[]) || [];
+    const hasGoogleProvider = walletSocialProviders.includes('google');
+    const isSocialWalletTemplate = walletEnabled && walletConnectMode === 'social' && hasGoogleProvider;
+
+    addResult('Template: Social Wallet', isSocialWalletTemplate ? 'pass' : 'fail',
+      isSocialWalletTemplate
+        ? 'Template is configured for social wallet auth (Google OAuth + embedded wallet)'
+        : 'Template either has web3 wallet disabled, connect mode is not "social", or does not include Google as a social provider',
+      undefined, 'Go to Template step');
+
+    // Reown Project ID
+    const reownProjectId = process?.env?.NEXT_PUBLIC_PROJECT_ID || (cfg?.reownProjectId as string) || '';
+    addResult('Reown Project ID', reownProjectId ? 'pass' : 'warn',
+      reownProjectId ? 'Configured: ' + String(reownProjectId).slice(0, 20) + '...' : 'Not set - set NEXT_PUBLIC_PROJECT_ID in Vercel env vars',
+      undefined, 'Go to Features step');
+
+    // Google OAuth Socials in Reown Cloud
+    const reownGoogleEnabled = (cfg?.reownGoogleEnabled as boolean) || false;
+    addResult('Google OAuth Socials (Reown Cloud)', reownGoogleEnabled ? 'pass' : 'warn',
+      reownGoogleEnabled ? 'Google enabled under Social & Email in Reown Cloud dashboard' : 'Google not enabled - go to dashboard.reown.com → Your Project → Settings → Social & Email → Social Logins → Google',
+      undefined, 'Go to Features step');
+
     // License
     addResult('License Key', license.key ? 'pass' : 'fail',
       String(license.key || 'Missing').slice(0, 25) + (license.key ? '...' : ''),
