@@ -25,11 +25,54 @@ import { provisionTenantDatabase, type ProvisionedDatabase } from '@/domain/tena
 import { runMigrations } from '@/domain/tenant/migration-runner';
 import { generateTenantCode, injectTenantConfig, cleanupTenantCode } from '@/domain/tenant/codegen-service';
 import { deployViaCli } from '@/domain/tenant/vercel-cli-service';
-import { materializeAppPackForTenant, buildSuitePrompt } from '@/domain/app-pack/app-pack-tenant-materializer';
+import { materializeAppPackForTenant, buildSuitePrompt, ensureCeoOverviewInPack } from '@/domain/app-pack/app-pack-tenant-materializer';
+import type { AppPackConfig } from '@/store/apis/tenant-api';
 import { provisionSuiteApps } from '@/domain/workflow/suite-provisioning';
 import { CREDIT_FLOORS, requireCreditsForTenant } from '@/domain/billing/credit-service';
 
 export const dynamic = 'force-dynamic';
+
+/**
+ * Persist CEO Overview into suite packs that predate the deployable-app model.
+ * Returns how many tenants were updated.
+ */
+async function backfillCeoOverviewApps(
+  db: ReturnType<typeof createRawClient>,
+  rows: Record<string, unknown>[],
+): Promise<number> {
+  let updated = 0;
+  for (const row of rows) {
+    const meta = (row.metadata ?? {}) as Record<string, unknown>;
+    const config = (meta.config ?? {}) as Record<string, unknown>;
+    const pack = config.appPack as AppPackConfig | undefined;
+    if (!pack || !Array.isArray(pack.apps) || pack.apps.length === 0) continue;
+
+    const beforeIds = pack.apps.map((a) => a.appId).join(',');
+    const beforePurpose = pack.ceoOverview?.purpose ?? '';
+    const beforeKpis = pack.ceoOverview?.kpis?.length ?? 0;
+    const { pack: nextPack, addedApp } = ensureCeoOverviewInPack(pack, {
+      displayName: String(row.display_name ?? row.slug),
+    });
+    const afterPurpose = nextPack.ceoOverview?.purpose ?? '';
+    const afterKpis = nextPack.ceoOverview?.kpis?.length ?? 0;
+    const changed =
+      Boolean(addedApp)
+      || beforePurpose !== afterPurpose
+      || beforeKpis !== afterKpis
+      || beforeIds !== nextPack.apps.map((a) => a.appId).join(',');
+    if (!changed) continue;
+
+    const nextConfig = { ...config, templateMode: 'suite', appPack: nextPack };
+    await db.$executeRawUnsafe(
+      `UPDATE tenants SET metadata = jsonb_set(COALESCE(metadata, '{}'), '{config}', $1::jsonb), updated_at = CURRENT_TIMESTAMP WHERE slug = $2;`,
+      JSON.stringify(nextConfig),
+      row.slug,
+    );
+    row.metadata = { ...meta, config: nextConfig };
+    updated += 1;
+  }
+  return updated;
+}
 
 const createSchema = z.object({
   slug: z.string().min(2).max(50).regex(/^[a-z0-9-]+$/, 'Slug must be lowercase alphanumeric with hyphens'),
@@ -93,7 +136,13 @@ export async function GET(request: Request): Promise<Response> {
       ? await db.$queryRawUnsafe(query, status)
       : await db.$queryRawUnsafe(query);
 
-    return jsonOk({ tenants: (tenants as Record<string, unknown>[]).map(mapTenantRow) });
+    const rows = tenants as Record<string, unknown>[];
+    const backfilled = await backfillCeoOverviewApps(db, rows);
+    if (backfilled > 0) {
+      console.log(`[tenants] Backfilled CEO Overview app on ${backfilled} suite tenant(s)`);
+    }
+
+    return jsonOk({ tenants: rows.map(mapTenantRow) });
   } catch (err) {
     console.error('[tenants] GET error:', err);
     return jsonError('Failed to list tenants', 500);

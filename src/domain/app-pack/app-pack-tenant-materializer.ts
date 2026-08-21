@@ -40,6 +40,88 @@ import type { AppPackConfig, SuiteAppInstance } from '@/store/apis/tenant-api';
  */
 export type PackMode = 'predefined' | 'custom';
 
+/** Canonical suite app id for the leadership overview (always last in a pack). */
+export const CEO_OVERVIEW_APP_ID = 'ceo-overview';
+/** Shared template — CEO may share this with a Finance app; collision rules must allow both. */
+export const CEO_OVERVIEW_TEMPLATE_ID = 'financial-analytics';
+
+export const DEFAULT_CEO_OVERVIEW_KPIS = [
+  'revenue',
+  'grossMargin',
+  'headcount',
+  'salesTargetAchievement',
+  'cashflow',
+  'complianceStatus',
+] as const;
+
+export function isCeoOverviewApp(app: Pick<SuiteAppInstance, 'appId'>): boolean {
+  return app.appId === CEO_OVERVIEW_APP_ID;
+}
+
+/** True when the suite already has a leadership-overview app (canonical or AI-named). */
+export function hasCeoLikeSuiteApp(apps: SuiteAppInstance[]): boolean {
+  return apps.some(
+    (a) =>
+      isCeoOverviewApp(a)
+      || a.appId === 'owner-dashboard'
+      || (
+        (/ceo/i.test(a.appId) || /ceo\s*overview/i.test(a.name))
+        && /executive/i.test(a.department)
+      ),
+  );
+}
+
+/** Build a pending CEO Overview suite app (deployable like any other department app). */
+export function buildCeoOverviewSuiteApp(
+  status: SuiteAppInstance['status'] = 'pending',
+): SuiteAppInstance {
+  return {
+    appId: CEO_OVERVIEW_APP_ID,
+    name: 'CEO Overview',
+    department: 'Executive Leadership',
+    templateId: CEO_OVERVIEW_TEMPLATE_ID,
+    status,
+    appUrl: null,
+    dbUrl: null,
+    vercelProjectId: null,
+    metadata: {},
+  };
+}
+
+/**
+ * Ensure pack metadata + apps[] include a real CEO Overview suite app.
+ * Idempotent — never overwrites an existing `ceo-overview` instance.
+ */
+export function ensureCeoOverviewInPack(
+  pack: AppPackConfig,
+  options?: { displayName?: string },
+): { pack: AppPackConfig; addedApp: SuiteAppInstance | null } {
+  const displaySuffix = options?.displayName ? ` for ${options.displayName}` : '';
+  const ceoOverview = {
+    purpose:
+      pack.ceoOverview?.purpose?.trim()
+      || `Aggregate KPIs and knowledge from every department app into a single leadership overview with actionable items${displaySuffix}.`,
+    kpis:
+      pack.ceoOverview?.kpis?.length
+        ? pack.ceoOverview.kpis
+        : [...DEFAULT_CEO_OVERVIEW_KPIS],
+  };
+
+  if (hasCeoLikeSuiteApp(pack.apps)) {
+    return { pack: { ...pack, ceoOverview }, addedApp: null };
+  }
+
+  const addedApp = buildCeoOverviewSuiteApp('pending');
+  return {
+    pack: {
+      ...pack,
+      ceoOverview,
+      apps: [...pack.apps, addedApp],
+    },
+    addedApp,
+  };
+}
+
 export interface MaterializeAppPackInput {
   /** Tenant slug (e.g. "redruby-bali"). */
   tenantSlug: string;
@@ -82,13 +164,13 @@ export function buildDeterministicAppPack(
     });
   }
   briefs.push({
-    id: 'ceo-overview',
+    id: CEO_OVERVIEW_APP_ID,
     name: 'CEO Overview',
     department: 'Executive Leadership',
     summary:
       'Cross-department transparency dashboard with access to every department app’s ' +
       'knowledge base and realtime actionable items.',
-    templateId: 'financial-analytics',
+    templateId: CEO_OVERVIEW_TEMPLATE_ID,
   });
 
   return {
@@ -98,7 +180,7 @@ export function buildDeterministicAppPack(
     apps: briefs,
     ceoOverview: {
       purpose: `Aggregate KPIs and knowledge from every department app into a single leadership overview with actionable items for ${displayName}.`,
-      kpis: ['revenue', 'grossMargin', 'headcount', 'salesTargetAchievement', 'cashflow', 'complianceStatus'],
+      kpis: [...DEFAULT_CEO_OVERVIEW_KPIS],
     },
   };
 }
@@ -213,7 +295,8 @@ export async function materializeAppPackForTenant(
       ceoOverview: decomposition.ceoOverview,
     };
 
-    return { success: true, appPack, definitions };
+    const ensured = ensureCeoOverviewInPack(appPack, { displayName: input.displayName });
+    return { success: true, appPack: ensured.pack, definitions };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     console.error('[app-pack-tenant-materializer] Failed:', message);
@@ -275,9 +358,11 @@ function allocateUniqueAppId(base: string, used: Set<string>): string {
  * creation) and merge only the *new* apps into an existing suite.
  *
  * Collision rules:
- *   - Skip apps whose appId already exists (e.g. ceo-overview).
- *   - Skip apps whose templateId is already present in the suite.
+ *   - Skip apps whose appId already exists (e.g. ceo-overview already present).
+ *   - Skip apps whose templateId is already present — **except** CEO Overview,
+ *     which intentionally shares `financial-analytics` with Finance apps.
  *   - Re-allocate appIds that would otherwise collide after filtering.
+ *   - Always `ensureCeoOverviewInPack` so append never drops leadership overview.
  *
  * On AI failure in 'predefined' mode, falls back to the deterministic
  * per-template builder so Create New App still produces seed apps.
@@ -330,16 +415,19 @@ export async function appendAppPackToExistingSuite(
   }
 
   const usedIds = new Set(input.existingApps.map((a) => a.appId));
-  const usedTemplates = new Set(input.existingApps.map((a) => a.templateId));
+  const usedTemplates = new Set(
+    input.existingApps.filter((a) => !isCeoOverviewApp(a)).map((a) => a.templateId),
+  );
   const addedApps: SuiteAppInstance[] = [];
 
   for (const app of packResult.appPack.apps) {
     if (usedIds.has(app.appId)) continue;
-    if (usedTemplates.has(app.templateId)) continue;
+    // CEO Overview may share financial-analytics with an existing Finance app.
+    if (!isCeoOverviewApp(app) && usedTemplates.has(app.templateId)) continue;
 
     const appId = allocateUniqueAppId(app.appId, usedIds);
     usedIds.add(appId);
-    usedTemplates.add(app.templateId);
+    if (!isCeoOverviewApp(app)) usedTemplates.add(app.templateId);
     addedApps.push(appId === app.appId ? app : { ...app, appId });
   }
 
@@ -359,10 +447,16 @@ export async function appendAppPackToExistingSuite(
         ceoOverview: packResult.appPack.ceoOverview,
       };
 
-  const merged: AppPackConfig = {
+  let merged: AppPackConfig = {
     ...basePack,
     apps: [...basePack.apps, ...addedApps],
   };
+
+  // Guarantee CEO Overview exists even when template collision dropped it from
+  // an older code path, or the materialized pack omitted it.
+  const ensured = ensureCeoOverviewInPack(merged, { displayName: input.displayName });
+  merged = ensured.pack;
+  if (ensured.addedApp) addedApps.push(ensured.addedApp);
 
   return {
     success: true,

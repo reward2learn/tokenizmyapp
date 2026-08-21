@@ -84,6 +84,22 @@ import { AddAppButton } from '@/components/ops-admin/add-app-dialog';
 import { CreateAppWizard } from '@/components/ops-admin/create-app-wizard';
 import { DEFAULT_TENANT } from '@shared/lib/config/tenant';
 
+/** Extracts the API envelope's `error` string off an RTK Query error, without `any`. */
+function apiErrorMessage(err: unknown, fallback: string): string {
+  if (err && typeof err === 'object') {
+    if ('data' in err) {
+      const data = (err as { data?: { error?: string } }).data;
+      if (data?.error) return data.error;
+    }
+    if ('error' in err) {
+      const message = (err as { error?: unknown }).error;
+      if (typeof message === 'string' && message.trim()) return message;
+    }
+  }
+  if (err instanceof Error && err.message) return err.message;
+  return fallback;
+}
+
 /** Extract the AppPackConfig from a tenant's metadata (suite mode). */
 function getTenantAppPack(tenant: TenantEntry): AppPackConfig | null {
   const cfg = (tenant.metadata?.config ?? {}) as Record<string, unknown>;
@@ -293,8 +309,7 @@ export function TenantDashboard() {
         setSnackbar({ message: result.error || 'Failed to deploy', severity: 'error' });
       }
     } catch (err) {
-      const msg = err?.data?.error || err?.error || 'Failed to deploy tenant';
-      setSnackbar({ message: msg, severity: 'error' });
+      setSnackbar({ message: apiErrorMessage(err, 'Failed to deploy tenant'), severity: 'error' });
     }
   };
 
@@ -316,8 +331,7 @@ export function TenantDashboard() {
         setSnackbar({ message: result.error || 'Status check failed', severity: 'error' });
       }
     } catch (err) {
-      const msg = err?.data?.error || err?.error || 'Failed to check deployment status';
-      setSnackbar({ message: msg, severity: 'error' });
+      setSnackbar({ message: apiErrorMessage(err, 'Failed to check deployment status'), severity: 'error' });
     } finally {
       setCheckingStatus(null);
     }
@@ -430,8 +444,7 @@ export function TenantDashboard() {
         setSnackbar({ message: result.error || 'Failed to fetch domains', severity: 'error' });
       }
     } catch (err) {
-      const msg = err?.data?.error || err?.error || 'Failed to refresh domains';
-      setSnackbar({ message: msg, severity: 'error' });
+      setSnackbar({ message: apiErrorMessage(err, 'Failed to refresh domains'), severity: 'error' });
     } finally {
       setRefreshingDomains(null);
     }
@@ -461,8 +474,7 @@ export function TenantDashboard() {
         setSnackbar({ message: 'Hook triggered successfully', severity: 'success' });
       }
     } catch (err) {
-      const msg = err?.data?.error || err?.error || 'Failed to trigger deploy hook';
-      setSnackbar({ message: msg, severity: 'error' });
+      setSnackbar({ message: apiErrorMessage(err, 'Failed to trigger deploy hook'), severity: 'error' });
     } finally {
       setTriggeringHook(null);
     }
@@ -919,15 +931,37 @@ export function TenantDashboard() {
                                     </TableRow>
                                   </TableHead>
                                   <TableBody>
-                                    {suite.apps.map((app) => {
+                                    {[...suite.apps]
+                                      .sort((a, b) => {
+                                        // Keep CEO Overview last for readability
+                                        const aCeo = a.appId === 'ceo-overview' || a.appId === 'owner-dashboard' ? 1 : 0;
+                                        const bCeo = b.appId === 'ceo-overview' || b.appId === 'owner-dashboard' ? 1 : 0;
+                                        return aCeo - bCeo;
+                                      })
+                                      .map((app) => {
                                       const appTpl = getTemplate(app.templateId);
                                       const appStatusColor = STATUS_COLORS[app.status] ?? 'default';
+                                      const isCeo =
+                                        app.appId === 'ceo-overview'
+                                        || app.appId === 'owner-dashboard'
+                                        || (/ceo/i.test(app.appId) && /executive/i.test(app.department));
                                       return (
                                         <TableRow key={app.appId}>
                                           <TableCell>
-                                            <Typography variant="body2" sx={{ fontWeight: 600, fontSize: '0.8rem' }}>
-                                              {app.name}
-                                            </Typography>
+                                            <Stack direction="row" spacing={0.5} sx={{ alignItems: 'center' }}>
+                                              <Typography variant="body2" sx={{ fontWeight: 600, fontSize: '0.8rem' }}>
+                                                {app.name}
+                                              </Typography>
+                                              {isCeo && suite.ceoOverview?.kpis?.length ? (
+                                                <Chip
+                                                  label={`${suite.ceoOverview.kpis.length} KPIs`}
+                                                  size="small"
+                                                  variant="outlined"
+                                                  color="success"
+                                                  sx={{ fontSize: '0.65rem', height: 20 }}
+                                                />
+                                              ) : null}
+                                            </Stack>
                                           </TableCell>
                                           <TableCell>
                                             <Chip label={app.department} size="small" variant="outlined" sx={{ fontSize: '0.7rem' }} />
@@ -958,31 +992,6 @@ export function TenantDashboard() {
                                         </TableRow>
                                       );
                                     })}
-                                    {/* CEO Overview row */}
-                                    <TableRow>
-                                      <TableCell>
-                                        <Typography variant="body2" sx={{ fontWeight: 600, fontSize: '0.8rem' }}>
-                                          CEO Overview
-                                        </Typography>
-                                      </TableCell>
-                                      <TableCell>
-                                        <Chip label="Executive" size="small" variant="outlined" color="success" sx={{ fontSize: '0.7rem' }} />
-                                      </TableCell>
-                                      <TableCell>
-                                        <Chip label="Financial Analytics" size="small" variant="outlined" color="info" sx={{ fontSize: '0.7rem' }} />
-                                      </TableCell>
-                                      <TableCell>
-                                        <Chip label={t.status} size="small" color={STATUS_COLORS[t.status] ?? 'default'} sx={{ fontSize: '0.7rem' }} />
-                                      </TableCell>
-                                      <TableCell>
-                                        <Typography variant="caption" color="text.disabled">aggregated</Typography>
-                                      </TableCell>
-                                      <TableCell align="right">
-                                        <Typography variant="caption" color="text.secondary" sx={{ fontSize: '0.7rem' }}>
-                                          {suite.ceoOverview.kpis.length} KPIs
-                                        </Typography>
-                                      </TableCell>
-                                    </TableRow>
                                   </TableBody>
                                 </Table>
                               </Box>

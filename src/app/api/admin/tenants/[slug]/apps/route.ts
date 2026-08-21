@@ -11,6 +11,7 @@ import { requireWriteAuth } from '@/lib/auth/guards';
 import { jsonError, jsonOk } from '@/lib/api/response';
 import { ensureTenantsTable } from '@/domain/tenant/tenant-service';
 import { templateExists } from '@/domain/tenant/custom-template-service';
+import { ensureCeoOverviewInPack } from '@/domain/app-pack/app-pack-tenant-materializer';
 import type { AppPackConfig, SuiteAppInstance } from '@/store/apis/tenant-api';
 
 export const dynamic = 'force-dynamic';
@@ -110,11 +111,18 @@ export async function POST(
       ...(deployHookUrl ? { deployHookUrl } : {}),
     };
 
-    // Add to appPack
+    // Add to appPack + ensure CEO Overview exists as a real deployable suite app
     appPack.apps.push(newApp);
+    const ensured = ensureCeoOverviewInPack(appPack, {
+      displayName: String(rows[0].display_name ?? slug),
+    });
+    appPack = ensured.pack;
     await saveAppPack(db, slug, appPack);
 
-    console.log(`[suite-apps] Added app "${appId}" to suite "${slug}"`);
+    console.log(
+      `[suite-apps] Added app "${appId}" to suite "${slug}"` +
+        (ensured.addedApp ? ` (+ ${ensured.addedApp.appId})` : ''),
+    );
 
     return jsonOk({
       added: true,
