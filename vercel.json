@@ -4,6 +4,12 @@
   "buildCommand": "bash scripts/vercel-build.sh",
   "cleanUrls": true,
   "trailingSlash": false,
+  "git": {
+    "deploymentEnabled": {
+      "dev": false,
+      "internal-*": false
+    }
+  },
   "env": {
     "AWS_LAMBDA_JS_RUNTIME": "nodejs22.x",
     "NEXT_PUBLIC_TENANT_SLUG": "tokenizmyapp",

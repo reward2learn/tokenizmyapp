@@ -83,28 +83,69 @@ async function refreshAccessToken(refreshToken: string): Promise<VercelOAuthToke
   }
 }
 
-export async function resolveBearerToken(): Promise<string> {
+export type VercelTokenSource = 'vercel_token' | 'oauth';
+
+export interface VercelBearerCandidate {
+  token: string;
+  source: VercelTokenSource;
+}
+
+/**
+ * List bearer tokens to try for Vercel REST calls, in preference order.
+ *
+ * Prefer `VERCEL_TOKEN` (personal/team PAT) first: Sign-in-with-Vercel OAuth
+ * only requests `openid email profile offline_access` and cannot create
+ * deploy hooks (API returns 401 "You are not allowed to access this endpoint").
+ * OAuth remains a fallback for read/list calls when a PAT is absent.
+ */
+export async function listVercelBearerTokens(): Promise<VercelBearerCandidate[]> {
+  const out: VercelBearerCandidate[] = [];
+  const envToken = process.env.VERCEL_TOKEN?.trim();
+  if (envToken) out.push({ token: envToken, source: 'vercel_token' });
+
   const stored = await readStoredTokens();
   if (stored) {
+    let access = stored.accessToken;
     if (Date.now() > stored.expiresAt - 300_000) {
       if (stored.refreshToken) {
         console.log('[vercel-sdk] Access token expired, attempting refresh...');
         const refreshed = await refreshAccessToken(stored.refreshToken);
-        if (refreshed) return refreshed.accessToken;
-        console.warn('[vercel-sdk] Token refresh failed, falling back to env var');
+        if (refreshed) access = refreshed.accessToken;
+        else {
+          console.warn('[vercel-sdk] Token refresh failed; skipping OAuth bearer');
+          access = '';
+        }
       } else {
         console.warn('[vercel-sdk] Token expired and no refresh_token available');
+        access = '';
       }
-    } else {
-      return stored.accessToken;
     }
+    if (access) out.push({ token: access, source: 'oauth' });
   }
-  const envToken = process.env.VERCEL_TOKEN;
-  if (envToken) return envToken;
+
+  return out;
+}
+
+export async function resolveBearerToken(): Promise<string> {
+  const candidates = await listVercelBearerTokens();
+  if (candidates.length > 0) return candidates[0].token;
   throw new Error(
     'No Vercel API token available. ' +
-    'Connect your Vercel account via the admin dashboard (Connect to Vercel button), ' +
-    'or set VERCEL_TOKEN environment variable.',
+    'Set VERCEL_TOKEN (team/personal token from Vercel → Settings → Tokens) ' +
+    'or connect via the admin dashboard (Connect to Vercel). ' +
+    'Deploy-hook creation requires VERCEL_TOKEN — OAuth Sign-in scopes are not enough.',
+  );
+}
+
+/** Prefer a PAT for project mutations (deploy hooks, git link). */
+export async function resolveProjectApiToken(): Promise<VercelBearerCandidate> {
+  const candidates = await listVercelBearerTokens();
+  const pat = candidates.find((c) => c.source === 'vercel_token');
+  if (pat) return pat;
+  if (candidates[0]) return candidates[0];
+  throw new Error(
+    'No Vercel API token available for project mutations. ' +
+    'Create a team token at https://vercel.com/account/tokens and set VERCEL_TOKEN.',
   );
 }
 

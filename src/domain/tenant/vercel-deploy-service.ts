@@ -4,7 +4,7 @@
  * Uses @vercel/sdk for all Vercel API calls. Token resolution (OAuth + env var
  * fallback) is handled by vercel-sdk-client.ts.
  */
-import { getVercelClient, withTeamId, withTeamId404Null, TEAM_ID, resolveBearerToken, VERCEL_API } from './vercel-sdk-client';
+import { getVercelClient, withTeamId, withTeamId404Null, TEAM_ID, resolveBearerToken, listVercelBearerTokens, VERCEL_API } from './vercel-sdk-client';
 import { DEFAULT_RELAY_REDIRECT_URI } from '@/lib/auth/google-relay';
 import { buildWeb3EnvVars } from '@/lib/web3/reown';
 import { resolveTemplate } from '@/domain/tenant/custom-template-service';
@@ -654,7 +654,18 @@ export async function ensureDeployHook(
   }
 
   try {
-    const bearer = await resolveBearerToken();
+    const tokens = await listVercelBearerTokens();
+    if (tokens.length === 0) {
+      return {
+        ok: false,
+        error:
+          'No Vercel API token available. Set VERCEL_TOKEN (team/personal PAT from '
+          + 'https://vercel.com/account/tokens) — Sign-in-with-Vercel OAuth cannot create deploy hooks.',
+        projectId: id,
+        projectName: git.projectName ?? null,
+        status: 401,
+      };
+    }
 
     // Re-read project so we see current deployHooks after optional git link.
     const { project, status: getStatus, body: getBody } = await fetchVercelProject(id);
@@ -671,7 +682,6 @@ export async function ensureDeployHook(
     const listHooks = (p: VercelProjectGitSnapshot | null | undefined): VercelDeployHook[] => {
       const fromLink = p?.link?.deployHooks;
       if (Array.isArray(fromLink) && fromLink.length > 0) return fromLink;
-      // Some API payloads nest hooks under link only after a refresh; tolerate empty.
       return Array.isArray(fromLink) ? fromLink : [];
     };
 
@@ -694,70 +704,91 @@ export async function ensureDeployHook(
       };
     }
 
-    // Create with teamId, then without — same pattern as env upsert.
+    // Try every bearer × teamId combo. OAuth Sign-in tokens commonly 401 on
+    // POST /deploy-hooks; a team PAT (VERCEL_TOKEN) usually succeeds.
     let lastStatus = 0;
     let lastBody = '';
-    for (const teamId of [TEAM_ID, undefined]) {
-      const qs = teamId ? `?teamId=${encodeURIComponent(teamId)}` : '';
-      const res = await fetch(
-        `${VERCEL_API}/v2/projects/${encodeURIComponent(id)}/deploy-hooks${qs}`,
-        {
-          method: 'POST',
-          headers: {
-            Authorization: `Bearer ${bearer}`,
-            'Content-Type': 'application/json',
+    let triedSources: string[] = [];
+    for (const { token: bearer, source } of tokens) {
+      triedSources.push(source);
+      for (const teamId of [TEAM_ID, undefined]) {
+        const qs = teamId ? `?teamId=${encodeURIComponent(teamId)}` : '';
+        const res = await fetch(
+          `${VERCEL_API}/v2/projects/${encodeURIComponent(id)}/deploy-hooks${qs}`,
+          {
+            method: 'POST',
+            headers: {
+              Authorization: `Bearer ${bearer}`,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ name, ref }),
           },
-          body: JSON.stringify({ name, ref }),
-        },
-      );
-      lastStatus = res.status;
-      lastBody = await res.text().catch(() => '');
-      if (!res.ok) {
-        if ((res.status === 403 || res.status === 400) && teamId === TEAM_ID) continue;
-        break;
-      }
+        );
+        lastStatus = res.status;
+        lastBody = await res.text().catch(() => '');
+        if (!res.ok) {
+          console.warn(
+            `[vercel-deploy] deploy-hook create ${res.status} via ${source}`
+            + `${teamId ? '+team' : ''} for ${id}: ${lastBody.slice(0, 160)}`,
+          );
+          // Try next teamId / next token on auth / scope failures.
+          if (res.status === 401 || res.status === 403) continue;
+          if (res.status === 400 && teamId === TEAM_ID) continue;
+          // Non-auth errors (e.g. not git-linked) — stop this token.
+          break;
+        }
 
-      let updated: VercelProjectGitSnapshot | null = null;
-      try {
-        updated = JSON.parse(lastBody) as VercelProjectGitSnapshot;
-      } catch {
-        updated = null;
-      }
+        let updated: VercelProjectGitSnapshot | null = null;
+        try {
+          updated = JSON.parse(lastBody) as VercelProjectGitSnapshot;
+        } catch {
+          updated = null;
+        }
 
-      let created = pickHook(listHooks(updated));
-      // POST sometimes returns the project without the new hook URL populated —
-      // re-fetch once before giving up.
-      if (!created?.url) {
-        const refetch = await fetchVercelProject(id);
-        created = pickHook(listHooks(refetch.project));
-      }
+        let created = pickHook(listHooks(updated));
+        if (!created?.url) {
+          const refetch = await fetchVercelProject(id);
+          created = pickHook(listHooks(refetch.project));
+        }
 
-      if (!created?.url) {
+        if (!created?.url) {
+          return {
+            ok: false,
+            error: 'Deploy hook was created but Vercel did not return a URL in link.deployHooks',
+            projectId: id,
+            projectName: project.name ?? updated?.name ?? null,
+            status: res.status,
+          };
+        }
+
+        console.log(`[vercel-deploy] Deploy hook created for ${id}: ${created.id} (via ${source})`);
         return {
-          ok: false,
-          error: 'Deploy hook was created but Vercel did not return a URL in link.deployHooks',
+          ok: true,
+          url: created.url,
+          id: created.id,
+          created: true,
           projectId: id,
-          projectName: project.name ?? updated?.name ?? null,
-          status: res.status,
+          projectName: project.name ?? updated?.name ?? git.projectName ?? null,
         };
       }
-
-      console.log(`[vercel-deploy] Deploy hook created for ${id}: ${created.id}`);
-      return {
-        ok: true,
-        url: created.url,
-        id: created.id,
-        created: true,
-        projectId: id,
-        projectName: project.name ?? updated?.name ?? git.projectName ?? null,
-      };
     }
+
+    const sources = triedSources.join('+') || 'none';
+    const authHint =
+      lastStatus === 401 || lastStatus === 403
+        ? (
+            ' Sign-in-with-Vercel OAuth cannot create deploy hooks. '
+            + 'Create a team token at https://vercel.com/account/tokens '
+            + '(scope: the team that owns this project) and set VERCEL_TOKEN on the factory deployment, then retry Generate.'
+          )
+        : '';
 
     return {
       ok: false,
       error:
-        `Vercel refused deploy-hook create (${lastStatus}): ${lastBody.slice(0, 300) || 'no body'}. `
-        + `Confirm project ${id} is linked to ${DEFAULT_GIT_REPO} and the token can manage deploy hooks.`,
+        `Vercel refused deploy-hook create (${lastStatus}) with token(s) [${sources}]: `
+        + `${lastBody.slice(0, 240) || 'no body'}. `
+        + `Confirm project ${id} is linked to ${DEFAULT_GIT_REPO}.${authHint}`,
       projectId: id,
       projectName: project.name ?? git.projectName ?? null,
       status: lastStatus,
@@ -771,6 +802,112 @@ export async function ensureDeployHook(
     };
   }
 }
+
+/**
+ * Snapshot of a Vercel project's git + deploy-hook state for the ops UI /
+ * Generate flow. Captures the "knowledge base" operators need: project id/name,
+ * linked repo, existing hooks, and how `git.deploymentEnabled` / `github.enabled`
+ * interact with Deploy Hooks.
+ *
+ * Important (from Vercel docs):
+ * - `git.deploymentEnabled` in vercel.json controls auto-deploy on git push.
+ * - `github.enabled: false` (legacy) ALSO blocks Deploy Hooks from firing.
+ * - Suite apps on a shared monorepo should usually keep Git linked, use Deploy
+ *   Hooks for intentional deploys, and prefer Ignored Build Step (or selective
+ *   `git.deploymentEnabled` branch rules) — never `github.enabled: false`.
+ */
+export type VercelProjectKnowledge = {
+  projectId: string;
+  projectName: string | null;
+  git: {
+    linked: boolean;
+    repo: string | null;
+    type: string | null;
+    productionBranch: string | null;
+  };
+  deployHooks: Array<{ id: string; name: string; ref: string; url: string }>;
+  recommendations: {
+    sharedRepo: string;
+    /** Keep false — github.enabled:false disables deploy hooks. */
+    avoidGithubEnabledFalse: true;
+    /**
+     * Suggested vercel.json snippet for suite apps that should NOT auto-deploy
+     * every push on non-production branches (repo-level; shared by all projects
+     * using the same vercel.json unless they have a different root).
+     */
+    suggestedGitDeploymentEnabled: {
+      git: { deploymentEnabled: { main: true; 'dev': false; 'internal-*': false } };
+    };
+    notes: string[];
+  };
+};
+
+export async function getVercelProjectKnowledge(
+  projectId: string,
+): Promise<{ ok: true; data: VercelProjectKnowledge } | { ok: false; error: string }> {
+  const id = projectId.trim();
+  if (!id) return { ok: false, error: 'Missing project id' };
+
+  const { project, status, body } = await fetchVercelProject(id);
+  if (!project) {
+    return { ok: false, error: `Could not load project ${id} (${status}): ${body.slice(0, 200)}` };
+  }
+
+  const link = project.link;
+  const repo =
+    link?.repo && link?.org
+      ? `${link.org}/${link.repo}`
+      : link?.repo
+        ? String(link.repo)
+        : null;
+
+  const hooks = (link?.deployHooks ?? []).map((h) => ({
+    id: h.id,
+    name: h.name,
+    ref: h.ref,
+    url: h.url,
+  }));
+
+  // productionBranch is often on link; tolerate absence.
+  const productionBranch =
+    (link as { productionBranch?: string } | null | undefined)?.productionBranch
+    ?? null;
+
+  return {
+    ok: true,
+    data: {
+      projectId: project.id,
+      projectName: project.name ?? null,
+      git: {
+        linked: Boolean(repo),
+        repo,
+        type: link?.type ?? null,
+        productionBranch,
+      },
+      deployHooks: hooks,
+      recommendations: {
+        sharedRepo: DEFAULT_GIT_REPO,
+        avoidGithubEnabledFalse: true,
+        suggestedGitDeploymentEnabled: {
+          git: {
+            deploymentEnabled: {
+              main: true,
+              dev: false,
+              'internal-*': false,
+            },
+          },
+        },
+        notes: [
+          `Link this project to ${DEFAULT_GIT_REPO} (GitHub) so Deploy Hooks can be created.`,
+          'Do not set github.enabled=false in vercel.json — that blocks Deploy Hooks.',
+          'git.deploymentEnabled controls push auto-deploys only; Deploy Hooks remain the intentional trigger for suite apps.',
+          'Create hooks via Generate (needs VERCEL_TOKEN team PAT) or paste a hook URL from Vercel → Project → Settings → Git → Deploy Hooks.',
+        ],
+      },
+    },
+  };
+}
+
 
 // ── Git-based deployment ─────────────────────────────────────
 

@@ -342,10 +342,19 @@ export function EditAppModal({ open, onClose, tenantSlug, app, onSnackbar }: Edi
         });
       }
     } catch (err) {
-      const message = err && typeof err === 'object' && 'data' in err
-        ? String((err as { data?: { error?: string } }).data?.error ?? 'Failed to generate deploy hook')
-        : 'Failed to generate deploy hook';
-      onSnackbar({ message: `❌ ${message}`, severity: 'error' });
+      const payload = err && typeof err === 'object' && 'data' in err
+        ? (err as { data?: { error?: string; data?: { hint?: string } } }).data
+        : undefined;
+      const message = payload?.error
+        ?? (typeof err === 'object' && err && 'error' in err ? String((err as { error?: string }).error) : null)
+        ?? 'Failed to generate deploy hook';
+      const hint = payload?.data?.hint;
+      // 401 from Vercel is almost always "OAuth connected but no VERCEL_TOKEN PAT".
+      const short = message.length > 280 ? `${message.slice(0, 280)}…` : message;
+      onSnackbar({
+        message: hint ? `❌ ${short}\n${hint}` : `❌ ${short}`,
+        severity: 'error',
+      });
     }
   }, [provisionDeployHook, tenantSlug, app.appId, onSnackbar, vercelName]);
 
@@ -1333,7 +1342,14 @@ export function EditAppModal({ open, onClose, tenantSlug, app, onSnackbar }: Edi
           Deploy this app first — Generate uses <code>appPack.apps[].vercelProjectId</code> from the tenant
           registry. New deploys also provision a hook automatically.
         </Alert>
-      ) : null}
+      ) : (
+        <Alert severity="info" sx={{ fontSize: '0.8rem' }}>
+          Generate needs a team <code>VERCEL_TOKEN</code> on the factory (Vercel → Account → Tokens).
+          Sign-in-with-Vercel OAuth alone returns 401 on deploy-hook create.
+          Do not set <code>github.enabled: false</code> in vercel.json — that blocks hooks; use{' '}
+          <code>git.deploymentEnabled</code> to skip auto-deploys on <code>dev</code> / <code>internal-*</code>.
+        </Alert>
+      )}
     </Stack>
   );
 
