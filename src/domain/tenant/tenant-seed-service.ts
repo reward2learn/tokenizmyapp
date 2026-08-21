@@ -8,7 +8,7 @@
  * The migrate function (addTenantColumnsIfMissing) is called upfront to
  * add tenant-isolation columns that the factory DB schema doesn't include yet.
  */
-// Using raw Prisma client (any) for compatibility
+import { PrismaClient } from '@/generated/prisma';
 import { getTemplate, type TemplateDefinition } from '@/domain/tenant/template-catalog';
 import { DEFAULT_PLATFORM_ADMIN_EMAIL } from '@/domain/security/functional-roles';
 
@@ -42,7 +42,7 @@ interface SeedTenantInput {
    *  Falls back to DEFAULT_PLATFORM_ADMIN_EMAIL via resolveTenantAdminEmail(). */
   adminEmail?: string;
   /** Override the DB to use a tenant-specific connection */
-  db?: PrismaClient | null
+  db?: PrismaClient | null;
   /** Skip AppPage/PageSection/NavigationItem seeding — for a tenant-level
    *  seed run against a SUITE tenant, where page/nav content is each app's
    *  own responsibility (seeded via its own per-app Seed action). app_pages
@@ -379,12 +379,21 @@ export async function seedTenantDefaults(input: SeedTenantInput): Promise<{
       for (let i = 0; i < tplPage.blockTypes.length; i++) {
         const blockType = tplPage.blockTypes[i];
         const sectionId = `${tplPage.slug}:section:${i}`;
+        const authored = tplPage.sectionConfigs?.[i];
         // doc_markdown requires a content source — the summary page renders the
         // executive summary snippet (same source the root catalog uses).
+        // AI-authored marketing configs (headlines, FAQ items, …) win when present.
         const config =
           blockType === 'doc_markdown'
-            ? { source: 'executive-summary', minTier: tplPage.authTier }
-            : { minTier: tplPage.authTier };
+            ? {
+                source: 'executive-summary',
+                ...(authored ?? {}),
+                minTier: (authored?.minTier as string | undefined) ?? tplPage.authTier,
+              }
+            : {
+                ...(authored ?? {}),
+                minTier: (authored?.minTier as string | undefined) ?? tplPage.authTier,
+              };
         await db.$executeRawUnsafe(
           `INSERT INTO page_sections (id, page_id, sort_order, block_type, config)
            VALUES ($1, $2, $3, CAST($4 AS "BlockType"), CAST($5 AS jsonb));`,

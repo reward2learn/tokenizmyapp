@@ -31,6 +31,15 @@ const APP_PACK_ENUM_DDL = [
   `ALTER TYPE "BlockType" ADD VALUE IF NOT EXISTS 'reports_rollup'`,
   `ALTER TYPE "BlockType" ADD VALUE IF NOT EXISTS 'sheet_viewer'`,
   `ALTER TYPE "BlockType" ADD VALUE IF NOT EXISTS 'pack_table'`,
+  `ALTER TYPE "BlockType" ADD VALUE IF NOT EXISTS 'feature_grid'`,
+  `ALTER TYPE "BlockType" ADD VALUE IF NOT EXISTS 'testimonials'`,
+  `ALTER TYPE "BlockType" ADD VALUE IF NOT EXISTS 'marketing_hero'`,
+  `ALTER TYPE "BlockType" ADD VALUE IF NOT EXISTS 'capability_marquee'`,
+  `ALTER TYPE "BlockType" ADD VALUE IF NOT EXISTS 'product_showcase'`,
+  `ALTER TYPE "BlockType" ADD VALUE IF NOT EXISTS 'customer_proof'`,
+  `ALTER TYPE "BlockType" ADD VALUE IF NOT EXISTS 'faq'`,
+  `ALTER TYPE "BlockType" ADD VALUE IF NOT EXISTS 'cta_banner'`,
+  `ALTER TYPE "BlockType" ADD VALUE IF NOT EXISTS 'pricing_table'`,
 ];
 
 const APP_PACK_TABLE_DDL = [

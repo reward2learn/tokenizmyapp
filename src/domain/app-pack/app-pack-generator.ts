@@ -61,7 +61,10 @@ const AVAILABLE_BLOCKS = [
   'hero', 'kpi_cards', 'metric_grid', 'chart_financial', 'lever_accordion',
   'action_checklist', 'doc_markdown', 'pnl_table', 'ops_admin_tabs',
   'z_report_form', 'costs_form', 'calendar_import', 'chat_panel',
-  'review_blocks', 'reports_rollup', 'sheet_viewer',
+  'review_blocks', 'reports_rollup', 'sheet_viewer', 'pack_table',
+  'feature_grid', 'testimonials',
+  'marketing_hero', 'capability_marquee', 'product_showcase', 'customer_proof',
+  'faq', 'cta_banner', 'pricing_table',
 ];
 
 const AUTH_TIERS = ['public', 'pin', 'google'] as const;

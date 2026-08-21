@@ -42,9 +42,58 @@ const ALLOWED_BLOCKS = [
   'z_report_form', 'costs_form', 'calendar_import', 'chat_panel',
   'review_blocks', 'reports_rollup', 'sheet_viewer', 'pack_table',
   'feature_grid', 'testimonials',
+  // Marketing landing blocks — public homepage / marketing pages.
+  'marketing_hero', 'capability_marquee', 'product_showcase', 'customer_proof',
+  'faq', 'cta_banner', 'pricing_table',
 ] as const;
 
 const AUTH_TIERS = ['public', 'pin', 'google'] as const;
+
+/**
+ * Loose config bag the model fills for marketing (and other) blocks.
+ *
+ * Kept permissive on purpose: a strict per-block discriminated union causes
+ * Chat Completions JSON mode to fail validation on small shape mistakes, and
+ * every block already reads config defensively at render time. Seed stores
+ * whatever passes here; missing marketing fields fall back to component defaults.
+ */
+const sectionConfigSchema = z
+  .object({
+    headline: z.string().max(160).optional(),
+    subheadline: z.string().max(320).optional(),
+    heading: z.string().max(160).optional(),
+    subheading: z.string().max(320).optional(),
+    placeholder: z.string().max(240).optional(),
+    ctaLabel: z.string().max(48).optional(),
+    ctaHref: z.string().max(200).optional(),
+    audiences: z.array(z.string().max(80)).max(8).optional(),
+    quickStarts: z.array(z.string().max(80)).max(8).optional(),
+    rows: z.array(z.array(z.string().max(48)).max(12)).max(6).optional(),
+    items: z
+      .array(
+        z
+          .object({
+            question: z.string().max(240).optional(),
+            answer: z.string().max(900).optional(),
+            icon: z.string().max(40).optional(),
+            title: z.string().max(100).optional(),
+            body: z.string().max(500).optional(),
+            quote: z.string().max(600).optional(),
+            name: z.string().max(100).optional(),
+            role: z.string().max(100).optional(),
+          })
+          .passthrough(),
+      )
+      .max(12)
+      .optional(),
+  })
+  .passthrough()
+  .optional();
+
+const pageSectionSchema = z.object({
+  blockType: z.enum(ALLOWED_BLOCKS),
+  config: sectionConfigSchema,
+});
 
 const hexColor = z.string().regex(/^#[0-9a-fA-F]{6}$/, 'must be a 6-digit hex colour');
 
@@ -98,7 +147,11 @@ const templateGenerationSchema = z.object({
     title: z.string().min(1),
     navLabel: z.string().optional(),
     authTier: z.enum(AUTH_TIERS),
-    blockTypes: z.array(z.enum(ALLOWED_BLOCKS)).min(1),
+    /**
+     * Ordered sections with optional authored config (headlines, FAQ items…).
+     * Prefer this over a bare blockTypes list so marketing pages ship with copy.
+     */
+    sections: z.array(pageSectionSchema).min(1).max(10),
   })).min(1).max(12),
   defaultNavItems: z.array(z.object({
     title: z.string().min(1),
@@ -116,6 +169,62 @@ const templateGenerationSchema = z.object({
 
 export type TemplateGeneration = z.infer<typeof templateGenerationSchema>;
 
+/** Blocks that need real copy at seed time — empty config looks unfinished. */
+const COPY_REQUIRED_BLOCKS = new Set<string>([
+  'marketing_hero',
+  'product_showcase',
+  'capability_marquee',
+  'faq',
+  'cta_banner',
+]);
+
+/**
+ * Stamp minTier and drop invented social-proof rows when the model ignored
+ * the "don't invent customers" rule (empty name/quote → drop the item).
+ */
+function normalizeSectionConfig(
+  blockType: string,
+  config: Record<string, unknown>,
+  authTier: (typeof AUTH_TIERS)[number],
+): Record<string, unknown> {
+  const next: Record<string, unknown> = { ...config, minTier: authTier };
+
+  if (
+    (blockType === 'customer_proof' || blockType === 'testimonials') &&
+    Array.isArray(next.items)
+  ) {
+    next.items = (next.items as Record<string, unknown>[]).filter((item) => {
+      if (blockType === 'testimonials') {
+        return typeof item.quote === 'string' && item.quote.trim().length > 0;
+      }
+      // customer_proof needs a real named customer — metrics alone are not enough.
+      return typeof item.name === 'string' && item.name.trim().length > 0;
+    });
+  }
+
+  return next;
+}
+
+function hasUsefulMarketingCopy(
+  blockType: string,
+  config: Record<string, unknown>,
+): boolean {
+  switch (blockType) {
+    case 'marketing_hero':
+      return typeof config.headline === 'string' && config.headline.trim().length > 0;
+    case 'faq':
+      return Array.isArray(config.items) && config.items.length > 0;
+    case 'product_showcase':
+      return Array.isArray(config.items) && config.items.length > 0;
+    case 'capability_marquee':
+      return Array.isArray(config.rows) && config.rows.length > 0;
+    case 'cta_banner':
+      return typeof config.heading === 'string' && config.heading.trim().length > 0;
+    default:
+      return true;
+  }
+}
+
 function buildSystemPrompt(): string {
   return [
     'You design application templates for a multi-tenant business app platform.',
@@ -124,8 +233,22 @@ function buildSystemPrompt(): string {
     `Pages may only use these block types: ${ALLOWED_BLOCKS.join(', ')}.`,
     `Auth tiers: public (anyone), pin (staff), google (signed-in owner/admin).`,
     '',
+    'Each page has a "sections" array. Every section is { blockType, config }.',
+    'Write config copy for THIS business — not generic SaaS filler.',
+    'Config fields by blockType:',
+    '- marketing_hero: headline, subheadline, audiences[], quickStarts[], placeholder, ctaLabel, ctaHref ("/admin" or "/dashboard").',
+    '- product_showcase: heading, items[{ icon, title, body }] (3–5 capabilities).',
+    '- capability_marquee: heading, subheading, rows (2–4 arrays of short labels).',
+    '- faq: heading, items[{ question, answer }] (4–7 Q&As grounded in the brief).',
+    '- cta_banner: heading, subheading, ctaLabel, ctaHref.',
+    '- pricing_table: heading, subheading only (plans come from the platform).',
+    '- customer_proof / testimonials: heading only; leave items empty unless the source names real customers — never invent social proof.',
+    '- hero: headline, subtitle (optional). Other operational blocks: config may be {}.',
+    '',
     'Rules:',
     '- Always include a public landing page and a dashboard.',
+    '- For the public landing page, prefer marketing blocks (marketing_hero, product_showcase,',
+    '  capability_marquee, faq, cta_banner) over a plain hero, and fill their config.',
     '- Put operational/staff pages behind "pin" and financial or admin pages behind "google".',
     '- Every navigation path must correspond to a page slug ("/" is allowed for the landing page).',
     '- Choose brand colours from the source material when available, otherwise pick a sober pair with good contrast.',
@@ -335,6 +458,32 @@ export async function generateCustomTemplate(
     ? { ...DEFAULT_WEB3_WALLET, ...g.web3Wallet, ...input.web3WalletOverride }
     : g.web3Wallet;
 
+  const defaultPages = g.defaultPages.map((page) => {
+    const blockTypes = page.sections.map((s) => s.blockType);
+    const sectionConfigs = page.sections.map((s) =>
+      normalizeSectionConfig(s.blockType, s.config ?? {}, page.authTier),
+    );
+
+    for (let i = 0; i < page.sections.length; i++) {
+      const bt = page.sections[i].blockType;
+      if (!COPY_REQUIRED_BLOCKS.has(bt)) continue;
+      if (!hasUsefulMarketingCopy(bt, sectionConfigs[i])) {
+        console.warn(
+          `[custom-template-generator] Page "${page.slug}" section ${bt} has thin config; component defaults will fill gaps.`,
+        );
+      }
+    }
+
+    return {
+      slug: page.slug,
+      title: page.title,
+      navLabel: page.navLabel,
+      authTier: page.authTier,
+      blockTypes,
+      sectionConfigs,
+    };
+  });
+
   const definition: TemplateDefinition = {
     id,
     label: g.label,
@@ -343,7 +492,7 @@ export async function generateCustomTemplate(
     templateType: g.templateType,
     source: 'custom',
     defaultColors: g.defaultColors,
-    defaultPages: g.defaultPages,
+    defaultPages,
     defaultNavItems: g.defaultNavItems,
     schemaOrgType: g.schemaOrgType,
     xsdStandard: g.xsdStandard,

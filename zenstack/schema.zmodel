@@ -77,6 +77,14 @@ enum BlockType {
   pack_table
   feature_grid
   testimonials
+  // Marketing landing blocks (factory homepage — keep in sync with src/lib/page-catalog.ts).
+  marketing_hero
+  capability_marquee
+  product_showcase
+  customer_proof
+  faq
+  cta_banner
+  pricing_table
 }
 
 enum JobStatus {

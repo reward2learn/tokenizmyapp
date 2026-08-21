@@ -148,6 +148,12 @@ export interface TemplateDefinition {
     navLabel?: string;
     authTier: 'public' | 'pin' | 'google';
     blockTypes: string[];
+    /**
+     * Optional per-section config, same order as `blockTypes`.
+     * AI-generated custom templates fill this with headlines, FAQ items, etc.
+     * Built-ins omit it — seed then stores `{ minTier }` only.
+     */
+    sectionConfigs?: Record<string, unknown>[];
   }[];
   defaultNavItems: {
     title: string;

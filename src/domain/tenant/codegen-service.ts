@@ -349,6 +349,9 @@ export type BlockType =
   | 'action_checklist' | 'doc_markdown' | 'pnl_table' | 'ops_admin_tabs'
   | 'z_report_form' | 'costs_form' | 'calendar_import' | 'chat_panel'
   | 'review_blocks' | 'kpi_cards' | 'reports_rollup' | 'sheet_viewer'
+  | 'pack_table' | 'feature_grid' | 'testimonials'
+  | 'marketing_hero' | 'capability_marquee' | 'product_showcase' | 'customer_proof'
+  | 'faq' | 'cta_banner' | 'pricing_table'
   | 'dynamic_form';
 
 export interface PageSectionDefinition {
@@ -456,6 +459,16 @@ export const BLOCK_REGISTRY: Record<string, BlockComponent> = {
   review_blocks: StubBlock,
   reports_rollup: StubBlock,
   sheet_viewer: StubBlock,
+  pack_table: StubBlock,
+  feature_grid: StubBlock,
+  testimonials: StubBlock,
+  marketing_hero: StubBlock,
+  capability_marquee: StubBlock,
+  product_showcase: StubBlock,
+  customer_proof: StubBlock,
+  faq: StubBlock,
+  cta_banner: StubBlock,
+  pricing_table: StubBlock,
   dynamic_form: StubBlock,
 ${modelEntries}
 };
