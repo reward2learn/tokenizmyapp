@@ -120,25 +120,53 @@ export function parseMonthQueryParam(value: string | null | undefined): string |
 }
 
 /**
+ * Prefer revenue actuals as the "has data" signal; otherwise the first series
+ * that contains any non-null value.
+ */
+export function pickActualSeriesForDefault(
+  actual: Record<string, (number | null)[]> | undefined,
+): (number | null)[] | undefined {
+  if (!actual) return undefined;
+  if (actual.revenue?.some((v) => v != null)) return actual.revenue;
+  for (const series of Object.values(actual)) {
+    if (series?.some((v) => v != null)) return series;
+  }
+  return actual.revenue;
+}
+
+/**
  * Default month when nothing is selected / URL has no ?month=.
  *
- * Today: calendar "now" when that label exists, else first label.
- * Learning TODO: if you prefer "last month with actuals" over calendar now,
- * extend the signature to accept actual series and scan backwards for the
- * latest non-null value (about 5–10 lines) — see resolveMonthIndex callers.
+ * Prefer the latest month with a non-null actual (scan backwards). If no
+ * actuals exist, fall back to calendar "now" when that label is present,
+ * otherwise the first label.
  */
-export function resolveDefaultMonthIndex(labels: string[]): number {
+export function resolveDefaultMonthIndex(
+  labels: string[],
+  actualSeries?: (number | null)[] | null,
+): number {
   if (!labels.length) return 0;
+
+  if (actualSeries?.length) {
+    const end = Math.min(actualSeries.length, labels.length) - 1;
+    for (let i = end; i >= 0; i--) {
+      if (actualSeries[i] != null) return i;
+    }
+  }
+
   const currentIdx = findCurrentMonthIndex(labels);
   return currentIdx >= 0 ? currentIdx : 0;
 }
 
-export function resolveMonthIndex(labels: string[], selectedLabel: string | null): number {
+export function resolveMonthIndex(
+  labels: string[],
+  selectedLabel: string | null,
+  actualSeries?: (number | null)[] | null,
+): number {
   if (!labels.length) return -1;
   if (selectedLabel) {
     const idx = labels.indexOf(selectedLabel);
     if (idx >= 0) return idx;
   }
-  // No / stale selection → same default the month sync hook seeds (current month).
-  return resolveDefaultMonthIndex(labels);
+  return resolveDefaultMonthIndex(labels, actualSeries);
 }

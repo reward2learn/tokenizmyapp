@@ -7,7 +7,7 @@ import Typography from '@mui/material/Typography';
 import { MetricCard } from '@/components/ui/metric-card';
 import { MonthSelect } from '@/components/ui/month-select';
 import { parseBlockConfig } from '@/lib/schemas/block-config';
-import { formatChartValue, resolveMonthIndex } from '@/lib/chart-utils';
+import { formatChartValue, pickActualSeriesForDefault, resolveMonthIndex } from '@/lib/chart-utils';
 import { useChartMonthSync } from '@/hooks/use-chart-month-sync';
 import { useGetChartOverviewQuery } from '@/store/apis/financial-api';
 import { useAppDispatch, useAppSelector } from '@/store/hooks';
@@ -62,12 +62,13 @@ function KpiCardsBlockInner({ config }: { config: Record<string, unknown> }) {
   const { data, isLoading } = useGetChartOverviewQuery('conservative');
   const overview = data?.data;
   const labels = overview?.labels ?? [];
+  const actualSeries = pickActualSeriesForDefault(overview?.actual);
 
   useChartMonthSync(overview, variant === 'ops');
 
   const monthIndex = useMemo(
-    () => resolveMonthIndex(labels, selectedMonthLabel),
-    [labels, selectedMonthLabel],
+    () => resolveMonthIndex(labels, selectedMonthLabel, actualSeries),
+    [labels, selectedMonthLabel, actualSeries],
   );
 
   const label = labels[monthIndex] ?? selectedMonthLabel ?? '—';
@@ -113,7 +114,11 @@ function KpiCardsBlockInner({ config }: { config: Record<string, unknown> }) {
           Monthly Snapshot
         </Typography>
         {showMonthSelect ? (
-          <MonthSelect labels={labels} disabled={isLoading || labels.length === 0} />
+          <MonthSelect
+            labels={labels}
+            actualSeries={actualSeries}
+            disabled={isLoading || labels.length === 0}
+          />
         ) : null}
       </Box>
       <Box

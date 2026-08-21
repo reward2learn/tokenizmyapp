@@ -14,6 +14,7 @@ import { ChartFinancialBlock } from '@/components/blocks/chart-financial-block';
 import { ReportsRollupBlock } from '@/components/blocks/reports-rollup-block';
 import { PnlTableBlock } from '@/components/blocks/pnl-table-block';
 import { MonthSelect } from '@/components/ui/month-select';
+import { pickActualSeriesForDefault } from '@/lib/chart-utils';
 import { useChartMonthSync } from '@/hooks/use-chart-month-sync';
 import { useGetChartOverviewQuery } from '@/store/apis/financial-api';
 
@@ -26,10 +27,17 @@ function OpsTrackingMonthBar() {
   const { data, isLoading } = useGetChartOverviewQuery('conservative');
   const overview = data?.data;
   const labels = overview?.labels ?? [];
+  const actualSeries = pickActualSeriesForDefault(overview?.actual);
 
   useChartMonthSync(overview, true);
 
-  return <MonthSelect labels={labels} disabled={isLoading || labels.length === 0} />;
+  return (
+    <MonthSelect
+      labels={labels}
+      actualSeries={actualSeries}
+      disabled={isLoading || labels.length === 0}
+    />
+  );
 }
 
 export default function OpsTrackingPage() {

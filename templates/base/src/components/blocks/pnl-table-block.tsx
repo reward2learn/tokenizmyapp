@@ -13,7 +13,7 @@ import TableRow from '@mui/material/TableRow';
 import Typography from '@mui/material/Typography';
 import { MonthSelect } from '@/components/ui/month-select';
 import { parseBlockConfig } from '@/lib/schemas/block-config';
-import { formatIdr, resolveMonthIndex } from '@/lib/chart-utils';
+import { formatIdr, pickActualSeriesForDefault, resolveMonthIndex } from '@/lib/chart-utils';
 import type { PnlLine } from '@/domain/financial/pnl-calculator';
 import { useChartMonthSync } from '@/hooks/use-chart-month-sync';
 import { useGetChartOverviewQuery, useGetPnlDetailQuery } from '@/store/apis/financial-api';
@@ -71,12 +71,13 @@ function PnlTableBlockInner({ config }: { config: Record<string, unknown> }) {
   const { data: overviewData } = useGetChartOverviewQuery('conservative');
   const overview = overviewData?.data;
   const labels = overview?.labels ?? [];
+  const actualSeries = pickActualSeriesForDefault(overview?.actual);
 
   useChartMonthSync(overview, true);
 
   const monthIndex = useMemo(
-    () => resolveMonthIndex(labels, selectedMonthLabel),
-    [labels, selectedMonthLabel],
+    () => resolveMonthIndex(labels, selectedMonthLabel, actualSeries),
+    [labels, selectedMonthLabel, actualSeries],
   );
 
   const activeLabel = labels[monthIndex] ?? selectedMonthLabel;
@@ -132,7 +133,13 @@ function PnlTableBlockInner({ config }: { config: Record<string, unknown> }) {
         <Typography variant="h6" sx={{ fontWeight: 700 }}>
           {activeLabel ? `${activeLabel} — P&L Detail` : 'P&L Detail'}
         </Typography>
-        {showMonthSelect ? <MonthSelect labels={labels} disabled={labels.length === 0} /> : null}
+        {showMonthSelect ? (
+          <MonthSelect
+            labels={labels}
+            actualSeries={actualSeries}
+            disabled={labels.length === 0}
+          />
+        ) : null}
       </Box>
 
       <TableContainer component={Paper} elevation={0} sx={{ overflowX: 'auto', mb: 4, border: '1px solid', borderColor: 'divider' }}>

@@ -5,13 +5,15 @@ import InputLabel from '@mui/material/InputLabel';
 import MenuItem from '@mui/material/MenuItem';
 import Select from '@mui/material/Select';
 import type { SelectChangeEvent } from '@mui/material/Select';
-import { labelToPeriod } from '@/lib/chart-utils';
+import { labelToPeriod, resolveDefaultMonthIndex } from '@/lib/chart-utils';
 import { useAppDispatch, useAppSelector } from '@/store/hooks';
 import { setSelectedMonth } from '@/store/ui-slice';
 
 export interface MonthSelectProps {
   /** Month labels from chart overview (e.g. "Aug 2026"). */
   labels: string[];
+  /** Optional actual series so the display default matches last-actuals seeding. */
+  actualSeries?: (number | null)[] | null;
   /** Optional size override for dense layouts. */
   size?: 'small' | 'medium';
   /** When true, also write `?month=` into the URL for shareable deep-links. */
@@ -25,6 +27,7 @@ export interface MonthSelectProps {
  */
 export function MonthSelect({
   labels,
+  actualSeries,
   size = 'small',
   syncUrl = true,
   disabled = false,
@@ -32,10 +35,11 @@ export function MonthSelect({
   const dispatch = useAppDispatch();
   const selectedMonthLabel = useAppSelector((s) => s.ui.selectedMonthLabel);
 
+  const defaultLabel = labels[resolveDefaultMonthIndex(labels, actualSeries)] ?? '';
   const value =
     selectedMonthLabel && labels.includes(selectedMonthLabel)
       ? selectedMonthLabel
-      : labels[0] ?? '';
+      : defaultLabel;
 
   const handleChange = (event: SelectChangeEvent<string>) => {
     const label = event.target.value;
