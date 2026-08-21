@@ -3,7 +3,9 @@
 import { Suspense, useMemo } from 'react';
 import Box from '@mui/material/Box';
 import CircularProgress from '@mui/material/CircularProgress';
+import Typography from '@mui/material/Typography';
 import { MetricCard } from '@/components/ui/metric-card';
+import { MonthSelect } from '@/components/ui/month-select';
 import { parseBlockConfig } from '@/lib/schemas/block-config';
 import { formatChartValue, resolveMonthIndex } from '@/lib/chart-utils';
 import { useChartMonthSync } from '@/hooks/use-chart-month-sync';
@@ -51,21 +53,24 @@ export function KpiCardsBlock({ config }: { config: Record<string, unknown> }) {
 
 function KpiCardsBlockInner({ config }: { config: Record<string, unknown> }) {
   const { variant } = parseBlockConfig('kpi_cards', config);
+  // Pages that already render a shared MonthSelect (e.g. /ops-tracking) can hide this one.
+  const showMonthSelect = config.showMonthSelect !== false;
   const dispatch = useAppDispatch();
   const chartKpi = useAppSelector((s) => s.ui.chartKpi);
   const selectedMonthLabel = useAppSelector((s) => s.ui.selectedMonthLabel);
 
   const { data, isLoading } = useGetChartOverviewQuery('conservative');
   const overview = data?.data;
+  const labels = overview?.labels ?? [];
 
   useChartMonthSync(overview, variant === 'ops');
 
   const monthIndex = useMemo(
-    () => resolveMonthIndex(overview?.labels ?? [], selectedMonthLabel),
-    [overview?.labels, selectedMonthLabel],
+    () => resolveMonthIndex(labels, selectedMonthLabel),
+    [labels, selectedMonthLabel],
   );
 
-  const label = overview?.labels?.[monthIndex] ?? '—';
+  const label = labels[monthIndex] ?? selectedMonthLabel ?? '—';
 
   const cards = OPS_KPIS.map(({ key, label: kpiLabel }) => {
     const raw = getValAtIndex(overview?.actual?.[key], overview?.forecast?.[key], monthIndex);
@@ -94,6 +99,23 @@ function KpiCardsBlockInner({ config }: { config: Record<string, unknown> }) {
 
   return (
     <Box component="section" sx={{ maxWidth: 900, mx: 'auto', px: 3, pt: 3 }}>
+      <Box
+        sx={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          gap: 2,
+          flexWrap: 'wrap',
+          mb: 2,
+        }}
+      >
+        <Typography variant="h6" sx={{ fontWeight: 700 }}>
+          Monthly Snapshot
+        </Typography>
+        {showMonthSelect ? (
+          <MonthSelect labels={labels} disabled={isLoading || labels.length === 0} />
+        ) : null}
+      </Box>
       <Box
         sx={{
           display: 'grid',

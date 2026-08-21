@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo } from 'react';
+import { Suspense, useMemo } from 'react';
 import Box from '@mui/material/Box';
 import CircularProgress from '@mui/material/CircularProgress';
 import Paper from '@mui/material/Paper';
@@ -11,9 +11,11 @@ import TableContainer from '@mui/material/TableContainer';
 import TableHead from '@mui/material/TableHead';
 import TableRow from '@mui/material/TableRow';
 import Typography from '@mui/material/Typography';
+import { MonthSelect } from '@/components/ui/month-select';
 import { parseBlockConfig } from '@/lib/schemas/block-config';
-import { formatIdr } from '@/lib/chart-utils';
+import { formatIdr, resolveMonthIndex } from '@/lib/chart-utils';
 import type { PnlLine } from '@/domain/financial/pnl-calculator';
+import { useChartMonthSync } from '@/hooks/use-chart-month-sync';
 import { useGetChartOverviewQuery, useGetPnlDetailQuery } from '@/store/apis/financial-api';
 import { useAppSelector } from '@/store/hooks';
 
@@ -46,19 +48,38 @@ function getKpiAt(
 }
 
 export function PnlTableBlock({ config }: { config: Record<string, unknown> }) {
+  return (
+    <Suspense
+      fallback={
+        <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}>
+          <CircularProgress size={28} />
+        </Box>
+      }
+    >
+      <PnlTableBlockInner config={config} />
+    </Suspense>
+  );
+}
+
+function PnlTableBlockInner({ config }: { config: Record<string, unknown> }) {
   parseBlockConfig('pnl_table', config);
+  const showMonthSelect = config.showMonthSelect !== false;
 
   const selectedMonthLabel = useAppSelector((s) => s.ui.selectedMonthLabel);
   const selectedMonthPeriod = useAppSelector((s) => s.ui.selectedMonthPeriod);
 
   const { data: overviewData } = useGetChartOverviewQuery('conservative');
   const overview = overviewData?.data;
+  const labels = overview?.labels ?? [];
 
-  const monthIndex = useMemo(() => {
-    if (!selectedMonthLabel || !overview?.labels) return -1;
-    return overview.labels.indexOf(selectedMonthLabel);
-  }, [selectedMonthLabel, overview?.labels]);
+  useChartMonthSync(overview, true);
 
+  const monthIndex = useMemo(
+    () => resolveMonthIndex(labels, selectedMonthLabel),
+    [labels, selectedMonthLabel],
+  );
+
+  const activeLabel = labels[monthIndex] ?? selectedMonthLabel;
   const period = selectedMonthPeriod ?? '';
   const { data: pnlData, isLoading, isError } = useGetPnlDetailQuery(period, {
     skip: !period,
@@ -98,11 +119,21 @@ export function PnlTableBlock({ config }: { config: Record<string, unknown> }) {
 
   return (
     <Box component="section" sx={{ maxWidth: 900, mx: 'auto', px: 3, pb: 6 }}>
-      <Typography variant="h6" sx={{ fontWeight: 700, mb: 2 }}>
-        {selectedMonthLabel
-          ? `${selectedMonthLabel} — P&L Detail`
-          : 'Select a month on the chart'}
-      </Typography>
+      <Box
+        sx={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          gap: 2,
+          flexWrap: 'wrap',
+          mb: 2,
+        }}
+      >
+        <Typography variant="h6" sx={{ fontWeight: 700 }}>
+          {activeLabel ? `${activeLabel} — P&L Detail` : 'P&L Detail'}
+        </Typography>
+        {showMonthSelect ? <MonthSelect labels={labels} disabled={labels.length === 0} /> : null}
+      </Box>
 
       <TableContainer component={Paper} elevation={0} sx={{ overflowX: 'auto', mb: 4, border: '1px solid', borderColor: 'divider' }}>
         <Table size="small">
@@ -117,10 +148,10 @@ export function PnlTableBlock({ config }: { config: Record<string, unknown> }) {
             </TableRow>
           </TableHead>
           <TableBody>
-            {summaryRow && selectedMonthLabel ? (
+            {summaryRow && activeLabel ? (
               <TableRow>
                 <TableCell>
-                  <strong>{selectedMonthLabel}</strong>
+                  <strong>{activeLabel}</strong>
                 </TableCell>
                 <TableCell>{formatIdr(summaryRow.rev)}</TableCell>
                 <TableCell>{formatIdr(summaryRow.ebit, true)}</TableCell>
@@ -135,7 +166,7 @@ export function PnlTableBlock({ config }: { config: Record<string, unknown> }) {
             ) : (
               <TableRow>
                 <TableCell colSpan={6} align="center" sx={{ color: 'text.secondary' }}>
-                  Click a month bar above to view details
+                  Select a month to view KPI details
                 </TableCell>
               </TableRow>
             )}

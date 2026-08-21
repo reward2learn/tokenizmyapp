@@ -1,6 +1,6 @@
 /**
  * After AI Content Generation, ensure the tenant Home (`/`) page is a CEO
- * overview dashboard: ops KPIs + primary sheet viewer, then AI narrative.
+ * overview dashboard: ops KPIs for the selected month, then AI narrative.
  *
  * Tenant seed only installs a bare `hero` on home, so without this step `/`
  * stays an empty shell while Summary / Review routes hold the AI output.
@@ -10,8 +10,7 @@
 import type { SheetPagesSqlClient } from '@/domain/ai-content/ensure-sheet-pages';
 import { getTenantConfig } from '@shared/lib/config/tenant';
 
-/** CEO overview landing — KPIs + primary sheet first, narrative below. */
-/** CEO overview landing — KPIs + primary sheet first, narrative below. */
+/** CEO overview landing — KPIs first, narrative below (no sheet data grid). */
 export interface HomeHeroConfig {
   badge?: string;
   headline?: string;
@@ -22,7 +21,6 @@ export interface HomeHeroConfig {
 const HOME_SECTIONS: { blockType: string; config: Record<string, unknown> }[] = [
   { blockType: 'hero', config: { badge: 'CEO Overview', minTier: 'public' } },
   { blockType: 'kpi_cards', config: { variant: 'ops', minTier: 'google' } },
-  { blockType: 'sheet_viewer', config: { sheet: 'TB', title: 'Trial Balance', minTier: 'google' } },
   {
     blockType: 'doc_markdown',
     config: { source: 'executive-summary', title: 'Executive Summary', minTier: 'google' },

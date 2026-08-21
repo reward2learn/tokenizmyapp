@@ -52,7 +52,17 @@ export async function resolvePageWithDb(slug: string): Promise<PageDefinition | 
     // A DB row with zero sections is treated as "not populated yet" so we can
     // fall back to the code catalog (tenant home after AI Content, etc.).
     // An intentionally empty CMS page should set content_locked / keep a stub section.
-    if (fromDb && fromDb.sections.length > 0) return fromDb;
+    if (fromDb && fromDb.sections.length > 0) {
+      // Home is a CEO KPI snapshot — drop legacy Trial Balance / sheet grids
+      // that older ensure/seed runs may still have stored in Neon.
+      if (slug === 'home') {
+        return {
+          ...fromDb,
+          sections: fromDb.sections.filter((s) => s.blockType !== 'sheet_viewer'),
+        };
+      }
+      return fromDb;
+    }
   } catch {
     // DB unavailable — fall through to catalog.
   }

@@ -119,6 +119,14 @@ export function parseMonthQueryParam(value: string | null | undefined): string |
   return decoded || null;
 }
 
+/**
+ * Default month when nothing is selected / URL has no ?month=.
+ *
+ * Today: calendar "now" when that label exists, else first label.
+ * Learning TODO: if you prefer "last month with actuals" over calendar now,
+ * extend the signature to accept actual series and scan backwards for the
+ * latest non-null value (about 5–10 lines) — see resolveMonthIndex callers.
+ */
 export function resolveDefaultMonthIndex(labels: string[]): number {
   if (!labels.length) return 0;
   const currentIdx = findCurrentMonthIndex(labels);
@@ -131,5 +139,6 @@ export function resolveMonthIndex(labels: string[], selectedLabel: string | null
     const idx = labels.indexOf(selectedLabel);
     if (idx >= 0) return idx;
   }
+  // No / stale selection → same default the month sync hook seeds (current month).
   return resolveDefaultMonthIndex(labels);
 }

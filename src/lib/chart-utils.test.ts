@@ -30,6 +30,12 @@ describe('chart-utils month helpers', () => {
 
   it('resolves selected month index from labels', () => {
     expect(resolveMonthIndex(labels, 'Aug 2026')).toBe(2);
-    expect(resolveMonthIndex(labels, 'Missing 2026')).toBe(0);
+  });
+
+  it('falls back to current calendar month when selection is missing or stale', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date(2026, 7, 15, 12)); // Aug 2026
+    expect(resolveMonthIndex(labels, null)).toBe(2);
+    expect(resolveMonthIndex(labels, 'Missing 2026')).toBe(2);
   });
 });

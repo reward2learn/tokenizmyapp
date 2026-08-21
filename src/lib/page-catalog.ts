@@ -382,7 +382,7 @@ const PLATFORM_HOME: PageDefinition = {
 };
 
 
-/** Tenant landing — CEO overview: ops KPIs + primary sheet, then AI narrative. */
+/** Tenant landing — CEO overview: ops KPIs for the selected month, then AI narrative. */
 const TENANT_HOME: PageDefinition = {
   slug: 'home',
   title: 'Home',
@@ -392,7 +392,6 @@ const TENANT_HOME: PageDefinition = {
   sections: [
     { blockType: 'hero', config: { badge: 'CEO Overview', minTier: 'public' } },
     { blockType: 'kpi_cards', config: { variant: 'ops', minTier: 'google' } },
-    { blockType: 'sheet_viewer', config: { sheet: 'TB', title: 'Trial Balance', minTier: 'google' } },
     {
       blockType: 'doc_markdown',
       config: { source: 'executive-summary', title: 'Executive Summary', minTier: 'google' },
