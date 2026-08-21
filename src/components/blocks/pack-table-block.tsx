@@ -687,7 +687,7 @@ export function PackTableBlock({ config }: { config: Record<string, unknown> }) 
           slots={{ toolbar: CustomToolbar, noRowsOverlay: NoRowsOverlay }}
           sx={{
             border: '1px solid',
-            borderColor: 'divider',
+            borderColor: 'var(--app-text-muted)',
             borderRadius: 1,
             '& .MuiDataGrid-cell': {
               whiteSpace: 'nowrap',

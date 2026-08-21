@@ -84,7 +84,7 @@ function FeatureCard({ item }: { item: FeatureItem }) {
         gap: 1.25,
         borderRadius: `${RADIUS.card}px`,
         border: '1px solid',
-        borderColor: 'divider',
+        borderColor: 'var(--app-text-muted)',
         bgcolor: 'background.paper',
       }}
     >
