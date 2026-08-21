@@ -1,22 +1,53 @@
 /**
  * Inngest handlers for Vercel webhook events.
  *
- * These functions react to events dispatched from the Vercel webhook service.
- * They provide async, retryable, observable processing for:
- * - project.removed → post-cleanup notifications, archiving
- * - deployment.succeeded → status sync, metrics, customer notification
- * - deployment.error → alerting, rollback triggers
- * - deployment.canceled → optional status / supersede handling
- * - deployment.cleanup → retention cleanup bookkeeping
- * - project.domain.* → DNS verification workflows
- *
- * Follows existing patterns from tenant-provisioning.ts and tenant-deprovisioning-workflow.ts.
- * Uses step.run for idempotency and dynamic imports where appropriate.
+ * Dispatched from vercel-webhook-service.ts for:
+ * - project.removed
+ * - deployment.succeeded / error / canceled / cleanup
+ * - project.domain.verified / unverified
  */
 
 import { inngest } from '@/lib/inngest';
+import { getVercelClient, withTeamId } from '@/domain/tenant/vercel-sdk-client';
+import { notifyOps } from '@/lib/notifications/tenant-notifications';
 
-// Vercel event handlers
+/** Vercel deployment states that mean another build is still running. */
+const IN_FLIGHT_STATES = new Set(['BUILDING', 'QUEUED', 'INITIALIZING']);
+
+/**
+ * Returns true when the project has another deployment still building
+ * (excluding the canceled deployment that triggered this webhook).
+ */
+async function hasOtherDeployInFlight(
+  projectId: string,
+  canceledDeploymentId?: string,
+): Promise<boolean> {
+  try {
+    const client = await getVercelClient();
+    const response = await withTeamId((teamId) =>
+      client.deployments.getDeployments({
+        projectId,
+        teamId,
+        limit: 15,
+        // Comma-separated states per Vercel API
+        state: 'BUILDING,QUEUED,INITIALIZING',
+      }),
+    );
+
+    const deployments = response.deployments ?? [];
+    // Response is already filtered to in-flight states; exclude the canceled uid.
+    return deployments.some((d) => {
+      if (canceledDeploymentId && d.uid === canceledDeploymentId) return false;
+      return IN_FLIGHT_STATES.has(d.readyState);
+    });
+  } catch (err) {
+    // If we cannot inspect Vercel, assume nothing else is building so we treat
+    // cancel as failure and alert ops rather than silently ignoring.
+    console.warn('[inngest] Could not check in-flight deployments; assuming none:', err);
+    return false;
+  }
+}
+
 export const vercelProjectRemovedHandler = inngest.createFunction(
   {
     id: 'vercel-project-removed',
@@ -31,17 +62,7 @@ export const vercelProjectRemovedHandler = inngest.createFunction(
       source,
       cleanedResources: (cleanupResult as { cleanedResources?: unknown } | undefined)?.cleanedResources,
     });
-
-    try {
-      // Post-cleanup actions (notification, archiving) would go here.
-      // Notification service is referenced in tenant-deprovisioning-workflow.
-      // For now, rely on the cleanupTenant Inngest event already sent from webhook service.
-      console.log(`[inngest] Post-cleanup completed for ${tenantSlug} (notification dispatched via cleanup flow)`);
-    } catch (err) {
-      console.error(`[inngest] Failed in vercel.project.removed handler for ${tenantSlug}:`, err);
-      // Do not rethrow — let Inngest retry or mark as failed gracefully
-    }
-  }
+  },
 );
 
 export const vercelDeploymentSucceededHandler = inngest.createFunction(
@@ -62,7 +83,7 @@ export const vercelDeploymentSucceededHandler = inngest.createFunction(
       await inngest.send({
         name: 'tenant.status.updated',
         data: {
-          slug: tenantSlug,
+          slug: tenantSlug ?? '',
           status: 'live',
           source: 'vercel-deployment',
           projectId,
@@ -71,7 +92,7 @@ export const vercelDeploymentSucceededHandler = inngest.createFunction(
     } catch (err) {
       console.error(`[inngest] Error in deployment.succeeded handler:`, err);
     }
-  }
+  },
 );
 
 export const vercelDeploymentErrorHandler = inngest.createFunction(
@@ -92,7 +113,7 @@ export const vercelDeploymentErrorHandler = inngest.createFunction(
       await inngest.send({
         name: 'tenant.failed',
         data: {
-          slug: tenantSlug,
+          slug: tenantSlug ?? '',
           error: `Deployment failed: ${(error as { message?: string } | undefined)?.message || 'Unknown error'}`,
           step: 'vercel-deployment',
         },
@@ -100,7 +121,7 @@ export const vercelDeploymentErrorHandler = inngest.createFunction(
     } catch (notifyErr) {
       console.error('[inngest] Failed to notify on deployment error:', notifyErr);
     }
-  }
+  },
 );
 
 export const vercelDeploymentCanceledHandler = inngest.createFunction(
@@ -109,30 +130,75 @@ export const vercelDeploymentCanceledHandler = inngest.createFunction(
     retries: 2,
     triggers: [{ event: 'vercel.deployment.canceled' }],
   },
-  async ({ event }) => {
+  async ({ event, step }) => {
     const { tenantSlug, projectId, deployment } = event.data;
+    const deploymentId =
+      (deployment as { id?: string; uid?: string } | undefined)?.id ??
+      (deployment as { uid?: string } | undefined)?.uid;
 
     console.log(`[inngest] Deployment canceled for ${tenantSlug || projectId}`, {
-      deploymentId: (deployment as { id?: string } | undefined)?.id,
+      deploymentId,
       readyState: (deployment as { readyState?: string } | undefined)?.readyState,
     });
 
-    // Canceled deploys are often superseded by a newer push — do not mark the tenant failed.
-    // Emit a status signal so ops can observe without treating this as a hard failure.
-    try {
-      await inngest.send({
-        name: 'tenant.status.updated',
-        data: {
-          slug: tenantSlug,
-          status: 'deploy_canceled',
-          source: 'vercel-deployment-canceled',
+    // Always notify ops that a cancel occurred.
+    await step.run('notify-ops-cancel', async () => {
+      await notifyOps({
+        title: `Deployment canceled for ${tenantSlug || projectId}`,
+        severity: 'warning',
+        tenantSlug: tenantSlug || undefined,
+        projectId,
+        details: { deploymentId, reason: 'vercel.deployment.canceled' },
+      });
+    });
+
+    const inFlight = await step.run('check-in-flight-deploy', async () => {
+      if (!projectId) return false;
+      return hasOtherDeployInFlight(projectId, deploymentId);
+    });
+
+    if (inFlight) {
+      // Another deploy is already building — cancel is expected (superseded). Ignore.
+      console.log(
+        `[inngest] Ignoring cancel for ${tenantSlug || projectId}: another deploy is in flight`,
+        { deploymentId },
+      );
+      await step.run('notify-ops-ignored', async () => {
+        await notifyOps({
+          title: `Deploy cancel ignored (superseded) for ${tenantSlug || projectId}`,
+          severity: 'info',
+          tenantSlug: tenantSlug || undefined,
           projectId,
+          details: { deploymentId, action: 'ignored_in_flight' },
+        });
+      });
+      return { action: 'ignored_in_flight', deploymentId };
+    }
+
+    // No other deploy in flight — treat cancel as failure.
+    await step.run('mark-tenant-failed', async () => {
+      await inngest.send({
+        name: 'tenant.failed',
+        data: {
+          slug: tenantSlug ?? '',
+          error: `Deployment canceled with no replacement build in flight (deployment: ${deploymentId ?? 'unknown'})`,
+          step: 'vercel-deployment-canceled',
         },
       });
-    } catch (err) {
-      console.error(`[inngest] Error in deployment.canceled handler:`, err);
-    }
-  }
+    });
+
+    await step.run('notify-ops-failure', async () => {
+      await notifyOps({
+        title: `Deployment cancel treated as failure for ${tenantSlug || projectId}`,
+        severity: 'error',
+        tenantSlug: tenantSlug || undefined,
+        projectId,
+        details: { deploymentId, action: 'treated_as_failure' },
+      });
+    });
+
+    return { action: 'treated_as_failure', deploymentId };
+  },
 );
 
 export const vercelDeploymentCleanupHandler = inngest.createFunction(
@@ -148,7 +214,7 @@ export const vercelDeploymentCleanupHandler = inngest.createFunction(
     console.log(`[inngest] Deployment cleanup for ${tenantSlug || projectId}`, {
       deploymentId: (deployment as { id?: string } | undefined)?.id,
     });
-  }
+  },
 );
 
 export const vercelDomainEventHandler = inngest.createFunction(
@@ -162,12 +228,10 @@ export const vercelDomainEventHandler = inngest.createFunction(
   },
   async ({ event }) => {
     const { tenantSlug, payload } = event.data || {};
-    const domainName =
-      (payload as { domain?: { name?: string } } | undefined)?.domain?.name;
+    const domainName = (payload as { domain?: { name?: string } } | undefined)?.domain?.name;
 
     console.log(`[inngest] Domain event received: ${event.name} for ${tenantSlug}`, {
       domainName,
-      payload,
     });
 
     if (event.name === 'vercel.project.domain.verified') {
@@ -175,22 +239,22 @@ export const vercelDomainEventHandler = inngest.createFunction(
     } else if (event.name === 'vercel.project.domain.unverified') {
       console.log(`[inngest] Domain unverified for tenant ${tenantSlug}: ${domainName ?? '(unknown)'}`);
     }
-  }
+  },
 );
 
 export const vercelUnhandledWebhookHandler = inngest.createFunction(
   {
     id: 'vercel-unhandled-webhook',
-    retries: 0, // no retry for unknown events
+    retries: 0,
     triggers: [{ event: 'vercel.webhook.unhandled' }],
   },
   async ({ event }) => {
     const { type, payload, tenantSlug } = event.data;
     console.warn(`[inngest] Unhandled Vercel webhook event: ${type}`, {
       tenantSlug,
-      payloadSummary: Object.keys(payload || {}),
+      payloadSummary: Object.keys((payload as object) || {}),
     });
-  }
+  },
 );
 
 export const vercelWebhookErrorHandler = inngest.createFunction(
@@ -206,10 +270,9 @@ export const vercelWebhookErrorHandler = inngest.createFunction(
       projectId,
       error,
     });
-  }
+  },
 );
 
-// Export all for registration in inngest/route.ts and lib/inngest.ts
 export const vercelWebhookHandlers = [
   vercelProjectRemovedHandler,
   vercelDeploymentSucceededHandler,

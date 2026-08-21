@@ -2,25 +2,14 @@
  * Vercel Webhook Service — production-ready handler for Vercel platform events.
  *
  * Features:
- * - HMAC-SHA256/SHA1 signature verification (supports both x-vercel-signature and x-vercel-signature-256)
- * - Tenant lookup by vercelProjectId (from payload.project.id, payload.id, or name match)
- * - Event routing for project.removed, deployment.*, domain.*
- * - Integration with existing cleanupTenant() for project removal
- * - Inngest event dispatching for async workflows
- * - Audit logging to WebhookEvent model (after zenstack generate)
- * - Structured logging with [vercel-webhook] prefix
- * - Zod validation for incoming events
- * - Fast, idempotent, error-resilient design
+ * - HMAC-SHA1/SHA256 signature verification (x-vercel-signature / x-vercel-signature-256)
+ * - Tenant lookup by Tenant.vercelProjectId (or slug / metadata name fallback)
+ * - Exact routing for subscribed Vercel event types
+ * - cleanupTenant() on project.removed + Inngest dispatch for async work
+ * - Best-effort audit logging to WebhookEvent
  *
  * Usage in route.ts:
  *   const result = await handleVercelWebhook(rawBody, request.headers);
- *
- * Setup:
- * 1. Run: bun run register-webhooks --token=<your-vercel-token> --secret=<strong-secret>
- *    (or use --list to inspect existing). See tokenizmyapp/scripts/register-vercel-webhooks.ts
- * 2. Set the returned VERCEL_WEBHOOK_SECRET in your tokenizmyapp env vars
- * 3. Redeploy tokenizmyapp. The webhook will now deliver events to /api/webhooks/vercel
- * 4. After schema update + zenstack generate, WebhookConfig/Event models are available
  */
 
 import crypto from 'node:crypto';
@@ -29,7 +18,6 @@ import { inngest } from '@/lib/inngest';
 import { cleanupTenant } from './tenant-cleanup-service';
 import { createBaseClient } from '@/lib/db';
 
-// Zod schemas for Vercel webhook events (common shapes)
 const VercelEventSchema = z.object({
   id: z.string(),
   type: z.string(),
@@ -37,19 +25,8 @@ const VercelEventSchema = z.object({
   payload: z.record(z.any()),
 });
 
-const DeploymentPayloadSchema = z.object({
-  deployment: z.object({
-    id: z.string(),
-    url: z.string().optional(),
-    readyState: z.string().optional(),
-  }).optional(),
-  project: z.object({
-    id: z.string(),
-    name: z.string(),
-  }).optional(),
-}).passthrough();
-
 type VercelEvent = z.infer<typeof VercelEventSchema>;
+
 /** Official Vercel webhook `type` strings we subscribe to + handle. */
 type VercelEventType =
   | 'project.removed'
@@ -70,8 +47,7 @@ interface WebhookResult {
 }
 
 /**
- * Resolve Vercel project id/name from the event payload.
- * Prefer payload.project.*; for project.removed the project lives at payload.id/name.
+ * Prefer payload.project.*; for project.removed / project.* the project is at payload.id/name.
  * Never treat deployment.id as a project id.
  */
 function extractProjectRef(type: string, payload: Record<string, any>) {
@@ -84,13 +60,8 @@ function extractProjectRef(type: string, payload: Record<string, any>) {
 }
 
 /**
- * Verify Vercel webhook signature using HMAC-SHA256 or SHA1.
- * 
- * Vercel sends:
- * - x-vercel-signature (SHA1, 40 chars) for older webhooks
- * - x-vercel-signature-256 (SHA256, 64 chars) for newer ones
- * 
- * We detect algorithm by signature length and use the matching HMAC.
+ * Vercel signs with HMAC SHA1 (x-vercel-signature, 40 hex chars) or SHA256
+ * (x-vercel-signature-256, 64 hex chars). Detect by length.
  */
 function verifySignature(rawBody: string, signature: string | null, secret: string): boolean {
   if (!signature || !secret) {
@@ -99,83 +70,61 @@ function verifySignature(rawBody: string, signature: string | null, secret: stri
   }
 
   try {
-    // Determine algorithm based on signature length (40 = SHA1, 64 = SHA256)
-    const isSha256 = signature.length === 64;
-    const algorithm = isSha256 ? 'sha256' : 'sha1';
-    
-    console.log(`[vercel-webhook] Verifying signature: algorithm=${algorithm}, receivedLength=${signature.length}`);
-
-    const hmac = crypto.createHmac(algorithm, secret);
-    hmac.update(rawBody);
-    const computedHex = hmac.digest('hex');
+    const algorithm = signature.length === 64 ? 'sha256' : 'sha1';
+    const computedHex = crypto.createHmac(algorithm, secret).update(rawBody).digest('hex');
 
     if (computedHex.length !== signature.length) {
-      console.warn(`[vercel-webhook] Signature length mismatch: computed=${computedHex.length} received=${signature.length}`);
+      console.warn(
+        `[vercel-webhook] Signature length mismatch: computed=${computedHex.length} received=${signature.length}`,
+      );
       return false;
     }
 
-    // Use timingSafeEqual to prevent timing attacks
-    const isValid = crypto.timingSafeEqual(
+    return crypto.timingSafeEqual(
       Buffer.from(computedHex, 'hex'),
-      Buffer.from(signature, 'hex')
+      Buffer.from(signature, 'hex'),
     );
-
-    if (isValid) {
-      console.log(`[vercel-webhook] Signature verified successfully (${algorithm})`);
-    } else {
-      console.warn(`[vercel-webhook] Signature verification FAILED (${algorithm})`);
-    }
-
-    return isValid;
   } catch (err) {
     console.error('[vercel-webhook] Signature verification error:', err);
     return false;
   }
 }
 
-/**
- * Find tenant by Vercel project ID or name from event payload.
- * Uses Prisma for tenant lookup.
- */
-async function findTenantByVercelId(projectId: string | undefined, projectName: string | undefined) {
+async function findTenantByVercelId(
+  projectId: string | undefined,
+  projectName: string | undefined,
+): Promise<string | null> {
   if (!projectId && !projectName) return null;
 
   const db = createBaseClient();
   try {
-    const where = projectId 
-      ? { metadata: { path: ['vercelProjectId'], equals: projectId } }
-      : { OR: [
-          { slug: projectName },
-          { metadata: { path: ['vercelProjectName'], equals: projectName } }
-        ]};
-
     const tenant = await db.tenant.findFirst({
-      where,
-      select: { slug: true }
+      where: projectId
+        ? { vercelProjectId: projectId }
+        : {
+            OR: [
+              { slug: projectName },
+              { metadata: { path: ['vercelProjectName'], equals: projectName } },
+            ],
+          },
+      select: { slug: true },
     });
-
-    return tenant?.slug || null;
+    return tenant?.slug ?? null;
   } catch (err) {
     console.error('[vercel-webhook] Tenant lookup failed:', err);
     return null;
   }
 }
 
-/**
- * Record webhook event to audit table (if schema exists).
- * Best-effort - does not block webhook processing.
- */
 async function recordWebhookEvent(
-  type: string, 
-  payload: any, 
-  status: 'success' | 'failed' | 'ignored' = 'success', 
+  type: string,
+  payload: unknown,
+  status: 'success' | 'failed' | 'ignored' = 'success',
   error?: string,
-  durationMs?: number
+  durationMs?: number,
 ) {
   try {
     const db = createBaseClient();
-    // WebhookEvent requires a WebhookConfig relation; resolve an active Vercel
-    // config and skip the audit record if none is configured yet.
     const config = await db.webhookConfig.findFirst({
       where: { provider: 'vercel', isActive: true },
       select: { id: true },
@@ -185,54 +134,52 @@ async function recordWebhookEvent(
       data: {
         configId: config.id,
         eventType: type,
-        payload: payload as any,
+        payload: payload as object,
         status,
         errorMessage: error,
         durationMs: durationMs || 0,
       },
     });
   } catch (err) {
-    // Table may not exist yet - silent fail
-    console.warn('[vercel-webhook] Could not record webhook event to DB (table may not exist yet):', err);
+    console.warn('[vercel-webhook] Could not record webhook event to DB:', err);
   }
 }
 
+function getHeader(
+  headers: Headers | Record<string, string | string[]>,
+  name: string,
+): string | null {
+  if (typeof (headers as Headers).get === 'function') {
+    return (headers as Headers).get(name);
+  }
+  const record = headers as Record<string, string | string[]>;
+  const value = record[name] ?? record[name.toLowerCase()];
+  if (Array.isArray(value)) return value[0] ?? null;
+  return value ?? null;
+}
+
 /**
- * Main webhook handler - signature verification, tenant lookup, event routing, Inngest dispatch.
+ * Main webhook handler — signature verification, tenant lookup, event routing, Inngest dispatch.
  */
 export async function handleVercelWebhook(
   rawBody: string,
-  headers: Headers | Record<string, string | string[]>
+  headers: Headers | Record<string, string | string[]>,
 ): Promise<WebhookResult> {
   const startTime = Date.now();
-  let signature: string | null = null;
-  let eventTypeHeader: string | null = null;
-  let tenantSlug: string | null = null;
   let action = 'unknown';
   let resultStatus: 'success' | 'failed' | 'ignored' = 'success';
-  let errorMsg: string | undefined;
+  let tenantSlug: string | null = null;
 
-  // Safe header extraction compatible with both Headers and plain object
-  if (headers instanceof Headers || (typeof headers.get === 'function')) {
-    // Prefer SHA256 header first, fallback to legacy SHA1
-    signature = (headers as Headers).get('x-vercel-signature-256') || 
-                (headers as Headers).get('X-Vercel-Signature-256') ||
-                (headers as Headers).get('x-vercel-signature') || 
-                (headers as Headers).get('X-Vercel-Signature');
-    eventTypeHeader = (headers as Headers).get('x-vercel-event');
-  } else {
-    const h = headers as Record<string, string | string[]>;
-    signature = (h['x-vercel-signature-256'] || h['X-Vercel-Signature-256'] || 
-                 h['x-vercel-signature'] || h['X-Vercel-Signature'] || '') as string;
-    if (Array.isArray(signature)) signature = signature[0];
-    eventTypeHeader = (h['x-vercel-event'] || '') as string;
-    if (Array.isArray(eventTypeHeader)) eventTypeHeader = eventTypeHeader[0];
-  }
+  const signature =
+    getHeader(headers, 'x-vercel-signature-256') ||
+    getHeader(headers, 'X-Vercel-Signature-256') ||
+    getHeader(headers, 'x-vercel-signature') ||
+    getHeader(headers, 'X-Vercel-Signature');
 
   let event: VercelEvent;
   try {
     event = JSON.parse(rawBody);
-    VercelEventSchema.parse(event); // Zod validation
+    VercelEventSchema.parse(event);
   } catch (parseErr) {
     const errorMsg = `Invalid JSON or schema: ${parseErr instanceof Error ? parseErr.message : String(parseErr)}`;
     console.error('[vercel-webhook] Parse error:', errorMsg);
@@ -247,19 +194,15 @@ export async function handleVercelWebhook(
     hasSignature: !!signature,
   });
 
-  // Get secret - prefer env, fallback to WebhookConfig lookup (future)
   const secret = process.env.VERCEL_WEBHOOK_SECRET;
   if (!secret) {
-    console.warn('[vercel-webhook] VERCEL_WEBHOOK_SECRET not configured - skipping verification in dev');
-    // In production, this should throw or fail
+    console.warn('[vercel-webhook] VERCEL_WEBHOOK_SECRET not configured — skipping verification in dev');
   } else if (!verifySignature(rawBody, signature, secret)) {
     const errorMsg = 'Invalid signature';
     console.error('[vercel-webhook] Signature verification FAILED');
     await recordWebhookEvent(type, payload, 'failed', errorMsg);
     return { success: false, eventType: type, error: errorMsg };
   }
-
-  console.log(`[vercel-webhook] Signature verified successfully for ${type}`);
 
   const { projectId, projectName } = extractProjectRef(type, payload);
   tenantSlug = await findTenantByVercelId(projectId, projectName);
@@ -273,7 +216,7 @@ export async function handleVercelWebhook(
   console.log(`[vercel-webhook] Found tenant ${tenantSlug} for project ${projectId || projectName}`);
 
   try {
-    // Match official Vercel webhook type strings exactly (see register-vercel-webhooks.ts).
+    // Match official Vercel webhook type strings exactly (see scripts/register-vercel-webhooks.ts).
     switch (type as VercelEventType) {
       case 'project.removed': {
         action = 'cleanup';
@@ -354,9 +297,10 @@ export async function handleVercelWebhook(
       case 'project.domain.unverified': {
         action = 'domain-event';
         await inngest.send({
-          name: type === 'project.domain.verified'
-            ? 'vercel.project.domain.verified'
-            : 'vercel.project.domain.unverified',
+          name:
+            type === 'project.domain.verified'
+              ? 'vercel.project.domain.verified'
+              : 'vercel.project.domain.unverified',
           data: { tenantSlug, projectId, payload, source: 'webhook' },
         });
         console.log(`[vercel-webhook] Dispatched domain event ${type}`);
@@ -377,7 +321,7 @@ export async function handleVercelWebhook(
     const durationMs = Date.now() - startTime;
     await recordWebhookEvent(type, payload, resultStatus, undefined, durationMs);
 
-    console.log(`[vercel-webhook] Successfully processed ${type} for tenant ${tenantSlug || 'unknown'}`, {
+    console.log(`[vercel-webhook] Successfully processed ${type} for tenant ${tenantSlug}`, {
       action,
       durationMs,
       projectId,
@@ -389,9 +333,8 @@ export async function handleVercelWebhook(
       tenantSlug,
       action,
     };
-
   } catch (err) {
-    errorMsg = err instanceof Error ? err.message : String(err);
+    const errorMsg = err instanceof Error ? err.message : String(err);
     resultStatus = 'failed';
     const durationMs = Date.now() - startTime;
 
@@ -406,13 +349,12 @@ export async function handleVercelWebhook(
     return {
       success: false,
       eventType: type,
-      tenantSlug,
+      tenantSlug: tenantSlug ?? undefined,
       action,
       error: errorMsg,
     };
   }
 }
 
-// Export types for Inngest handlers and tests
 export type { WebhookResult, VercelEvent };
-export { verifySignature }; // for testing
+export { verifySignature };

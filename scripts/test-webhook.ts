@@ -40,7 +40,18 @@
 import crypto from 'node:crypto';
 import { parseArgs } from 'node:util';
 
-type EventType = 'deployment.succeeded' | 'project.removed' | 'deployment.error' | 'tenant.template.amended' | 'reseller.onboarded' | 'test.webhook' | 'commission.paid';
+type EventType =
+  | 'deployment.succeeded'
+  | 'deployment.error'
+  | 'deployment.canceled'
+  | 'deployment.cleanup'
+  | 'project.removed'
+  | 'project.domain.verified'
+  | 'project.domain.unverified'
+  | 'tenant.template.amended'
+  | 'reseller.onboarded'
+  | 'test.webhook'
+  | 'commission.paid';
 
 interface VercelWebhookPayload {
   id: string;
@@ -150,6 +161,67 @@ const SAMPLE_PAYLOADS: Record<EventType, VercelWebhookPayload> = {
       project: {
         id: 'prj_1234567890abcdef',
         name: 'redrubybali',
+      },
+    },
+  },
+  'deployment.canceled': {
+    id: 'evt_1722470400003_cancel',
+    type: 'deployment.canceled',
+    createdAt: Date.now(),
+    payload: {
+      deployment: {
+        id: 'dpl_canceled123',
+        url: 'https://redrubybali-canceled.vercel.app',
+        readyState: 'CANCELED',
+      },
+      project: {
+        id: 'prj_1234567890abcdef',
+        name: 'redrubybali',
+      },
+    },
+  },
+  'deployment.cleanup': {
+    id: 'evt_1722470400004_cleanup',
+    type: 'deployment.cleanup',
+    createdAt: Date.now(),
+    payload: {
+      deployment: {
+        id: 'dpl_old_cleaned',
+        url: 'https://redrubybali-old.vercel.app',
+      },
+      project: {
+        id: 'prj_1234567890abcdef',
+        name: 'redrubybali',
+      },
+    },
+  },
+  'project.domain.verified': {
+    id: 'evt_1722470400005_domver',
+    type: 'project.domain.verified',
+    createdAt: Date.now(),
+    payload: {
+      project: {
+        id: 'prj_1234567890abcdef',
+        name: 'redrubybali',
+      },
+      domain: {
+        name: 'app.redrubybali.com',
+        verified: true,
+      },
+    },
+  },
+  'project.domain.unverified': {
+    id: 'evt_1722470400006_domunver',
+    type: 'project.domain.unverified',
+    createdAt: Date.now(),
+    payload: {
+      project: {
+        id: 'prj_1234567890abcdef',
+        name: 'redrubybali',
+      },
+      domain: {
+        name: 'app.redrubybali.com',
+        verified: false,
       },
     },
   },
@@ -371,7 +443,9 @@ Usage: bun run scripts/test-webhook.ts [options]
 
 Options:
   -e, --event <type>     Event type. Now supports comprehensive webhook + reseller scenarios.
-                         (deployment.succeeded, tenant.template.amended, reseller.onboarded,
+                         (deployment.succeeded, deployment.error, deployment.canceled,
+                          deployment.cleanup, project.removed, project.domain.verified,
+                          project.domain.unverified, tenant.template.amended, reseller.onboarded,
                           test.webhook, commission.paid, etc). Default: deployment.succeeded
   -u, --url <url>        Webhook URL. Default: http://localhost:3000/api/admin/webhooks (for admin tests)
                          or http://localhost:3000/api/webhooks/vercel
@@ -391,9 +465,18 @@ Examples:
   }
 
   const eventType = (args.values.event as EventType) || 'deployment.succeeded';
-  const supportedEvents = [
-    'deployment.succeeded', 'project.removed', 'deployment.error',
-    'tenant.template.amended', 'reseller.onboarded', 'test.webhook', 'commission.paid'
+  const supportedEvents: EventType[] = [
+    'deployment.succeeded',
+    'deployment.error',
+    'deployment.canceled',
+    'deployment.cleanup',
+    'project.removed',
+    'project.domain.verified',
+    'project.domain.unverified',
+    'tenant.template.amended',
+    'reseller.onboarded',
+    'test.webhook',
+    'commission.paid',
   ];
   if (!supportedEvents.includes(eventType)) {
     error(`Unsupported event type: ${eventType}. Supported: ${supportedEvents.join(', ')}`);

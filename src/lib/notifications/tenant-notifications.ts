@@ -42,3 +42,31 @@ export async function sendTenantCleanupNotification(
   // TODO: Integrate with real notification system (e.g. send to admin Slack channel. Implementation pending.
   // email to platform owner, or persist to notifications table)
 }
+
+export type OpsAlertSeverity = 'info' | 'warning' | 'error';
+
+export interface OpsAlert {
+  title: string;
+  severity: OpsAlertSeverity;
+  tenantSlug?: string;
+  projectId?: string;
+  details?: Record<string, unknown>;
+}
+
+/**
+ * Notify ops about a platform event (deploy cancel, failures, etc.).
+ * Non-blocking stub — logs structured output; wire Slack/email later.
+ */
+export async function notifyOps(alert: OpsAlert): Promise<void> {
+  const { title, severity, tenantSlug, projectId, details } = alert;
+  const logFn = severity === 'error' ? console.error : severity === 'warning' ? console.warn : console.log;
+
+  logFn(`[ops-alert][${severity}] ${title}`, {
+    tenantSlug,
+    projectId,
+    ...details,
+    timestamp: new Date().toISOString(),
+  });
+
+  // TODO: Deliver to Slack / email / PagerDuty when ops channel is configured.
+}
