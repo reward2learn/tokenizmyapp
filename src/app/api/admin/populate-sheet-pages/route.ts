@@ -5,6 +5,7 @@ import { requireWriteAuth } from '@/lib/auth/guards';
 import { sessionIsPlatformAdmin } from '@/lib/auth/jwt';
 import { jsonError, jsonOk } from '@/lib/api/response';
 import { ensureNavigationTable } from '@/lib/navigation/db';
+import { isPlatformApp } from '@shared/lib/config/tenant';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 30;
@@ -32,7 +33,16 @@ const bodySchema = z.object({
 export async function POST(request: Request): Promise<NextResponse> {
   const guard = await requireWriteAuth(request);
   if (!guard.ok) return guard.response;
-  if (!sessionIsPlatformAdmin(guard.session)) return jsonError('Platform admin only', 403);
+  // Platform admins may populate any tenant; on a tenant deploy the local
+  // write-auth session is enough (there is no separate platform registry).
+  // Blocking with "platform admin only" made Populate Sheet Pages a no-op on
+  // every provisioned app (e.g. tokenizmyapp-ceo-overview).
+  // On the platform console, require platform-admin. On a tenant deploy the
+  // local write-auth session is enough — blocking "platform admin only" made
+  // Populate Sheet Pages a no-op on every provisioned app.
+  if (isPlatformApp() && !sessionIsPlatformAdmin(guard.session)) {
+    return jsonError('Platform admin only', 403);
+  }
 
   let body: unknown;
   try { body = await request.json(); } catch { return jsonError('Invalid JSON', 400); }

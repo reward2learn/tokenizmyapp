@@ -63,6 +63,9 @@ export async function PATCH(request: Request, ctx: { params: Promise<{ id: strin
   const prisma = getClient();
   try {
     const body = await request.json();
+    // Resolve appId via workbook cache fallbacks (upload may have used tenant slug).
+    const cachedWorkbook = await findCachedWorkbook(prisma);
+    const cacheAppId = cachedWorkbook?.appId ?? '';
     const snippet = await prisma.knowledgeSnippet.findUnique({
       where: { key_appId: { key: CUSTOM_COLUMNS_SNIPPET_KEY, appId: cacheAppId } },
     });
@@ -114,12 +117,10 @@ export async function PATCH(request: Request, ctx: { params: Promise<{ id: strin
       }
 
       if (formulaEntries.length > 0) {
-        const cached = await findCachedWorkbook(prisma);
-    const cacheAppId = cached?.appId ?? '';
-        if (!cached?.content) {
+        if (!cachedWorkbook?.content) {
           return NextResponse.json({ error: 'No workbook cached. Upload via Config > Source first.' }, { status: 404 });
         }
-        const wb = read(Buffer.from(cached.content, 'base64'), { type: 'buffer', cellFormula: true });
+        const wb = read(Buffer.from(cachedWorkbook.content, 'base64'), { type: 'buffer', cellFormula: true });
         const ws = wb.Sheets[col.sheet];
         if (!ws) {
           return NextResponse.json({ error: `Sheet "${col.sheet}" not found in workbook` }, { status: 404 });
@@ -164,6 +165,8 @@ export async function DELETE(request: Request, ctx: { params: Promise<{ id: stri
 
   const prisma = getClient();
   try {
+    const cachedWorkbook = await findCachedWorkbook(prisma);
+    const cacheAppId = cachedWorkbook?.appId ?? '';
     const snippet = await prisma.knowledgeSnippet.findUnique({
       where: { key_appId: { key: CUSTOM_COLUMNS_SNIPPET_KEY, appId: cacheAppId } },
     });

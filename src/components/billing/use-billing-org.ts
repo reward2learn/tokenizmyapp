@@ -5,7 +5,7 @@ import {
   useGetTenantOrganizationQuery,
   useListOrganizationsQuery,
 } from '@/store/apis/organization-api';
-import { getClientTenantConfig } from '@shared/lib/config/tenant';
+import { getClientTenantConfig, isPlatformApp } from '@shared/lib/config/tenant';
 
 /**
  * Which organization the billing surfaces are about.
@@ -19,13 +19,23 @@ import { getClientTenantConfig } from '@shared/lib/config/tenant';
  *
  * Order: the organization bar's explicit choice wins, then the org that pays
  * for the tenant this app is served as, then the first org the caller can see.
+ *
+ * On a tenant deploy the local DB has no `tenants` registry row, so
+ * `/api/admin/tenants/:slug/organization` 404s — skip that lookup off-platform.
  */
 export function useBillingOrgId(): string | null {
   const selectedOrgId = useAppSelector((s) => s.ui.adminSelectedOrgId);
   const tenantSlug = getClientTenantConfig().slug;
+  const onPlatform = isPlatformApp();
 
-  const { data: tenantOrg } = useGetTenantOrganizationQuery(tenantSlug, { skip: !tenantSlug });
-  const { data: orgList } = useListOrganizationsQuery();
+  const { data: tenantOrg } = useGetTenantOrganizationQuery(tenantSlug, {
+    skip: !tenantSlug || !onPlatform,
+  });
+  const { data: orgList } = useListOrganizationsQuery(undefined, { skip: !onPlatform });
+
+  if (!onPlatform) {
+    return selectedOrgId ?? null;
+  }
 
   return (
     selectedOrgId ??

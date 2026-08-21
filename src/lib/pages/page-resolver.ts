@@ -49,7 +49,10 @@ export async function resolvePageWithDb(slug: string): Promise<PageDefinition | 
 
   try {
     const fromDb = await loadPageFromDb(slug);
-    if (fromDb) return fromDb;
+    // A DB row with zero sections is treated as "not populated yet" so we can
+    // fall back to the code catalog (tenant home after AI Content, etc.).
+    // An intentionally empty CMS page should set content_locked / keep a stub section.
+    if (fromDb && fromDb.sections.length > 0) return fromDb;
   } catch {
     // DB unavailable — fall through to catalog.
   }

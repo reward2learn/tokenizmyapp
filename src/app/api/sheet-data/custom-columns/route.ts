@@ -77,6 +77,10 @@ export async function GET(request: Request): Promise<NextResponse> {
     if (!sheetName) {
       return NextResponse.json({ error: 'Query param "sheet" is required' }, { status: 400 });
     }
+    // Resolve appId the same way sheet-data does (upload may have used tenant slug).
+    // GET does not require a workbook — empty overlay is a valid response.
+    const cached = await findCachedWorkbook(prisma);
+    const cacheAppId = cached?.appId ?? '';
     const snippet = await prisma.knowledgeSnippet.findUnique({
       where: { key_appId: { key: CUSTOM_COLUMNS_SNIPPET_KEY, appId: cacheAppId } },
     });

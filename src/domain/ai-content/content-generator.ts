@@ -597,6 +597,35 @@ export async function generateAndSave(
       );
     }
 
+    // ── 7c. Home landing sections (exec summary + review on `/`) ──
+    try {
+      const { ensureTenantHomeSections } = await import(
+        '@/domain/ai-content/ensure-landing-pages'
+      );
+      await ensureTenantHomeSections(db);
+    } catch (err) {
+      console.warn(
+        '[content-generator] Home section upsert failed (non-fatal):',
+        err instanceof Error ? err.message : err,
+      );
+    }
+
+    // ── 7d. Bootstrap tasks playbook if the tasks table is empty ──
+    // AI Content does not invent tasks; the seed playbook fills /tasks so the
+    // route is usable after generation without a separate Config > Seed pass.
+    try {
+      const { ensureTaskTables, seedTaskTracking } = await import(
+        '@/domain/seed/seed-runner'
+      );
+      await ensureTaskTables(db);
+      await seedTaskTracking(db as Parameters<typeof seedTaskTracking>[0]);
+    } catch (err) {
+      console.warn(
+        '[content-generator] Task bootstrap failed (non-fatal):',
+        err instanceof Error ? err.message : err,
+      );
+    }
+
     // ── 8. Complete ─────────────────────────────────────
     const result: GenerationResult & { saved?: SavedResult; prompt?: string } = {
       success: true,

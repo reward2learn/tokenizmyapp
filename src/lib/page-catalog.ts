@@ -381,12 +381,34 @@ const PLATFORM_HOME: PageDefinition = {
     ],
 };
 
+
+/** Tenant landing — CEO overview: ops KPIs + primary sheet, then AI narrative. */
+const TENANT_HOME: PageDefinition = {
+  slug: 'home',
+  title: 'Home',
+  navLabel: 'Home',
+  showInNav: true,
+  authTier: 'public',
+  sections: [
+    { blockType: 'hero', config: { badge: 'CEO Overview', minTier: 'public' } },
+    { blockType: 'kpi_cards', config: { variant: 'ops', minTier: 'google' } },
+    { blockType: 'sheet_viewer', config: { sheet: 'TB', title: 'Trial Balance', minTier: 'google' } },
+    {
+      blockType: 'doc_markdown',
+      config: { source: 'executive-summary', title: 'Executive Summary', minTier: 'google' },
+    },
+    { blockType: 'review_blocks', config: { minTier: 'google' } },
+    { blockType: 'action_checklist', config: { minTier: 'pin' } },
+  ],
+};
+
+
 /** Combined static + dynamic page catalog (evaluated lazily so dynamic pages are included). */
 export function getFullCatalog(): Record<string, PageDefinition> {
   return {
     ...PAGE_CATALOG,
     // Factory marketing home + pricing override — not inherited by tenant apps.
-    ...(isPlatformApp() ? { home: PLATFORM_HOME, ...PLATFORM_PAGE_OVERRIDES } : {}),
+    ...(isPlatformApp() ? { home: PLATFORM_HOME, ...PLATFORM_PAGE_OVERRIDES } : { home: TENANT_HOME }),
     ...DYNAMIC_PAGES,
   };
 }
