@@ -36,6 +36,8 @@
     "@reduxjs/toolkit": "^2.6.0",
     "@reown/appkit": "^1.8.23",
     "@reown/appkit-adapter-wagmi": "^1.8.23",
+    "@stripe/react-stripe-js": "^6.8.2",
+    "@stripe/stripe-js": "^9.14.0",
     "@tenants/shared": "file:../packages/shared",
     "@zenstackhq/runtime": "2.22.3",
     "ai": "^7.0.37",
@@ -46,6 +48,8 @@
     "react-dom": "^19.0.0",
     "react-hook-form": "^7.54.0",
     "react-redux": "^9.2.0",
+    "server-only": "^0.0.1",
+    "stripe": "^22.5.0",
     "viem": "^2.55.17",
     "wagmi": "^3.7.6",
     "zod": "^3.24.0"
@@ -75,5 +79,5 @@
     "prisma": "6.12.0",
     "@prisma/client": "6.12.0"
   },
-  "description": "Base template for generated tenant apps \u2014 stripped of financial-specific features"
+  "description": "Base template for generated tenant apps — stripped of financial-specific features"
 }

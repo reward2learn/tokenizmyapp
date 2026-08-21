@@ -394,10 +394,9 @@ export const tenantApi = createApi({
       }),
       invalidatesTags: ['Tenants'],
     }),
-    /** POST .../stripe-env — push the tenant's saved Stripe keys
-     *  (metadata.config.stripe) to its own Vercel project and every suite
-     *  app's project, redeploying via deploy hooks so the NEXT_PUBLIC_
-     *  publishable key reaches the client bundle. */
+
+    /** POST .../stripe-env — push the tenant's saved Stripe keys to its
+     *  Vercel project and every suite app, redeploying via deploy hooks. */
     pushStripeEnvVars: builder.mutation<
       ApiEnvelope<{
         projects: number;
@@ -413,6 +412,35 @@ export const tenantApi = createApi({
         method: 'POST',
       }),
       invalidatesTags: ['Tenants'],
+    }),
+
+    /** POST admin/vercel/hot-deploy — redeploy only DB-registered Vercel projects. */
+    hotDeployRegistered: builder.mutation<
+      ApiEnvelope<{
+        registered: number;
+        triggered: string[];
+        skippedNoHook: string[];
+        failed: Array<{ label: string; error: string }>;
+        unregisteredOnVercel: Array<{ id: string; name: string }>;
+      }>,
+      void
+    >({
+      query: () => ({
+        url: 'admin/vercel/hot-deploy',
+        method: 'POST',
+      }),
+    }),
+
+    /** GET admin/vercel/hot-deploy — inventory of registered vs unregistered projects. */
+    getVercelDeployInventory: builder.query<
+      ApiEnvelope<{
+        registered: Array<{ tenantSlug: string; appId: string | null; label: string; projectId: string }>;
+        unregisteredOnVercel: Array<{ id: string; name: string }>;
+        teamProjectCount: number;
+      }>,
+      void
+    >({
+      query: () => 'admin/vercel/hot-deploy',
     }),
 
     /** POST .../apps/{appId}/deploy-hook — auto-provision this app's own
@@ -804,6 +832,8 @@ export const {
   useEditAppMutation,
   usePushAppEnvVarsMutation,
   usePushStripeEnvVarsMutation,
+  useHotDeployRegisteredMutation,
+  useLazyGetVercelDeployInventoryQuery,
   useProvisionAppDeployHookMutation,
   useGetAppDomainsQuery,
   useLazyGetAppDomainsQuery,

@@ -57,6 +57,7 @@ import KeyIcon from '@mui/icons-material/Key';
 import LanguageIcon from '@mui/icons-material/Language';
 import OpenInNewIcon from '@mui/icons-material/OpenInNew';
 import PaletteIcon from '@mui/icons-material/Palette';
+import PaymentIcon from '@mui/icons-material/Payment';
 import PeopleIcon from '@mui/icons-material/People';
 import PlayArrowIcon from '@mui/icons-material/PlayArrow';
 import RocketLaunchIcon from '@mui/icons-material/RocketLaunch';
@@ -75,6 +76,7 @@ import {
   useLazyFetchGoogleOAuthClientInfoQuery,
   useSyncGoogleOAuthClientMutation,
   usePushAppEnvVarsMutation,
+  usePushStripeEnvVarsMutation,
   useProvisionAppDeployHookMutation,
   type SuiteAppInstance,
   type GoogleOAuthConfigPatch,
@@ -82,6 +84,11 @@ import {
 } from '@/store/apis/tenant-api';
 import { useListRoleConfigsQuery } from '@/store/apis/admin-api';
 import { TenantAiProviderForm } from './tenant-ai-provider-form';
+import {
+  EMPTY_STRIPE_WIZARD,
+  StripeIntegrationStep,
+  type StripeWizardValues,
+} from './stripe-integration-step';
 
 // ── Types ──────────────────────────────────────────────────────
 
@@ -116,6 +123,7 @@ const EDIT_STEPS: Array<{ label: string; icon: React.ReactNode; key: string }> =
   { label: 'Database', icon: <DnsIcon fontSize="small" />, key: 'database' },
   { label: 'Custom Env', icon: <CloudIcon fontSize="small" />, key: 'env' },
   { label: 'Deploy Hooks', icon: <RocketLaunchIcon fontSize="small" />, key: 'hooks' },
+  { label: 'Stripe (Vercel)', icon: <PaymentIcon fontSize="small" />, key: 'stripe' },
   { label: 'Functional Roles', icon: <PeopleIcon fontSize="small" />, key: 'roles' },
   { label: 'Custom Domain', icon: <LanguageIcon fontSize="small" />, key: 'domain' },
   { label: 'Admin & Auth', icon: <VerifiedUserIcon fontSize="small" />, key: 'auth' },
@@ -156,6 +164,7 @@ export function EditAppModal({ open, onClose, tenantSlug, app, onSnackbar }: Edi
   const [primaryColor, setPrimaryColor] = useState(app.primaryColor || getTemplate(app.templateId).defaultColors.primary);
   const [secondaryColor, setSecondaryColor] = useState(app.secondaryColor || getTemplate(app.templateId).defaultColors.secondary);
   const [deployHookUrl, setDeployHookUrl] = useState(app.deployHookUrl || '');
+  const [stripeWizard, setStripeWizard] = useState<StripeWizardValues>(EMPTY_STRIPE_WIZARD);
   const [saving, setSaving] = useState(false);
   const [showSecret, setShowSecret] = useState(false);
   const [provisioningOAuth, setProvisioningOAuth] = useState(false);
@@ -204,6 +213,7 @@ export function EditAppModal({ open, onClose, tenantSlug, app, onSnackbar }: Edi
   const [fetchGoogleOAuthClientInfo] = useLazyFetchGoogleOAuthClientInfoQuery();
   const [syncGoogleOAuthClient] = useSyncGoogleOAuthClientMutation();
   const [pushAppEnvVars] = usePushAppEnvVarsMutation();
+  const [pushStripeEnv] = usePushStripeEnvVarsMutation();
   const [provisionDeployHook, { isLoading: generatingHook }] = useProvisionAppDeployHookMutation();
   const { data: rolesData, isLoading: rolesLoading } = useListRoleConfigsQuery();
 
@@ -214,6 +224,7 @@ export function EditAppModal({ open, onClose, tenantSlug, app, onSnackbar }: Edi
   const { data: templateData } = useListAllTemplatesQuery();
   const templates = templateData?.data?.templates ?? listTemplates();
   const tenant = tenantsData?.data?.tenants?.find((t) => t.slug === tenantSlug);
+  const tenantCfg = ((tenant?.metadata as Record<string, unknown> | undefined)?.config ?? {}) as Record<string, unknown>;
   const rolesList = useMemo(() => rolesData?.data?.roles || [], [rolesData]);
 
   // ── Tenant config (shared defaults this app inherits) — memoized so the
@@ -546,7 +557,16 @@ export function EditAppModal({ open, onClose, tenantSlug, app, onSnackbar }: Edi
       try {
         const envRes = await pushAppEnvVars({ slug: tenantSlug, appId: app.appId }).unwrap();
         const envCount = envRes.data?.envCount ?? 0;
-        onSnackbar({ message: `✅ ${envCount} env vars pushed to Vercel (${vercelName})`, severity: 'success' });
+        let stripeNote = '';
+        if (stripeWizard.enabled) {
+          try {
+            const stripeRes = await pushStripeEnv({ slug: tenantSlug }).unwrap();
+            stripeNote = ` · Stripe env → ${stripeRes.data?.envCount ?? 0} vars`;
+          } catch {
+            stripeNote = ' · Stripe env push failed (check tenant Organization & Billing keys)';
+          }
+        }
+        onSnackbar({ message: `✅ ${envCount} env vars pushed to Vercel (${vercelName})${stripeNote}`, severity: 'success' });
         onClose();
       } catch (envErr) {
         const msg = envErr && typeof envErr === 'object' && 'data' in envErr
@@ -1663,11 +1683,20 @@ export function EditAppModal({ open, onClose, tenantSlug, app, onSnackbar }: Edi
       case 7: return renderStepDatabase();
       case 8: return renderStepEnv();
       case 9: return renderStepHooks();
-      case 10: return renderStepRoles();
-      case 11: return renderStepDomain();
-      case 12: return renderStepAuth();
-      case 13: return renderStepFlightCheck();
-      case 14: return renderStepSummary();
+      case 10: return (
+        <StripeIntegrationStep
+          value={stripeWizard}
+          onChange={setStripeWizard}
+          tenantHasKeys={Boolean(
+            ((tenantCfg as { stripe?: { secretKey?: string } }).stripe)?.secretKey,
+          )}
+        />
+      );
+      case 11: return renderStepRoles();
+      case 12: return renderStepDomain();
+      case 13: return renderStepAuth();
+      case 14: return renderStepFlightCheck();
+      case 15: return renderStepSummary();
       default: return null;
     }
   };

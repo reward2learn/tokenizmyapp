@@ -71,6 +71,7 @@ import LanguageIcon from '@mui/icons-material/Language';
 import LockIcon from '@mui/icons-material/Lock';
 import OpenInNewIcon from '@mui/icons-material/OpenInNew';
 import PaletteIcon from '@mui/icons-material/Palette';
+import PaymentIcon from '@mui/icons-material/Payment';
 import PeopleIcon from '@mui/icons-material/People';
 import PlayArrowIcon from '@mui/icons-material/PlayArrow';
 import RocketLaunchIcon from '@mui/icons-material/RocketLaunch';
@@ -90,6 +91,7 @@ import {
   useDuplicateAppMutation,
   useSeedAppMutation,
   useDeployAppMutation,
+  usePushStripeEnvVarsMutation,
   useProvisionGoogleOAuthMutation,
   useSaveTenantAiProviderMutation,
   type SuiteAppInstance,
@@ -97,6 +99,11 @@ import {
 import { useListRoleConfigsQuery } from '@/store/apis/admin-api';
 import type { AiProviderId } from '@/lib/ai-providers-catalog';
 import { CreateAppAiProviderStep } from './create-app-ai-provider-step';
+import {
+  EMPTY_STRIPE_WIZARD,
+  StripeIntegrationStep,
+  type StripeWizardValues,
+} from './stripe-integration-step';
 
 // ── Types ──────────────────────────────────────────────────────
 
@@ -125,6 +132,7 @@ const CREATE_STEPS: Array<{ label: string; icon: React.ReactNode; key: string }>
   { label: 'Database', icon: <DnsIcon fontSize="small" />, key: 'database' },
   { label: 'Custom Env', icon: <CloudIcon fontSize="small" />, key: 'env' },
   { label: 'Deploy Hooks', icon: <RocketLaunchIcon fontSize="small" />, key: 'hooks' },
+  { label: 'Stripe (Vercel)', icon: <PaymentIcon fontSize="small" />, key: 'stripe' },
   { label: 'Functional Roles', icon: <PeopleIcon fontSize="small" />, key: 'roles' },
   { label: 'Custom Domain', icon: <LanguageIcon fontSize="small" />, key: 'domain' },
   { label: 'Admin & Auth', icon: <VerifiedUserIcon fontSize="small" />, key: 'auth' },
@@ -195,6 +203,7 @@ export function CreateAppWizard({ open, onClose, tenantSlug, sourceApp, onSnackb
   const [templateId, setTemplateId] = useState('default');
   const [seedAfter, setSeedAfter] = useState(true);
   const [deployAfter, setDeployAfter] = useState(true);
+  const [stripeWizard, setStripeWizard] = useState<StripeWizardValues>(EMPTY_STRIPE_WIZARD);
   const [creating, setCreating] = useState(false);
   const [createProgress, setCreateProgress] = useState(0);
   const [createStepStatuses, setCreateStepStatuses] = useState<Record<string, string>>({});
@@ -221,6 +230,7 @@ export function CreateAppWizard({ open, onClose, tenantSlug, sourceApp, onSnackb
   const [duplicateApp] = useDuplicateAppMutation();
   const [seedApp] = useSeedAppMutation();
   const [deployApp] = useDeployAppMutation();
+  const [pushStripeEnv] = usePushStripeEnvVarsMutation();
   const [provisionGoogleOAuth] = useProvisionGoogleOAuthMutation();
   const [saveTenantAiProvider] = useSaveTenantAiProviderMutation();
   const { data: rolesData, isLoading: rolesLoading } = useListRoleConfigsQuery();
@@ -659,6 +669,14 @@ export function CreateAppWizard({ open, onClose, tenantSlug, sourceApp, onSnackb
       } else {
         mark('deploy', 'skipped', 'Skipped');
         setCreateProgress(4);
+      }
+
+      if (stripeWizard.enabled) {
+        try {
+          await pushStripeEnv({ slug: tenantSlug }).unwrap();
+        } catch {
+          // Non-fatal — keys can be pushed later from Edit Tenant → Organization & Billing
+        }
       }
 
       mark('done', 'success', `${mode === 'duplicate' ? 'Duplicated' : 'Created'} "${name.trim()}" — ${seedAfter && deployAfter ? 'seeded + deployed' : seedAfter ? 'seeded' : deployAfter ? 'deployed' : 'added to suite'}`);
@@ -1698,11 +1716,20 @@ export function CreateAppWizard({ open, onClose, tenantSlug, sourceApp, onSnackb
       case 7: return renderStepDatabase();
       case 8: return renderStepEnv();
       case 9: return renderStepHooks();
-      case 10: return renderStepRoles();
-      case 11: return renderStepDomain();
-      case 12: return renderStepAuth();
-      case 13: return renderStepFlightCheck();
-      case 14: return renderStepSummary();
+      case 10: return (
+        <StripeIntegrationStep
+          value={stripeWizard}
+          onChange={setStripeWizard}
+          tenantHasKeys={Boolean(
+            (tenantCfg.stripe as { secretKey?: string } | undefined)?.secretKey,
+          )}
+        />
+      );
+      case 11: return renderStepRoles();
+      case 12: return renderStepDomain();
+      case 13: return renderStepAuth();
+      case 14: return renderStepFlightCheck();
+      case 15: return renderStepSummary();
       default: return null;
     }
   };

@@ -24,6 +24,7 @@ import Tooltip from '@mui/material/Tooltip';
 import Typography from '@mui/material/Typography';
 import useMediaQuery from '@mui/material/useMediaQuery';
 import { useTheme } from '@mui/material/styles';
+import RocketLaunchIcon from '@mui/icons-material/RocketLaunch';
 import DeleteIcon from '@mui/icons-material/Delete';
 import DeleteSweepIcon from '@mui/icons-material/DeleteSweep';
 import TextField from '@mui/material/TextField';
@@ -62,6 +63,8 @@ import {
   useLazyGetDeployStatusQuery,
   useLazyGetTenantDomainsQuery,
   useTriggerDeployHookMutation,
+  useHotDeployRegisteredMutation,
+  useLazyGetVercelDeployInventoryQuery,
   useSeedAppMutation,
   useMigrateAppMutation,
   useDeployAppMutation,
@@ -198,11 +201,14 @@ export function TenantDashboard() {
   const [seedTenant, { isLoading: isSeeding }] = useSeedTenantMutation();
   const [migrateTenant, { isLoading: isMigrating }] = useMigrateTenantMutation();
   const [deployToVercel, { isLoading: isDeploying }] = useDeployTenantMutation();
+  const [hotDeployRegistered, { isLoading: isHotDeploying }] = useHotDeployRegisteredMutation();
+  const [fetchDeployInventory] = useLazyGetVercelDeployInventoryQuery();
   const [updateTenant] = useUpdateTenantMutation();
   const [getTenantDomains] = useLazyGetTenantDomainsQuery();
   const [getDeployStatus] = useLazyGetDeployStatusQuery();
   const [triggerDeployHook] = useTriggerDeployHookMutation();
   const [snackbar, setSnackbar] = useState<{ message: string; severity: 'success' | 'error' } | null>(null);
+  const [unregisteredPreview, setUnregisteredPreview] = useState<Array<{ id: string; name: string }> | null>(null);
 
   // Suite expand/collapse state for mobile view
   const [expandedSlug, setExpandedSlug] = useState<string | null>(null);
@@ -293,6 +299,31 @@ export function TenantDashboard() {
       });
     } catch {
       setSnackbar({ message: 'Failed to migrate tenant', severity: 'error' });
+    }
+  };
+
+  const handleHotDeployRegistered = async () => {
+    try {
+      const inv = await fetchDeployInventory().unwrap();
+      const unregistered = inv.data?.unregisteredOnVercel ?? [];
+      setUnregisteredPreview(unregistered.length > 0 ? unregistered : null);
+
+      const result = await hotDeployRegistered().unwrap();
+      const d = result.data;
+      const parts = [
+        `Triggered ${d?.triggered.length ?? 0}/${d?.registered ?? 0} registered apps`,
+      ];
+      if (d?.skippedNoHook.length) parts.push(`${d.skippedNoHook.length} skipped (no deploy hook)`);
+      if (d?.failed.length) parts.push(`${d.failed.length} failed`);
+      if (d?.unregisteredOnVercel.length) {
+        parts.push(`${d.unregisteredOnVercel.length} unregistered Vercel projects ignored`);
+      }
+      setSnackbar({
+        message: parts.join(' · '),
+        severity: (d?.failed.length ?? 0) > 0 ? 'error' : 'success',
+      });
+    } catch (err) {
+      setSnackbar({ message: apiErrorMessage(err, 'Hot deploy failed'), severity: 'error' });
     }
   };
 
@@ -523,6 +554,19 @@ export function TenantDashboard() {
             </Typography>
           </Box>
           <Stack direction="row" spacing={1} sx={{ alignItems: 'center', flexShrink: 0, justifyContent: { xs: 'flex-end', sm: 'unset' } }}>
+            <Tooltip title="Redeploy only apps registered in the DB. Other Vercel projects are listed but not redeployed.">
+              <span>
+                <Button
+                  variant="outlined"
+                  size="small"
+                  startIcon={isHotDeploying ? <CircularProgress size={14} /> : <RocketLaunchIcon />}
+                  onClick={() => void handleHotDeployRegistered()}
+                  disabled={isHotDeploying}
+                >
+                  Hot Deploy (DB apps)
+                </Button>
+              </span>
+            </Tooltip>
             <Tooltip title="Refresh">
               <IconButton onClick={() => refetch()} size="small">
                 <RefreshIcon />
@@ -1106,10 +1150,23 @@ export function TenantDashboard() {
       {/* Feedback Snackbar */}
       <Snackbar
         open={Boolean(snackbar)}
-        autoHideDuration={4000}
+        autoHideDuration={6000}
         onClose={() => setSnackbar(null)}
         message={snackbar?.message}
       />
+
+      {unregisteredPreview && unregisteredPreview.length > 0 ? (
+        <Alert
+          severity="info"
+          onClose={() => setUnregisteredPreview(null)}
+          sx={{ position: 'fixed', bottom: 72, right: 16, zIndex: 1400, maxWidth: 420 }}
+        >
+          {unregisteredPreview.length} Vercel project(s) exist on the team but are not in the
+          tenants DB — they were not hot-deployed:{' '}
+          {unregisteredPreview.slice(0, 5).map((p) => p.name).join(', ')}
+          {unregisteredPreview.length > 5 ? '…' : ''}
+        </Alert>
+      ) : null}
     </Stack>
   );
 }
