@@ -50,7 +50,16 @@ const DeploymentPayloadSchema = z.object({
 }).passthrough();
 
 type VercelEvent = z.infer<typeof VercelEventSchema>;
-type VercelEventType = 'project.removed' | 'deployment.succeeded' | 'deployment.error' | 'deployment.canceled' | 'domain.verified' | 'domain.unverified' | string;
+/** Official Vercel webhook `type` strings we subscribe to + handle. */
+type VercelEventType =
+  | 'project.removed'
+  | 'deployment.succeeded'
+  | 'deployment.error'
+  | 'deployment.canceled'
+  | 'deployment.cleanup'
+  | 'project.domain.verified'
+  | 'project.domain.unverified'
+  | string;
 
 interface WebhookResult {
   success: boolean;
@@ -58,6 +67,20 @@ interface WebhookResult {
   tenantSlug?: string;
   action?: string;
   error?: string;
+}
+
+/**
+ * Resolve Vercel project id/name from the event payload.
+ * Prefer payload.project.*; for project.removed the project lives at payload.id/name.
+ * Never treat deployment.id as a project id.
+ */
+function extractProjectRef(type: string, payload: Record<string, any>) {
+  const projectId: string | undefined =
+    payload.project?.id ??
+    (type === 'project.removed' || type.startsWith('project.') ? payload.id : undefined);
+  const projectName: string | undefined =
+    payload.project?.name ?? payload.name;
+  return { projectId, projectName };
 }
 
 /**
@@ -238,9 +261,7 @@ export async function handleVercelWebhook(
 
   console.log(`[vercel-webhook] Signature verified successfully for ${type}`);
 
-  // Find tenant by project ID or name
-  const projectId = payload.project?.id || payload.id || payload.deployment?.id;
-  const projectName = payload.project?.name || payload.name;
+  const { projectId, projectName } = extractProjectRef(type, payload);
   tenantSlug = await findTenantByVercelId(projectId, projectName);
 
   if (!tenantSlug) {
@@ -252,45 +273,97 @@ export async function handleVercelWebhook(
   console.log(`[vercel-webhook] Found tenant ${tenantSlug} for project ${projectId || projectName}`);
 
   try {
-    switch (true) {
-      case type === 'project.removed' || type.includes('project.deleted'):
+    // Match official Vercel webhook type strings exactly (see register-vercel-webhooks.ts).
+    switch (type as VercelEventType) {
+      case 'project.removed': {
         action = 'cleanup';
-        if (tenantSlug) {
-          console.log(`[vercel-webhook] Triggering cleanup for tenant ${tenantSlug} (project ${projectId})`);
-          await cleanupTenant({ tenantSlug, vercelProjectId: projectId || undefined });
-        }
+        console.log(`[vercel-webhook] Triggering cleanup for tenant ${tenantSlug} (project ${projectId})`);
+        const cleanupResult = await cleanupTenant({
+          tenantSlug,
+          vercelProjectId: projectId || undefined,
+        });
+        await inngest.send({
+          name: 'vercel.project.removed',
+          data: {
+            tenantSlug,
+            projectId: projectId || '',
+            cleanupResult,
+            source: 'webhook',
+          },
+        });
         break;
+      }
 
-      case type === 'deployment.succeeded' || type.includes('deployment.ready'):
+      case 'deployment.succeeded': {
         action = 'deployment-success';
-        if (projectId) {
-          await inngest.send({
-            name: 'vercel.deployment.succeeded',
-            data: { tenantSlug, projectId, deployment: payload.deployment || payload, source: 'webhook' },
-          });
-        }
+        await inngest.send({
+          name: 'vercel.deployment.succeeded',
+          data: {
+            tenantSlug,
+            projectId: projectId || '',
+            deployment: payload.deployment || payload,
+            source: 'webhook',
+          },
+        });
         break;
+      }
 
-      case type === 'deployment.error' || type === 'deployment.failed' || type.includes('error'):
+      case 'deployment.error': {
         action = 'mark-error';
-        if (projectId) {
-          await inngest.send({
-            name: 'vercel.deployment.error',
-            data: { tenantSlug, projectId, error: payload, source: 'webhook' },
-          });
-        }
+        await inngest.send({
+          name: 'vercel.deployment.error',
+          data: {
+            tenantSlug,
+            projectId,
+            error: payload,
+            source: 'webhook',
+          },
+        });
         break;
+      }
 
-      case type.startsWith('domain.'):
+      case 'deployment.canceled': {
+        action = 'deployment-canceled';
+        await inngest.send({
+          name: 'vercel.deployment.canceled',
+          data: {
+            tenantSlug,
+            projectId: projectId || '',
+            deployment: payload.deployment || payload,
+            source: 'webhook',
+          },
+        });
+        break;
+      }
+
+      case 'deployment.cleanup': {
+        action = 'deployment-cleanup';
+        await inngest.send({
+          name: 'vercel.deployment.cleanup',
+          data: {
+            tenantSlug,
+            projectId: projectId || '',
+            deployment: payload.deployment || payload,
+            source: 'webhook',
+          },
+        });
+        break;
+      }
+
+      case 'project.domain.verified':
+      case 'project.domain.unverified': {
         action = 'domain-event';
         await inngest.send({
-          name: `vercel.${type}`,
+          name: type === 'project.domain.verified'
+            ? 'vercel.project.domain.verified'
+            : 'vercel.project.domain.unverified',
           data: { tenantSlug, projectId, payload, source: 'webhook' },
         });
         console.log(`[vercel-webhook] Dispatched domain event ${type}`);
         break;
+      }
 
-      default:
+      default: {
         action = 'unknown-event';
         resultStatus = 'ignored';
         console.log(`[vercel-webhook] Unhandled event type: ${type}`);
@@ -298,6 +371,7 @@ export async function handleVercelWebhook(
           name: 'vercel.webhook.unhandled',
           data: { type, payload, tenantSlug },
         });
+      }
     }
 
     const durationMs = Date.now() - startTime;

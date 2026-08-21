@@ -79,13 +79,30 @@ export interface VercelEvents {
   };
   'vercel.deployment.error': {
     data: {
-tenantSlug?: string;
+      tenantSlug?: string;
       projectId?: string;
-      payload: unknown;
+      error?: unknown;
       source?: string;
     };
   };
-  'vercel.domain.verified': {
+  'vercel.deployment.canceled': {
+    data: {
+      tenantSlug?: string;
+      projectId: string;
+      deployment?: unknown;
+      source?: string;
+    };
+  };
+  'vercel.deployment.cleanup': {
+    data: {
+      tenantSlug?: string;
+      projectId: string;
+      deployment?: unknown;
+      source?: string;
+    };
+  };
+  /** Mirrors Vercel `project.domain.verified` */
+  'vercel.project.domain.verified': {
     data: {
       tenantSlug?: string;
       projectId?: string;
@@ -93,7 +110,8 @@ tenantSlug?: string;
       source?: string;
     };
   };
-  'vercel.domain.unverified': {
+  /** Mirrors Vercel `project.domain.unverified` */
+  'vercel.project.domain.unverified': {
     data: {
       tenantSlug?: string;
       projectId?: string;
