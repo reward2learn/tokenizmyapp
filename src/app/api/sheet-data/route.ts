@@ -14,11 +14,11 @@
 import { NextResponse } from 'next/server';
 import { PrismaClient } from '@/generated/prisma';
 import { read, utils, write } from 'xlsx';
-import { getCurrentAppId } from '@shared/lib/config/tenant';
 import { evaluateFormula } from '@/lib/excel-formula';
 import { findHeaderRow, buildColumnKeys } from '@/lib/workbook-mapping';
 import type { WorkbookFormulaMap } from '@/lib/workbook-formulas';
 import { sortSheetRows, type SheetSortBy } from '@/lib/sheet-data-sort';
+import { findCachedWorkbook } from '@/lib/workbook-cache';
 import {
   CUSTOM_COLUMNS_SNIPPET_KEY,
   parseCustomColumnsStore,
@@ -82,12 +82,12 @@ export async function GET(request: Request): Promise<NextResponse> {
 
   const prisma = getClient();
   try {
-    const cached = await prisma.knowledgeSnippet.findUnique({
-      where: { key_appId: { key: 'workbook_data', appId: getCurrentAppId() } },
-    });
+    // Resolve via historical appId fallbacks (seed uses '', upload used tenant slug).
+    const cached = await findCachedWorkbook(prisma);
     if (!cached?.content) {
       return NextResponse.json({ error: 'No workbook cached. Upload the workbook via Config > Source first.' }, { status: 404 });
     }
+    const cacheAppId = cached.appId;
 
     const buf = Buffer.from(cached.content, 'base64');
     const wb = read(buf, { type: 'buffer', cellFormula: formulasEnabled });
@@ -99,7 +99,7 @@ export async function GET(request: Request): Promise<NextResponse> {
     if (formulasEnabled) {
       try {
         const mapSnippet = await prisma.knowledgeSnippet.findUnique({
-          where: { key_appId: { key: 'workbook_formulas', appId: getCurrentAppId() } },
+          where: { key_appId: { key: 'workbook_formulas', appId: cacheAppId } },
         });
         if (mapSnippet?.content) formulaMap = JSON.parse(mapSnippet.content) as WorkbookFormulaMap;
       } catch {
@@ -126,7 +126,7 @@ export async function GET(request: Request): Promise<NextResponse> {
     let customStore: CustomColumnsStore = parseCustomColumnsStore(null);
     try {
       const customSnippet = await prisma.knowledgeSnippet.findUnique({
-        where: { key_appId: { key: CUSTOM_COLUMNS_SNIPPET_KEY, appId: getCurrentAppId() } },
+        where: { key_appId: { key: CUSTOM_COLUMNS_SNIPPET_KEY, appId: cacheAppId } },
       });
       customStore = parseCustomColumnsStore(customSnippet?.content ?? null);
     } catch {
@@ -291,15 +291,13 @@ export async function POST(request: Request): Promise<NextResponse> {
       }, { status: 400 });
     }
 
-    const cached = await prisma.knowledgeSnippet.findUnique({
-      where: { key_appId: { key: 'workbook_data', appId: getCurrentAppId() } },
-    });
-
+    const cached = await findCachedWorkbook(prisma);
     if (!cached?.content) {
       return NextResponse.json({ 
         error: 'No workbook cached. Upload via Config > Source first.' 
       }, { status: 404 });
     }
+    const cacheAppId = cached.appId;
 
     const buf = Buffer.from(cached.content, 'base64');
     const wb = read(buf, { type: 'buffer', cellFormula: true });
@@ -399,7 +397,7 @@ export async function POST(request: Request): Promise<NextResponse> {
     const base64Updated = Buffer.from(updatedBuffer).toString('base64');
 
     await prisma.knowledgeSnippet.update({
-      where: { key_appId: { key: 'workbook_data', appId: getCurrentAppId() } },
+      where: { key_appId: { key: 'workbook_data', appId: cacheAppId } },
       data: { content: base64Updated },
     });
 

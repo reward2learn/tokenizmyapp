@@ -15,7 +15,7 @@ import { NextResponse } from 'next/server';
 import { randomUUID } from 'crypto';
 import { PrismaClient } from '@/generated/prisma';
 import { read } from 'xlsx';
-import { getCurrentAppId } from '@shared/lib/config/tenant';
+import { findCachedWorkbook } from '@/lib/workbook-cache';
 import { findHeaderRow, buildColumnKeys } from '@/lib/workbook-mapping';
 import {
   CUSTOM_COLUMNS_SNIPPET_KEY,
@@ -78,7 +78,7 @@ export async function GET(request: Request): Promise<NextResponse> {
       return NextResponse.json({ error: 'Query param "sheet" is required' }, { status: 400 });
     }
     const snippet = await prisma.knowledgeSnippet.findUnique({
-      where: { key_appId: { key: CUSTOM_COLUMNS_SNIPPET_KEY, appId: getCurrentAppId() } },
+      where: { key_appId: { key: CUSTOM_COLUMNS_SNIPPET_KEY, appId: cacheAppId } },
     });
     const store = parseCustomColumnsStore(snippet?.content ?? null);
     const columns = resolveSheetColumns(store, sheetName).map(toMeta);
@@ -108,7 +108,8 @@ export async function POST(request: Request): Promise<NextResponse> {
     }
 
     // Confirm the sheet exists in the cached workbook and get its visible columns.
-    const cached = await prisma.knowledgeSnippet.findUnique({ where: { key_appId: { key: 'workbook_data', appId: getCurrentAppId() } } });
+    const cached = await findCachedWorkbook(prisma);
+    const cacheAppId = cached?.appId ?? '';
     if (!cached?.content) {
       return NextResponse.json({ error: 'No workbook cached. Upload via Config > Source first.' }, { status: 404 });
     }
@@ -121,7 +122,7 @@ export async function POST(request: Request): Promise<NextResponse> {
     }
 
     const snippet = await prisma.knowledgeSnippet.findUnique({
-      where: { key_appId: { key: CUSTOM_COLUMNS_SNIPPET_KEY, appId: getCurrentAppId() } },
+      where: { key_appId: { key: CUSTOM_COLUMNS_SNIPPET_KEY, appId: cacheAppId } },
     });
     const store = parseCustomColumnsStore(snippet?.content ?? null);
 
@@ -158,8 +159,8 @@ export async function POST(request: Request): Promise<NextResponse> {
     };
 
     await prisma.knowledgeSnippet.upsert({
-      where: { key_appId: { key: CUSTOM_COLUMNS_SNIPPET_KEY, appId: getCurrentAppId() } },
-      create: { key: CUSTOM_COLUMNS_SNIPPET_KEY, category: 'cache', content: JSON.stringify(nextStore), appId: getCurrentAppId() },
+      where: { key_appId: { key: CUSTOM_COLUMNS_SNIPPET_KEY, appId: cacheAppId } },
+      create: { key: CUSTOM_COLUMNS_SNIPPET_KEY, category: 'cache', content: JSON.stringify(nextStore), appId: cacheAppId },
       update: { content: JSON.stringify(nextStore) },
     });
 

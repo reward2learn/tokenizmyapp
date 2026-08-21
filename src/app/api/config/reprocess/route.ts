@@ -19,7 +19,7 @@ import { requireWriteAuth, requireCapability } from '@/lib/auth/guards';
 import { jsonError, jsonOk } from '@/lib/api/response';
 import { seedFromSources, type SeedCounts } from '@/domain/seed/seed-runner';
 import type { SourceFileKey } from '@/domain/seed/source-files';
-import { getCurrentAppId } from '@shared/lib/config/tenant';
+import { findCachedWorkbook } from '@/lib/workbook-cache';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 300; // 5 min
@@ -42,9 +42,8 @@ export async function POST(request: Request): Promise<NextResponse> {
 
   try {
     // Read the primary cached workbook from knowledge_snippets
-    const cached = await prisma.knowledgeSnippet.findUnique({
-      where: { key_appId: { key: 'workbook_data', appId: getCurrentAppId() } },
-    });
+    const cached = await findCachedWorkbook(prisma);
+    const cacheAppId = cached?.appId ?? '';
 
     if (!cached) {
       return jsonError(
@@ -58,7 +57,7 @@ export async function POST(request: Request): Promise<NextResponse> {
     // Read additional cached workbooks (workbook_data_1, workbook_data_2, ...)
     for (let i = 1; i < 10; i++) {
       const extra = await prisma.knowledgeSnippet.findUnique({
-        where: { key_appId: { key: `workbook_data_${i}`, appId: getCurrentAppId() } },
+        where: { key_appId: { key: `workbook_data_${i}`, appId: cacheAppId } },
       });
       if (extra?.content) {
         excelBuffers.push(Buffer.from(extra.content, 'base64'));

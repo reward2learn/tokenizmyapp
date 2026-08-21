@@ -22,6 +22,7 @@
 
 import { NextResponse } from 'next/server';
 import { PrismaClient } from '@/generated/prisma';
+import { canonicalWorkbookAppId } from '@/lib/workbook-cache';
 import { requireWriteAuth, requireCapability } from '@/lib/auth/guards';
 import { jsonError, jsonOk } from '@/lib/api/response';
 import { extractExcelData } from '@/domain/excel/excel-extractor';
@@ -89,10 +90,9 @@ export async function POST(request: Request): Promise<NextResponse> {
       );
     }
 
-    // Determine the appId for tenant isolation
-    // Use tenant slug if available, otherwise empty string for single-app tenant
-    const tenantSlug = process.env.NEXT_PUBLIC_TENANT_SLUG?.trim() || 'tokenizmyapp';
-    const appId = tenantSlug !== 'tokenizmyapp' ? tenantSlug : '';
+    // Canonical appId: suite NEXT_PUBLIC_APP_ID when set, else '' (not tenant slug).
+    // findCachedWorkbook() still resolves historical rows stored under the tenant slug.
+    const appId = canonicalWorkbookAppId();
 
     const prisma = new PrismaClient();
 
