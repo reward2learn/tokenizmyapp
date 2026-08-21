@@ -12,6 +12,13 @@ import { getTenantConfig } from '@shared/lib/config/tenant';
 
 /** CEO overview landing — KPIs + primary sheet first, narrative below. */
 /** CEO overview landing — KPIs + primary sheet first, narrative below. */
+export interface HomeHeroConfig {
+  badge?: string;
+  headline?: string;
+  subtitle?: string;
+  accent?: string;
+}
+
 const HOME_SECTIONS: { blockType: string; config: Record<string, unknown> }[] = [
   { blockType: 'hero', config: { badge: 'CEO Overview', minTier: 'public' } },
   { blockType: 'kpi_cards', config: { variant: 'ops', minTier: 'google' } },
@@ -26,6 +33,7 @@ const HOME_SECTIONS: { blockType: string; config: Record<string, unknown> }[] = 
 
 export async function ensureTenantHomeSections(
   db: SheetPagesSqlClient,
+  homeHero?: HomeHeroConfig | null,
 ): Promise<boolean> {
   const tenantSlug =
     getTenantConfig().slug || process.env.NEXT_PUBLIC_TENANT_SLUG || null;
@@ -66,6 +74,16 @@ export async function ensureTenantHomeSections(
 
   for (let i = 0; i < HOME_SECTIONS.length; i++) {
     const section = HOME_SECTIONS[i]!;
+    let config: Record<string, unknown> = { ...section.config };
+    if (section.blockType === 'hero' && homeHero) {
+      config = {
+        ...config,
+        ...(homeHero.badge ? { badge: homeHero.badge } : {}),
+        ...(homeHero.headline ? { headline: homeHero.headline } : {}),
+        ...(homeHero.subtitle ? { subtitle: homeHero.subtitle } : {}),
+        ...(homeHero.accent ? { accent: homeHero.accent } : {}),
+      };
+    }
     await db.$executeRawUnsafe(
       `INSERT INTO page_sections (id, page_id, sort_order, block_type, config)
        VALUES ($1, $2, $3, CAST($4 AS "BlockType"), CAST($5 AS jsonb))`,
@@ -73,7 +91,7 @@ export async function ensureTenantHomeSections(
       row.id,
       i,
       section.blockType,
-      JSON.stringify(section.config),
+      JSON.stringify(config),
     );
   }
 

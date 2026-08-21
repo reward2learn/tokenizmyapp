@@ -37,6 +37,8 @@ export type ProgressStep =
   | 'parsing'
   | 'saving'
   | 'saving_exec'
+  | 'saving_home'
+  | 'seeding_tasks'
   | 'complete'
   | 'error';
 
@@ -213,10 +215,27 @@ async function callAiProviderForDocument(
   return parsed[documentType] ?? '';
 }
 
+export interface HomeHeroPayload {
+  badge?: string;
+  headline?: string;
+  subtitle?: string;
+  accent?: string;
+}
+
+export interface AiTaskPayload {
+  title: string;
+  priority?: string;
+  ownerCodes?: string[];
+  dueOffsetDays?: number;
+  description?: string | null;
+}
+
 interface DashboardData {
   actionPhases: unknown;
   targetRows: unknown;
   levers: unknown;
+  homeHero?: HomeHeroPayload | null;
+  tasks?: AiTaskPayload[] | null;
 }
 
 /**
@@ -246,7 +265,7 @@ async function generateDashboardData(
       messages: [
         {
           role: 'system',
-          content: 'You are a precise financial analyst. You ALWAYS return only valid JSON with exactly the keys requested. Return ONLY a JSON object with keys "actionPhases", "targetRows", and "levers".',
+          content: 'You are a precise financial analyst. You ALWAYS return only valid JSON with exactly the keys requested. Return ONLY a JSON object with keys "actionPhases", "targetRows", "levers", "homeHero", and "tasks".',
         },
         {
           role: 'user',
@@ -287,7 +306,13 @@ async function generateDashboardData(
 
   const parsed = JSON.parse(reply);
   if (!parsed.actionPhases || !parsed.targetRows || !parsed.levers) return null;
-  return parsed as DashboardData;
+  return {
+    actionPhases: parsed.actionPhases,
+    targetRows: parsed.targetRows,
+    levers: parsed.levers,
+    homeHero: parsed.homeHero ?? null,
+    tasks: Array.isArray(parsed.tasks) ? parsed.tasks : null,
+  } as DashboardData;
 }
 
 // ── Content parsing helpers ─────────────────────────────
@@ -598,11 +623,16 @@ export async function generateAndSave(
     }
 
     // ── 7c. Home landing sections (exec summary + review on `/`) ──
+    onProgress?.({
+      step: 'saving_home',
+      message: 'Updating Home page sections (hero, KPIs, narrative)…',
+      pct: 92,
+    });
     try {
       const { ensureTenantHomeSections } = await import(
         '@/domain/ai-content/ensure-landing-pages'
       );
-      await ensureTenantHomeSections(db);
+      await ensureTenantHomeSections(db, dashboardData?.homeHero ?? null);
     } catch (err) {
       console.warn(
         '[content-generator] Home section upsert failed (non-fatal):',
@@ -610,15 +640,37 @@ export async function generateAndSave(
       );
     }
 
-    // ── 7d. Bootstrap tasks playbook if the tasks table is empty ──
-    // AI Content does not invent tasks; the seed playbook fills /tasks so the
-    // route is usable after generation without a separate Config > Seed pass.
+    // ── 7d. Seed Tasks page from AI tasks (fallback to playbook) ──
+    onProgress?.({
+      step: 'seeding_tasks',
+      message: 'Seeding Tasks page from AI task list…',
+      pct: 96,
+    });
     try {
-      const { ensureTaskTables, seedTaskTracking } = await import(
+      const { ensureTaskTables, seedTaskTracking, seedTasksFromAi } = await import(
         '@/domain/seed/seed-runner'
       );
       await ensureTaskTables(db);
-      await seedTaskTracking(db as Parameters<typeof seedTaskTracking>[0]);
+      const aiTasks = dashboardData?.tasks ?? null;
+      if (aiTasks && aiTasks.length > 0) {
+        const n = await seedTasksFromAi(
+          db as Parameters<typeof seedTasksFromAi>[0],
+          aiTasks.map((t) => ({
+            title: t.title,
+            priority: t.priority,
+            ownerCodes: t.ownerCodes,
+            dueOffsetDays: t.dueOffsetDays,
+            description: t.description,
+          })),
+        );
+        onProgress?.({
+          step: 'seeding_tasks',
+          message: `Seeded ${n} AI-generated task(s) onto /tasks`,
+          pct: 97,
+        });
+      } else {
+        await seedTaskTracking(db as Parameters<typeof seedTaskTracking>[0]);
+      }
     } catch (err) {
       console.warn(
         '[content-generator] Task bootstrap failed (non-fatal):',

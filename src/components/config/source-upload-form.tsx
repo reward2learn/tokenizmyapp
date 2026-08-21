@@ -24,6 +24,11 @@ import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import DescriptionIcon from '@mui/icons-material/Description';
 import SummarizeIcon from '@mui/icons-material/Summarize';
 import {
+  ProcessStepTimeline,
+  RESEED_SYNC_STEPS,
+  RESEED_WORKFLOW_STEPS,
+} from '@/components/config/process-step-timeline';
+import {
   CONFIG_UPLOAD_FIELD_NAMES,
   hasAnyUpload,
   validateExcelUpload,
@@ -105,8 +110,11 @@ export function SourceUploadForm({ showSummaryOnly }: { showSummaryOnly?: boolea
     executiveSummary: null,
   });
   const [workflowRunId, setWorkflowRunId] = useState<string | null>(null);
-  const [workflowProgress, setWorkflowProgress] = useState<{ step: string; message: string; pct: number } | null>(null);
+  const [workflowProgress, setWorkflowProgress] = useState<{ step: string; message: string; pct: number; detail?: { tabNames?: string[]; sheets?: number } } | null>(null);
   const [workflowComplete, setWorkflowComplete] = useState(false);
+  /** Local phases before/without durable workflow SSE (upload submit + reprocess). */
+  const [syncStep, setSyncStep] = useState<string | null>(null);
+  const [syncError, setSyncError] = useState(false);
   const eventSourceRef = useRef<EventSource | null>(null);
   const [triggerStatus] = useLazyGetReseedWorkflowStatusQuery();
 
@@ -163,17 +171,23 @@ export function SourceUploadForm({ showSummaryOnly }: { showSummaryOnly?: boolea
     setWorkflowRunId(null);
     setWorkflowProgress(null);
     setWorkflowComplete(false);
+    setSyncStep('uploading');
+    setSyncError(false);
 
     try {
+      setSyncStep('seeding');
       const result = await reseed(formData).unwrap();
       if (result.success && (result.data as unknown as WorkflowAcceptedResponse)?.runId) {
         const accepted = result.data as unknown as WorkflowAcceptedResponse;
+        setSyncStep('accepted');
         setWorkflowRunId(accepted.runId);
         startProgressStream(accepted.runId);
       } else {
+        setSyncStep('accepted');
         setWorkflowComplete(true);
       }
     } catch {
+      setSyncError(true);
       // error handled by mutation state
     }
 
@@ -350,7 +364,19 @@ export function SourceUploadForm({ showSummaryOnly }: { showSummaryOnly?: boolea
                 color="secondary"
                 disabled={isReprocessing}
                 startIcon={isReprocessing ? <CircularProgress size={18} color="inherit" /> : undefined}
-                onClick={() => { resetReprocess(); void reprocess(); }}
+                onClick={async () => {
+                  resetReprocess();
+                  setSyncStep('seeding');
+                  setSyncError(false);
+                  setWorkflowComplete(false);
+                  try {
+                    await reprocess().unwrap();
+                    setSyncStep('accepted');
+                    setWorkflowComplete(true);
+                  } catch {
+                    setSyncError(true);
+                  }
+                }}
                 data-testid="reprocess-btn"
               >
                 {isReprocessing ? 'Reprocessing…' : 'Reprocess from cache'}
@@ -388,23 +414,79 @@ export function SourceUploadForm({ showSummaryOnly }: { showSummaryOnly?: boolea
         <SeedSummary result={reprocessData.data} />
       ) : null}
 
-      {/* ── Workflow Progress ─────────────────────────────── */}
+      {/* ── Upload / sync phase timeline ──────────────────── */}
+      {syncStep && !workflowRunId ? (
+        <Paper variant="outlined" sx={{ p: 2, mb: 2 }} data-testid="reseed-sync-progress">
+          <Typography variant="subtitle2" sx={{ fontWeight: 700, mb: 1.5 }}>
+            Upload &amp; reseed progress
+          </Typography>
+          <ProcessStepTimeline
+            steps={RESEED_SYNC_STEPS}
+            currentStep={syncStep}
+            activeMessage={
+              syncStep === 'uploading'
+                ? 'Sending workbooks and markdown to the server…'
+                : syncStep === 'seeding'
+                  ? 'Parsing sources and writing projections, pages, and snippets…'
+                  : 'Seed finished — waiting for sheet ingest…'
+            }
+            complete={workflowComplete && !syncError}
+            errored={syncError}
+          />
+          {(isLoading || isReprocessing) && !syncError ? (
+            <LinearProgress sx={{ mt: 2 }} />
+          ) : null}
+        </Paper>
+      ) : null}
+
+      {/* ── Durable workbook ingest step timeline (SSE) ───── */}
       {workflowRunId && !workflowComplete ? (
-        <Paper variant="outlined" sx={{ p: 2, mb: 2, bgcolor: 'rgba(10,249,254,0.04)' }}>
-          <Stack spacing={1}>
-            <Typography variant="subtitle2" sx={{ fontFamily: 'monospace', fontSize: '0.75rem', color: 'text.secondary' }}>
+        <Paper variant="outlined" sx={{ p: 2, mb: 2, bgcolor: 'rgba(10,249,254,0.04)' }} data-testid="reseed-workflow-progress">
+          <Stack spacing={1.5}>
+            <Typography variant="subtitle2" sx={{ fontWeight: 700 }}>
+              Workbook ingest — per-step status
+            </Typography>
+            <Typography variant="caption" sx={{ fontFamily: 'monospace', color: 'text.secondary' }}>
               Run: {workflowRunId}
             </Typography>
             <LinearProgress variant="determinate" value={workflowProgress?.pct ?? 0} />
             <Typography variant="body2" color="text.secondary">
               {workflowProgress?.message ?? 'Starting workflow…'}
+              {Array.isArray((workflowProgress as { detail?: { tabNames?: string[] } } | null)?.detail?.tabNames)
+                ? ` — sheets: ${((workflowProgress as unknown as { detail: { tabNames: string[] } }).detail.tabNames).join(', ')}`
+                : ''}
             </Typography>
+            <ProcessStepTimeline
+              steps={RESEED_WORKFLOW_STEPS}
+              currentStep={workflowProgress?.step ?? 'started'}
+              activeMessage={workflowProgress?.message}
+              complete={false}
+              errored={false}
+            />
+            {Array.isArray(workflowProgress?.detail?.tabNames) && workflowProgress.detail.tabNames.length > 0 ? (
+              <Stack direction="row" spacing={0.75} sx={{ flexWrap: 'wrap', gap: 0.75 }}>
+                <Typography variant="caption" color="text.secondary" sx={{ width: '100%' }}>
+                  Sheets detected
+                </Typography>
+                {workflowProgress.detail.tabNames.map((name) => (
+                  <Chip
+                    key={name}
+                    size="small"
+                    label={name}
+                    color={workflowProgress.step === 'extracting' || workflowProgress.step === 'analyzing' ? 'primary' : 'default'}
+                    variant={workflowProgress.step === 'extracting' ? 'filled' : 'outlined'}
+                  />
+                ))}
+              </Stack>
+            ) : null}
           </Stack>
         </Paper>
       ) : null}
-      {workflowComplete && workflowRunId ? (
-        <Alert severity="success" sx={{ mb: 2 }} role="status">
-          Workflow completed. Refresh the page to see updated data.
+      {workflowComplete && (workflowRunId || syncStep) ? (
+        <Alert severity="success" sx={{ mb: 2 }} role="status" data-testid="reseed-complete">
+          {workflowRunId
+            ? 'Workbook ingest completed. Home, sheet pages, and seeded data are ready — refresh to view.'
+            : 'Database reseeded successfully.'}
         </Alert>
       ) : null}
     </Box>

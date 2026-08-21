@@ -390,6 +390,52 @@ const KNOWN_ROLES: { code: string; name: string; isPlatformAdmin?: boolean }[] =
     isPlatformAdmin: fr.isPlatformAdmin ?? false,
   }));
 
+/**
+ * Legacy person / label aliases → functional role codes.
+ * Custom AI prompts and older PRIORITY_ACTIONS labels still emit "Ama",
+ * "Made", "Lukas", "Finance", etc. Map those onto FUNCTIONAL_ROLES codes
+ * so task assignments land on real roles instead of being dropped.
+ */
+const OWNER_CODE_ALIASES: Record<string, string> = {
+  // Person names (PERSONS / legacy task prefixes)
+  ama: 'finance',
+  graham: 'ceo',
+  james: 'entertainment',
+  lukas: 'operations',
+  lucas: 'operations',
+  made: 'compliance',
+  alex: 'platform-admin',
+  admin: 'platform-admin',
+  // Display / playbook labels
+  finance: 'finance',
+  ceo: 'ceo',
+  entertainment: 'entertainment',
+  operations: 'operations',
+  compliance: 'compliance',
+  'platform-admin': 'platform-admin',
+  'platform admin': 'platform-admin',
+};
+
+/**
+ * Normalize an owner token (person name, display label, or role code) to a
+ * known functional role code. Returns null when unmapped (caller decides
+ * whether to fall back to all individual roles).
+ */
+function normalizeOwnerCode(raw: string): string | null {
+  const token = raw.trim();
+  if (!token) return null;
+  const lower = token.toLowerCase();
+
+  const direct = KNOWN_ROLES.find((r) => r.code.toLowerCase() === lower);
+  if (direct) return direct.code;
+
+  const aliased = OWNER_CODE_ALIASES[lower];
+  if (!aliased) return null;
+
+  const role = KNOWN_ROLES.find((r) => r.code.toLowerCase() === aliased.toLowerCase());
+  return role?.code ?? null;
+}
+
 /** Resolve a known role by email (case-insensitive). Used by Google sign-in. */
 /**
  * Resolve a known role by email from the roles DB table.
@@ -467,7 +513,7 @@ export function listKnownAccounts(): { sub: string; name: string; tier: string; 
   }));
 }
 
-/** Parse "Ama: do the thing" → { ownerCodes: ['Ama'], title: 'do the thing' }. */
+/** Parse "Ama: do the thing" → { ownerCodes: ['finance'], title: 'do the thing' }. */
 function parseTaskLabel(label: string): { ownerCodes: string[]; title: string } {
   const match = label.match(/^([A-Za-z][A-Za-z+& ]*?):\s*(.+)$/);
   if (!match) {
@@ -475,11 +521,16 @@ function parseTaskLabel(label: string): { ownerCodes: string[]; title: string } 
   }
   const ownerPart = match[1].trim();
   const title = match[2].trim();
-  // Split on + & , / to support "Lukas + Made", "Ama & Graham", etc.
+  // "All:" → empty owners → resolveOwnerCodes expands to every individual role.
+  if (ownerPart.toLowerCase() === 'all') {
+    return { ownerCodes: [], title };
+  }
+  // Split on + & , / to support "Lukas + Made", "Ama & Graham", "Finance + CEO", etc.
+  // Person names and display labels are mapped through OWNER_CODE_ALIASES.
   const ownerCodes = ownerPart
     .split(/[+&,/]/)
-    .map((s) => s.trim())
-    .filter((s) => KNOWN_ROLES.some((r) => r.code.toLowerCase() === s.toLowerCase()));
+    .map((s) => normalizeOwnerCode(s))
+    .filter((c): c is string => Boolean(c));
   return { ownerCodes, title };
 }
 
@@ -739,6 +790,100 @@ function resolveSources(options: SeedOptions): ResolvedSources {
 
   return { excel, businessReview, executiveSummary, filesUsed };
 }
+
+export type AiSeedTask = {
+  title: string;
+  priority?: 'P0' | 'P1' | 'P2' | string;
+  ownerCodes?: string[];
+  dueOffsetDays?: number;
+  description?: string | null;
+};
+
+/**
+ * Seed / replace tracked tasks from AI Content Generation output.
+ * Always syncs roles. When `tasks` is non-empty, replaces the task table
+ * so Home/Tasks reflect the latest AI diagnostic (unlike seedTaskTracking
+ * which is a no-op when tasks already exist).
+ */
+export async function seedTasksFromAi(
+  prisma: DbClient,
+  tasks: AiSeedTask[],
+): Promise<number> {
+  const roleIdByCode = new Map<string, string>();
+  for (const role of KNOWN_ROLES) {
+    const created = await prisma.role.upsert({
+      where: { code: role.code },
+      create: {
+        code: role.code,
+        name: role.name,
+        isPlatformAdmin: role.isPlatformAdmin ?? false,
+      },
+      update: {
+        name: role.name,
+        isPlatformAdmin: role.isPlatformAdmin ?? false,
+      },
+    });
+    roleIdByCode.set(created.code, created.id);
+  }
+
+  const normalized = (tasks ?? [])
+    .map((t) => ({
+      title: String(t.title ?? '').trim(),
+      priority: (['P0', 'P1', 'P2'].includes(String(t.priority)) ? t.priority : 'P1') as ActionPriority,
+      ownerCodes: Array.isArray(t.ownerCodes)
+        ? t.ownerCodes.map((c) => String(c).trim()).filter(Boolean)
+        : [],
+      dueOffsetDays: typeof t.dueOffsetDays === 'number' && t.dueOffsetDays > 0 ? t.dueOffsetDays : 14,
+      description: t.description ? String(t.description) : null,
+    }))
+    .filter((t) => t.title.length > 0);
+
+  if (normalized.length === 0) {
+    await seedTaskTracking(prisma);
+    return 0;
+  }
+
+  await prisma.taskAssignment.deleteMany();
+  await prisma.task.deleteMany();
+
+  let taskOrder = 0;
+  const now = Date.now();
+
+  for (const built of normalized) {
+    const dueDate = new Date(now + built.dueOffsetDays * 24 * 60 * 60 * 1000);
+    const task = await prisma.task.create({
+      data: {
+        title: built.title,
+        description: built.description,
+        priority: built.priority,
+        status: 'pending',
+        dueDate,
+        sortOrder: taskOrder++,
+      },
+    });
+
+    // Map person names / display labels (Ama, Made, Finance, …) → functional role codes.
+    // Explicit "All" (any casing) means assign to every individual role.
+    const wantsAll = built.ownerCodes.some((c) => c.trim().toLowerCase() === 'all');
+    const owners = wantsAll
+      ? []
+      : built.ownerCodes
+          .map((c) => normalizeOwnerCode(c))
+          .filter((c): c is string => Boolean(c));
+    // Deduplicate while preserving order
+    const uniqueOwners = [...new Set(owners)];
+
+    const assignCodes = uniqueOwners.length > 0 ? uniqueOwners : resolveOwnerCodes([]);
+    for (const code of assignCodes) {
+      const roleId = roleIdByCode.get(code);
+      if (!roleId) continue;
+      await prisma.taskAssignment.create({ data: { taskId: task.id, roleId, assigned: true } });
+    }
+  }
+
+  return normalized.length;
+}
+
 
 export async function seedFromSources(options: SeedOptions = {}): Promise<SeedResult> {
   const dryRun = options.dryRun ?? false;

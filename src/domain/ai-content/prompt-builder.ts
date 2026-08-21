@@ -176,7 +176,8 @@ export function buildGenerationPrompt(data: ExcelData, additionalContext?: strin
     ``,
     `## CRITICAL OUTPUT INSTRUCTIONS`,
     ``,
-    `You MUST respond with a valid JSON object containing exactly two keys: "businessReview" and "executiveSummary".`,
+    `You MUST respond with a valid JSON object. The primary document keys are "businessReview" and "executiveSummary".`,
+    `A companion dashboard generation step ALSO requests "homeHero" and "tasks" so the Home page and Tasks page are populated — do not omit operational deliverables from the overall content pipeline.`,
     `Do NOT include any text outside the JSON object. The JSON must be parseable.`,
     ``,
     `### Output Format`,
@@ -184,8 +185,19 @@ export function buildGenerationPrompt(data: ExcelData, additionalContext?: strin
     `{`,
     `  "businessReview": "# ${businessName} — Business Review\\n\\n## Part A: Current Situation...",`,
     `  "executiveSummary": "# ${businessName} — Executive Summary (Exit Viability)\\n\\n## The Appointment...",`,
+    `  "homeHero": { "badge": "CEO Overview", "headline": "...", "subtitle": "...", "accent": "..." },`,
+    `  "tasks": [`,
+    `    { "title": "...", "priority": "P0", "ownerCodes": ["finance"], "dueOffsetDays": 7, "description": "..." }`,
+    `  ]`,
     `}`,
     `\`\`\``,
+    ``,
+    `### Home page (homeHero) — required for Home/\``,
+    `Provide a concise CEO-facing hero: badge, headline, optional accent line, and subtitle grounded in the exit-viability diagnosis (not generic growth marketing).`,
+    ``,
+    `### Tasks page (tasks) — required for /tasks`,
+    `Provide 8–15 concrete tasks derived from Part IV stakeholder actions and Part H immediate actions.`,
+    `Each task: title, priority (P0|P1|P2), ownerCodes (role codes like Ama, Made, Lukas, James, Graham), dueOffsetDays, description.`,
     ``,
     `### Business Review Requirements`,
     `Generate a comprehensive multi-part business review in Markdown with the following structure:`,
@@ -256,8 +268,9 @@ export function buildGenerationPrompt(data: ExcelData, additionalContext?: strin
   // Close with final reminder
   sections.push(``);
   sections.push(`## Final Reminder`);
-  sections.push(`Return ONLY a JSON object with "businessReview" and "executiveSummary" keys.`);
-  sections.push(`Both values must be valid Markdown strings.`);
+  sections.push(`Return ONLY a JSON object. Required document keys: "businessReview" and "executiveSummary" (Markdown strings).`);
+  sections.push(`Also include "homeHero" and "tasks" when producing the full content package so Home and Tasks pages can be delivered.`);
+  sections.push(`businessReview and executiveSummary values must be valid Markdown strings.`);
   sections.push(`Use proper Markdown tables, headers, and formatting.`);
   sections.push(`Base ALL numbers and analysis on the data provided above. Do not fabricate data.`);
   sections.push(``);
@@ -314,7 +327,15 @@ export function buildDashboardPrompt(data: ExcelData, additionalContext?: string
     ``,
     `You are a financial analyst for ${businessName}. Based on the financial data below, generate structured JSON data for the dashboard.`,
     ``,
-    `Return ONLY a JSON object with exactly three keys: "actionPhases", "targetRows", and "levers".`,
+    `Return ONLY a JSON object with these keys: "actionPhases", "targetRows", "levers", "homeHero", and "tasks".`,
+    ``,
+    `### homeHero — Object for the Home page hero block`,
+    `Fields: badge (short chip), headline (CEO overview title), accent (optional second headline line), subtitle (1–2 sentences on exit viability / current condition).`,
+    `Ground every phrase in the financial data — this is what visitors see on Home (\`/\`).`,
+    ``,
+    `### tasks — Array for the Tasks page (/tasks)`,
+    `8–15 objects with: title, priority ("P0"|"P1"|"P2"), ownerCodes (string array of functional role codes: finance, ceo, entertainment, operations, compliance), dueOffsetDays (number), description (string).`,
+    `Derive tasks from the diagnostic and stakeholder actions (supplier aging, cash reconciliation, ghost promoter audit, license transferability, floor price, etc.).`,
     ``,
     `### actionPhases — Array of objects with: id, title, period, impact, actions (string array)`,
     `Create 3 action phases with specific, actionable steps based on the financial data:`,

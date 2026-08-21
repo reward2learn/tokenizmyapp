@@ -65,6 +65,8 @@ interface ProgressEvent {
     | 'parsing'
     | 'saving'
     | 'saving_exec'
+    | 'saving_home'
+    | 'seeding_tasks'
     | 'complete'
     | 'error';
   message: string;
@@ -97,8 +99,10 @@ const STEPS: { key: ProgressEvent['step']; label: string }[] = [
   { key: 'prompt', label: 'Building AI prompt' },
   { key: 'openai', label: 'Calling AI provider' },
   { key: 'parsing', label: 'Parsing AI response' },
-  { key: 'saving', label: 'Saving to database' },
+  { key: 'saving', label: 'Saving Business Review' },
   { key: 'saving_exec', label: 'Saving Executive Summary' },
+  { key: 'saving_home', label: 'Updating Home page' },
+  { key: 'seeding_tasks', label: 'Seeding Tasks page' },
 ];
 
 /** Map step → 0-based index for timeline ordering */
