@@ -35,6 +35,8 @@ import DeleteIcon from '@mui/icons-material/Delete';
 import CloudUploadIcon from '@mui/icons-material/CloudUpload';
 import { listTemplates, getTemplate } from '@/domain/tenant/template-catalog';
 import { useUpdateTenantMutation, useDeployTenantMutation } from '@/store/apis/tenant-api';
+import { ApartmentIcon, DashboardCustomizeIcon, Checkbox, CheckCircleIcon } from '@mui/icons-material';
+import { Grid, Card, CardContent, CardActionArea, Chip } from '@mui/material';
 
 // ── Types ─────────────────────────────────────────────────────────────────
 
@@ -83,6 +85,11 @@ interface FormData {
   pgPassword: string;
   pins: PinEntry[];
   envVars: EnvVarEntry[];
+  templateMode: 'single' | 'suite';
+  templates: string[];
+  packMode: 'predefined' | 'custom';
+  category: string | null;
+  prompt: string;
 }
 
 // ── Constants ──────────────────────────────────────────────────────────────
@@ -163,6 +170,11 @@ function getInitialFormState(tenant: TenantEditorProps['tenant']): FormData {
     pgPassword: parsed.pgPassword,
     pins: parsed.pins,
     envVars: parsed.envVars,
+    templateMode: (parsed.config?.templateMode as 'single' | 'suite' ?? 'single'),
+    templates: (parsed.config?.templates as string[]) ?? [],
+    packMode: (parsed.config?.packMode as 'predefined' | 'custom' ?? 'custom'),
+    category: (parsed.config?.category as string) ?? null,
+    prompt: (parsed.config?.prompt as string) ?? '',
   };
 }
 
@@ -175,6 +187,21 @@ export function TenantEditor({ open, onClose, tenant }: TenantEditorProps) {
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [deployError, setDeployError] = useState<string | null>(null);
   const [updateTenant, { isLoading, isError, error }] = useUpdateTenantMutation();
+
+  // Suite mode state
+  const [templateMode, setTemplateMode] = useState<'single' | 'suite'>(
+    (tenant.metadata?.config?.templateMode as 'single' | 'suite' ?? 'single')
+  );
+  const [templates, setTemplates] = useState<string[]>(
+    (tenant.metadata?.config?.templates as string[]) ?? []
+  );
+  const [packMode, setPackMode] = useState<'predefined' | 'custom'>(
+    (tenant.metadata?.config?.packMode as 'predefined' | 'custom' ?? 'custom')
+  );
+  const [category, setCategory] = useState<string | null>(
+    (tenant.metadata?.config?.category as string) ?? null
+  );
+  const [prompt, setPrompt] = useState<string>((tenant.metadata?.config?.prompt as string) ?? '');
 
   const templates = listTemplates();
   const selectedTemplate = getTemplate(formData.template);
@@ -216,10 +243,25 @@ export function TenantEditor({ open, onClose, tenant }: TenantEditorProps) {
       | 'postgresUrl'
       | 'databaseUrl'
       | 'pgUser'
-      | 'pgPassword',
+      | 'pgPassword'
+      | 'templateMode',
     value: string,
   ) {
     setFormData((prev) => ({ ...prev, [field]: value }));
+  }
+
+  function setTemplateMode(value: 'single' | 'suite') {
+    setFormData((prev) => ({ ...prev, templateMode: value }));
+  }
+
+  function toggleTemplate(templateId: string) {
+    setFormData((prev) => {
+      const current = prev.templates || [];
+      const updated = current.includes(templateId)
+        ? current.filter((id: string) => id !== templateId)
+        : [...current, templateId];
+      return { ...prev, templates: updated };
+    });
   }
 
   // ── PIN handlers ────────────────────────────────
@@ -416,6 +458,86 @@ export function TenantEditor({ open, onClose, tenant }: TenantEditorProps) {
                 {selectedTemplate.description}
               </Typography>
             </FormControl>
+
+            {/* ── Suite Mode Toggle ─────────────────── */}
+            <FormControl fullWidth>
+              <Stack direction="row" spacing={2} sx={{ alignItems: 'center', mt: 1 }}>
+                <FormControlLabel
+                  control={
+                    <Switch
+                      checked={formData.templateMode === 'suite'}
+                      onChange={(e) => setTemplateMode(e.target.checked ? 'suite' : 'single')}
+                      color="primary"
+                      size="medium"
+                    />
+                  }
+                  label={
+                    <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
+                      <Typography variant="body1" sx={{ fontWeight: 600 }}>
+                        Multi-App Suite Mode
+                      </Typography>
+                      <Tooltip title="Enable to select multiple templates for a unified multi-app experience">
+                        <InfoIcon fontSize="small" color="action" />
+                      </Tooltip>
+                    </Stack>
+                  }
+                />
+              </Stack>
+              <Typography variant="caption" color="text.secondary" sx={{ mt: 0.5, ml: 2 }}>
+                When enabled, select multiple templates to create a unified multi-app suite with shared navigation and authentication.
+              </Typography>
+            </FormControl>
+
+            {/* ── Template Selection Grid (Suite Mode) ─────────────────── */}
+            {formData.templateMode === 'suite' && (
+              <FormControl fullWidth>
+                <InputLabel>Select Templates for Suite</InputLabel>
+                <Typography variant="caption" color="text.secondary" sx={{ mb: 1, display: 'block' }}>
+                  Choose one or more templates to include in the suite
+                </Typography>
+                <Grid container spacing={2}>
+                  {templates.map((t) => (
+                    <Grid item xs={12} sm={6} lg={4} key={t.id}>
+                      <Box
+                        component="label"
+                        sx={{
+                          p: 2,
+                          border: 2,
+                          borderColor: formData.templates?.includes(t.id) ? 'primary.main' : 'divider',
+                          borderRadius: 2,
+                          bgcolor: formData.templates?.includes(t.id) ? 'primary.50' : 'transparent',
+                          cursor: 'pointer',
+                          transition: 'all 0.2s ease',
+                          '&:hover': {
+                            borderColor: 'primary.main',
+                            boxShadow: 1,
+                          },
+                        }}
+                        onClick={() => toggleTemplate(t.id)}
+                      >
+                        <Stack spacing={1} sx={{ alignItems: 'flex-start' }}>
+                          <Stack direction="row" spacing={1} sx={{ alignItems: 'center', width: '100%' }}>
+                            <Checkbox
+                              checked={formData.templates?.includes(t.id)}
+                              onChange={() => {}}
+                              color="primary"
+                              size="small"
+                              inputProps={{ disabled: true }}
+                            />
+                            <Typography variant="subtitle2" sx={{ fontWeight: 600, flex: 1 }}>
+                              {t.label}
+                            </Typography>
+                          </Stack>
+                          <Typography variant="caption" color="text.secondary" sx={{ ml: 5 }}>
+                            {t.description}
+                          </Typography>
+                        </Stack>
+                      </Box>
+                    </Grid>
+                  ))}
+                </Grid>
+              </FormControl>
+            )}
 
             <FormControl fullWidth>
               <InputLabel>Status</InputLabel>

@@ -48,6 +48,8 @@ import MenuItem from '@mui/material/MenuItem';
 import Paper from '@mui/material/Paper';
 import Select from '@mui/material/Select';
 import Stack from '@mui/material/Stack';
+import Switch from '@mui/material/Switch';
+import Tooltip from '@mui/material/Tooltip';
 import Step from '@mui/material/Step';
 import StepContent from '@mui/material/StepContent';
 import StepLabel from '@mui/material/StepLabel';
@@ -63,6 +65,7 @@ import ContentCopyIcon from '@mui/icons-material/ContentCopy';
 import DnsIcon from '@mui/icons-material/Dns';
 import EditIcon from '@mui/icons-material/Edit';
 import ErrorIcon from '@mui/icons-material/Error';
+import InfoIcon from '@mui/icons-material/Info';
 import KeyIcon from '@mui/icons-material/Key';
 import LanguageIcon from '@mui/icons-material/Language';
 import LockIcon from '@mui/icons-material/Lock';
@@ -194,6 +197,10 @@ export function CreateAppWizard({ open, onClose, tenantSlug, sourceApp, onSnackb
   const [aiApiKey, setAiApiKey] = useState('');
   const [aiModel, setAiModel] = useState('');
 
+  // Suite mode state
+  const [suiteMode, setSuiteMode] = useState(false);
+  const [suiteTemplates, setSuiteTemplates] = useState<string[]>([]);
+
   const { data: tenantsData } = useListTenantsQuery();
   const [addApp] = useAddAppToSuiteMutation();
   const [duplicateApp] = useDuplicateAppMutation();
@@ -296,6 +303,23 @@ export function CreateAppWizard({ open, onClose, tenantSlug, sourceApp, onSnackb
     setCreateProgress(0);
     setCreateStepStatuses({});
     setCreateDetails({});
+    setSuiteMode(false);
+    setSuiteTemplates([]);
+  };
+
+  const toggleSuiteMode = (enabled: boolean) => {
+    setSuiteMode(enabled);
+    if (!enabled) {
+      setSuiteTemplates([]);
+    }
+  };
+
+  const toggleSuiteTemplate = (templateId: string) => {
+    setSuiteTemplates((prev) =>
+      prev.includes(templateId)
+        ? prev.filter((id) => id !== templateId)
+        : [...prev, templateId]
+    );
   };
 
   const handleClose = () => {
@@ -474,48 +498,132 @@ export function CreateAppWizard({ open, onClose, tenantSlug, sourceApp, onSnackb
       <Alert severity="info" icon={<AutoFixHighIcon />} sx={{ fontSize: '0.8rem' }}>
         Prefilled from {mode === 'duplicate' ? `the source app (${sourceAppId})` : `the tenant (${tenant?.template ?? 'default'})`} — change only if this app needs a different sector schema.
       </Alert>
-      <Grid container spacing={2}>
-        {templates.filter((tpl) => tpl.id !== 'default').map((tpl) => {
-          const selected = templateId === tpl.id;
-          return (
-            <Grid key={tpl.id} size={{ xs: 12, sm: 6 }}>
-              <Card
-                variant="outlined"
-                sx={{
-                  borderColor: selected ? 'primary.main' : 'divider',
-                  borderWidth: selected ? 2 : 1,
-                  bgcolor: selected ? 'rgba(235,61,40,0.06)' : undefined,
-                  transition: 'all 0.15s',
-                }}
-              >
-                <CardActionArea onClick={() => setTemplateId(tpl.id)}>
-                  <CardContent>
-                    <Stack direction="row" sx={{ gap: 1, alignItems: 'center' }}>
-                      {selected ? <CheckCircleIcon color="primary" fontSize="small" /> : null}
-                      <Typography variant="subtitle1" sx={{ fontWeight: 700 }}>{tpl.label}</Typography>
+
+      {/* ── Suite Mode Toggle ─────────────────── */}
+      <FormControl fullWidth>
+        <Stack direction="row" spacing={2} sx={{ alignItems: 'center', mt: 1 }}>
+          <FormControlLabel
+            control={
+              <Switch
+                checked={suiteMode}
+                onChange={(e) => toggleSuiteMode(e.target.checked)}
+                color="primary"
+                size="medium"
+              />
+            }
+            label={
+              <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
+                <Typography variant="body1" sx={{ fontWeight: 600 }}>
+                  Multi-App Suite Mode
+                </Typography>
+                <Tooltip title="Enable to select multiple templates for a unified multi-app experience">
+                  <InfoIcon fontSize="small" color="action" />
+                </Tooltip>
+              </Stack>
+            }
+          />
+        </Stack>
+        <Typography variant="caption" color="text.secondary" sx={{ mt: 0.5, ml: 2 }}>
+          When enabled, select multiple templates to create a unified multi-app suite with shared navigation and authentication.
+        </Typography>
+      </FormControl>
+
+      {/* ── Template Selection Grid (Suite Mode) ─────────────────── */}
+      {suiteMode && (
+        <FormControl fullWidth>
+          <InputLabel>Select Templates for Suite</InputLabel>
+          <Typography variant="caption" color="text.secondary" sx={{ mb: 1, display: 'block' }}>
+            Choose one or more templates to include in the suite
+          </Typography>
+          <Grid container spacing={2}>
+            {templates.filter((tpl) => tpl.id !== 'default').map((tpl) => (
+              <Grid key={tpl.id} size={{ xs: 12, sm: 6, lg: 4 }}>
+                <Box
+                  component="label"
+                  sx={{
+                    p: 2,
+                    border: 2,
+                    borderColor: suiteTemplates.includes(tpl.id) ? 'primary.main' : 'divider',
+                    borderRadius: 2,
+                    bgcolor: suiteTemplates.includes(tpl.id) ? 'primary.50' : 'transparent',
+                    cursor: 'pointer',
+                    transition: 'all 0.2s ease',
+                    '&:hover': {
+                      borderColor: 'primary.main',
+                      boxShadow: 1,
+                    },
+                  }}
+                  onClick={() => toggleSuiteTemplate(tpl.id)}
+                >
+                  <Stack spacing={1} sx={{ alignItems: 'flex-start' }}>
+                    <Stack direction="row" spacing={1} sx={{ alignItems: 'center', width: '100%' }}>
+                      <Checkbox
+                        checked={suiteTemplates.includes(tpl.id)}
+                        onChange={() => {}}
+                        color="primary"
+                        size="small"
+                        disabled
+                      />
+                      <Typography variant="subtitle2" sx={{ fontWeight: 600, flex: 1 }}>
+                        {tpl.label}
+                      </Typography>
                     </Stack>
-                    <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
+                    <Typography variant="caption" color="text.secondary" sx={{ ml: 5 }}>
                       {tpl.description}
                     </Typography>
-                    <Stack direction="row" sx={{ gap: 0.5, flexWrap: 'wrap', mt: 0.5 }}>
-                      <Chip label={tpl.schemaOrgType} size="small" variant="outlined" color="info" />
-                      <Chip label={tpl.xsdStandard} size="small" variant="outlined" />
-                    </Stack>
-                    <Stack direction="row" sx={{ gap: 0.5, flexWrap: 'wrap', mt: 0.5 }}>
-                      {tpl.defaultPages.slice(0, 4).map((p) => (
-                        <Chip key={p.slug} label={p.title} size="small" variant="outlined" />
-                      ))}
-                      {tpl.defaultPages.length > 4 ? (
-                        <Chip label={`+${tpl.defaultPages.length - 4} more`} size="small" variant="outlined" />
-                      ) : null}
-                    </Stack>
-                  </CardContent>
-                </CardActionArea>
-              </Card>
-            </Grid>
-          );
-        })}
-      </Grid>
+                  </Stack>
+                </Box>
+              </Grid>
+            ))}
+          </Grid>
+        </FormControl>
+      )}
+
+      {/* ── Single Template Selection (Non-Suite Mode) ─────────────────── */}
+      {!suiteMode && (
+        <Grid container spacing={2}>
+          {templates.filter((tpl) => tpl.id !== 'default').map((tpl) => {
+            const selected = templateId === tpl.id;
+            return (
+              <Grid key={tpl.id} size={{ xs: 12, sm: 6 }}>
+                <Card
+                  variant="outlined"
+                  sx={{
+                    borderColor: selected ? 'primary.main' : 'divider',
+                    borderWidth: selected ? 2 : 1,
+                    bgcolor: selected ? 'rgba(235,61,40,0.06)' : undefined,
+                    transition: 'all 0.15s',
+                  }}
+                >
+                  <CardActionArea onClick={() => setTemplateId(tpl.id)}>
+                    <CardContent>
+                      <Stack direction="row" sx={{ gap: 1, alignItems: 'center' }}>
+                        {selected ? <CheckCircleIcon color="primary" fontSize="small" /> : null}
+                        <Typography variant="subtitle1" sx={{ fontWeight: 700 }}>{tpl.label}</Typography>
+                      </Stack>
+                      <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
+                        {tpl.description}
+                      </Typography>
+                      <Stack direction="row" sx={{ gap: 0.5, flexWrap: 'wrap', mt: 0.5 }}>
+                        <Chip label={tpl.schemaOrgType} size="small" variant="outlined" color="info" />
+                        <Chip label={tpl.xsdStandard} size="small" variant="outlined" />
+                      </Stack>
+                      <Stack direction="row" sx={{ gap: 0.5, flexWrap: 'wrap', mt: 0.5 }}>
+                        {tpl.defaultPages.slice(0, 4).map((p) => (
+                          <Chip key={p.slug} label={p.title} size="small" variant="outlined" />
+                        ))}
+                        {tpl.defaultPages.length > 4 ? (
+                          <Chip label={`+${tpl.defaultPages.length - 4} more`} size="small" variant="outlined" />
+                        ) : null}
+                      </Stack>
+                    </CardContent>
+                  </CardActionArea>
+                </Card>
+              </Grid>
+            );
+          })}
+        </Grid>
+      )}
     </Stack>
   );
 

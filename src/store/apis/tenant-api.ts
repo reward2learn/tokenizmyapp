@@ -231,6 +231,10 @@ export const tenantApi = createApi({
       dbUrl?: string | null;
       apiKey?: string | null;
       metadata?: Record<string, unknown>;
+      templateMode?: 'single' | 'suite';
+      templates?: string[];
+      packMode?: 'predefined' | 'custom';
+      prompt?: string;
     }>({
       query: ({ slug, ...body }) => ({
         url: `admin/tenants/${slug}`,
