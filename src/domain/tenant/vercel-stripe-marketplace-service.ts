@@ -1,0 +1,208 @@
+/**
+ * Vercel Marketplace Stripe — install/connect helpers on top of manual key push.
+ *
+ * Stripe on the Marketplace provisions STRIPE_SECRET_KEY +
+ * NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY onto connected Vercel projects via OAuth
+ * (sandbox or imported live account). Manual key push remains as a fallback.
+ *
+ * Docs: https://vercel.com/docs/integrations/ecommerce/stripe
+ */
+
+import { resolveBearerToken, VERCEL_API, TEAM_ID } from '@/domain/tenant/vercel-sdk-client';
+
+export const STRIPE_MARKETPLACE_SLUG = 'stripe';
+
+/** Env keys the Marketplace Stripe integration provisions (names only). */
+export const STRIPE_MARKETPLACE_ENV_KEYS = [
+  'STRIPE_SECRET_KEY',
+  'NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY',
+] as const;
+
+/** Extra keys we may still push manually (not always Marketplace-provisioned). */
+export const STRIPE_MANUAL_ENV_KEYS = [
+  'STRIPE_WEBHOOK_SECRET',
+] as const;
+
+export type StripeMarketplaceStatus = {
+  projectId: string | null;
+  projectName: string | null;
+  /** Open this to Install / Import Stripe on the team. */
+  installUrl: string;
+  /** Open this to Connect the project to an existing Stripe installation. */
+  projectIntegrationsUrl: string | null;
+  /** True when STRIPE_SECRET_KEY is present on the Vercel project. */
+  secretKeyPresent: boolean;
+  publishableKeyPresent: boolean;
+  webhookSecretPresent: boolean;
+  /** Best-effort: marketplace install exists on the team. */
+  teamInstallationId: string | null;
+  teamInstallationStatus: string | null;
+  /** How keys appear to have landed on the project. */
+  source: 'marketplace' | 'manual_or_mixed' | 'none' | 'unknown';
+  /** Env key names present (never values). */
+  envKeyNames: string[];
+  note?: string;
+};
+
+function appendTeam(url: string): string {
+  if (!TEAM_ID) return url;
+  const sep = url.includes('?') ? '&' : '?';
+  return `${url}${sep}teamId=${encodeURIComponent(TEAM_ID)}`;
+}
+
+/** Marketplace install / open URL (browser OAuth / sandbox claim). */
+export function buildStripeMarketplaceInstallUrl(): string {
+  // Official Marketplace product page — Install / Import Existing Account.
+  return 'https://vercel.com/marketplace/stripe';
+}
+
+/** Deep link into the project's Integrations tab (Connect Project). */
+export function buildProjectIntegrationsUrl(projectIdOrName: string): string {
+  // Project settings → Integrations; user clicks Connect on Stripe.
+  return `https://vercel.com/${encodeURIComponent(projectIdOrName)}/settings/integrations`;
+}
+
+async function vercelGet<T>(path: string): Promise<T> {
+  const bearer = await resolveBearerToken();
+  const res = await fetch(appendTeam(`${VERCEL_API}${path}`), {
+    headers: { Authorization: `Bearer ${bearer}` },
+  });
+  if (!res.ok) {
+    const text = await res.text().catch(() => '');
+    throw new Error(`Vercel GET ${path} failed: ${res.status} ${text}`);
+  }
+  return res.json() as Promise<T>;
+}
+
+type EnvRow = { key: string; id?: string; type?: string; target?: string[] };
+
+/** List env var *names* on a project (values are never returned to the UI). */
+export async function listProjectEnvKeyNames(projectId: string): Promise<string[]> {
+  const data = await vercelGet<{ envs?: EnvRow[] }>(
+    `/v9/projects/${encodeURIComponent(projectId)}/env`,
+  );
+  const keys = new Set<string>();
+  for (const env of data.envs ?? []) {
+    if (env.key) keys.add(env.key);
+  }
+  return [...keys].sort();
+}
+
+type IntegrationConfiguration = {
+  id: string;
+  slug?: string;
+  status?: string;
+  installationType?: string;
+  projects?: string[];
+};
+
+/** Find a team-level Stripe Marketplace installation, if any. */
+export async function findStripeTeamInstallation(): Promise<{
+  id: string;
+  status: string | null;
+} | null> {
+  try {
+    const data = await vercelGet<IntegrationConfiguration[] | { configurations?: IntegrationConfiguration[] }>(
+      `/v1/integrations/configurations?view=account&installationType=marketplace&integrationIdOrSlug=${STRIPE_MARKETPLACE_SLUG}`,
+    );
+    const list = Array.isArray(data) ? data : (data.configurations ?? []);
+    const stripe = list.find(
+      (c) =>
+        (c.slug ?? '').toLowerCase() === STRIPE_MARKETPLACE_SLUG
+        || c.id?.includes('stripe'),
+    ) ?? list[0];
+    if (!stripe?.id) return null;
+    return { id: stripe.id, status: stripe.status ?? null };
+  } catch (err) {
+    console.warn('[stripe-marketplace] Could not list installations:', err);
+    return null;
+  }
+}
+
+/**
+ * Inspect a Vercel project for Marketplace-provisioned Stripe env + team install.
+ */
+export async function getStripeMarketplaceStatus(input: {
+  projectId: string | null;
+  projectName?: string | null;
+}): Promise<StripeMarketplaceStatus> {
+  const installUrl = buildStripeMarketplaceInstallUrl();
+  const projectId = input.projectId?.trim() || null;
+  const projectName = input.projectName?.trim() || null;
+
+  const installation = await findStripeTeamInstallation();
+
+  if (!projectId) {
+    return {
+      projectId: null,
+      projectName,
+      installUrl,
+      projectIntegrationsUrl: null,
+      secretKeyPresent: false,
+      publishableKeyPresent: false,
+      webhookSecretPresent: false,
+      teamInstallationId: installation?.id ?? null,
+      teamInstallationStatus: installation?.status ?? null,
+      source: 'none',
+      envKeyNames: [],
+      note: 'Deploy this app to Vercel first, then Install Stripe from the Marketplace and Connect Project.',
+    };
+  }
+
+  let envKeyNames: string[] = [];
+  try {
+    envKeyNames = await listProjectEnvKeyNames(projectId);
+  } catch (err) {
+    return {
+      projectId,
+      projectName,
+      installUrl,
+      projectIntegrationsUrl: buildProjectIntegrationsUrl(projectName || projectId),
+      secretKeyPresent: false,
+      publishableKeyPresent: false,
+      webhookSecretPresent: false,
+      teamInstallationId: installation?.id ?? null,
+      teamInstallationStatus: installation?.status ?? null,
+      source: 'unknown',
+      envKeyNames: [],
+      note: err instanceof Error ? err.message : 'Failed to read project env',
+    };
+  }
+
+  const secretKeyPresent = envKeyNames.includes('STRIPE_SECRET_KEY');
+  const publishableKeyPresent = envKeyNames.includes('NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY');
+  const webhookSecretPresent = envKeyNames.includes('STRIPE_WEBHOOK_SECRET');
+
+  let source: StripeMarketplaceStatus['source'] = 'none';
+  if (secretKeyPresent || publishableKeyPresent) {
+    // Marketplace always provisions the pair; webhook-only / partial often means manual push.
+    source =
+      secretKeyPresent && publishableKeyPresent && installation
+        ? 'marketplace'
+        : 'manual_or_mixed';
+  }
+
+  return {
+    projectId,
+    projectName,
+    installUrl,
+    projectIntegrationsUrl: buildProjectIntegrationsUrl(projectName || projectId),
+    secretKeyPresent,
+    publishableKeyPresent,
+    webhookSecretPresent,
+    teamInstallationId: installation?.id ?? null,
+    teamInstallationStatus: installation?.status ?? null,
+    source,
+    envKeyNames: envKeyNames.filter(
+      (k) =>
+        k.startsWith('STRIPE_')
+        || k.startsWith('NEXT_PUBLIC_STRIPE_'),
+    ),
+    note:
+      !secretKeyPresent
+        ? 'Stripe is not connected on this project yet. Install from Marketplace (sandbox or import live), then Connect Project.'
+        : !webhookSecretPresent
+          ? 'Marketplace keys are present. Optionally push STRIPE_WEBHOOK_SECRET via key push for webhook verification.'
+          : undefined,
+  };
+}

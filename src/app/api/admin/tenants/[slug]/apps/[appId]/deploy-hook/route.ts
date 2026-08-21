@@ -3,14 +3,12 @@
  *
  * POST /api/admin/tenants/[slug]/apps/[appId]/deploy-hook
  *
- * Creates (or reuses) a Vercel Deploy Hook on this app's own Vercel project
- * and stores the resulting URL on the app's SuiteAppInstance, so "Trigger
- * Deploy Hook" in the app's three-dot menu works without anyone hand-copying
- * a URL out of the Vercel dashboard.
- *
- * The deploy flow (PUT on ../route.ts) already does this automatically after
- * a successful deploy — this route exists for apps that were deployed before
- * that was added, or whose hook was revoked and needs re-issuing.
+ * Resolves the suite app's `vercelProjectId` from metadata.config.appPack
+ * (same source as GET /api/admin/tenants → data.tenants[].appPack.apps[]),
+ * ensures that Vercel project is git-linked to reward2learn/tokenizmyapp,
+ * creates (or reuses) a Deploy Hook on branch `main`, and stores the URL
+ * on the SuiteAppInstance so "Trigger Deploy Hook" works without pasting
+ * a URL from the dashboard.
  */
 import { NextResponse } from 'next/server';
 import { createRawClient } from '@/lib/db';
@@ -60,30 +58,39 @@ export async function POST(
     if (idx === -1) return jsonError(`App "${appId}" not found in suite`, 404);
 
     const app: SuiteAppInstance = appPack.apps[idx];
-    if (!app.vercelProjectId) {
+    const projectId = (app.vercelProjectId || '').trim();
+    if (!projectId) {
       return jsonError(
-        `App "${appId}" has no Vercel project yet — deploy it first, then generate a deploy hook.`,
+        `App "${appId}" has no vercelProjectId yet — deploy it first (or set the Vercel project id), then Generate.`,
         400,
       );
     }
 
-    const hook = await ensureDeployHook(app.vercelProjectId, { name: `${appId}-auto`, ref: 'main' });
-    if (!hook) {
-      return jsonError(
-        'Could not create a deploy hook on Vercel. Check that the project is linked to a Git repository and that the Vercel token has access.',
-        502,
-      );
+    // Prefer a stable dashboard-style name; reuse any existing hook on main.
+    const hook = await ensureDeployHook(projectId, {
+      name: 'DeployHook',
+      ref: 'main',
+    });
+
+    if (!hook.ok) {
+      console.warn(`[app-deploy-hook] Failed for "${appId}" (${slug}) project=${projectId}: ${hook.error}`);
+      return jsonError(hook.error, hook.status && hook.status >= 400 && hook.status < 600 ? hook.status : 502);
     }
 
-    appPack.apps[idx] = { ...app, deployHookUrl: hook.url };
+    appPack.apps[idx] = { ...app, deployHookUrl: hook.url, vercelProjectId: projectId };
     await saveAppPack(db, slug, appPack);
 
-    console.log(`[app-deploy-hook] ${hook.created ? 'Created' : 'Reused'} deploy hook for "${appId}" (${slug})`);
+    console.log(
+      `[app-deploy-hook] ${hook.created ? 'Created' : 'Reused'} deploy hook for "${appId}" (${slug}) `
+      + `project=${hook.projectId} name=${hook.projectName ?? '(unknown)'}`,
+    );
 
     return jsonOk({
       appId,
       deployHookUrl: hook.url,
       created: hook.created,
+      vercelProjectId: hook.projectId,
+      vercelProjectName: hook.projectName,
     });
   } catch (err) {
     return jsonError('Failed to provision deploy hook: ' + (err as Error).message, 500);

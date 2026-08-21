@@ -414,6 +414,55 @@ export const tenantApi = createApi({
       invalidatesTags: ['Tenants'],
     }),
 
+    /** GET admin/tenants/:slug/stripe-marketplace — Marketplace install status. */
+    getStripeMarketplaceStatus: builder.query<
+      ApiEnvelope<{
+        projectId: string | null;
+        projectName: string | null;
+        installUrl: string;
+        projectIntegrationsUrl: string | null;
+        secretKeyPresent: boolean;
+        publishableKeyPresent: boolean;
+        webhookSecretPresent: boolean;
+        teamInstallationId: string | null;
+        teamInstallationStatus: string | null;
+        source: 'marketplace' | 'manual_or_mixed' | 'none' | 'unknown';
+        envKeyNames: string[];
+        note?: string;
+      }>,
+      { slug: string; appId?: string }
+    >({
+      query: ({ slug, appId }) => ({
+        url: `admin/tenants/${slug}/stripe-marketplace`,
+        params: appId ? { appId } : undefined,
+      }),
+    }),
+
+    /** POST admin/tenants/:slug/stripe-marketplace — return install/connect URLs. */
+    prepareStripeMarketplaceInstall: builder.mutation<
+      ApiEnvelope<{
+        installUrl: string;
+        projectIntegrationsUrl: string | null;
+        instructions: string[];
+        projectId: string | null;
+        source: string;
+        note?: string;
+        secretKeyPresent?: boolean;
+        publishableKeyPresent?: boolean;
+        webhookSecretPresent?: boolean;
+        teamInstallationId?: string | null;
+        teamInstallationStatus?: string | null;
+        envKeyNames?: string[];
+      }>,
+      { slug: string; appId?: string }
+    >({
+      query: ({ slug, appId }) => ({
+        url: `admin/tenants/${slug}/stripe-marketplace`,
+        method: 'POST',
+        body: appId ? { appId } : {},
+      }),
+    }),
+
     /** POST admin/vercel/hot-deploy — redeploy only DB-registered Vercel projects. */
     hotDeployRegistered: builder.mutation<
       ApiEnvelope<{
@@ -832,6 +881,8 @@ export const {
   useEditAppMutation,
   usePushAppEnvVarsMutation,
   usePushStripeEnvVarsMutation,
+  useLazyGetStripeMarketplaceStatusQuery,
+  usePrepareStripeMarketplaceInstallMutation,
   useHotDeployRegisteredMutation,
   useLazyGetVercelDeployInventoryQuery,
   useProvisionAppDeployHookMutation,

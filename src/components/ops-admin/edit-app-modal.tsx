@@ -1687,6 +1687,8 @@ export function EditAppModal({ open, onClose, tenantSlug, app, onSnackbar }: Edi
         <StripeIntegrationStep
           value={stripeWizard}
           onChange={setStripeWizard}
+          tenantSlug={tenantSlug}
+          appId={app.appId}
           tenantHasKeys={Boolean(
             ((tenantCfg as { stripe?: { secretKey?: string } }).stripe)?.secretKey,
           )}

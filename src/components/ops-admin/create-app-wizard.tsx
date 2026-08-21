@@ -1720,6 +1720,7 @@ export function CreateAppWizard({ open, onClose, tenantSlug, sourceApp, onSnackb
         <StripeIntegrationStep
           value={stripeWizard}
           onChange={setStripeWizard}
+          tenantSlug={tenantSlug}
           tenantHasKeys={Boolean(
             (tenantCfg.stripe as { secretKey?: string } | undefined)?.secretKey,
           )}

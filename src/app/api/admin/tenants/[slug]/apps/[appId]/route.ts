@@ -251,10 +251,10 @@ export async function PUT(
     // Auto-provision this app's own Deploy Hook now that its Vercel project
     // exists — saves the operator from creating one by hand in Vercel's
     // dashboard and pasting it into the Edit App modal. Best-effort: a
-    // failure here must never fail an otherwise-successful deploy, so
-    // ensureDeployHook returns null rather than throwing.
+    // failure here must never fail an otherwise-successful deploy.
     const { ensureDeployHook } = await import('@/domain/tenant/vercel-deploy-service');
-    const hook = await ensureDeployHook(result.projectId, { name: `${appId}-auto`, ref: 'main' });
+    const hook = await ensureDeployHook(result.projectId, { name: 'DeployHook', ref: 'main' });
+    const hookOk = hook.ok ? hook : null;
 
     // Update app with deployment info
     await updateAppStatus(db, slug, appPack, appId, {
@@ -263,10 +263,10 @@ export async function PUT(
       appUrl: result.appUrl,
       // Only overwrite when we actually got one — never clobber a manually
       // pasted hook URL with null.
-      ...(hook?.url ? { deployHookUrl: hook.url } : {}),
+      ...(hookOk?.url ? { deployHookUrl: hookOk.url } : {}),
     });
 
-    console.log(`[app-deploy] Deployed "${appId}" for tenant "${slug}": ${result.appUrl}${hook ? ` (deploy hook ${hook.created ? 'created' : 'reused'})` : ' (no deploy hook)'}`);
+    console.log(`[app-deploy] Deployed "${appId}" for tenant "${slug}": ${result.appUrl}${hookOk ? ` (deploy hook ${hookOk.created ? 'created' : 'reused'})` : ' (no deploy hook)'}`);
 
     return jsonOk({
       deployed: true,
@@ -274,8 +274,8 @@ export async function PUT(
       projectId: result.projectId,
       appUrl: result.appUrl,
       envCount: result.envCount,
-      deployHookUrl: hook?.url ?? null,
-      deployHookCreated: hook?.created ?? false,
+      deployHookUrl: hookOk?.url ?? null,
+      deployHookCreated: hookOk?.created ?? false,
     });
   } catch (err) {
     try {
