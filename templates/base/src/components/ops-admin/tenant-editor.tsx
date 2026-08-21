@@ -34,12 +34,14 @@ import AddIcon from '@mui/icons-material/Add';
 import DeleteIcon from '@mui/icons-material/Delete';
 import CloudUploadIcon from '@mui/icons-material/CloudUpload';
 import InfoIcon from '@mui/icons-material/Info';
+import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import Checkbox from '@mui/material/Checkbox';
 import Card from '@mui/material/Card';
 import CardActionArea from '@mui/material/CardActionArea';
 import CardContent from '@mui/material/CardContent';
 import Grid from '@mui/material/Grid';
 import { listTemplates, getTemplate } from '@/domain/tenant/template-catalog';
+import { BUSINESS_CATEGORY_PROMPTS, getBusinessCategory } from '@/domain/app-pack/business-category-prompts';
 import { useUpdateTenantMutation, useDeployTenantMutation } from '@/store/apis/tenant-api';
 
 // ── Types ─────────────────────────────────────────────────────────────────
@@ -250,17 +252,57 @@ export function TenantEditor({ open, onClose, tenant }: TenantEditorProps) {
   }
 
   function setTemplateMode(value: 'single' | 'suite') {
-    setFormData((prev) => ({ ...prev, templateMode: value }));
+    setFormData((prev) => ({
+      ...prev,
+      templateMode: value,
+      templates: [],
+      packMode: 'custom',
+      category: null,
+    }));
   }
 
+  function setPackMode(mode: 'predefined' | 'custom') {
+    setFormData((prev) => {
+      if (mode === 'custom') {
+        return { ...prev, packMode: 'custom', category: null, templates: [], prompt: '' };
+      }
+      return { ...prev, packMode: 'predefined' };
+    });
+  }
+
+  /** Toggle a template in/out of the suite — always switches to Custom App Pack mode. */
   function toggleTemplate(templateId: string) {
     setFormData((prev) => {
       const current = prev.templates || [];
       const updated = current.includes(templateId)
         ? current.filter((id: string) => id !== templateId)
         : [...current, templateId];
-      return { ...prev, templates: updated };
+      const firstTpl = updated.length > 0 ? getTemplate(updated[0]) : null;
+      return {
+        ...prev,
+        templates: updated,
+        packMode: 'custom',
+        category: null,
+        primaryColor: firstTpl?.defaultColors.primary ?? prev.primaryColor,
+        secondaryColor: firstTpl?.defaultColors.secondary ?? prev.secondaryColor,
+      };
     });
+  }
+
+  /** Apply a business-category app kit — populates templates[] + prompt. */
+  function applyCategory(categoryName: string) {
+    const preset = getBusinessCategory(categoryName);
+    if (!preset) return;
+    const firstTpl = getTemplate(preset.templateIds[0]);
+    setFormData((prev) => ({
+      ...prev,
+      packMode: 'predefined',
+      category: categoryName,
+      templates: preset.templateIds,
+      prompt: preset.prompt,
+      primaryColor: firstTpl.defaultColors.primary,
+      secondaryColor: firstTpl.defaultColors.secondary,
+    }));
   }
 
   // ── PIN handlers ────────────────────────────────
@@ -487,56 +529,144 @@ export function TenantEditor({ open, onClose, tenant }: TenantEditorProps) {
               </Typography>
             </FormControl>
 
-            {/* ── Template Selection Grid (Suite Mode) ─────────────────── */}
+            {/* ── Predefined vs Custom App Pack (Suite Mode) ─────────────────── */}
             {formData.templateMode === 'suite' && (
-              <Box>
-                <Typography variant="subtitle2" sx={{ fontWeight: 600, mb: 0.5 }}>
-                  Select Templates for Suite
-                </Typography>
-                <Typography variant="caption" color="text.secondary" sx={{ mb: 1.5, display: 'block' }}>
-                  Choose one or more templates to include in the suite
-                </Typography>
-                <Grid container spacing={2}>
-                  {templates.filter((t) => t.id !== 'default').map((t) => {
-                    const selected = formData.templates?.includes(t.id) ?? false;
-                    return (
-                      <Grid key={t.id} size={{ xs: 12, sm: 6, lg: 4 }}>
-                        <Card
-                          variant="outlined"
-                          sx={{
-                            height: '100%',
-                            borderColor: selected ? 'primary.main' : 'divider',
-                            borderWidth: selected ? 2 : 1,
-                            bgcolor: selected ? 'rgba(235,61,40,0.06)' : undefined,
-                            transition: 'all 0.15s',
-                          }}
-                        >
-                          <CardActionArea onClick={() => toggleTemplate(t.id)} sx={{ height: '100%' }}>
-                            <CardContent>
-                              <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
-                                <Checkbox
-                                  checked={selected}
-                                  tabIndex={-1}
-                                  disableRipple
-                                  color="primary"
-                                  size="small"
-                                  sx={{ p: 0, pointerEvents: 'none' }}
-                                />
-                                <Typography variant="subtitle2" sx={{ fontWeight: 600, flex: 1 }}>
-                                  {t.label}
-                                </Typography>
-                              </Stack>
-                              <Typography variant="caption" color="text.secondary" sx={{ mt: 0.5, display: 'block' }}>
-                                {t.description}
-                              </Typography>
-                            </CardContent>
-                          </CardActionArea>
-                        </Card>
-                      </Grid>
-                    );
-                  })}
-                </Grid>
-              </Box>
+              <Stack spacing={2}>
+                <Paper variant="outlined" sx={{ p: 1 }}>
+                  <Stack direction="row" spacing={1}>
+                    <Button
+                      fullWidth
+                      variant={formData.packMode === 'predefined' ? 'contained' : 'outlined'}
+                      onClick={() => setPackMode('predefined')}
+                    >
+                      Predefined App Pack
+                    </Button>
+                    <Button
+                      fullWidth
+                      variant={formData.packMode === 'custom' ? 'contained' : 'outlined'}
+                      onClick={() => setPackMode('custom')}
+                    >
+                      Custom App Pack
+                    </Button>
+                  </Stack>
+                </Paper>
+
+                {formData.packMode === 'predefined' ? (
+                  <Box>
+                    <Typography variant="subtitle2" sx={{ fontWeight: 600, mb: 0.5 }}>
+                      Choose a business category — App Kit
+                    </Typography>
+                    <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1.5 }}>
+                      With an AI key configured, the category&apos;s description is decomposed into whichever
+                      department apps fit best. Without one, you get exactly the seed templates shown below —
+                      one app each.
+                    </Typography>
+                    <Grid container spacing={1.5}>
+                      {BUSINESS_CATEGORY_PROMPTS.map((preset) => {
+                        const isActive = formData.category === preset.category;
+                        return (
+                          <Grid key={preset.category} size={{ xs: 12, sm: 4 }}>
+                            <Card
+                              variant="outlined"
+                              sx={{
+                                borderColor: isActive ? 'primary.main' : 'divider',
+                                borderWidth: isActive ? 2 : 1,
+                                bgcolor: isActive ? 'rgba(235,61,40,0.06)' : undefined,
+                                cursor: 'pointer',
+                                transition: 'all 0.15s',
+                                '&:hover': { boxShadow: 2 },
+                              }}
+                              onClick={() => applyCategory(preset.category)}
+                            >
+                              <CardContent sx={{ p: 1.5, '&:last-child': { pb: 1.5 } }}>
+                                <Stack direction="row" sx={{ gap: 1, alignItems: 'center', mb: 0.5 }}>
+                                  <Typography variant="body2" sx={{ fontWeight: 700 }}>
+                                    {preset.category}
+                                  </Typography>
+                                  {isActive ? <CheckCircleIcon color="primary" fontSize="small" /> : null}
+                                </Stack>
+                                <Stack direction="row" sx={{ gap: 0.5, flexWrap: 'wrap' }}>
+                                  {preset.templateIds.map((tid) => (
+                                    <Chip key={tid} label={getTemplate(tid).label} size="small" variant="outlined" />
+                                  ))}
+                                </Stack>
+                              </CardContent>
+                            </Card>
+                          </Grid>
+                        );
+                      })}
+                    </Grid>
+                  </Box>
+                ) : (
+                  <Box>
+                    <Typography variant="subtitle2" sx={{ fontWeight: 600, mb: 0.5 }}>
+                      Select Templates (each becomes a department app)
+                    </Typography>
+                    <Typography variant="caption" color="text.secondary" sx={{ mb: 1.5, display: 'block' }}>
+                      Choose one or more templates to include in the suite
+                    </Typography>
+                    <Grid container spacing={2}>
+                      {templates.filter((t) => t.id !== 'default').map((t) => {
+                        const selected = formData.templates?.includes(t.id) ?? false;
+                        return (
+                          <Grid key={t.id} size={{ xs: 12, sm: 6, lg: 4 }}>
+                            <Card
+                              variant="outlined"
+                              sx={{
+                                height: '100%',
+                                borderColor: selected ? 'primary.main' : 'divider',
+                                borderWidth: selected ? 2 : 1,
+                                bgcolor: selected ? 'rgba(235,61,40,0.06)' : undefined,
+                                transition: 'all 0.15s',
+                              }}
+                            >
+                              <CardActionArea onClick={() => toggleTemplate(t.id)} sx={{ height: '100%' }}>
+                                <CardContent>
+                                  <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
+                                    <Checkbox
+                                      checked={selected}
+                                      tabIndex={-1}
+                                      disableRipple
+                                      color="primary"
+                                      size="small"
+                                      sx={{ p: 0, pointerEvents: 'none' }}
+                                    />
+                                    <Typography variant="subtitle2" sx={{ fontWeight: 600, flex: 1 }}>
+                                      {t.label}
+                                    </Typography>
+                                  </Stack>
+                                  <Typography variant="caption" color="text.secondary" sx={{ mt: 0.5, display: 'block' }}>
+                                    {t.description}
+                                  </Typography>
+                                </CardContent>
+                              </CardActionArea>
+                            </Card>
+                          </Grid>
+                        );
+                      })}
+                    </Grid>
+                  </Box>
+                )}
+
+                {(formData.templates?.length ?? 0) > 0 ? (
+                  <Paper variant="outlined" sx={{ p: 2, bgcolor: 'background.default' }}>
+                    <Stack direction="row" sx={{ gap: 1, alignItems: 'center', mb: 1 }}>
+                      <CheckCircleIcon color="success" fontSize="small" />
+                      <Typography variant="subtitle2" sx={{ fontWeight: 600 }}>
+                        {formData.packMode === 'custom'
+                          ? `${formData.templates.length} apps — one per selected template (deterministic, plus CEO Overview)`
+                          : `${formData.templates.length} seed app${formData.templates.length !== 1 ? 's' : ''} for "${formData.category}" — with an AI key, the actual pack may cover more or fewer department apps`}
+                      </Typography>
+                    </Stack>
+                    <Stack direction="row" sx={{ gap: 0.5, flexWrap: 'wrap' }}>
+                      {formData.templates.map((tplId) => (
+                        <Chip key={tplId} label={getTemplate(tplId).label} size="small" color="primary" variant="outlined" />
+                      ))}
+                      <Chip label="CEO Overview" size="small" color="success" variant="outlined" />
+                    </Stack>
+                  </Paper>
+                ) : null}
+              </Stack>
             )}
 
             <FormControl fullWidth>
