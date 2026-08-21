@@ -110,6 +110,8 @@ model AppPage {
   tenantSlug  String?   @map("tenant_slug")
   /// Suite-mode app id, when this page is scoped to a single app within a tenant.
   appId       String?   @map("app_id")
+  /// When true, tenant seed skips wiping/reinserting this page's sections (CMS edits).
+  contentLocked Boolean @default(false) @map("content_locked")
   sections  PageSection[]
   @@index([tenantSlug, appId], map: "idx_app_pages_tenant_app")
   @@index([tenantSlug], map: "idx_app_pages_tenant_slug")

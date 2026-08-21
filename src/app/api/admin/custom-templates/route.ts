@@ -158,6 +158,7 @@ export async function POST(request: Request): Promise<Response> {
         template: generated.definition,
         capabilities: generated.capabilities,
         rationale: generated.rationale,
+        warnings: generated.warnings,
         provider: { id: generated.providerId, model: generated.model },
       });
     }
@@ -183,6 +184,7 @@ export async function POST(request: Request): Promise<Response> {
         stored: true,
         template: record,
         rationale: generated.rationale,
+        warnings: generated.warnings,
         provider: { id: generated.providerId, model: generated.model },
       },
       { status: 201 },

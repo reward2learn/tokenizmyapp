@@ -43,6 +43,7 @@ import { OrganizationBar } from './organization-bar';
 import { TenantDashboard } from './tenant-dashboard';
 import { TenantInfoTab } from './tenant-info-tab';
 import { NavigationManager } from './navigation-manager';
+import { PageSectionsManager } from './page-sections-manager';
 import { BrandConfigTab } from './brand-config-tab';
 import { AppPackTab } from './app-pack-tab';
 import { TenantBillingTab } from '@/components/billing/tenant-billing-tab';
@@ -140,7 +141,7 @@ export function TenantAdminPanel() {
   // The API only understands appId for real suite apps — a single-template
   // tenant's synthetic "app" (its own slug) exists purely for the UI gating
   // above and must never be sent as a filter (no row is actually stamped with it).
-  const effectiveAppId = isSuite ? selectedAppId : undefined;
+  const effectiveAppId = isSuite ? (selectedAppId ?? undefined) : undefined;
 
   // Handle tenant selection
   const handleTenantChange = (slug: string) => {
@@ -159,6 +160,7 @@ export function TenantAdminPanel() {
   const subtabs: Array<{ key: AdminTenantSubtab; label: string; icon?: React.ReactNode }> = [
     { key: 'info', label: 'Tenant Info' },
     { key: 'navigation', label: 'Navigation' },
+    { key: 'pages', label: 'Page Content' },
     { key: 'brand', label: 'Brand Config' },
     { key: 'security', label: 'Security Groups' },
     { key: 'accounts', label: 'Accounts' },
@@ -380,7 +382,7 @@ export function TenantAdminPanel() {
           {!selectedAppId ? (
             <Paper elevation={0} sx={{ p: 4, border: '1px dashed', borderColor: 'divider', textAlign: 'center' }}>
               <Typography variant="body2" color="text.secondary">
-                Select an app above to manage its Navigation, Brand Config, Security Groups, Accounts, Roles, and AI Chat.
+                Select an app above to manage its Navigation, Page Content, Brand Config, Security Groups, Accounts, Roles, and AI Chat.
               </Typography>
             </Paper>
           ) : (
@@ -416,6 +418,9 @@ export function TenantAdminPanel() {
                 )}
                 {activeSubtab === 'navigation' && selectedTenant && (
                   <NavigationManager tenantSlug={selectedTenant.slug} appId={effectiveAppId} />
+                )}
+                {activeSubtab === 'pages' && selectedTenant && (
+                  <PageSectionsManager tenantSlug={selectedTenant.slug} appId={effectiveAppId} />
                 )}
                 {activeSubtab === 'brand' && selectedTenant && (
                   <BrandConfigTab tenantSlug={selectedTenant.slug} appId={effectiveAppId} />

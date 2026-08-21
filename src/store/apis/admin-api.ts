@@ -17,7 +17,7 @@ export interface TenantAppScope {
 export const adminApi = createApi({
   reducerPath: 'adminApi',
   baseQuery,
-  tagTypes: ['RoleConfig', 'AdminConversations', 'AdminUsers', 'AdminGroups', 'SeedData', 'AiContent', 'BrandConfig', 'Navigation', 'AppPack'],
+  tagTypes: ['RoleConfig', 'AdminConversations', 'AdminUsers', 'AdminGroups', 'SeedData', 'AiContent', 'BrandConfig', 'Navigation', 'AppPack', 'PageSections'],
   endpoints: (builder) => ({
     listRoleConfigs: builder.query<ApiEnvelope<{ roles: RoleConfigView[] }>, TenantAppScope | void>({
       query: (scope) => ({ url: 'admin/roles', params: { tenantSlug: scope?.tenantSlug, appId: scope?.appId } }),
@@ -245,6 +245,112 @@ export const adminApi = createApi({
       invalidatesTags: ['Navigation'],
     }),
 
+    /** GET /api/admin/pages — list AppPage rows for CMS */
+    listAdminPages: builder.query<
+      ApiEnvelope<{
+        pages: Array<{
+          id: string;
+          slug: string;
+          title: string;
+          authTier: string;
+          navLabel: string | null;
+          showInNav: boolean;
+          contentLocked: boolean;
+          sortOrder: number;
+          sectionCount: number;
+        }>;
+      }>,
+      TenantAppScope | void
+    >({
+      query: (scope) => ({
+        url: 'admin/pages',
+        params: { tenantSlug: scope?.tenantSlug, appId: scope?.appId },
+      }),
+      providesTags: ['PageSections'],
+    }),
+
+    /** PUT /api/admin/pages — set contentLocked (unlock for re-seed) */
+    setPageContentLocked: builder.mutation<
+      ApiEnvelope<{ slug: string; contentLocked: boolean }>,
+      { slug: string; contentLocked: boolean } & TenantAppScope
+    >({
+      query: (body) => ({ url: 'admin/pages', method: 'PUT', body }),
+      invalidatesTags: ['PageSections'],
+    }),
+
+    /** GET /api/admin/pages/[slug]/sections */
+    getPageSections: builder.query<
+      ApiEnvelope<{
+        slug: string;
+        title: string;
+        contentLocked: boolean;
+        sections: Array<{
+          id: string;
+          sortOrder: number;
+          blockType: string;
+          config: Record<string, unknown>;
+        }>;
+      }>,
+      { slug: string } & TenantAppScope
+    >({
+      query: ({ slug, tenantSlug, appId }) => ({
+        url: `admin/pages/${encodeURIComponent(slug)}/sections`,
+        params: { tenantSlug, appId },
+      }),
+      providesTags: ['PageSections'],
+    }),
+
+    /** POST /api/admin/pages/[slug]/sections */
+    createPageSection: builder.mutation<
+      ApiEnvelope<{ created: boolean; id: string; sortOrder: number }>,
+      { slug: string; blockType: string; config?: Record<string, unknown>; sortOrder?: number } & TenantAppScope
+    >({
+      query: ({ slug, ...body }) => ({
+        url: `admin/pages/${encodeURIComponent(slug)}/sections`,
+        method: 'POST',
+        body,
+      }),
+      invalidatesTags: ['PageSections'],
+    }),
+
+    /** PUT /api/admin/pages/[slug]/sections — batch update */
+    updatePageSections: builder.mutation<
+      ApiEnvelope<{ updated: number; contentLocked: boolean }>,
+      {
+        slug: string;
+        sections: Array<{
+          id: string;
+          blockType?: string;
+          config?: Record<string, unknown>;
+          sortOrder?: number;
+        }>;
+      } & TenantAppScope
+    >({
+      query: ({ slug, ...body }) => ({
+        url: `admin/pages/${encodeURIComponent(slug)}/sections`,
+        method: 'PUT',
+        body,
+      }),
+      invalidatesTags: ['PageSections'],
+    }),
+
+    /** DELETE /api/admin/pages/[slug]/sections */
+    deletePageSections: builder.mutation<
+      ApiEnvelope<{ deleted: number; contentLocked: boolean }>,
+      { slug: string; ids: string[] } & TenantAppScope
+    >({
+      query: ({ slug, ids, tenantSlug, appId }) => {
+        const params = new URLSearchParams({ ids: ids.join(',') });
+        if (tenantSlug) params.set('tenantSlug', tenantSlug);
+        if (appId) params.set('appId', appId);
+        return {
+          url: `admin/pages/${encodeURIComponent(slug)}/sections?${params.toString()}`,
+          method: 'DELETE',
+        };
+      },
+      invalidatesTags: ['PageSections'],
+    }),
+
     /** POST /api/admin/app-pack/generate — start app pack generation */
     generateAppPack: builder.mutation<ApiEnvelope<{ runId: string }>, { prompt: string; mock: boolean; tenantSlug: string }>({
       query: (body) => ({
@@ -323,6 +429,12 @@ export const {
   useCreateNavigationItemMutation,
   useUpdateNavigationItemsMutation,
   useDeleteNavigationItemsMutation,
+  useListAdminPagesQuery,
+  useSetPageContentLockedMutation,
+  useGetPageSectionsQuery,
+  useCreatePageSectionMutation,
+  useUpdatePageSectionsMutation,
+  useDeletePageSectionsMutation,
   usePopulateSheetPagesMutation,
   useGenerateAppPackMutation,
   useGetAppPackStatusQuery,

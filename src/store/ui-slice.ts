@@ -31,6 +31,7 @@ export type SettingsSection =
 export type AdminTenantSubtab =
   | 'info'
   | 'navigation'
+  | 'pages'
   | 'brand'
   | 'security'
   | 'accounts'

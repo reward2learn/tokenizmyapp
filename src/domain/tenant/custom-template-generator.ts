@@ -311,6 +311,8 @@ export interface GenerateTemplateResult {
   rationale: string | null;
   providerId: string;
   model: string;
+  /** Soft warnings (e.g. thin marketing copy) — generation still succeeds; fix in Page CMS. */
+  warnings: string[];
 }
 
 /** Strip markdown fences a model may wrap JSON in. */
@@ -458,6 +460,7 @@ export async function generateCustomTemplate(
     ? { ...DEFAULT_WEB3_WALLET, ...g.web3Wallet, ...input.web3WalletOverride }
     : g.web3Wallet;
 
+  const warnings: string[] = [];
   const defaultPages = g.defaultPages.map((page) => {
     const blockTypes = page.sections.map((s) => s.blockType);
     const sectionConfigs = page.sections.map((s) =>
@@ -468,9 +471,9 @@ export async function generateCustomTemplate(
       const bt = page.sections[i].blockType;
       if (!COPY_REQUIRED_BLOCKS.has(bt)) continue;
       if (!hasUsefulMarketingCopy(bt, sectionConfigs[i])) {
-        console.warn(
-          `[custom-template-generator] Page "${page.slug}" section ${bt} has thin config; component defaults will fill gaps.`,
-        );
+        const warning = `Page "${page.slug}" section ${bt} has thin config; review copy in Page Content CMS.`;
+        warnings.push(warning);
+        console.warn(`[custom-template-generator] ${warning}`);
       }
     }
 
@@ -511,5 +514,6 @@ export async function generateCustomTemplate(
     rationale: g.rationale ?? null,
     providerId: ai.provider.id,
     model: ai.model,
+    warnings,
   };
 }

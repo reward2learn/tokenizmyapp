@@ -1,9 +1,11 @@
 /**
- * Code-first page catalog — runtime SSoT at MVP.
+ * Code-first page catalog — fallback SSoT when Neon has no AppPage row.
  * Supports static catalog entries and dynamically registered pages
  * (e.g. from workbook analysis after an Excel upload).
  *
- * DB AppPage/PageSection seeded in P6; catalog wins at runtime.
+ * Runtime resolution prefers DB (see page-resolver.ts) except the platform
+ * factory `home`, which stays catalog-owned. Tenant apps do not inherit the
+ * TokenizMyApp marketing homepage from this catalog.
  */
 import { isPlatformApp } from '@shared/lib/config/tenant';
 
@@ -231,26 +233,20 @@ const PLATFORM_PAGE_OVERRIDES: Record<string, PageDefinition> = {
   },
 };
 
-/** Combined static + dynamic page catalog (evaluated lazily so dynamic pages are included). */
-export function getFullCatalog(): Record<string, PageDefinition> {
-  return {
-    ...PAGE_CATALOG,
-    ...(isPlatformApp() ? PLATFORM_PAGE_OVERRIDES : {}),
-    ...DYNAMIC_PAGES,
-  };
-}
-
-export const PAGE_CATALOG: Record<string, PageDefinition> = {
-  home: {
-    slug: 'home',
-    title: 'Home',
-    navLabel: 'Home',
-    showInNav: true,
-    authTier: 'public',
-    // Landing arc per roadmap §1.12: capability -> proof -> objections -> CTA.
-    // The ordering is the argument; moving a section changes what the page
-    // claims even when every section still reads correctly on its own.
-    sections: [
+/**
+ * Factory marketing homepage — platform app only.
+ * Tenant landings come from seeded `page_sections` / CMS, not this copy.
+ */
+const PLATFORM_HOME: PageDefinition = {
+  slug: 'home',
+  title: 'Home',
+  navLabel: 'Home',
+  showInNav: true,
+  authTier: 'public',
+  // Landing arc per roadmap §1.12: capability -> proof -> objections -> CTA.
+  // The ordering is the argument; moving a section changes what the page
+  // claims even when every section still reads correctly on its own.
+  sections: [
       {
         blockType: 'marketing_hero',
         config: {
@@ -383,7 +379,19 @@ export const PAGE_CATALOG: Record<string, PageDefinition> = {
         },
       },
     ],
-  },
+};
+
+/** Combined static + dynamic page catalog (evaluated lazily so dynamic pages are included). */
+export function getFullCatalog(): Record<string, PageDefinition> {
+  return {
+    ...PAGE_CATALOG,
+    // Factory marketing home + pricing override — not inherited by tenant apps.
+    ...(isPlatformApp() ? { home: PLATFORM_HOME, ...PLATFORM_PAGE_OVERRIDES } : {}),
+    ...DYNAMIC_PAGES,
+  };
+}
+
+export const PAGE_CATALOG: Record<string, PageDefinition> = {
   dashboard: {
     slug: 'dashboard',
     title: 'Dashboard',

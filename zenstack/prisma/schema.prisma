@@ -87,20 +87,22 @@ enum WebhookProvider {
 }
 
 model AppPage {
-  id         String        @id() @default(cuid())
-  slug       String        @unique()
-  title      String
-  authTier   AuthTier      @default(public) @map("auth_tier")
-  sortOrder  Int           @default(0) @map("sort_order")
+  id            String        @id() @default(cuid())
+  slug          String        @unique()
+  title         String
+  authTier      AuthTier      @default(public) @map("auth_tier")
+  sortOrder     Int           @default(0) @map("sort_order")
   /// Display label for nav (falls back to title when null).
-  navLabel   String?       @map("nav_label")
+  navLabel      String?       @map("nav_label")
   /// When false the page is hidden from nav menus.
-  showInNav  Boolean       @default(true) @map("show_in_nav")
+  showInNav     Boolean       @default(true) @map("show_in_nav")
   /// Tenant slug for multi-tenant isolation.
-  tenantSlug String?       @map("tenant_slug")
+  tenantSlug    String?       @map("tenant_slug")
   /// Suite-mode app id, when this page is scoped to a single app within a tenant.
-  appId      String?       @map("app_id")
-  sections   PageSection[]
+  appId         String?       @map("app_id")
+  /// When true, tenant seed skips wiping/reinserting this page's sections (CMS edits).
+  contentLocked Boolean       @default(false) @map("content_locked")
+  sections      PageSection[]
 
   @@index([tenantSlug, appId], map: "idx_app_pages_tenant_app")
   @@index([tenantSlug], map: "idx_app_pages_tenant_slug")

@@ -9,6 +9,8 @@
  *      AI Gateway, or OpenCode Zen) to generate Business Review + Executive Summary
  *   5. Parse the AI response
  *   6. Save results to the database (knowledge_snippets + business_review_parts)
+ *   7. Upsert sheet-* AppPages from workbook analysis so Populate Sheet Pages
+ *      can attach them to navigation
  *
  * Reports progress at each stage via an optional callback so callers can
  * surface real-time status (SSE, progress bars, notifications).
@@ -76,6 +78,8 @@ export interface GenerationResult {
 export interface SavedResult {
   businessReviewParts: { slug: string; title: string }[];
   executiveSummarySaved: boolean;
+  /** sheet-* pages upserted for Populate Sheet Pages (empty if workbook unavailable). */
+  sheetPages?: { slug: string; title: string }[];
 }
 
 // ── AI Call ─────────────────────────────────────────────
@@ -571,6 +575,28 @@ export async function generateAndSave(
       content.executiveSummary,
     );
 
+    // ── 7b. Persist sheet-* pages so Populate Sheet Pages can attach nav ──
+    // Deterministic analyzer path (same as seed) — not a second AI call.
+    // Failures are non-fatal: BR/ES already saved.
+    onProgress?.({
+      step: 'saving',
+      message: 'Creating dynamic sheet pages from workbook for navigation...',
+      pct: 97,
+    });
+
+    let sheetPages: { slug: string; title: string }[] = [];
+    try {
+      const { ensureSheetPagesFromWorkbook } = await import(
+        '@/domain/ai-content/ensure-sheet-pages'
+      );
+      sheetPages = await ensureSheetPagesFromWorkbook(db, source);
+    } catch (err) {
+      console.warn(
+        '[content-generator] Sheet page creation failed (non-fatal):',
+        err instanceof Error ? err.message : err,
+      );
+    }
+
     // ── 8. Complete ─────────────────────────────────────
     const result: GenerationResult & { saved?: SavedResult; prompt?: string } = {
       success: true,
@@ -579,16 +605,18 @@ export async function generateAndSave(
       saved: {
         businessReviewParts: savedParts,
         executiveSummarySaved: execSummarySaved,
+        sheetPages,
       },
     };
 
     onProgress?.({
       step: 'complete',
-      message: `✅ Generation complete via ${content.providerLabel} — ${savedParts.length} review parts + executive summary saved to database`,
+      message: `✅ Generation complete via ${content.providerLabel} — ${savedParts.length} review parts + executive summary${sheetPages.length ? ` + ${sheetPages.length} sheet pages` : ''} saved`,
       pct: 100,
       detail: {
         businessReviewParts: savedParts,
         executiveSummarySaved: execSummarySaved,
+        sheetPages,
         contentLengths: {
           businessReview: content.businessReview.length,
           executiveSummary: content.executiveSummary.length,

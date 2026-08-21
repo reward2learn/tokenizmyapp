@@ -8,9 +8,18 @@
  * The migrate function (addTenantColumnsIfMissing) is called upfront to
  * add tenant-isolation columns that the factory DB schema doesn't include yet.
  */
-import { PrismaClient } from '@/generated/prisma';
 import { getTemplate, type TemplateDefinition } from '@/domain/tenant/template-catalog';
 import { DEFAULT_PLATFORM_ADMIN_EMAIL } from '@/domain/security/functional-roles';
+
+/**
+ * Minimal SQL surface used by seed helpers. Accepts both the generated
+ * PrismaClient and ZenStack-enhanced clients (their $transaction shapes differ
+ * enough that a structural type is safer than importing PrismaClient here).
+ */
+export type SeedSqlClient = {
+  $executeRawUnsafe: (query: string, ...values: unknown[]) => Promise<unknown>;
+  $queryRawUnsafe: <T = unknown>(query: string, ...values: unknown[]) => Promise<T>;
+};
 
 /**
  * Resolve the "Default Admin Email" configured in the tenant edit wizard's
@@ -42,7 +51,7 @@ interface SeedTenantInput {
    *  Falls back to DEFAULT_PLATFORM_ADMIN_EMAIL via resolveTenantAdminEmail(). */
   adminEmail?: string;
   /** Override the DB to use a tenant-specific connection */
-  db?: PrismaClient | null;
+  db?: SeedSqlClient | null;
   /** Skip AppPage/PageSection/NavigationItem seeding — for a tenant-level
    *  seed run against a SUITE tenant, where page/nav content is each app's
    *  own responsibility (seeded via its own per-app Seed action). app_pages
@@ -61,13 +70,14 @@ interface SeedTenantInput {
  *
  * Expected to run once at seed time before tenant defaults are inserted.
  */
-export async function addTenantColumnsIfMissing(db: PrismaClient): Promise<void> {
+export async function addTenantColumnsIfMissing(db: SeedSqlClient): Promise<void> {
   const statements: string[] = [
     // app_pages — nav display metadata + tenant/app isolation
     `ALTER TABLE app_pages ADD COLUMN IF NOT EXISTS nav_label TEXT;`,
     `ALTER TABLE app_pages ADD COLUMN IF NOT EXISTS show_in_nav BOOLEAN DEFAULT true;`,
     `ALTER TABLE app_pages ADD COLUMN IF NOT EXISTS tenant_slug TEXT;`,
     `ALTER TABLE app_pages ADD COLUMN IF NOT EXISTS app_id TEXT;`,
+    `ALTER TABLE app_pages ADD COLUMN IF NOT EXISTS content_locked BOOLEAN DEFAULT false;`,
 
     // navigation_items — tenant isolation + active toggle
     `ALTER TABLE navigation_items ADD COLUMN IF NOT EXISTS tenant_slug TEXT;`,
@@ -250,7 +260,7 @@ export async function addTenantColumnsIfMissing(db: PrismaClient): Promise<void>
  * place and repeated tenant-level seeds compound duplicates. Call this
  * first, then seedTenantDefaults(), for a guaranteed clean slate.
  */
-export async function cleanTenantSeed(db: PrismaClient, tenantSlug: string): Promise<void> {
+export async function cleanTenantSeed(db: SeedSqlClient, tenantSlug: string): Promise<void> {
   await addTenantColumnsIfMissing(db);
   try {
     await db.$executeRawUnsafe(
@@ -368,6 +378,17 @@ export async function seedTenantDefaults(input: SeedTenantInput): Promise<{
       }
 
       const pageId = pageIdRows[0].id;
+
+      // CMS edits set content_locked — re-seed must not wipe authored copy.
+      const lockRows = (await db.$queryRawUnsafe(
+        `SELECT COALESCE(content_locked, false) AS "contentLocked" FROM app_pages WHERE id = $1 LIMIT 1;`,
+        pageId,
+      )) as { contentLocked: boolean }[];
+      if (lockRows[0]?.contentLocked) {
+        console.log(`[tenant-seed] Page "${tplPage.slug}" is content_locked — keeping CMS sections`);
+        pageCount++;
+        continue;
+      }
 
       // Remove any existing sections for this page (FK cascade-safe deletion)
       await db.$executeRawUnsafe(
@@ -518,7 +539,7 @@ export async function seedTenantDefaults(input: SeedTenantInput): Promise<{
  * Uses gen_random_uuid() for the id since the DB column has no default.
  */
 export async function seedTemplateSecurityGroups(
-  db: PrismaClient,
+  db: SeedSqlClient,
   templateId: string,
 ): Promise<number> {
   const groups = [
@@ -579,7 +600,7 @@ export async function seedTemplateSecurityGroups(
  */
 export async function seedTemplateBranding(
   slug: string,
-  db: PrismaClient,
+  db: SeedSqlClient,
   input: { primaryColor: string; secondaryColor: string },
 ): Promise<void> {
   try {
@@ -624,7 +645,7 @@ export async function seedTemplateBranding(
  * disturbing knowledge the tenant has since added under other keys.
  */
 export async function seedTenantKnowledge(
-  db: PrismaClient,
+  db: SeedSqlClient,
   input: {
     slug: string;
     displayName: string;

@@ -408,6 +408,7 @@ export async function POST(request: Request): Promise<Response> {
           executiveSummary: result.content?.executiveSummary.length ?? 0,
         },
         saved: result.saved,
+        sheetPagesCreated: result.saved?.sheetPages?.length ?? 0,
         model: result.content?.model,
         providerId: result.content?.providerId,
         providerLabel: result.content?.providerLabel,

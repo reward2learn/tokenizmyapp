@@ -830,8 +830,9 @@ export function AiContentTab() {
           </Typography>
         </Stack>
         <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-          Add all dynamic sheet pages (derived from the Excel workbook upload) to the
-          navigation menu. Choose a parent folder to group them under.
+          Add all dynamic sheet pages (created when you run AI Content Generation or
+          Reseed with an Excel workbook) to the navigation menu. Choose a parent
+          folder to group them under.
         </Typography>
 
         <Stack spacing={2} direction={{ xs: 'column', sm: 'row' }} sx={{ alignItems: 'flex-start' }}>
