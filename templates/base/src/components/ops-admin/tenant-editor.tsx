@@ -33,6 +33,7 @@ import StorefrontIcon from '@mui/icons-material/Storefront';
 import AddIcon from '@mui/icons-material/Add';
 import DeleteIcon from '@mui/icons-material/Delete';
 import CloudUploadIcon from '@mui/icons-material/CloudUpload';
+import InfoIcon from '@mui/icons-material/Info';
 import Checkbox from '@mui/material/Checkbox';
 import Card from '@mui/material/Card';
 import CardActionArea from '@mui/material/CardActionArea';
@@ -128,6 +129,11 @@ function parseConfigFromMetadata(metadata?: Record<string, unknown> | null) {
     pgPassword: database.pgPassword ?? '',
     pins: pins.length > 0 ? pins : DEFAULT_PINS.map((p) => ({ ...p })),
     envVars: envVars.length > 0 ? envVars : [],
+    templateMode: (config.templateMode as 'single' | 'suite') ?? 'single',
+    templates: (config.templates as string[]) ?? [],
+    packMode: (config.packMode as 'predefined' | 'custom') ?? 'custom',
+    category: (config.category as string) ?? null,
+    prompt: (config.prompt as string) ?? '',
   };
 }
 
@@ -149,6 +155,11 @@ function buildMetadataFromForm(formData: FormData): Record<string, unknown> {
       },
       pins: formData.pins.filter((p) => p.role.trim() || p.pin.trim()),
       envVars: formData.envVars.filter((e) => e.key.trim()),
+      templateMode: formData.templateMode,
+      templates: formData.templates,
+      packMode: formData.packMode,
+      category: formData.category,
+      prompt: formData.prompt,
     },
   };
 }
@@ -173,11 +184,11 @@ function getInitialFormState(tenant: TenantEditorProps['tenant']): FormData {
     pgPassword: parsed.pgPassword,
     pins: parsed.pins,
     envVars: parsed.envVars,
-    templateMode: (parsed.config?.templateMode as 'single' | 'suite' ?? 'single'),
-    templates: (parsed.config?.templates as string[]) ?? [],
-    packMode: (parsed.config?.packMode as 'predefined' | 'custom' ?? 'custom'),
-    category: (parsed.config?.category as string) ?? null,
-    prompt: (parsed.config?.prompt as string) ?? '',
+    templateMode: parsed.templateMode,
+    templates: parsed.templates,
+    packMode: parsed.packMode,
+    category: parsed.category,
+    prompt: parsed.prompt,
   };
 }
 
@@ -190,21 +201,6 @@ export function TenantEditor({ open, onClose, tenant }: TenantEditorProps) {
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [deployError, setDeployError] = useState<string | null>(null);
   const [updateTenant, { isLoading, isError, error }] = useUpdateTenantMutation();
-
-  // Suite mode state
-  const [templateMode, setTemplateMode] = useState<'single' | 'suite'>(
-    (tenant.metadata?.config?.templateMode as 'single' | 'suite' ?? 'single')
-  );
-  const [templates, setTemplates] = useState<string[]>(
-    (tenant.metadata?.config?.templates as string[]) ?? []
-  );
-  const [packMode, setPackMode] = useState<'predefined' | 'custom'>(
-    (tenant.metadata?.config?.packMode as 'predefined' | 'custom' ?? 'custom')
-  );
-  const [category, setCategory] = useState<string | null>(
-    (tenant.metadata?.config?.category as string) ?? null
-  );
-  const [prompt, setPrompt] = useState<string>((tenant.metadata?.config?.prompt as string) ?? '');
 
   const templates = listTemplates();
   const selectedTemplate = getTemplate(formData.template);
@@ -501,10 +497,10 @@ export function TenantEditor({ open, onClose, tenant }: TenantEditorProps) {
                   Choose one or more templates to include in the suite
                 </Typography>
                 <Grid container spacing={2}>
-                  {templates.map((t) => {
+                  {templates.filter((t) => t.id !== 'default').map((t) => {
                     const selected = formData.templates?.includes(t.id) ?? false;
                     return (
-                      <Grid item xs={12} sm={6} lg={4} key={t.id}>
+                      <Grid key={t.id} size={{ xs: 12, sm: 6, lg: 4 }}>
                         <Card
                           variant="outlined"
                           sx={{
