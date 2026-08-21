@@ -530,53 +530,54 @@ export function CreateAppWizard({ open, onClose, tenantSlug, sourceApp, onSnackb
 
       {/* ── Template Selection Grid (Suite Mode) ─────────────────── */}
       {suiteMode && (
-        <FormControl fullWidth>
-          <InputLabel>Select Templates for Suite</InputLabel>
-          <Typography variant="caption" color="text.secondary" sx={{ mb: 1, display: 'block' }}>
+        <Box>
+          <Typography variant="subtitle2" sx={{ fontWeight: 600, mb: 0.5 }}>
+            Select Templates for Suite
+          </Typography>
+          <Typography variant="caption" color="text.secondary" sx={{ mb: 1.5, display: 'block' }}>
             Choose one or more templates to include in the suite
           </Typography>
           <Grid container spacing={2}>
-            {templates.filter((tpl) => tpl.id !== 'default').map((tpl) => (
-              <Grid key={tpl.id} size={{ xs: 12, sm: 6, lg: 4 }}>
-                <Box
-                  component="label"
-                  sx={{
-                    p: 2,
-                    border: 2,
-                    borderColor: suiteTemplates.includes(tpl.id) ? 'primary.main' : 'divider',
-                    borderRadius: 2,
-                    bgcolor: suiteTemplates.includes(tpl.id) ? 'primary.50' : 'transparent',
-                    cursor: 'pointer',
-                    transition: 'all 0.2s ease',
-                    '&:hover': {
-                      borderColor: 'primary.main',
-                      boxShadow: 1,
-                    },
-                  }}
-                  onClick={() => toggleSuiteTemplate(tpl.id)}
-                >
-                  <Stack spacing={1} sx={{ alignItems: 'flex-start' }}>
-                    <Stack direction="row" spacing={1} sx={{ alignItems: 'center', width: '100%' }}>
-                      <Checkbox
-                        checked={suiteTemplates.includes(tpl.id)}
-                        onChange={() => {}}
-                        color="primary"
-                        size="small"
-                        disabled
-                      />
-                      <Typography variant="subtitle2" sx={{ fontWeight: 600, flex: 1 }}>
-                        {tpl.label}
-                      </Typography>
-                    </Stack>
-                    <Typography variant="caption" color="text.secondary" sx={{ ml: 5 }}>
-                      {tpl.description}
-                    </Typography>
-                  </Stack>
-                </Box>
-              </Grid>
-            ))}
+            {templates.filter((tpl) => tpl.id !== 'default').map((tpl) => {
+              const selected = suiteTemplates.includes(tpl.id);
+              return (
+                <Grid key={tpl.id} size={{ xs: 12, sm: 6, lg: 4 }}>
+                  <Card
+                    variant="outlined"
+                    sx={{
+                      height: '100%',
+                      borderColor: selected ? 'primary.main' : 'divider',
+                      borderWidth: selected ? 2 : 1,
+                      bgcolor: selected ? 'rgba(235,61,40,0.06)' : undefined,
+                      transition: 'all 0.15s',
+                    }}
+                  >
+                    <CardActionArea onClick={() => toggleSuiteTemplate(tpl.id)} sx={{ height: '100%' }}>
+                      <CardContent>
+                        <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
+                          <Checkbox
+                            checked={selected}
+                            tabIndex={-1}
+                            disableRipple
+                            color="primary"
+                            size="small"
+                            sx={{ p: 0, pointerEvents: 'none' }}
+                          />
+                          <Typography variant="subtitle2" sx={{ fontWeight: 600, flex: 1 }}>
+                            {tpl.label}
+                          </Typography>
+                        </Stack>
+                        <Typography variant="caption" color="text.secondary" sx={{ mt: 0.5, display: 'block' }}>
+                          {tpl.description}
+                        </Typography>
+                      </CardContent>
+                    </CardActionArea>
+                  </Card>
+                </Grid>
+              );
+            })}
           </Grid>
-        </FormControl>
+        </Box>
       )}
 
       {/* ── Single Template Selection (Non-Suite Mode) ─────────────────── */}

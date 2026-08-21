@@ -33,10 +33,13 @@ import StorefrontIcon from '@mui/icons-material/Storefront';
 import AddIcon from '@mui/icons-material/Add';
 import DeleteIcon from '@mui/icons-material/Delete';
 import CloudUploadIcon from '@mui/icons-material/CloudUpload';
+import Checkbox from '@mui/material/Checkbox';
+import Card from '@mui/material/Card';
+import CardActionArea from '@mui/material/CardActionArea';
+import CardContent from '@mui/material/CardContent';
+import Grid from '@mui/material/Grid';
 import { listTemplates, getTemplate } from '@/domain/tenant/template-catalog';
 import { useUpdateTenantMutation, useDeployTenantMutation } from '@/store/apis/tenant-api';
-import { ApartmentIcon, DashboardCustomizeIcon, Checkbox, CheckCircleIcon } from '@mui/icons-material';
-import { Grid, Card, CardContent, CardActionArea, Chip } from '@mui/material';
 
 // ── Types ─────────────────────────────────────────────────────────────────
 
@@ -490,53 +493,54 @@ export function TenantEditor({ open, onClose, tenant }: TenantEditorProps) {
 
             {/* ── Template Selection Grid (Suite Mode) ─────────────────── */}
             {formData.templateMode === 'suite' && (
-              <FormControl fullWidth>
-                <InputLabel>Select Templates for Suite</InputLabel>
-                <Typography variant="caption" color="text.secondary" sx={{ mb: 1, display: 'block' }}>
+              <Box>
+                <Typography variant="subtitle2" sx={{ fontWeight: 600, mb: 0.5 }}>
+                  Select Templates for Suite
+                </Typography>
+                <Typography variant="caption" color="text.secondary" sx={{ mb: 1.5, display: 'block' }}>
                   Choose one or more templates to include in the suite
                 </Typography>
                 <Grid container spacing={2}>
-                  {templates.map((t) => (
-                    <Grid item xs={12} sm={6} lg={4} key={t.id}>
-                      <Box
-                        component="label"
-                        sx={{
-                          p: 2,
-                          border: 2,
-                          borderColor: formData.templates?.includes(t.id) ? 'primary.main' : 'divider',
-                          borderRadius: 2,
-                          bgcolor: formData.templates?.includes(t.id) ? 'primary.50' : 'transparent',
-                          cursor: 'pointer',
-                          transition: 'all 0.2s ease',
-                          '&:hover': {
-                            borderColor: 'primary.main',
-                            boxShadow: 1,
-                          },
-                        }}
-                        onClick={() => toggleTemplate(t.id)}
-                      >
-                        <Stack spacing={1} sx={{ alignItems: 'flex-start' }}>
-                          <Stack direction="row" spacing={1} sx={{ alignItems: 'center', width: '100%' }}>
-                            <Checkbox
-                              checked={formData.templates?.includes(t.id)}
-                              onChange={() => {}}
-                              color="primary"
-                              size="small"
-                              inputProps={{ disabled: true }}
-                            />
-                            <Typography variant="subtitle2" sx={{ fontWeight: 600, flex: 1 }}>
-                              {t.label}
-                            </Typography>
-                          </Stack>
-                          <Typography variant="caption" color="text.secondary" sx={{ ml: 5 }}>
-                            {t.description}
-                          </Typography>
-                        </Stack>
-                      </Box>
-                    </Grid>
-                  ))}
+                  {templates.map((t) => {
+                    const selected = formData.templates?.includes(t.id) ?? false;
+                    return (
+                      <Grid item xs={12} sm={6} lg={4} key={t.id}>
+                        <Card
+                          variant="outlined"
+                          sx={{
+                            height: '100%',
+                            borderColor: selected ? 'primary.main' : 'divider',
+                            borderWidth: selected ? 2 : 1,
+                            bgcolor: selected ? 'rgba(235,61,40,0.06)' : undefined,
+                            transition: 'all 0.15s',
+                          }}
+                        >
+                          <CardActionArea onClick={() => toggleTemplate(t.id)} sx={{ height: '100%' }}>
+                            <CardContent>
+                              <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
+                                <Checkbox
+                                  checked={selected}
+                                  tabIndex={-1}
+                                  disableRipple
+                                  color="primary"
+                                  size="small"
+                                  sx={{ p: 0, pointerEvents: 'none' }}
+                                />
+                                <Typography variant="subtitle2" sx={{ fontWeight: 600, flex: 1 }}>
+                                  {t.label}
+                                </Typography>
+                              </Stack>
+                              <Typography variant="caption" color="text.secondary" sx={{ mt: 0.5, display: 'block' }}>
+                                {t.description}
+                              </Typography>
+                            </CardContent>
+                          </CardActionArea>
+                        </Card>
+                      </Grid>
+                    );
+                  })}
                 </Grid>
-              </FormControl>
+              </Box>
             )}
 
             <FormControl fullWidth>
