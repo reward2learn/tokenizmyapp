@@ -495,7 +495,13 @@ export const tenantApi = createApi({
     /** POST .../apps/{appId}/deploy-hook — auto-provision this app's own
      *  Vercel Deploy Hook instead of hand-copying one from the dashboard. */
     provisionAppDeployHook: builder.mutation<
-      ApiEnvelope<{ appId: string; deployHookUrl: string; created: boolean }>,
+      ApiEnvelope<{
+        appId: string;
+        deployHookUrl: string;
+        created: boolean;
+        vercelProjectId: string;
+        vercelProjectName: string | null;
+      }>,
       { slug: string; appId: string }
     >({
       query: ({ slug, appId }) => ({

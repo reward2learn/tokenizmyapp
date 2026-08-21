@@ -668,11 +668,22 @@ export async function ensureDeployHook(
       };
     }
 
-    const existingHooks = project.link?.deployHooks ?? [];
-    const exact = existingHooks.find((h) => h.ref === ref && h.name === name && h.url);
-    const anyOnRef = existingHooks.find((h) => h.ref === ref && h.url);
-    const reuse = exact ?? anyOnRef;
+    const listHooks = (p: VercelProjectGitSnapshot | null | undefined): VercelDeployHook[] => {
+      const fromLink = p?.link?.deployHooks;
+      if (Array.isArray(fromLink) && fromLink.length > 0) return fromLink;
+      // Some API payloads nest hooks under link only after a refresh; tolerate empty.
+      return Array.isArray(fromLink) ? fromLink : [];
+    };
+
+    const pickHook = (hooks: VercelDeployHook[]): VercelDeployHook | undefined =>
+      hooks.find((h) => h.ref === ref && h.name === name && h.url)
+      ?? hooks.find((h) => h.ref === ref && h.url)
+      ?? hooks.find((h) => h.url);
+
+    const existingHooks = listHooks(project);
+    const reuse = pickHook(existingHooks);
     if (reuse?.url) {
+      console.log(`[vercel-deploy] Reusing deploy hook ${reuse.id} on ${id} (${reuse.name}@${reuse.ref})`);
       return {
         ok: true,
         url: reuse.url,
@@ -706,30 +717,27 @@ export async function ensureDeployHook(
         break;
       }
 
-      let updated: VercelProjectGitSnapshot;
+      let updated: VercelProjectGitSnapshot | null = null;
       try {
         updated = JSON.parse(lastBody) as VercelProjectGitSnapshot;
       } catch {
-        return {
-          ok: false,
-          error: `Deploy hook API returned non-JSON (${res.status})`,
-          projectId: id,
-          projectName: project.name ?? null,
-          status: res.status,
-        };
+        updated = null;
       }
 
-      const hooks = updated.link?.deployHooks ?? [];
-      const created =
-        [...hooks].reverse().find((h) => h.ref === ref && h.name === name)
-        ?? [...hooks].reverse().find((h) => h.ref === ref && h.url);
+      let created = pickHook(listHooks(updated));
+      // POST sometimes returns the project without the new hook URL populated —
+      // re-fetch once before giving up.
+      if (!created?.url) {
+        const refetch = await fetchVercelProject(id);
+        created = pickHook(listHooks(refetch.project));
+      }
 
       if (!created?.url) {
         return {
           ok: false,
           error: 'Deploy hook was created but Vercel did not return a URL in link.deployHooks',
           projectId: id,
-          projectName: project.name ?? updated.name ?? null,
+          projectName: project.name ?? updated?.name ?? null,
           status: res.status,
         };
       }
@@ -741,7 +749,7 @@ export async function ensureDeployHook(
         id: created.id,
         created: true,
         projectId: id,
-        projectName: project.name ?? updated.name ?? git.projectName ?? null,
+        projectName: project.name ?? updated?.name ?? git.projectName ?? null,
       };
     }
 

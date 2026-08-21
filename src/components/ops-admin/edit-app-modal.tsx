@@ -333,8 +333,11 @@ export function EditAppModal({ open, onClose, tenantSlug, app, onSnackbar }: Edi
       const url = res.data?.deployHookUrl;
       if (url) {
         setDeployHookUrl(url);
+        const projectLabel = res.data?.vercelProjectName || vercelName;
         onSnackbar({
-          message: res.data?.created ? '✅ Deploy hook created on Vercel' : '✅ Reused existing Vercel deploy hook',
+          message: res.data?.created
+            ? `✅ Deploy hook created on Vercel (${projectLabel})`
+            : `✅ Reused existing Vercel deploy hook (${projectLabel})`,
           severity: 'success',
         });
       }
@@ -344,7 +347,7 @@ export function EditAppModal({ open, onClose, tenantSlug, app, onSnackbar }: Edi
         : 'Failed to generate deploy hook';
       onSnackbar({ message: `❌ ${message}`, severity: 'error' });
     }
-  }, [provisionDeployHook, tenantSlug, app.appId, onSnackbar]);
+  }, [provisionDeployHook, tenantSlug, app.appId, onSnackbar, vercelName]);
 
   // ── Google OAuth provisioning (interactive) ────────────────
   const handleProvisionOAuth = useCallback(async () => {
@@ -1293,10 +1296,15 @@ export function EditAppModal({ open, onClose, tenantSlug, app, onSnackbar }: Edi
         <Typography variant="subtitle1" sx={{ fontWeight: 600 }}>Deploy Hooks</Typography>
       </Stack>
       <Typography variant="body2" color="text.secondary">
-        This app&apos;s own Vercel Deploy Hook URL, used by &quot;Trigger Deploy Hook&quot; in the app&apos;s
-        three-dot menu. Generate one automatically below, or paste one created manually in the
-        app&apos;s Vercel project settings.
+        This app&apos;s own Vercel Deploy Hook (git repo <code>reward2learn/tokenizmyapp</code>, branch <code>main</code>).
+        Click Generate to create one on the Vercel project below — or reuse an existing hook if one already
+        exists. Used by &quot;Trigger Deploy Hook&quot; in the app&apos;s three-dot menu.
       </Typography>
+      <Paper variant="outlined" sx={{ p: 2 }}>
+        <SummaryRow label="Vercel Project" value={app.vercelProjectId ? app.vercelProjectId : '⚠️ not deployed yet'} />
+        <SummaryRow label="Vercel name" value={vercelName} />
+        <SummaryRow label="Deploy Hook" value={deployHookUrl.trim() ? '✅ configured' : '⚠️ not set — click Generate'} />
+      </Paper>
       <Stack direction="row" spacing={1.5} sx={{ alignItems: 'flex-start' }}>
         <TextField
           label="Deploy Hook URL"
@@ -1304,17 +1312,17 @@ export function EditAppModal({ open, onClose, tenantSlug, app, onSnackbar }: Edi
           onChange={(e) => setDeployHookUrl(e.target.value)}
           fullWidth
           size="small"
-          placeholder="https://api.vercel.com/v1/integrations/deploy/prj_xxx/hook_xxx"
-          helperText="Distinct from the tenant-level metadata.config.hooks.deployHookUrl — this is this app's own hook."
+          placeholder="https://api.vercel.com/v1/integrations/deploy/prj_…/…"
+          helperText="Auto-filled by Generate from this app's vercelProjectId. You can still paste a manual hook URL."
           sx={{ flex: 1 }}
           slotProps={{ input: { sx: { fontFamily: 'monospace', fontSize: '0.8rem' } } }}
         />
         <Button
-          variant="outlined"
+          variant="contained"
           size="small"
           onClick={() => void handleGenerateDeployHook()}
           disabled={generatingHook || !app.vercelProjectId}
-          startIcon={generatingHook ? <CircularProgress size={16} /> : <RocketLaunchIcon />}
+          startIcon={generatingHook ? <CircularProgress size={16} color="inherit" /> : <RocketLaunchIcon />}
           sx={{ mt: 0.5, minWidth: 150, flexShrink: 0 }}
         >
           {generatingHook ? 'Generating…' : 'Generate'}
@@ -1322,14 +1330,10 @@ export function EditAppModal({ open, onClose, tenantSlug, app, onSnackbar }: Edi
       </Stack>
       {!app.vercelProjectId ? (
         <Alert severity="info" sx={{ fontSize: '0.8rem' }}>
-          Deploy this app first — a Vercel project must exist before a deploy hook can be created for it.
-          New deploys now provision a hook automatically.
+          Deploy this app first — Generate uses <code>appPack.apps[].vercelProjectId</code> from the tenant
+          registry. New deploys also provision a hook automatically.
         </Alert>
       ) : null}
-      <Paper variant="outlined" sx={{ p: 2 }}>
-        <SummaryRow label="Vercel Project" value={app.vercelProjectId ? app.vercelProjectId : '⚠️ not deployed yet'} />
-        <SummaryRow label="Vercel name" value={vercelName} />
-      </Paper>
     </Stack>
   );
 

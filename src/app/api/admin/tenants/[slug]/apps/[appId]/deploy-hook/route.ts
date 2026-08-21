@@ -9,6 +9,9 @@
  * creates (or reuses) a Deploy Hook on branch `main`, and stores the URL
  * on the SuiteAppInstance so "Trigger Deploy Hook" works without pasting
  * a URL from the dashboard.
+ *
+ * Used by Edit App → Deploy Hooks → Generate when the app already has a
+ * Vercel project but no deployHookUrl yet.
  */
 import { NextResponse } from 'next/server';
 import { createRawClient } from '@/lib/db';
@@ -26,7 +29,11 @@ function getAppPack(tenant: Record<string, unknown>): AppPackConfig | null {
   return (cfg.appPack as AppPackConfig) ?? null;
 }
 
-async function saveAppPack(db: ReturnType<typeof createRawClient>, slug: string, appPack: AppPackConfig): Promise<void> {
+async function saveAppPack(
+  db: ReturnType<typeof createRawClient>,
+  slug: string,
+  appPack: AppPackConfig,
+): Promise<void> {
   await db.$executeRawUnsafe(
     `UPDATE tenants SET metadata = jsonb_set(COALESCE(metadata, '{}'), '{config,appPack}', $1::jsonb), updated_at = CURRENT_TIMESTAMP WHERE slug = $2;`,
     JSON.stringify(appPack),
@@ -47,7 +54,8 @@ export async function POST(
   try {
     await ensureTenantsTable(db);
     const rows = await db.$queryRawUnsafe(
-      `SELECT * FROM tenants WHERE slug = $1 LIMIT 1;`, slug,
+      `SELECT * FROM tenants WHERE slug = $1 LIMIT 1;`,
+      slug,
     ) as Record<string, unknown>[];
     if (rows.length === 0) return jsonError('Tenant not found', 404);
 
@@ -66,23 +74,33 @@ export async function POST(
       );
     }
 
-    // Prefer a stable dashboard-style name; reuse any existing hook on main.
+    // Prefer a stable dashboard-style name; reuse any existing hook on main
+    // (including one already created in the Vercel UI as "DeployHook").
     const hook = await ensureDeployHook(projectId, {
       name: 'DeployHook',
       ref: 'main',
     });
 
     if (!hook.ok) {
-      console.warn(`[app-deploy-hook] Failed for "${appId}" (${slug}) project=${projectId}: ${hook.error}`);
-      return jsonError(hook.error, hook.status && hook.status >= 400 && hook.status < 600 ? hook.status : 502);
+      console.warn(
+        `[app-deploy-hook] Failed for "${appId}" (${slug}) project=${projectId}: ${hook.error}`,
+      );
+      return jsonError(
+        hook.error,
+        hook.status && hook.status >= 400 && hook.status < 600 ? hook.status : 502,
+      );
     }
 
-    appPack.apps[idx] = { ...app, deployHookUrl: hook.url, vercelProjectId: projectId };
+    appPack.apps[idx] = {
+      ...app,
+      deployHookUrl: hook.url,
+      vercelProjectId: projectId,
+    };
     await saveAppPack(db, slug, appPack);
 
     console.log(
       `[app-deploy-hook] ${hook.created ? 'Created' : 'Reused'} deploy hook for "${appId}" (${slug}) `
-      + `project=${hook.projectId} name=${hook.projectName ?? '(unknown)'}`,
+        + `project=${hook.projectId} name=${hook.projectName ?? '(unknown)'}`,
     );
 
     return jsonOk({
