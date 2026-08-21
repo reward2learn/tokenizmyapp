@@ -482,6 +482,36 @@ export const tenantApi = createApi({
       invalidatesTags: ['Tenants'],
     }),
 
+    /**
+     * POST — materialize an app pack and append new apps to an existing suite.
+     * Same AI / deterministic rules as new-tenant suite creation
+     * (`materializeAppPackForTenant` / `appendAppPackToExistingSuite`).
+     */
+    addAppPackToSuite: builder.mutation<
+      ApiEnvelope<{
+        added: boolean;
+        apps: SuiteAppInstance[];
+        totalApps: number;
+        mode: 'ai' | 'deterministic';
+        fellBack: boolean;
+        packId: string;
+      }>,
+      {
+        slug: string;
+        templates: string[];
+        packMode?: 'predefined' | 'custom';
+        prompt?: string;
+        displayName?: string;
+      }
+    >({
+      query: ({ slug, ...body }) => ({
+        url: `admin/tenants/${slug}/apps/pack`,
+        method: 'POST',
+        body,
+      }),
+      invalidatesTags: ['Tenants'],
+    }),
+
     /** POST — clone an existing suite app (identity + app-scoped content). */
     duplicateApp: builder.mutation<
       ApiEnvelope<{ duplicated: boolean; app: SuiteAppInstance; totalApps: number; copied?: Record<string, number> }>,
@@ -779,6 +809,7 @@ export const {
   useLazyGetAppDomainsQuery,
   useSetAppDomainMutation,
   useAddAppToSuiteMutation,
+  useAddAppPackToSuiteMutation,
   useDuplicateAppMutation,
   useRemoveAppFromSuiteMutation,
   useLazyGetTenantDomainsQuery,

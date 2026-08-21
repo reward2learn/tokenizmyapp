@@ -80,11 +80,13 @@ import VerifiedUserIcon from '@mui/icons-material/VerifiedUser';
 import WarningIcon from '@mui/icons-material/Warning';
 
 import { getTemplate, listTemplates } from '@/domain/tenant/template-catalog';
+import { BUSINESS_CATEGORY_PROMPTS, getBusinessCategory } from '@/domain/app-pack/business-category-prompts';
 import { useListAllTemplatesQuery } from '@/store/apis/template-api';
 import { DEFAULT_PLATFORM_ADMIN_EMAIL } from '@/domain/security/persons';
 import {
   useListTenantsQuery,
   useAddAppToSuiteMutation,
+  useAddAppPackToSuiteMutation,
   useDuplicateAppMutation,
   useSeedAppMutation,
   useDeployAppMutation,
@@ -131,11 +133,11 @@ const CREATE_STEPS: Array<{ label: string; icon: React.ReactNode; key: string }>
 ];
 
 const CREATE_PROGRESS_STEPS = [
-  { key: 'create', label: 'Create app in suite', description: 'Registering the new app (or duplicate) in the tenant app pack' },
-  { key: 'ai-provider', label: 'Save AI provider', description: 'Saving the selected AI provider, key, and model to the new app\'s database' },
-  { key: 'seed', label: 'Seed app content', description: 'Seeding pages, navigation and template content for the new app' },
-  { key: 'deploy', label: 'Deploy to Vercel', description: 'Creating the Vercel project and triggering the build' },
-  { key: 'done', label: 'Done', description: 'New app is live' },
+  { key: 'create', label: 'Create app pack', description: 'Materializing the app pack (AI decompose when predefined + key available, otherwise one app per template) and registering apps in the suite' },
+  { key: 'ai-provider', label: 'Save AI provider', description: 'Saving the selected AI provider, key, and model to each new app\'s database' },
+  { key: 'seed', label: 'Seed app content', description: 'Seeding pages, navigation and template content for the new apps' },
+  { key: 'deploy', label: 'Deploy to Vercel', description: 'Creating Vercel projects and triggering builds for each new app' },
+  { key: 'done', label: 'Done', description: 'New suite apps are live' },
 ];
 
 /** Extracts the API envelope's `error` string off an RTK Query error, without `any`. */
@@ -148,6 +150,15 @@ function apiErrorMessage(err: unknown, fallback: string): string {
 }
 
 const slugify = (v: string) => v.toLowerCase().trim().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
+
+/** Allocate an appId that does not collide with apps already in the suite. */
+function allocateAppId(base: string, used: Set<string>): string {
+  const root = slugify(base) || 'app';
+  if (!used.has(root)) return root;
+  let n = 2;
+  while (used.has(`${root}-${n}`)) n += 1;
+  return `${root}-${n}`;
+}
 
 /** Helper component for summary display rows (mirrors EditTenantModal). */
 function SummaryRow({ label, value, color }: { label: string; value: string; color?: string }) {
@@ -197,12 +208,16 @@ export function CreateAppWizard({ open, onClose, tenantSlug, sourceApp, onSnackb
   const [aiApiKey, setAiApiKey] = useState('');
   const [aiModel, setAiModel] = useState('');
 
-  // Suite mode state
+  // Suite / App Pack state (mirrors tenant-wizard Template step)
   const [suiteMode, setSuiteMode] = useState(false);
   const [suiteTemplates, setSuiteTemplates] = useState<string[]>([]);
+  const [packMode, setPackMode] = useState<'predefined' | 'custom'>('custom');
+  const [category, setCategory] = useState<string | null>(null);
+  const [prompt, setPrompt] = useState('');
 
   const { data: tenantsData } = useListTenantsQuery();
   const [addApp] = useAddAppToSuiteMutation();
+  const [addAppPack] = useAddAppPackToSuiteMutation();
   const [duplicateApp] = useDuplicateAppMutation();
   const [seedApp] = useSeedAppMutation();
   const [deployApp] = useDeployAppMutation();
@@ -268,11 +283,26 @@ export function CreateAppWizard({ open, onClose, tenantSlug, sourceApp, onSnackb
   const appId = slugify(name);
   const vercelName = `${tenantSlug}-${appId}`;
   const appIdConflict = suiteApps.some((a) => a.appId === appId);
-  const valid =
-    !!name.trim() &&
-    !!appId &&
-    !appIdConflict &&
-    (mode === 'blank' || !!sourceAppId);
+  /** Templates already present in the suite — skipped on pack create. */
+  const existingTemplateIds = useMemo(
+    () => new Set(suiteApps.map((a) => a.templateId)),
+    [suiteApps],
+  );
+  const suiteTemplatesToCreate = useMemo(
+    () => suiteTemplates.filter((tplId) => !existingTemplateIds.has(tplId)),
+    [suiteTemplates, existingTemplateIds],
+  );
+  /** Predefined packs can still AI-decompose new department apps even when every seed template is already present. */
+  const valid = suiteMode
+    ? mode === 'blank' && suiteTemplates.length > 0 && (
+      packMode === 'predefined'
+        ? Boolean(category && prompt.trim())
+        : suiteTemplatesToCreate.length > 0
+    )
+    : !!name.trim() &&
+      !!appId &&
+      !appIdConflict &&
+      (mode === 'blank' || !!sourceAppId);
 
   // The new app's redirect URIs — these must be added to the tenant's
   // existing GCP OAuth client for Google sign-in to work on the new app.
@@ -292,6 +322,13 @@ export function CreateAppWizard({ open, onClose, tenantSlug, sourceApp, onSnackb
     setName(baseName);
     setDepartment(src?.department ?? '');
     setTemplateId(baseTemplate);
+    if (nextMode === 'duplicate') {
+      setSuiteMode(false);
+      setSuiteTemplates([]);
+      setPackMode('custom');
+      setCategory(null);
+      setPrompt('');
+    }
   };
 
   const reset = () => {
@@ -305,21 +342,60 @@ export function CreateAppWizard({ open, onClose, tenantSlug, sourceApp, onSnackb
     setCreateDetails({});
     setSuiteMode(false);
     setSuiteTemplates([]);
+    setPackMode('custom');
+    setCategory(null);
+    setPrompt('');
   };
 
   const toggleSuiteMode = (enabled: boolean) => {
     setSuiteMode(enabled);
     if (!enabled) {
       setSuiteTemplates([]);
+      setPackMode('custom');
+      setCategory(null);
+      setPrompt('');
+    } else {
+      setPackMode('custom');
+      setCategory(null);
+      setSuiteTemplates([]);
+      setPrompt('');
     }
   };
 
+  const switchPackMode = (mode: 'predefined' | 'custom') => {
+    if (mode === 'custom') {
+      setPackMode('custom');
+      setCategory(null);
+      setSuiteTemplates([]);
+      setPrompt('');
+      return;
+    }
+    setPackMode('predefined');
+  };
+
+  /** Toggle a template in/out of the suite — always switches to Custom App Pack mode. */
   const toggleSuiteTemplate = (templateId: string) => {
-    setSuiteTemplates((prev) =>
-      prev.includes(templateId)
+    setSuiteTemplates((prev) => {
+      const next = prev.includes(templateId)
         ? prev.filter((id) => id !== templateId)
-        : [...prev, templateId]
-    );
+        : [...prev, templateId];
+      return next;
+    });
+    setPackMode('custom');
+    setCategory(null);
+    setPrompt('');
+  };
+
+  /** Apply a business-category app kit — populates suiteTemplates + prompt. */
+  const applyCategory = (categoryName: string) => {
+    const preset = getBusinessCategory(categoryName);
+    if (!preset) return;
+    setPackMode('predefined');
+    setCategory(categoryName);
+    setSuiteTemplates(preset.templateIds);
+    setPrompt(preset.prompt);
+    // Prefer first pack template for single-app fields used later in the wizard.
+    if (preset.templateIds[0]) setTemplateId(preset.templateIds[0]);
   };
 
   const handleClose = () => {
@@ -398,6 +474,122 @@ export function CreateAppWizard({ open, onClose, tenantSlug, sourceApp, onSnackb
     };
     try {
       mark('create', 'inprogress');
+
+      // Suite / App Pack path — same materializer as new-tenant suite creation.
+      // Predefined + OPENAI_API_KEY → AI free-decompose; custom / no key →
+      // one app per template (deterministic). Existing apps are never overwritten.
+      if (suiteMode && mode === 'blank') {
+        const packTemplates = packMode === 'custom' ? suiteTemplatesToCreate : suiteTemplates;
+        const packLabel = packMode === 'predefined' && category
+          ? `App Pack "${category}"`
+          : 'Custom App Pack';
+
+        mark(
+          'create',
+          'inprogress',
+          packMode === 'predefined'
+            ? `Materializing ${packLabel} (AI decompose when a platform key is available)…`
+            : `Creating ${packTemplates.length} deterministic suite app${packTemplates.length === 1 ? '' : 's'}…`,
+        );
+
+        const packRes = await addAppPack({
+          slug: tenantSlug,
+          templates: packTemplates,
+          packMode,
+          prompt: prompt.trim() || undefined,
+          displayName: tenant?.displayName ?? tenantSlug,
+        }).unwrap();
+
+        const created = packRes.data?.apps ?? [];
+        if (created.length === 0) {
+          throw new Error(
+            packMode === 'predefined'
+              ? 'No new apps were added — the AI pack may have only produced templates already in this suite. Try a different category or Custom App Pack.'
+              : 'No new apps were added — every selected template is already in this suite.',
+          );
+        }
+
+        const modeLabel = packRes.data?.mode === 'ai'
+          ? 'AI-decomposed'
+          : packRes.data?.fellBack
+            ? 'deterministic (AI unavailable — seed fallback)'
+            : 'deterministic';
+        mark(
+          'create',
+          'success',
+          `Created ${created.length} app${created.length === 1 ? '' : 's'} via ${modeLabel} (${packLabel})`,
+        );
+        setCreateProgress(1);
+
+        if (aiApiKey.trim()) {
+          mark('ai-provider', 'inprogress');
+          let aiOk = 0;
+          let aiFail = 0;
+          for (const app of created) {
+            try {
+              await saveTenantAiProvider({
+                slug: tenantSlug,
+                appId: app.appId,
+                providerId: aiProviderId,
+                apiKey: aiApiKey.trim(),
+                model: aiModel || undefined,
+                activate: true,
+              }).unwrap();
+              aiOk += 1;
+            } catch {
+              aiFail += 1;
+            }
+          }
+          if (aiFail === 0) {
+            mark('ai-provider', 'success', `${aiProviderId} configured on ${aiOk} app${aiOk === 1 ? '' : 's'}`);
+          } else {
+            mark('ai-provider', 'error', `Saved on ${aiOk}, failed on ${aiFail} — configure remaining apps from Edit App`);
+          }
+          setCreateProgress(2);
+        } else {
+          mark('ai-provider', 'skipped', 'No API key entered — skipped');
+          setCreateProgress(2);
+        }
+
+        if (seedAfter) {
+          mark('seed', 'inprogress');
+          let seeded = 0;
+          for (const app of created) {
+            await seedApp({ slug: tenantSlug, appId: app.appId }).unwrap();
+            seeded += 1;
+          }
+          mark('seed', 'success', `Seeded ${seeded} app${seeded === 1 ? '' : 's'}`);
+          setCreateProgress(3);
+        } else {
+          mark('seed', 'skipped', 'Skipped');
+          setCreateProgress(3);
+        }
+
+        if (deployAfter) {
+          mark('deploy', 'inprogress');
+          let deployed = 0;
+          for (const app of created) {
+            await deployApp({ slug: tenantSlug, appId: app.appId }).unwrap();
+            deployed += 1;
+          }
+          mark('deploy', 'success', `Deployed ${deployed} app${deployed === 1 ? '' : 's'}`);
+          setCreateProgress(4);
+        } else {
+          mark('deploy', 'skipped', 'Skipped');
+          setCreateProgress(4);
+        }
+
+        const names = created.map((a) => a.name).join(', ');
+        mark('done', 'success', `Created ${created.length} apps (${modeLabel}): ${names}`);
+        setCreateProgress(5);
+        onSnackbar({
+          message: `✅ Created ${created.length} suite app${created.length === 1 ? '' : 's'} via ${modeLabel}${packMode === 'predefined' && category ? ` (${category})` : ''}`,
+          severity: 'success',
+        });
+        handleClose();
+        return;
+      }
+
       if (mode === 'duplicate') {
         await duplicateApp({
           slug: tenantSlug,
@@ -500,46 +692,116 @@ export function CreateAppWizard({ open, onClose, tenantSlug, sourceApp, onSnackb
       </Alert>
 
       {/* ── Suite Mode Toggle ─────────────────── */}
-      <FormControl fullWidth>
-        <Stack direction="row" spacing={2} sx={{ alignItems: 'center', mt: 1 }}>
-          <FormControlLabel
-            control={
-              <Switch
-                checked={suiteMode}
-                onChange={(e) => toggleSuiteMode(e.target.checked)}
-                color="primary"
-                size="medium"
-              />
-            }
-            label={
-              <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
-                <Typography variant="body1" sx={{ fontWeight: 600 }}>
-                  Multi-App Suite Mode
-                </Typography>
-                <Tooltip title="Enable to select multiple templates for a unified multi-app experience">
-                  <InfoIcon fontSize="small" color="action" />
-                </Tooltip>
-              </Stack>
-            }
-          />
-        </Stack>
-        <Typography variant="caption" color="text.secondary" sx={{ mt: 0.5, ml: 2 }}>
-          When enabled, select multiple templates to create a unified multi-app suite with shared navigation and authentication.
-        </Typography>
-      </FormControl>
+      {mode !== 'duplicate' ? (
+        <FormControl fullWidth>
+          <Stack direction="row" spacing={2} sx={{ alignItems: 'center', mt: 1 }}>
+            <FormControlLabel
+              control={
+                <Switch
+                  checked={suiteMode}
+                  onChange={(e) => toggleSuiteMode(e.target.checked)}
+                  color="primary"
+                  size="medium"
+                />
+              }
+              label={
+                <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
+                  <Typography variant="body1" sx={{ fontWeight: 600 }}>
+                    Multi-App Suite Mode
+                  </Typography>
+                  <Tooltip title="Enable to add a Predefined or Custom App Pack — AI-decomposed when predefined + platform key, otherwise one suite app per selected template">
+                    <InfoIcon fontSize="small" color="action" />
+                  </Tooltip>
+                </Stack>
+              }
+            />
+          </Stack>
+          <Typography variant="caption" color="text.secondary" sx={{ mt: 0.5, ml: 2 }}>
+            When enabled, choose a Predefined business-category App Kit (AI decomposes departments when a platform OpenAI key is available) or hand-pick templates (Custom App Pack — always one app per template). Existing suite apps are kept.
+          </Typography>
+        </FormControl>
+      ) : null}
 
-      {/* ── Template Selection Grid (Suite Mode) ─────────────────── */}
-      {suiteMode && (
+      {/* ── Predefined vs Custom App Pack (Suite Mode) ─────────────────── */}
+      {suiteMode ? (
+        <Paper variant="outlined" sx={{ p: 1 }}>
+          <Stack direction="row" spacing={1}>
+            <Button
+              fullWidth
+              variant={packMode === 'predefined' ? 'contained' : 'outlined'}
+              onClick={() => switchPackMode('predefined')}
+            >
+              Predefined App Pack
+            </Button>
+            <Button
+              fullWidth
+              variant={packMode === 'custom' ? 'contained' : 'outlined'}
+              onClick={() => switchPackMode('custom')}
+            >
+              Custom App Pack
+            </Button>
+          </Stack>
+        </Paper>
+      ) : null}
+
+      {/* ── Predefined: business-category App Kit grid ─────────────────── */}
+      {suiteMode && packMode === 'predefined' ? (
         <Box>
           <Typography variant="subtitle2" sx={{ fontWeight: 600, mb: 0.5 }}>
-            Select Templates for Suite
+            Choose a business category — App Kit
+          </Typography>
+          <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1.5 }}>
+            Seed templates for the category are used as context. With a platform OpenAI key, the category prompt drives AI department decomposition (same as New Tenant suite mode); otherwise one suite app is created per seed template not already present.
+          </Typography>
+          <Grid container spacing={1.5}>
+            {BUSINESS_CATEGORY_PROMPTS.map((preset) => {
+              const isActive = category === preset.category;
+              return (
+                <Grid key={preset.category} size={{ xs: 12, sm: 4 }}>
+                  <Card
+                    variant="outlined"
+                    sx={{
+                      borderColor: isActive ? 'primary.main' : 'divider',
+                      borderWidth: isActive ? 2 : 1,
+                      bgcolor: isActive ? 'rgba(235,61,40,0.06)' : undefined,
+                      cursor: 'pointer',
+                      transition: 'all 0.15s',
+                      '&:hover': { boxShadow: 2 },
+                    }}
+                    onClick={() => applyCategory(preset.category)}
+                  >
+                    <CardContent sx={{ p: 1.5, '&:last-child': { pb: 1.5 } }}>
+                      <Stack direction="row" sx={{ gap: 1, alignItems: 'center', mb: 0.5 }}>
+                        <Typography variant="body2" sx={{ fontWeight: 700 }}>{preset.category}</Typography>
+                        {isActive ? <CheckCircleIcon color="primary" fontSize="small" /> : null}
+                      </Stack>
+                      <Stack direction="row" sx={{ gap: 0.5, flexWrap: 'wrap' }}>
+                        {preset.templateIds.map((tid) => (
+                          <Chip key={tid} label={getTemplate(tid).label} size="small" variant="outlined" />
+                        ))}
+                      </Stack>
+                    </CardContent>
+                  </Card>
+                </Grid>
+              );
+            })}
+          </Grid>
+        </Box>
+      ) : null}
+
+      {/* ── Custom: multi-select template cards ─────────────────── */}
+      {suiteMode && packMode === 'custom' ? (
+        <Box>
+          <Typography variant="subtitle2" sx={{ fontWeight: 600, mb: 0.5 }}>
+            Select Templates (each becomes a department app)
           </Typography>
           <Typography variant="caption" color="text.secondary" sx={{ mb: 1.5, display: 'block' }}>
-            Choose one or more templates to include in the suite
+            Choose one or more templates to add to this suite
           </Typography>
           <Grid container spacing={2}>
             {templates.filter((tpl) => tpl.id !== 'default').map((tpl) => {
               const selected = suiteTemplates.includes(tpl.id);
+              const alreadyInSuite = existingTemplateIds.has(tpl.id);
               return (
                 <Grid key={tpl.id} size={{ xs: 12, sm: 6, lg: 4 }}>
                   <Card
@@ -549,6 +811,7 @@ export function CreateAppWizard({ open, onClose, tenantSlug, sourceApp, onSnackb
                       borderColor: selected ? 'primary.main' : 'divider',
                       borderWidth: selected ? 2 : 1,
                       bgcolor: selected ? 'rgba(235,61,40,0.06)' : undefined,
+                      opacity: alreadyInSuite && !selected ? 0.65 : 1,
                       transition: 'all 0.15s',
                     }}
                   >
@@ -570,6 +833,9 @@ export function CreateAppWizard({ open, onClose, tenantSlug, sourceApp, onSnackb
                         <Typography variant="caption" color="text.secondary" sx={{ mt: 0.5, display: 'block' }}>
                           {tpl.description}
                         </Typography>
+                        {alreadyInSuite ? (
+                          <Chip label="Already in suite" size="small" variant="outlined" color="info" sx={{ mt: 0.75 }} />
+                        ) : null}
                       </CardContent>
                     </CardActionArea>
                   </Card>
@@ -578,7 +844,49 @@ export function CreateAppWizard({ open, onClose, tenantSlug, sourceApp, onSnackb
             })}
           </Grid>
         </Box>
-      )}
+      ) : null}
+
+      {/* ── Suite selection summary ─────────────────── */}
+      {suiteMode && suiteTemplates.length > 0 ? (
+        <Paper variant="outlined" sx={{ p: 2, bgcolor: 'background.default' }}>
+          <Stack direction="row" sx={{ gap: 1, alignItems: 'center', mb: 1 }}>
+            <CheckCircleIcon color="success" fontSize="small" />
+            <Typography variant="subtitle2" sx={{ fontWeight: 600 }}>
+              {packMode === 'custom'
+                ? `${suiteTemplatesToCreate.length} new app${suiteTemplatesToCreate.length === 1 ? '' : 's'} — one per selected template (deterministic)`
+                : suiteTemplatesToCreate.length > 0
+                  ? `${suiteTemplatesToCreate.length} seed app${suiteTemplatesToCreate.length === 1 ? '' : 's'} for "${category}" — AI may produce more or fewer department apps`
+                  : `All seed templates for "${category}" are already in this suite — AI may still add new department apps`}
+            </Typography>
+          </Stack>
+          <Stack direction="row" sx={{ gap: 0.5, flexWrap: 'wrap' }}>
+            {suiteTemplates.map((tplId) => (
+              <Chip
+                key={tplId}
+                label={resolveTemplate(tplId).label}
+                size="small"
+                color={existingTemplateIds.has(tplId) ? 'default' : 'primary'}
+                variant="outlined"
+              />
+            ))}
+          </Stack>
+          {suiteTemplates.length > 0 && suiteTemplatesToCreate.length === 0 && packMode === 'custom' ? (
+            <Alert severity="warning" sx={{ mt: 1.5, fontSize: '0.8rem' }}>
+              Every selected template is already in this suite — pick different templates to create new apps.
+            </Alert>
+          ) : null}
+          {suiteTemplates.length > 0 && suiteTemplatesToCreate.length === 0 && packMode === 'predefined' ? (
+            <Alert severity="info" sx={{ mt: 1.5, fontSize: '0.8rem' }}>
+              Every seed template is already in this suite. Submit anyway to let AI decompose additional department apps from the category prompt (falls back to no-op if AI is unavailable).
+            </Alert>
+          ) : null}
+          {packMode === 'predefined' && prompt ? (
+            <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1 }}>
+              Kit prompt for AI decomposition: {prompt.slice(0, 140)}{prompt.length > 140 ? '…' : ''}
+            </Typography>
+          ) : null}
+        </Paper>
+      ) : null}
 
       {/* ── Single Template Selection (Non-Suite Mode) ─────────────────── */}
       {!suiteMode && (
@@ -679,6 +987,13 @@ export function CreateAppWizard({ open, onClose, tenantSlug, sourceApp, onSnackb
   // Step 2: Slug — THE key step: name → app_id + vercel name
   const renderStepSlug = () => (
     <Stack spacing={2.5}>
+      {suiteMode ? (
+        <Alert severity="info" sx={{ fontSize: '0.8rem' }}>
+          Suite App Pack mode is on — each selected template will get its own app id derived from the template
+          (e.g. <code>restaurant</code>). The name fields below are optional extras for a single blank app and
+          are not used for pack creation.
+        </Alert>
+      ) : null}
       {hasApps && (
         <Paper variant="outlined" sx={{ p: 1.5, bgcolor: 'background.default' }}>
           <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5} sx={{ alignItems: { sm: 'center' } }}>
@@ -1221,15 +1536,66 @@ export function CreateAppWizard({ open, onClose, tenantSlug, sourceApp, onSnackb
 
       {/* App Identity */}
       <Paper variant="outlined" sx={{ p: 2 }}>
-        <Typography variant="subtitle2" sx={{ fontWeight: 600, mb: 1 }}>App Identity</Typography>
+        <Typography variant="subtitle2" sx={{ fontWeight: 600, mb: 1 }}>
+          {suiteMode ? 'App Pack Identity' : 'App Identity'}
+        </Typography>
         <Stack spacing={0.5}>
-          <SummaryRow label="Mode" value={mode === 'duplicate' ? `Duplicate of ${sourceAppId}` : 'Blank app from template'} />
-          <SummaryRow label="Name" value={name.trim() || '—'} />
-          <SummaryRow label="App ID" value={appId || '—'} />
-          <SummaryRow label="Vercel name" value={vercelName || '—'} />
-          <SummaryRow label="Live URL" value={appId ? `https://${vercelName}.vercel.app` : '—'} />
-          {department.trim() ? <SummaryRow label="Department" value={department.trim()} /> : null}
-          <SummaryRow label="Template" value={resolveTemplate(templateId).label} />
+          {suiteMode ? (
+            <>
+              <SummaryRow
+                label="Mode"
+                value={packMode === 'predefined'
+                  ? `Predefined App Pack${category ? ` — ${category}` : ''}`
+                  : 'Custom App Pack'}
+              />
+              <SummaryRow
+                label="New apps"
+                value={packMode === 'predefined'
+                  ? `AI pack from "${category}" (${suiteTemplatesToCreate.length} seed template${suiteTemplatesToCreate.length === 1 ? '' : 's'} not yet in suite)`
+                  : `${suiteTemplatesToCreate.length} of ${suiteTemplates.length} selected templates`}
+              />
+              {packMode === 'predefined' ? (
+                <SummaryRow
+                  label="Materializer"
+                  value="AI free-decompose when platform OPENAI_API_KEY is set; otherwise one app per seed template"
+                />
+              ) : (
+                <SummaryRow label="Materializer" value="Deterministic — one app per selected template" />
+              )}
+              {packMode === 'custom' ? (() => {
+                const used = new Set(suiteApps.map((a) => a.appId));
+                return suiteTemplatesToCreate.map((tplId) => {
+                  const previewId = allocateAppId(tplId, used);
+                  used.add(previewId);
+                  return (
+                    <SummaryRow
+                      key={tplId}
+                      label={resolveTemplate(tplId).label}
+                      value={`${previewId} · https://${tenantSlug}-${previewId}.vercel.app`}
+                    />
+                  );
+                });
+              })() : (
+                suiteTemplates.map((tplId) => (
+                  <SummaryRow
+                    key={tplId}
+                    label={resolveTemplate(tplId).label}
+                    value={existingTemplateIds.has(tplId) ? 'already in suite (seed context)' : 'seed — may become a suite app'}
+                  />
+                ))
+              )}
+            </>
+          ) : (
+            <>
+              <SummaryRow label="Mode" value={mode === 'duplicate' ? `Duplicate of ${sourceAppId}` : 'Blank app from template'} />
+              <SummaryRow label="Name" value={name.trim() || '—'} />
+              <SummaryRow label="App ID" value={appId || '—'} />
+              <SummaryRow label="Vercel name" value={vercelName || '—'} />
+              <SummaryRow label="Live URL" value={appId ? `https://${vercelName}.vercel.app` : '—'} />
+              {department.trim() ? <SummaryRow label="Department" value={department.trim()} /> : null}
+              <SummaryRow label="Template" value={resolveTemplate(templateId).label} />
+            </>
+          )}
         </Stack>
       </Paper>
 
@@ -1403,7 +1769,7 @@ export function CreateAppWizard({ open, onClose, tenantSlug, sourceApp, onSnackb
             startIcon={creating ? <CircularProgress size={20} color="inherit" /> : <CloudUploadIcon />}
             sx={{ fontWeight: 700, minWidth: { xs: '100%', sm: 220 } }}
           >
-            {creating ? 'CREATING...' : mode === 'duplicate' ? 'Duplicate & Deploy' : 'Create & Deploy'}
+            {creating ? 'CREATING...' : mode === 'duplicate' ? 'Duplicate & Deploy' : suiteMode ? 'Create Pack & Deploy' : 'Create & Deploy'}
           </Button>
         ) : (
           <Button variant="contained" onClick={() => setActiveStep((s) => s + 1)} disabled={creating} sx={{ fontWeight: 600 }}>

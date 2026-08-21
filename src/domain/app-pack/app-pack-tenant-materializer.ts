@@ -229,6 +229,150 @@ export function buildSuitePrompt(displayName: string, templates: string[]): stri
   return `Create a multi-department application suite for ${displayName} covering these business areas: ${templates.join(', ')}. Include a CEO Overview dashboard that aggregates KPIs from all departments.`;
 }
 
+// ── Append pack to an existing suite ───────────────────────
+
+export interface AppendAppPackInput {
+  tenantSlug: string;
+  displayName: string;
+  /** Seed / selected template IDs (deterministic fallback + AI context). */
+  templates: string[];
+  prompt?: string;
+  packMode?: PackMode;
+  /** Apps already registered on the tenant — never overwritten. */
+  existingApps: SuiteAppInstance[];
+  /** Optional existing pack shell to merge into (keeps packId/name/ceoOverview). */
+  existingPack?: AppPackConfig | null;
+  mock?: boolean;
+}
+
+export interface AppendAppPackResult {
+  success: boolean;
+  /** Apps newly appended (already collision-filtered). */
+  addedApps?: SuiteAppInstance[];
+  /** Full merged pack ready to persist. */
+  appPack?: AppPackConfig;
+  /** How the pack was produced. */
+  mode?: 'ai' | 'deterministic';
+  /** True when AI was attempted and we fell back to the seed builder. */
+  fellBack?: boolean;
+  error?: string;
+}
+
+function slugifyAppId(base: string): string {
+  return base.toLowerCase().trim().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '') || 'app';
+}
+
+function allocateUniqueAppId(base: string, used: Set<string>): string {
+  const root = slugifyAppId(base);
+  if (!used.has(root)) return root;
+  let n = 2;
+  while (used.has(`${root}-${n}`)) n += 1;
+  return `${root}-${n}`;
+}
+
+/**
+ * Materialize a pack (AI or deterministic — same rules as new-tenant suite
+ * creation) and merge only the *new* apps into an existing suite.
+ *
+ * Collision rules:
+ *   - Skip apps whose appId already exists (e.g. ceo-overview).
+ *   - Skip apps whose templateId is already present in the suite.
+ *   - Re-allocate appIds that would otherwise collide after filtering.
+ *
+ * On AI failure in 'predefined' mode, falls back to the deterministic
+ * per-template builder so Create New App still produces seed apps.
+ */
+export async function appendAppPackToExistingSuite(
+  input: AppendAppPackInput,
+): Promise<AppendAppPackResult> {
+  const packMode: PackMode = input.packMode ?? 'custom';
+  const useMock = input.mock ?? !process.env.OPENAI_API_KEY;
+  const wantsAi = packMode === 'predefined' && !useMock;
+
+  let packResult = await materializeAppPackForTenant({
+    tenantSlug: input.tenantSlug,
+    displayName: input.displayName,
+    templates: input.templates,
+    prompt: input.prompt,
+    mock: useMock,
+    packMode,
+  });
+
+  let fellBack = false;
+  let mode: 'ai' | 'deterministic' = wantsAi ? 'ai' : 'deterministic';
+
+  if (!packResult.success || !packResult.appPack) {
+    if (wantsAi) {
+      console.warn(
+        '[app-pack-tenant-materializer] AI pack failed — falling back to deterministic:',
+        packResult.error,
+      );
+      packResult = await materializeAppPackForTenant({
+        tenantSlug: input.tenantSlug,
+        displayName: input.displayName,
+        templates: input.templates,
+        prompt: input.prompt,
+        mock: true,
+        packMode: 'custom',
+      });
+      fellBack = true;
+      mode = 'deterministic';
+    }
+  }
+
+  if (!packResult.success || !packResult.appPack) {
+    return {
+      success: false,
+      error: packResult.error ?? 'App pack materialization failed',
+      mode,
+      fellBack,
+    };
+  }
+
+  const usedIds = new Set(input.existingApps.map((a) => a.appId));
+  const usedTemplates = new Set(input.existingApps.map((a) => a.templateId));
+  const addedApps: SuiteAppInstance[] = [];
+
+  for (const app of packResult.appPack.apps) {
+    if (usedIds.has(app.appId)) continue;
+    if (usedTemplates.has(app.templateId)) continue;
+
+    const appId = allocateUniqueAppId(app.appId, usedIds);
+    usedIds.add(appId);
+    usedTemplates.add(app.templateId);
+    addedApps.push(appId === app.appId ? app : { ...app, appId });
+  }
+
+  const basePack: AppPackConfig = input.existingPack
+    ? {
+        ...input.existingPack,
+        apps: [...input.existingApps],
+        ceoOverview: input.existingPack.ceoOverview?.purpose
+          ? input.existingPack.ceoOverview
+          : packResult.appPack.ceoOverview,
+      }
+    : {
+        packId: packResult.appPack.packId,
+        name: packResult.appPack.name,
+        description: packResult.appPack.description,
+        apps: [...input.existingApps],
+        ceoOverview: packResult.appPack.ceoOverview,
+      };
+
+  const merged: AppPackConfig = {
+    ...basePack,
+    apps: [...basePack.apps, ...addedApps],
+  };
+
+  return {
+    success: true,
+    addedApps,
+    appPack: merged,
+    mode,
+    fellBack,
+  };
+}
+
 // ── Per-App Deployment ─────────────────────────────────────
 
 export interface DeploySuiteAppResult {
