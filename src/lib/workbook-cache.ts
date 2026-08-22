@@ -11,8 +11,14 @@
  * though AI Content Generation found it via the fallback chain below.
  *
  * Keep this list in sync with resolveWorkbook() in api/admin/ai-content.
+ *
+ * Also: process-local parsed WorkBook cache (Fluid Compute reuses instances).
+ * Callers must not permanently mutate a cached workbook — use
+ * withWorksheetOverlay() before applying custom-column overlays.
  */
 
+import { createHash } from 'node:crypto';
+import { read, type WorkBook, type WorkSheet } from 'xlsx';
 import { getCurrentAppId, getTenantConfig } from '@shared/lib/config/tenant';
 
 export const WORKBOOK_DATA_KEY = 'workbook_data';
@@ -32,6 +38,20 @@ export type CachedWorkbook = {
   appId: string;
 };
 
+/** TTL for in-memory parsed workbooks (Fluid Compute instance reuse). */
+const PARSED_TTL_MS = 5 * 60 * 1000;
+const PARSED_MAX_ENTRIES = 8;
+
+type ParsedWorkbookEntry = {
+  wb: WorkBook;
+  appId: string;
+  contentHash: string;
+  cellFormula: boolean;
+  expiresAt: number;
+};
+
+const parsedWorkbookCache = new Map<string, ParsedWorkbookEntry>();
+
 /**
  * Candidate appId keys, most-specific first.
  * Mirrors ai-content's resolveWorkbook DB fallback order.
@@ -48,7 +68,6 @@ export function workbookCacheAppIdCandidates(): string[] {
   candidates.push('');
   if (tenantSlug === 'tokenizmyapp') candidates.push('tokenizmyapp');
 
-  // Deduplicate while preserving order
   return [...new Set(candidates)];
 }
 
@@ -77,4 +96,94 @@ export async function findCachedWorkbook(
  */
 export function canonicalWorkbookAppId(): string {
   return getCurrentAppId();
+}
+
+/** Cheap content fingerprint for cache keys (length + head/tail sample). */
+export function workbookContentHash(contentBase64: string): string {
+  const len = contentBase64.length;
+  const head = contentBase64.slice(0, 2048);
+  const tail = len > 2048 ? contentBase64.slice(-2048) : '';
+  return createHash('sha256').update(`${len}\0${head}\0${tail}`).digest('hex');
+}
+
+function parsedCacheKey(appId: string, contentHash: string, cellFormula: boolean): string {
+  return `${appId}:${contentHash}:${cellFormula ? 'f1' : 'f0'}`;
+}
+
+function pruneParsedWorkbookCache(now: number): void {
+  for (const [key, entry] of parsedWorkbookCache) {
+    if (entry.expiresAt <= now) parsedWorkbookCache.delete(key);
+  }
+  while (parsedWorkbookCache.size > PARSED_MAX_ENTRIES) {
+    const oldest = parsedWorkbookCache.keys().next().value;
+    if (oldest === undefined) break;
+    parsedWorkbookCache.delete(oldest);
+  }
+}
+
+/**
+ * Decode + SheetJS-parse the cached workbook, reusing an in-process parse when
+ * the content hash matches (Fluid Compute warm instances).
+ *
+ * Do not permanently mutate the returned workbook — use withWorksheetOverlay.
+ */
+export function getParsedWorkbook(
+  contentBase64: string,
+  opts: { cellFormula: boolean; appId: string },
+): WorkBook {
+  const now = Date.now();
+  const contentHash = workbookContentHash(contentBase64);
+  const key = parsedCacheKey(opts.appId, contentHash, opts.cellFormula);
+  const hit = parsedWorkbookCache.get(key);
+  if (hit && hit.expiresAt > now) {
+    hit.expiresAt = now + PARSED_TTL_MS;
+    return hit.wb;
+  }
+
+  const buf = Buffer.from(contentBase64, 'base64');
+  const wb = read(buf, { type: 'buffer', cellFormula: opts.cellFormula });
+  parsedWorkbookCache.set(key, {
+    wb,
+    appId: opts.appId,
+    contentHash,
+    cellFormula: opts.cellFormula,
+    expiresAt: now + PARSED_TTL_MS,
+  });
+  pruneParsedWorkbookCache(now);
+  return wb;
+}
+
+/** Drop parsed entries after workbook_data is rewritten (cell update / upload). */
+export function invalidateParsedWorkbookCache(appId?: string): void {
+  if (appId === undefined) {
+    parsedWorkbookCache.clear();
+    return;
+  }
+  for (const [key, entry] of parsedWorkbookCache) {
+    if (entry.appId === appId || key.startsWith(`${appId}:`)) {
+      parsedWorkbookCache.delete(key);
+    }
+  }
+}
+
+/**
+ * Shallow-clone a worksheet onto the workbook for the duration of `fn`, then
+ * restore the original sheet so the process-local parse cache stays clean.
+ */
+export function withWorksheetOverlay<T>(
+  wb: WorkBook,
+  sheetName: string,
+  fn: (ws: WorkSheet) => T,
+): T {
+  const original = wb.Sheets[sheetName];
+  if (!original) {
+    throw new Error(`Worksheet "${sheetName}" not found`);
+  }
+  const clone: WorkSheet = { ...original };
+  wb.Sheets[sheetName] = clone;
+  try {
+    return fn(clone);
+  } finally {
+    wb.Sheets[sheetName] = original;
+  }
 }

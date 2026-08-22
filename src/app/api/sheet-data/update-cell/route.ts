@@ -3,7 +3,7 @@ import { PrismaClient } from '@/generated/prisma';
 import { read, write } from 'xlsx';
 import { applyCellUpdate } from '@/lib/workbook-cell-update';
 import { CUSTOM_COLUMNS_SNIPPET_KEY, parseCustomColumnsStore } from '@/lib/custom-columns';
-import { findCachedWorkbook } from '@/lib/workbook-cache';
+import { findCachedWorkbook, invalidateParsedWorkbookCache } from '@/lib/workbook-cache';
 
 export const dynamic = 'force-dynamic';
 
@@ -81,6 +81,8 @@ export async function POST(request: Request): Promise<NextResponse> {
       where: { key_appId: { key: 'workbook_data', appId: cacheAppId } },
       data: { content: base64Updated },
     });
+
+    invalidateParsedWorkbookCache(cacheAppId);
 
     return NextResponse.json({
       success: true,

@@ -7,8 +7,8 @@
  * Reads the cached workbook, detects the header row automatically, and returns
  * paginated sheet data as a JSON array of objects keyed by column header.
  *
- * Each row includes _excelCells mapping to preserve original Excel positions
- * even after sorting and filtering in the frontend DataGrid.
+ * Formula evaluation (when ?formulas=1) runs ONLY on the current page after
+ * sort + slice — never on the full sheet — to avoid 504s on large tabs (TB).
  */
 
 import { NextResponse } from 'next/server';
@@ -18,7 +18,12 @@ import { evaluateFormula } from '@/lib/excel-formula';
 import { findHeaderRow, buildColumnKeys } from '@/lib/workbook-mapping';
 import type { WorkbookFormulaMap } from '@/lib/workbook-formulas';
 import { sortSheetRows, type SheetSortBy } from '@/lib/sheet-data-sort';
-import { findCachedWorkbook } from '@/lib/workbook-cache';
+import {
+  findCachedWorkbook,
+  getParsedWorkbook,
+  invalidateParsedWorkbookCache,
+  withWorksheetOverlay,
+} from '@/lib/workbook-cache';
 import {
   CUSTOM_COLUMNS_SNIPPET_KEY,
   parseCustomColumnsStore,
@@ -27,16 +32,110 @@ import {
   applyCustomColumnOverlay,
   evaluateCustomColumnCell,
   virtualAddress,
+  type CustomColumn,
   type CustomColumnsStore,
 } from '@/lib/custom-columns';
 
 export const dynamic = 'force-dynamic';
-export const maxDuration = 30;
+/** Raised from 30s — large sheets still need headroom for parse + page formula eval. */
+export const maxDuration = 120;
 
 function getClient() {
   const url = process.env.POSTGRES_URL ?? process.env.DATABASE_URL;
   if (!url) throw new Error('POSTGRES_URL is not set');
   return new PrismaClient({ datasources: { db: { url } } });
+}
+
+type FormulaCellLookup = Map<string, { value?: unknown; unevaluable?: boolean }>;
+
+function buildFormulaCellLookup(
+  formulaMap: WorkbookFormulaMap | null,
+  tabName: string,
+): FormulaCellLookup {
+  const list = formulaMap?.[tabName]?.formulas;
+  if (!list?.length) return new Map();
+  const map: FormulaCellLookup = new Map();
+  for (const f of list) {
+    map.set(f.cell, f);
+  }
+  return map;
+}
+
+/** Attach Excel cell addresses + lightweight custom values (no formula eval). */
+function buildRowSkeleton(
+  row: Record<string, unknown>,
+  idx: number,
+  headerRow: number,
+  columnKeys: string[],
+  customs: CustomColumn[],
+): Record<string, unknown> {
+  const excelRow = headerRow + 1 + idx;
+  const rowWithRefs: Record<string, unknown> = {
+    ...row,
+    _excelRow: excelRow,
+  };
+
+  columnKeys.forEach((colKey, colIdx) => {
+    if (colKey.startsWith('__hidden_')) return;
+    rowWithRefs[`${colKey}_cell`] = utils.encode_cell({ r: excelRow, c: colIdx });
+  });
+
+  // Stored custom values only — formula evaluation happens after pagination.
+  customs.forEach((ccol) => {
+    rowWithRefs[`${ccol.name}_cell`] = virtualAddress(ccol, excelRow);
+    const stored = ccol.cells[String(excelRow)];
+    rowWithRefs[ccol.name] = stored?.value ?? '';
+  });
+
+  return rowWithRefs;
+}
+
+/** Live-evaluate formulas for one visible page row (mutates `row` in place). */
+function evaluateFormulasOnPageRow(
+  row: Record<string, unknown>,
+  wb: WorkBook,
+  ws: WorkSheet,
+  columnKeys: string[],
+  customs: CustomColumn[],
+  formulaByCell: FormulaCellLookup,
+): void {
+  const excelRow = Number(row._excelRow);
+  if (!Number.isFinite(excelRow)) return;
+
+  columnKeys.forEach((colKey, colIdx) => {
+    if (colKey.startsWith('__hidden_')) return;
+    const cellAddress = utils.encode_cell({ r: excelRow, c: colIdx });
+    const cell = ws[cellAddress];
+    if (!(cell && typeof cell.f === 'string' && cell.f.trim().length > 0)) return;
+
+    const formula = cell.f.startsWith('=') ? cell.f : '=' + cell.f;
+    row[`${colKey}_formula`] = formula;
+    const result = evaluateFormula(wb, ws, formula, 0, cellAddress);
+    row[`${colKey}_unevaluable`] = result.unevaluable;
+    if (!result.unevaluable) {
+      row[colKey] = result.value ?? '';
+      return;
+    }
+    const current = row[colKey];
+    if (current === '' || current === undefined || current === null) {
+      const mapped = formulaByCell.get(cellAddress);
+      if (mapped && !mapped.unevaluable && mapped.value !== undefined) {
+        row[colKey] = mapped.value;
+      }
+    }
+  });
+
+  customs.forEach((ccol) => {
+    const stored = ccol.cells[String(excelRow)];
+    if (stored?.formula && stored.formula.trim().length > 0) {
+      row[`${ccol.name}_formula`] = stored.formula.startsWith('=')
+        ? stored.formula
+        : '=' + stored.formula;
+    }
+    const customResult = evaluateCustomColumnCell(wb, ws, ccol, excelRow, true);
+    row[ccol.name] = customResult.value ?? '';
+    row[`${ccol.name}_unevaluable`] = customResult.unevaluable;
+  });
 }
 
 // ── GET handler ─────────────────────────────────────────
@@ -47,16 +146,8 @@ export async function GET(request: Request): Promise<NextResponse> {
   const page = Math.max(1, parseInt(searchParams.get('page') ?? '1', 10));
   const perPage = Math.min(1000, Math.max(1, parseInt(searchParams.get('perPage') ?? '200', 10)));
 
-  // Formula mode OFF by default: the GET reads the workbook WITHOUT parsing
-  // formula strings (cellFormula: false) and returns no `_formula` metadata,
-  // so table loads never trigger formula parsing/operations. When enabled
-  // (?formulas=1) formulas are read and attached as `<col>_formula`.
   const formulasEnabled = searchParams.get('formulas') === '1';
 
-  // Server-side sort: JSON array of [column, direction] pairs, e.g.
-  // sortBy=[["Amount","desc"],["Date","asc"]]. Sorting happens on the FULL
-  // filtered row set BEFORE pagination so the returned page is ordered by the
-  // entire column — including rows not loaded into the current page.
   let sortBy: SheetSortBy = [];
   try {
     const raw = searchParams.get('sortBy');
@@ -66,8 +157,10 @@ export async function GET(request: Request): Promise<NextResponse> {
         sortBy = parsed
           .filter(
             (e): e is [string, 'asc' | 'desc'] =>
-              Array.isArray(e) && e.length === 2 &&
-              typeof e[0] === 'string' && (e[1] === 'asc' || e[1] === 'desc'),
+              Array.isArray(e) &&
+              e.length === 2 &&
+              typeof e[0] === 'string' &&
+              (e[1] === 'asc' || e[1] === 'desc'),
           )
           .slice(0, 3);
       }
@@ -82,19 +175,21 @@ export async function GET(request: Request): Promise<NextResponse> {
 
   const prisma = getClient();
   try {
-    // Resolve via historical appId fallbacks (seed uses '', upload used tenant slug).
     const cached = await findCachedWorkbook(prisma);
     if (!cached?.content) {
-      return NextResponse.json({ error: 'No workbook cached. Upload the workbook via Config > Source first.' }, { status: 404 });
+      return NextResponse.json(
+        { error: 'No workbook cached. Upload the workbook via Config > Source first.' },
+        { status: 404 },
+      );
     }
     const cacheAppId = cached.appId;
 
-    const buf = Buffer.from(cached.content, 'base64');
-    const wb = read(buf, { type: 'buffer', cellFormula: formulasEnabled });
+    // Process-local parse cache — avoids re-decoding/parsing on warm instances.
+    const wb = getParsedWorkbook(cached.content, {
+      cellFormula: formulasEnabled,
+      appId: cacheAppId,
+    });
 
-    // Import-time formula inventory (knowledge_snippets.workbook_formulas).
-    // Used as a value fallback for formula cells the live evaluator cannot
-    // compute; every reference inside it is mapped to DB-sheet coordinates.
     let formulaMap: WorkbookFormulaMap | null = null;
     if (formulasEnabled) {
       try {
@@ -107,22 +202,19 @@ export async function GET(request: Request): Promise<NextResponse> {
       }
     }
 
-    const tabName = wb.SheetNames?.find((n) => 
-      typeof n === "string" && n.toLowerCase() === sheetName.toLowerCase()
+    const tabName = wb.SheetNames?.find(
+      (n) => typeof n === 'string' && n.toLowerCase() === sheetName.toLowerCase(),
     );
     if (!tabName) {
-      return NextResponse.json({
-        error: `Sheet "${sheetName}" not found`,
-        availableSheets: wb.SheetNames,
-      }, { status: 404 });
+      return NextResponse.json(
+        {
+          error: `Sheet "${sheetName}" not found`,
+          availableSheets: wb.SheetNames,
+        },
+        { status: 404 },
+      );
     }
 
-    const ws = wb.Sheets[tabName]!;
-
-    // Custom-column overlay store (knowledge_snippets.workbook_custom_columns).
-    // Custom columns are NEVER written into the workbook buffer, so Excel
-    // column indices (and every formula reference) are preserved no matter how
-    // many custom columns are inserted.
     let customStore: CustomColumnsStore = parseCustomColumnsStore(null);
     try {
       const customSnippet = await prisma.knowledgeSnippet.findUnique({
@@ -134,137 +226,74 @@ export async function GET(request: Request): Promise<NextResponse> {
     }
     const customs = resolveSheetColumns(customStore, tabName);
 
-    // Detect the correct header row
-    const { headerRow, headers } = findHeaderRow(ws);
+    const buildPayload = (ws: WorkSheet) => {
+      const { headerRow, headers } = findHeaderRow(ws);
+      const columnKeys = buildColumnKeys(headers);
+      const columns = columnKeys.filter((k) => !k.startsWith('__hidden_'));
 
-    // Build clean column keys with deduplication
-    const columnKeys = buildColumnKeys(headers);
+      const allRows = utils.sheet_to_json<Record<string, unknown>>(ws, {
+        header: columnKeys,
+        defval: '',
+        range: headerRow + 1,
+      });
 
-    const columns = columnKeys.filter((k) => !k.startsWith('__hidden_'));
+      const dataRows = allRows.filter((row) => {
+        const filled = Object.entries(row).filter(([, v]) => v !== '' && v !== undefined && v !== null);
+        const naOnly = filled.every(([, v]) => String(v) === '#N/A');
+        if (filled.length === 0 || naOnly) return false;
 
-    // Parse data using deduplicated column keys
-    const allRows = utils.sheet_to_json<Record<string, unknown>>(ws, {
-      header: columnKeys,
-      defval: '',
-      range: headerRow + 1 // Skip header row
-    });
+        const isHeader =
+          filled.length === columns.length && columns.every((c) => String(row[c] ?? '') === c);
+        return !isHeader;
+      });
 
-    // Remove empty or metadata rows
-    const dataRows = allRows.filter((row) => {
-      const filled = Object.entries(row).filter(([, v]) => v !== '' && v !== undefined && v !== null);
-      const naOnly = filled.every(([, v]) => String(v) === '#N/A');
-      if (filled.length === 0 || naOnly) return false;
-      
-      const isHeader = filled.length === columns.length && 
-                      columns.every((c) => String(row[c] ?? '') === c);
-      return !isHeader;
-    });
+      // Skeleton for ALL rows (addresses + cached values) — no formula eval yet.
+      // Sort uses Excel-cached values so global order stays correct without
+      // re-evaluating every formula on the sheet.
+      const rowsWithCellRefs = dataRows.map((row, idx) =>
+        buildRowSkeleton(row, idx, headerRow, columnKeys, customs),
+      );
 
-    // Apply the custom-column overlay AFTER sheet_to_json (so virtual cells can
-    // never leak into the workbook JSON) and BEFORE formula evaluation (so
-    // formulas — workbook or custom — can reference custom-column cells).
-    // In-memory only; workbook_data in the DB is never touched.
-    applyCustomColumnOverlay(wb, customStore, tabName);
+      const totalRows = rowsWithCellRefs.length;
+      const totalPages = Math.ceil(totalRows / perPage);
 
-    // Add original Excel cell references to each row
-    // This ensures that after sorting/filtering in the frontend, we can still map back to the correct Excel cell
-    // CRITICAL: Use columnKeys (not columns) for the Excel column index to preserve correct cell positions
-    const rowsWithCellRefs = dataRows.map((row, idx) => {
-      const excelRow = headerRow + 1 + idx; // Excel is 1-based
-      const rowWithRefs: Record<string, unknown> = { 
-        ...row, 
-        _excelRow: excelRow 
+      const sortedRows = sortSheetRows(rowsWithCellRefs as Array<Record<string, unknown>>, sortBy);
+      const startIdx = (page - 1) * perPage;
+      const pageRows = sortedRows.slice(startIdx, startIdx + perPage);
+
+      if (formulasEnabled) {
+        // Materialize custom cells for formula refs; skip full-sheet pass-2 eval.
+        applyCustomColumnOverlay(wb, customStore, tabName, { evaluateFormulas: false });
+        const formulaByCell = buildFormulaCellLookup(formulaMap, tabName);
+        for (const row of pageRows) {
+          evaluateFormulasOnPageRow(row, wb, ws, columnKeys, customs, formulaByCell);
+        }
+      } else {
+        // Still attach stored custom values (already in skeleton).
+      }
+
+      const rows = pageRows.map((r, i) => ({
+        ...r,
+        _rowIndex: startIdx + i + 1,
+      }));
+
+      return {
+        sheet: tabName,
+        headerRow,
+        columns: mergeColumnOrder(columns, customs),
+        rows,
+        totalRows,
+        returnedRows: rows.length,
+        page,
+        perPage,
+        totalPages,
       };
-
-      // Add cell reference for each column using the ORIGINAL columnKeys index
-      // (which matches the actual Excel column position, including hidden columns)
-      columnKeys.forEach((colKey, colIdx) => {
-        if (colKey.startsWith("__hidden_")) return; // skip hidden columns
-        const cellAddress = utils.encode_cell({ r: excelRow, c: colIdx });
-        rowWithRefs[`${colKey}_cell`] = cellAddress;
-        // Formula strings are only attached when formula mode is enabled;
-        // the default load returns cached values only (no formula parsing).
-        if (formulasEnabled) {
-          const cell = ws[cellAddress];
-          // Excel stores formulas WITHOUT the leading "=" (OOXML); normalize to
-          // "=..." so the frontend formula editor/display treats it as a formula.
-          if (cell && typeof cell.f === 'string' && cell.f.trim().length > 0) {
-            const formula = cell.f.startsWith('=') ? cell.f : '=' + cell.f;
-            rowWithRefs[`${colKey}_formula`] = formula;
-            // Compute the formula's value against the DB-saved sheet data so
-            // formula cells keep showing values (never formula text) unless the
-            // cell is being edited. Falls back to the cached xlsx value, then to
-            // the import-time formula map snapshot.
-            const result = evaluateFormula(wb, ws, formula, 0, cellAddress);
-            rowWithRefs[`${colKey}_unevaluable`] = result.unevaluable;
-            if (!result.unevaluable) {
-              rowWithRefs[colKey] = result.value ?? '';
-            } else {
-              const current = rowWithRefs[colKey];
-              if (current === '' || current === undefined || current === null) {
-                const mapped = formulaMap?.[tabName]?.formulas?.find((f) => f.cell === cellAddress);
-                if (mapped && !mapped.unevaluable && mapped.value !== undefined) {
-                  rowWithRefs[colKey] = mapped.value;
-                }
-              }
-            }
-          }
-        }
-      });
-
-      // Attach custom-column (overlay) cells for this row. Same 1-based Excel
-      // row as the workbook row; virtual addresses never collide with real
-      // cells, so custom-column formulas resolve to the transient overlay.
-      customs.forEach((ccol) => {
-        const cellKey = String(excelRow);
-        rowWithRefs[`${ccol.name}_cell`] = virtualAddress(ccol, excelRow);
-        const stored = ccol.cells[cellKey];
-        if (formulasEnabled && stored?.formula && stored.formula.trim().length > 0) {
-          rowWithRefs[`${ccol.name}_formula`] = stored.formula.startsWith('=')
-            ? stored.formula
-            : '=' + stored.formula;
-        }
-        const customResult = evaluateCustomColumnCell(wb, ws, ccol, excelRow, formulasEnabled);
-        rowWithRefs[ccol.name] = customResult.value ?? '';
-        rowWithRefs[`${ccol.name}_unevaluable`] = customResult.unevaluable;
-      });
-
-      return rowWithRefs;
-    });
-
-    const totalRows = rowsWithCellRefs.length;
-    const totalPages = Math.ceil(totalRows / perPage);
-
-    // Sort the ENTIRE filtered row set (all pages) before slicing, so the
-    // current page arrives in globally-correct order — the sort query hits the
-    // backend and covers every row of the column, not just the loaded page.
-    const sortedRows = sortSheetRows(rowsWithCellRefs as Array<Record<string, unknown>>, sortBy);
-
-    const startIdx = (page - 1) * perPage;
-    const rows = sortedRows.slice(startIdx, startIdx + perPage).map((r, i) => ({
-      ...(r as object),
-      // 1-based position in the GLOBALLY sorted order — unique row id for the
-      // grid and stable across pages; _excelRow still points at the original
-      // Excel cell for edits.
-      _rowIndex: startIdx + i + 1,
-    }));
-
-    const data = {
-      sheet: tabName,
-      headerRow,
-      // Merge custom columns at their display positions; workbook columns keep
-      // their original order/indices (formulas referencing them are unaffected).
-      columns: mergeColumnOrder(columns, customs),
-      rows,
-      totalRows,
-      returnedRows: rows.length,
-      page,
-      perPage,
-      totalPages,
     };
 
-    return NextResponse.json({ success: true, data });
+    // Isolate overlay mutations from the process-local parse cache.
+    const data = withWorksheetOverlay(wb, tabName, buildPayload);
 
+    return NextResponse.json({ success: true, data });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     return NextResponse.json({ error: message }, { status: 500 });
@@ -281,35 +310,49 @@ export async function POST(request: Request): Promise<NextResponse> {
     const body = await request.json();
     const { sheet, rowIndex, column, value, _excelCell } = body;
 
-    console.log("[sheet-data/update-cell] Received payload:", { 
-      sheet, rowIndex, column, value, _excelCell 
+    console.log('[sheet-data/update-cell] Received payload:', {
+      sheet,
+      rowIndex,
+      column,
+      value,
+      _excelCell,
     });
 
     if (!sheet || (!rowIndex && !_excelCell) || !column) {
-      return NextResponse.json({ 
-        error: 'Missing required fields: sheet, rowIndex/_cell, column' 
-      }, { status: 400 });
+      return NextResponse.json(
+        {
+          error: 'Missing required fields: sheet, rowIndex/_cell, column',
+        },
+        { status: 400 },
+      );
     }
 
     const cached = await findCachedWorkbook(prisma);
     if (!cached?.content) {
-      return NextResponse.json({ 
-        error: 'No workbook cached. Upload via Config > Source first.' 
-      }, { status: 404 });
+      return NextResponse.json(
+        {
+          error: 'No workbook cached. Upload via Config > Source first.',
+        },
+        { status: 404 },
+      );
     }
     const cacheAppId = cached.appId;
 
+    // Writes must not mutate the shared GET parse cache — parse a private copy.
     const buf = Buffer.from(cached.content, 'base64');
     const wb = read(buf, { type: 'buffer', cellFormula: true });
 
-    const tabName = wb.SheetNames?.find((n) => 
-      typeof n === "string" && n.toLowerCase() === sheet.toLowerCase()
+    const tabName = wb.SheetNames?.find(
+      (n) => typeof n === 'string' && n.toLowerCase() === sheet.toLowerCase(),
     );
     if (!tabName) {
-      return NextResponse.json({ 
-        error: `Sheet "${sheet}" not found`,
-        availableSheets: wb.SheetNames || [] 
-      }, { status: 404 });
+      return NextResponse.json(
+        {
+          error: `Sheet "${sheet}" not found`,
+          availableSheets: wb.SheetNames || [],
+        },
+        { status: 404 },
+      );
     }
 
     const ws = wb.Sheets?.[tabName];
@@ -320,37 +363,36 @@ export async function POST(request: Request): Promise<NextResponse> {
     let cellAddress: string;
 
     if (_excelCell) {
-      // Use the original Excel cell reference if provided (preferred)
       cellAddress = _excelCell;
       console.log(`[sheet-data/update-cell] Using original Excel cell: ${cellAddress}`);
     } else {
-      // Fallback: calculate from rowIndex and column (for backward compatibility)
       const { headers: rawHeaders } = findHeaderRow(ws);
       const columnKeys = buildColumnKeys(rawHeaders);
 
       const colIndex = columnKeys.findIndex((key, idx) => {
         const rawHeader = String(rawHeaders[idx] ?? '').trim();
         const searchColumn = String(column ?? '').trim();
-        return rawHeader === searchColumn || 
-               key.toLowerCase() === searchColumn.toLowerCase() ||
-               rawHeader.toLowerCase().replace(/\s+/g, '') === searchColumn.toLowerCase().replace(/\s+/g, '') ||
-               key.toLowerCase().replace(/\s+/g, '') === searchColumn.toLowerCase().replace(/\s+/g, '');
+        return (
+          rawHeader === searchColumn ||
+          key.toLowerCase() === searchColumn.toLowerCase() ||
+          rawHeader.toLowerCase().replace(/\s+/g, '') === searchColumn.toLowerCase().replace(/\s+/g, '') ||
+          key.toLowerCase().replace(/\s+/g, '') === searchColumn.toLowerCase().replace(/\s+/g, '')
+        );
       });
 
       if (colIndex === -1) {
-        return NextResponse.json({ 
-          error: `Column "${column}" not found in sheet "${sheet}". Available: ${columnKeys.filter(k => !k.startsWith('__hidden_')).join(', ')}` 
-        }, { status: 400 });
+        return NextResponse.json(
+          {
+            error: `Column "${column}" not found in sheet "${sheet}". Available: ${columnKeys.filter((k) => !k.startsWith('__hidden_')).join(', ')}`,
+          },
+          { status: 400 },
+        );
       }
 
       const excelRow = Number(rowIndex) + 1;
       cellAddress = utils.encode_cell({ r: excelRow, c: colIndex });
     }
 
-    // Excel formula support: when the edited value starts with "=" the cell
-    // stores a formula (f) and the calculated result (v) when evaluable.
-    // Unevaluable formulas (VLOOKUP, CHOOSE, cross-sheet exotic, ...) are stored
-    // without a cached value — Excel recalculates them on open.
     const isFormula = typeof value === 'string' && value.trim().startsWith('=');
     let responseValue: unknown = value;
     let formula: string | undefined;
@@ -361,9 +403,11 @@ export async function POST(request: Request): Promise<NextResponse> {
       const storedFormula = formula.replace(/^=/, '');
       const result = evaluateFormula(wb, ws, formula, 0, cellAddress);
       unevaluable = result.unevaluable;
-      // Ensure Excel recalculates all formulas when the workbook is next opened
-      // (cached values written by SheetJS may be stale for unevaluable formulas).
-      if (wb.Workbook) (wb.Workbook as unknown as { CalcPr: { fullCalcOnLoad: boolean } }).CalcPr = { fullCalcOnLoad: true };
+      if (wb.Workbook) {
+        (wb.Workbook as unknown as { CalcPr: { fullCalcOnLoad: boolean } }).CalcPr = {
+          fullCalcOnLoad: true,
+        };
+      }
       if (!unevaluable) {
         responseValue = result.value;
         if (typeof responseValue === 'number') {
@@ -373,8 +417,6 @@ export async function POST(request: Request): Promise<NextResponse> {
           ws[cellAddress] = { f: storedFormula, v: strVal, t: 's', w: strVal };
         }
       } else {
-        // SheetJS drops formula-only cells on read (f without v), so keep the
-        // previous cached value to preserve the cell; Excel recalcs on open.
         const prev = ws[cellAddress]?.v;
         ws[cellAddress] = {
           f: storedFormula,
@@ -385,7 +427,6 @@ export async function POST(request: Request): Promise<NextResponse> {
       }
     } else {
       const cellValue = typeof value === 'number' ? value : String(value || '');
-      // Replacing the whole cell object also clears any previous formula
       ws[cellAddress] = {
         v: cellValue,
         t: typeof value === 'number' ? 'n' : 's',
@@ -401,6 +442,9 @@ export async function POST(request: Request): Promise<NextResponse> {
       data: { content: base64Updated },
     });
 
+    // Cached parse is stale after persist — drop it so the next GET re-parses.
+    invalidateParsedWorkbookCache(cacheAppId);
+
     return NextResponse.json({
       success: true,
       message: `Updated ${sheet}!${cellAddress}`,
@@ -409,7 +453,6 @@ export async function POST(request: Request): Promise<NextResponse> {
       formula,
       unevaluable,
     });
-
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     console.error('[sheet-data/update-cell] Error:', message);

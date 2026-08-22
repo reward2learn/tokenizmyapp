@@ -157,14 +157,19 @@ export function mergeColumnOrder(
  * formula shells with their stored value), pass 2 computes each formula cell
  * so cross-custom-column references resolve through the transient sheet's
  * cached values — exactly how Excel stores f + v.
+ *
+ * Pass `evaluateFormulas: false` to skip pass 2 when the caller will evaluate
+ * only a paginated subset of cells (avoids O(all custom formulas) on big sheets).
  */
 export function applyCustomColumnOverlay(
   wb: WorkBook,
   store: CustomColumnsStore,
   sheet: string,
+  opts?: { evaluateFormulas?: boolean },
 ): void {
   const ws = wb.Sheets[sheet];
   if (!ws) return;
+  const evaluateFormulas = opts?.evaluateFormulas !== false;
   const formulaCells: Array<{ addr: string; formula: string }> = [];
 
   // Pass 1: materialize cells.
@@ -189,6 +194,8 @@ export function applyCustomColumnOverlay(
       }
     }
   }
+
+  if (!evaluateFormulas) return;
 
   // Pass 2: compute formula cells so references (workbook → custom, custom →
   // custom) resolve through cached values, mirroring Excel's f + v model.

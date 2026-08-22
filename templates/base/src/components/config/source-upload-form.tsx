@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useForm } from 'react-hook-form';
 import Accordion from '@mui/material/Accordion';
 import AccordionDetails from '@mui/material/AccordionDetails';
@@ -10,6 +10,7 @@ import Box from '@mui/material/Box';
 import Button from '@mui/material/Button';
 import Chip from '@mui/material/Chip';
 import CircularProgress from '@mui/material/CircularProgress';
+import LinearProgress from '@mui/material/LinearProgress';
 import Paper from '@mui/material/Paper';
 import Stack from '@mui/material/Stack';
 import Table from '@mui/material/Table';
@@ -23,14 +24,26 @@ import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import DescriptionIcon from '@mui/icons-material/Description';
 import SummarizeIcon from '@mui/icons-material/Summarize';
 import {
+  ProcessStepTimeline,
+  RESEED_SYNC_STEPS,
+  RESEED_WORKFLOW_STEPS,
+} from '@/components/config/process-step-timeline';
+import { SheetSeedProgressList } from '@/components/config/sheet-seed-progress-list';
+import {
+  mergeSheetStatuses,
+  sheetStatusesFromNames,
+  type SheetSeedStatus,
+} from '@/lib/sheet-seed-progress';
+import {
   CONFIG_UPLOAD_FIELD_NAMES,
   hasAnyUpload,
   validateExcelUpload,
   validateMarkdownUpload,
 } from '@/lib/config/upload-validation';
-import { useReseedFromSourcesMutation, useReprocessFromCacheMutation, useGetSeedDetailsQuery } from '@/store/apis/config-api';
+import { useReseedFromSourcesMutation, useReprocessFromCacheMutation, useGetSeedDetailsQuery, useLazyGetReseedWorkflowStatusQuery } from '@/store/apis/config-api';
+import type { WorkflowAcceptedResponse } from '@/store/apis/config-api';
 import type { ReseedResponse } from '@/app/api/config/reseed/route';
-import type { ReprocessResponse } from '@/app/api/config/reprocess/route';
+
 
 interface SourceUploadFormValues {
   excel: FileList | null;
@@ -102,6 +115,20 @@ export function SourceUploadForm({ showSummaryOnly }: { showSummaryOnly?: boolea
     businessReview: null,
     executiveSummary: null,
   });
+  const [workflowRunId, setWorkflowRunId] = useState<string | null>(null);
+  const [workflowProgress, setWorkflowProgress] = useState<{
+    step: string;
+    message: string;
+    pct: number;
+    detail?: { tabNames?: string[]; sheets?: number; sheetStatuses?: SheetSeedStatus[] };
+  } | null>(null);
+  const [sheetStatuses, setSheetStatuses] = useState<SheetSeedStatus[]>([]);
+  const [workflowComplete, setWorkflowComplete] = useState(false);
+  /** Local phases before/without durable workflow SSE (upload submit + reprocess). */
+  const [syncStep, setSyncStep] = useState<string | null>(null);
+  const [syncError, setSyncError] = useState(false);
+  const eventSourceRef = useRef<EventSource | null>(null);
+  const [triggerStatus] = useLazyGetReseedWorkflowStatusQuery();
 
   const {
     register,
@@ -153,7 +180,30 @@ export function SourceUploadForm({ showSummaryOnly }: { showSummaryOnly?: boolea
     }
 
     resetMutation();
-    await reseed(formData).unwrap();
+    setWorkflowRunId(null);
+    setWorkflowProgress(null);
+    setSheetStatuses([]);
+    setWorkflowComplete(false);
+    setSyncStep('uploading');
+    setSyncError(false);
+
+    try {
+      setSyncStep('seeding');
+      const result = await reseed(formData).unwrap();
+      if (result.success && (result.data as unknown as WorkflowAcceptedResponse)?.runId) {
+        const accepted = result.data as unknown as WorkflowAcceptedResponse;
+        setSyncStep('accepted');
+        setWorkflowRunId(accepted.runId);
+        startProgressStream(accepted.runId);
+      } else {
+        setSyncStep('accepted');
+        setWorkflowComplete(true);
+      }
+    } catch {
+      setSyncError(true);
+      // error handled by mutation state
+    }
+
     reset();
     setFieldStatus({ excel: null, businessReview: null, executiveSummary: null });
   };
@@ -177,6 +227,55 @@ export function SourceUploadForm({ showSummaryOnly }: { showSummaryOnly?: boolea
     setFieldStatus((prev) => ({ ...prev, [field]: message }));
   };
 
+  function startProgressStream(runId: string) {
+    if (eventSourceRef.current) {
+      eventSourceRef.current.close();
+    }
+
+    const es = new EventSource(`/api/config/reseed/stream?runId=${runId}`);
+    eventSourceRef.current = es;
+
+    es.onmessage = (event) => {
+      try {
+        const chunk = JSON.parse(event.data) as {
+          step: string;
+          message: string;
+          pct: number;
+          detail?: { tabNames?: string[]; sheets?: number; sheetStatuses?: SheetSeedStatus[] };
+        };
+        setWorkflowProgress(chunk);
+        const incoming = chunk.detail?.sheetStatuses;
+        const names = chunk.detail?.tabNames;
+        setSheetStatuses((prev) => {
+          const seeded =
+            !prev.length && names?.length ? sheetStatusesFromNames(names) : prev;
+          return mergeSheetStatuses(seeded, incoming);
+        });
+        if (chunk.pct === 100) {
+          es.close();
+          setWorkflowComplete(true);
+        }
+      } catch {
+        // non-JSON message (keep-alive or heartbeat) — ignore
+      }
+    };
+
+    es.onerror = () => {
+      es.close();
+      pollUntilComplete(runId);
+    };
+  }
+
+  function pollUntilComplete(runId: string) {
+    const interval = setInterval(async () => {
+      const status = await triggerStatus(runId).unwrap();
+      if (status.status === 'completed' || status.status === 'failed') {
+        clearInterval(interval);
+        setWorkflowComplete(true);
+      }
+    }, 2000);
+  }
+
   const result: ReseedResponse | undefined = data?.success ? data.data : undefined;
   const apiError =
     isError && error && 'data' in error
@@ -189,12 +288,12 @@ export function SourceUploadForm({ showSummaryOnly }: { showSummaryOnly?: boolea
     <Box component="section" sx={{ maxWidth: 720, mx: 'auto', py: 4, px: 2 }}>
       {!showSummaryOnly ? (
         <>
-          <Typography variant="h4" sx={{ fontWeight: 800, mb: 1 }}>
-            Source Config
+          <Typography variant="subtitle1" sx={{ fontWeight: 700, mb: 1 }}>
+            Workbook &amp; source files
           </Typography>
           <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
             Upload one or more source files to replace on disk and re-run the database seed pipeline.
-            Omitted files keep their existing copies.
+            Omitted files keep their existing copies. After seeding finishes, continue to Review Data.
           </Typography>
 
           <Paper variant="outlined" sx={{ p: 3, mb: 3 }}>
@@ -290,7 +389,19 @@ export function SourceUploadForm({ showSummaryOnly }: { showSummaryOnly?: boolea
                 color="secondary"
                 disabled={isReprocessing}
                 startIcon={isReprocessing ? <CircularProgress size={18} color="inherit" /> : undefined}
-                onClick={() => { resetReprocess(); void reprocess(); }}
+                onClick={async () => {
+                  resetReprocess();
+                  setSyncStep('seeding');
+                  setSyncError(false);
+                  setWorkflowComplete(false);
+                  try {
+                    await reprocess().unwrap();
+                    setSyncStep('accepted');
+                    setWorkflowComplete(true);
+                  } catch {
+                    setSyncError(true);
+                  }
+                }}
                 data-testid="reprocess-btn"
               >
                 {isReprocessing ? 'Reprocessing…' : 'Reprocess from cache'}
@@ -327,6 +438,80 @@ export function SourceUploadForm({ showSummaryOnly }: { showSummaryOnly?: boolea
       {isReprocessSuccess && reprocessData?.success && reprocessData.data ? (
         <SeedSummary result={reprocessData.data} />
       ) : null}
+
+      {/* ── Upload / sync phase timeline ──────────────────── */}
+      {syncStep && !workflowRunId ? (
+        <Paper variant="outlined" sx={{ p: 2, mb: 2 }} data-testid="reseed-sync-progress">
+          <Typography variant="subtitle2" sx={{ fontWeight: 700, mb: 1.5 }}>
+            Upload &amp; reseed progress
+          </Typography>
+          <ProcessStepTimeline
+            steps={RESEED_SYNC_STEPS}
+            currentStep={syncStep}
+            activeMessage={
+              syncStep === 'uploading'
+                ? 'Sending workbooks and markdown to the server…'
+                : syncStep === 'seeding'
+                  ? 'Parsing sources and writing projections, pages, and snippets…'
+                  : 'Seed finished — waiting for sheet ingest…'
+            }
+            complete={workflowComplete && !syncError}
+            errored={syncError}
+          />
+          {(isLoading || isReprocessing) && !syncError ? (
+            <LinearProgress sx={{ mt: 2 }} />
+          ) : null}
+        </Paper>
+      ) : null}
+
+      {/* ── Durable workbook ingest step timeline (SSE) ───── */}
+      {workflowRunId && !workflowComplete ? (
+        <Paper variant="outlined" sx={{ p: 2, mb: 2, bgcolor: 'rgba(10,249,254,0.04)' }} data-testid="reseed-workflow-progress">
+          <Stack spacing={1.5}>
+            <Typography variant="subtitle2" sx={{ fontWeight: 700 }}>
+              Workbook ingest — per-step status
+            </Typography>
+            <Typography variant="caption" sx={{ fontFamily: 'monospace', color: 'text.secondary' }}>
+              Run: {workflowRunId}
+            </Typography>
+            <LinearProgress variant="determinate" value={workflowProgress?.pct ?? 0} />
+            <Typography variant="body2" color="text.secondary">
+              {workflowProgress?.message ?? 'Starting workflow…'}
+            </Typography>
+            <SheetSeedProgressList sheets={sheetStatuses} />
+            <ProcessStepTimeline
+              steps={RESEED_WORKFLOW_STEPS}
+              currentStep={workflowProgress?.step ?? 'started'}
+              activeMessage={workflowProgress?.message}
+              complete={false}
+              errored={false}
+            />
+            {Array.isArray(workflowProgress?.detail?.tabNames) && workflowProgress.detail.tabNames.length > 0 ? (
+              <Stack direction="row" spacing={0.75} sx={{ flexWrap: 'wrap', gap: 0.75 }}>
+                <Typography variant="caption" color="text.secondary" sx={{ width: '100%' }}>
+                  Sheets detected
+                </Typography>
+                {workflowProgress.detail.tabNames.map((name) => (
+                  <Chip
+                    key={name}
+                    size="small"
+                    label={name}
+                    color={workflowProgress.step === 'extracting' || workflowProgress.step === 'analyzing' ? 'primary' : 'default'}
+                    variant={workflowProgress.step === 'extracting' ? 'filled' : 'outlined'}
+                  />
+                ))}
+              </Stack>
+            ) : null}
+          </Stack>
+        </Paper>
+      ) : null}
+      {workflowComplete && (workflowRunId || syncStep) ? (
+        <Alert severity="success" sx={{ mb: 2 }} role="status" data-testid="reseed-complete">
+          {workflowRunId
+            ? 'Workbook ingest completed. Home, sheet pages, and seeded data are ready — refresh to view.'
+            : 'Database reseeded successfully.'}
+        </Alert>
+      ) : null}
     </Box>
   );
 }
@@ -359,6 +544,7 @@ const TABLE_LABELS: Record<string, string> = {
   tasks: 'Tasks',
   roles: 'Roles',
   monthlyTargets: 'Monthly Targets',
+  levers: 'Levers',
   actionItems: 'Action Items',
   financialProjections: 'Financial Projections',
 };
@@ -369,7 +555,7 @@ function SeedSummary({ result }: { result: ReseedResponse }) {
   const [expandedTable, setExpandedTable] = useState<string | null>(null);
   const [showAiContent, setShowAiContent] = useState(false);
 
-  const { data: seedDetailsData, isLoading: detailsLoading } = useGetSeedDetailsQuery();
+  const { data: seedDetailsData } = useGetSeedDetailsQuery();
 
   useEffect(() => {
     if (seedDetailsData?.success) {
@@ -511,7 +697,6 @@ function SeedSummary({ result }: { result: ReseedResponse }) {
               <TableRow>
                 <TableCell>Code</TableCell>
                 <TableCell>Name</TableCell>
-                <TableCell>Email</TableCell>
               </TableRow>
             </TableHead>
             <TableBody>
@@ -519,7 +704,6 @@ function SeedSummary({ result }: { result: ReseedResponse }) {
                 <TableRow key={r.code}>
                   <TableCell>{r.code}</TableCell>
                   <TableCell>{r.name}</TableCell>
-                  <TableCell>{r.email ?? '—'}</TableCell>
                 </TableRow>
               ))}
             </TableBody>

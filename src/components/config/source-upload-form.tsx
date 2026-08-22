@@ -288,12 +288,12 @@ export function SourceUploadForm({ showSummaryOnly }: { showSummaryOnly?: boolea
     <Box component="section" sx={{ maxWidth: 720, mx: 'auto', py: 4, px: 2 }}>
       {!showSummaryOnly ? (
         <>
-          <Typography variant="h4" sx={{ fontWeight: 800, mb: 1 }}>
-            Source Config
+          <Typography variant="subtitle1" sx={{ fontWeight: 700, mb: 1 }}>
+            Workbook &amp; source files
           </Typography>
           <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
             Upload one or more source files to replace on disk and re-run the database seed pipeline.
-            Omitted files keep their existing copies.
+            Omitted files keep their existing copies. After seeding finishes, continue to Review Data.
           </Typography>
 
           <Paper variant="outlined" sx={{ p: 3, mb: 3 }}>
