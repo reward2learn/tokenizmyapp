@@ -20,6 +20,7 @@ import {
 import {
   diagnoseWebhookSecretEnv,
   getProjectEnvValues,
+  replaceStripeWebhookSecretOnProject,
 } from '@/domain/tenant/vercel-stripe-marketplace-service';
 
 export const REQUIRED_SNAPSHOT_WEBHOOK_EVENTS = [
@@ -294,10 +295,51 @@ export async function runStripeWebhookHealthCheck(input: {
   skipStripeTrigger?: boolean;
   /** Tenant metadata whsec — used to explain metadata vs Vercel mismatches. */
   metadataWebhookSecret?: string | null;
+  /** When true (default), push metadata whsec to Vercel if API still shows eyJ…. */
+  autoRepair?: boolean;
 }): Promise<StripeWebhookHealthResult> {
   const webhookUrl = FACTORY_WEBHOOK_URL;
   const factoryProjectId = FACTORY_VERCEL_PROJECT_ID;
   const steps: StripeWebhookHealthStep[] = [];
+
+  const metaWhsec = input.metadataWebhookSecret?.trim();
+  if (metaWhsec?.startsWith('whsec_') && input.autoRepair !== false) {
+    try {
+      const before = await diagnoseWebhookSecretEnv(factoryProjectId);
+      if (before.selectedPrefix === 'eyJ' || before.selectedPrefix === 'other') {
+        const repaired = await replaceStripeWebhookSecretOnProject(factoryProjectId, metaWhsec);
+        if (repaired.verifyPrefix === 'whsec') {
+          steps.push({
+            id: 'vercel-webhook-repair',
+            label: 'Vercel webhook secret repair',
+            status: 'pass',
+            ok: true,
+            message:
+              `Pushed tenant whsec_ to Vercel (removed ${repaired.deleted} old row(s)). ` +
+              'Redeploy tokenizmyapp so /api/webhooks/stripe runtime picks up the new secret.',
+          });
+        } else {
+          steps.push({
+            id: 'vercel-webhook-repair',
+            label: 'Vercel webhook secret repair',
+            status: 'fail',
+            ok: false,
+            message:
+              `Attempted to replace Marketplace eyJ… row but Vercel still reports ${repaired.verifyPrefix}. ` +
+              'Try Organization & Billing → Save Changes, or remove Stripe integration webhook override in Vercel.',
+          });
+        }
+      }
+    } catch (err) {
+      steps.push({
+        id: 'vercel-webhook-repair',
+        label: 'Vercel webhook secret repair',
+        status: 'fail',
+        ok: false,
+        message: `Auto-repair failed: ${err instanceof Error ? err.message : String(err)}`,
+      });
+    }
+  }
 
   const stripe = getStripe();
   if (!stripe) {

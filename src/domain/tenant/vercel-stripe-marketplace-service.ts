@@ -158,18 +158,77 @@ export async function purgeMarketplaceWebhookSecrets(projectId: string): Promise
   const junk = rows.filter((r) => r.value!.trim().startsWith('eyJ') && r.id);
   if (junk.length === 0) return 0;
 
-  const bearer = await resolveBearerToken();
   let removed = 0;
   for (const row of junk) {
-    const res = await fetch(
-      appendTeam(
-        `${VERCEL_API}/v9/projects/${encodeURIComponent(projectId)}/env/${encodeURIComponent(row.id!)}`,
-      ),
-      { method: 'DELETE', headers: { Authorization: `Bearer ${bearer}` } },
-    );
-    if (res.ok) removed += 1;
+    if (await deleteProjectEnvRow(projectId, row.id!)) removed += 1;
   }
   return removed;
+}
+
+export async function deleteProjectEnvRow(projectId: string, envId: string): Promise<boolean> {
+  const bearer = await resolveBearerToken();
+  const res = await fetch(
+    appendTeam(
+      `${VERCEL_API}/v9/projects/${encodeURIComponent(projectId)}/env/${encodeURIComponent(envId)}`,
+    ),
+    { method: 'DELETE', headers: { Authorization: `Bearer ${bearer}` } },
+  );
+  return res.ok;
+}
+
+/** Delete every STRIPE_WEBHOOK_SECRET row on a project (Marketplace or manual). */
+export async function deleteAllWebhookSecretEnvRows(projectId: string): Promise<number> {
+  const rows = await listProjectEnvRowsForKey(projectId, 'STRIPE_WEBHOOK_SECRET');
+  let removed = 0;
+  for (const row of rows) {
+    if (row.id && (await deleteProjectEnvRow(projectId, row.id))) removed += 1;
+  }
+  return removed;
+}
+
+/**
+ * Replace STRIPE_WEBHOOK_SECRET entirely — upsert alone does not overwrite
+ * Marketplace JWT rows; delete all rows then create a fresh whsec_ entry.
+ */
+export async function replaceStripeWebhookSecretOnProject(
+  projectId: string,
+  whsec: string,
+): Promise<{ deleted: number; created: boolean; verifyPrefix: 'whsec' | 'eyJ' | 'other' | 'missing' }> {
+  const value = whsec.trim();
+  if (!value.startsWith('whsec_')) {
+    throw new Error('STRIPE_WEBHOOK_SECRET must start with whsec_.');
+  }
+
+  const deleted = await deleteAllWebhookSecretEnvRows(projectId);
+
+  const client = await getVercelClient();
+  const requestBody = {
+    key: 'STRIPE_WEBHOOK_SECRET',
+    value,
+    type: 'encrypted' as const,
+    target: ['production' as const, 'preview' as const, 'development' as const],
+  };
+
+  let created = false;
+  for (const teamId of [TEAM_ID, undefined]) {
+    try {
+      await client.projects.createProjectEnv({
+        idOrName: projectId,
+        teamId,
+        requestBody,
+      });
+      created = true;
+      break;
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      if (msg.includes('403') && teamId === TEAM_ID) continue;
+      if (msg.includes('400') && teamId === TEAM_ID) continue;
+      console.warn(`[stripe-marketplace] createProjectEnv STRIPE_WEBHOOK_SECRET failed: ${msg}`);
+    }
+  }
+
+  const verify = await diagnoseWebhookSecretEnv(projectId);
+  return { deleted, created, verifyPrefix: verify.selectedPrefix };
 }
 
 /** Read decrypted env values for specific keys (server-only — never expose to client logs). */

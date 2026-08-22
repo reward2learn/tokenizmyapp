@@ -5,7 +5,7 @@
  * fallback) is handled by vercel-sdk-client.ts.
  */
 import { getVercelClient, withTeamId, withTeamId404Null, TEAM_ID, resolveBearerToken, listVercelBearerTokens, VERCEL_API } from './vercel-sdk-client';
-import { purgeMarketplaceWebhookSecrets } from './vercel-stripe-marketplace-service';
+import { purgeMarketplaceWebhookSecrets, replaceStripeWebhookSecretOnProject } from './vercel-stripe-marketplace-service';
 import { DEFAULT_RELAY_REDIRECT_URI } from '@/lib/auth/google-relay';
 import { buildWeb3EnvVars } from '@/lib/web3/reown';
 import { resolveTemplate } from '@/domain/tenant/custom-template-service';
@@ -394,6 +394,27 @@ export async function syncStripeEnvVars(
     if (!webhook.startsWith('whsec_')) {
       throw new Error('STRIPE_WEBHOOK_SECRET must start with whsec_ (Stripe webhook signing secret).');
     }
+  }
+
+  const entries: [string, string][] = [];
+  if (stripe.secretKey?.trim()) entries.push(['STRIPE_SECRET_KEY', stripe.secretKey.trim()]);
+  if (stripe.publishableKey?.trim()) entries.push(['NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY', stripe.publishableKey.trim()]);
+
+  let envCount = 0;
+
+  if (webhook) {
+    const replaced = await replaceStripeWebhookSecretOnProject(projectId, webhook);
+    if (replaced.verifyPrefix !== 'whsec') {
+      throw new Error(
+        `STRIPE_WEBHOOK_SECRET push failed — Vercel still reports ${replaced.verifyPrefix} after ` +
+          `deleting ${replaced.deleted} row(s). Check Vercel → Integrations → Stripe does not re-inject eyJ…`,
+      );
+    }
+    envCount += 1;
+    console.log(
+      `[vercel-deploy] Replaced STRIPE_WEBHOOK_SECRET on ${projectId} (deleted ${replaced.deleted} row(s)).`,
+    );
+  } else {
     try {
       const purged = await purgeMarketplaceWebhookSecrets(projectId);
       if (purged > 0) {
@@ -404,12 +425,6 @@ export async function syncStripeEnvVars(
     }
   }
 
-  const entries: [string, string][] = [];
-  if (stripe.secretKey?.trim()) entries.push(['STRIPE_SECRET_KEY', stripe.secretKey.trim()]);
-  if (webhook) entries.push(['STRIPE_WEBHOOK_SECRET', webhook]);
-  if (stripe.publishableKey?.trim()) entries.push(['NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY', stripe.publishableKey.trim()]);
-
-  let envCount = 0;
   for (const [key, value] of entries) {
     try {
       const ok = await upsertEnvVar(projectId, key, value);
