@@ -127,39 +127,22 @@ function sseStream(run: (emit: (event: ProgressEvent) => void) => Promise<void>)
 // ── Workbook resolver ─────────────────────────────────
 
 /**
- * Resolve the June 2026 workbook — try disk first, then the base64
- * cached copy stored in knowledge_snippets.
- *
- * Multi-tenant + suite-mode aware: tries the following appId combinations
- * in order, using the current tenant slug and suite app_id:
- *   1. tenantSlug + appId (e.g. "redrubybali_hr") — full suite mode
- *   2. tenantSlug only — multi-tenant without suite app
- *   3. appId only (e.g. "hr") — suite mode without tenant isolation
- *   4. empty string '' — single-app tokenizmyapp tenant
- *   5. 'tokenizmyapp' explicitly — root config app fallback
+ * Resolve the workbook — prefer the DB cache for the current suite appId
+ * (what Config → Upload & Seed just wrote), then fall back to disk, then
+ * other appId variants. Disk-first used to win with a stale baked-in file
+ * and ignore the freshly uploaded workbook_data row.
  */
 async function resolveWorkbook(): Promise<ExcelData> {
-  // ── 1. Try disk (auto-detect) ────────────────────────────────
-  try {
-    return extractExcelData();
-  } catch {
-    // not on disk — continue to DB cache
-  }
-
-  // ── 2. Try DB cache with multi-tenant + suite-mode awareness ─────
   const tenantConfig = getTenantConfig();
   const tenantSlug = tenantConfig.slug;
-  const appId = getCurrentAppId(); // e.g. "hr", "sales-reporting", or ""
-
-  // Build the combined appId: "tenantSlug_appId" for suite mode
+  const appId = getCurrentAppId(); // e.g. "finance", "hr", or ""
   const combinedAppId = tenantSlug && appId ? `${tenantSlug}_${appId}` : null;
 
-  // Helper to try a specific appId
-  async function tryAppId(appId: string): Promise<ExcelData | null> {
+  async function tryAppId(candidate: string): Promise<ExcelData | null> {
     try {
       const db = createClient();
       const cached = await db.knowledgeSnippet.findUnique({
-        where: { key_appId: { key: 'workbook_data', appId } },
+        where: { key_appId: { key: 'workbook_data', appId: candidate } },
       });
       if (cached?.content) {
         return extractExcelData(Buffer.from(cached.content, 'base64'));
@@ -170,37 +153,38 @@ async function resolveWorkbook(): Promise<ExcelData> {
     }
   }
 
-  // Try order: suite-mode combos first, then fallbacks
-  // 1. Combined: tenantSlug + appId (e.g. "redrubybali_hr")
+  // ── 1. Current app / suite cache (fresh upload) ──────────
+  if (appId) {
+    const appOnlyData = await tryAppId(appId);
+    if (appOnlyData) return appOnlyData;
+  }
   if (combinedAppId) {
     const combinedData = await tryAppId(combinedAppId);
     if (combinedData) return combinedData;
   }
 
-  // 2. Tenant slug only (multi-tenant, no suite app)
+  // ── 2. Disk (local / baked template) ─────────────────────
+  try {
+    return extractExcelData();
+  } catch {
+    // not on disk — continue
+  }
+
+  // ── 3. Broader fallbacks ─────────────────────────────────
   if (tenantSlug && tenantSlug !== 'tokenizmyapp') {
     const tenantData = await tryAppId(tenantSlug);
     if (tenantData) return tenantData;
   }
 
-  // 3. AppId only (suite mode, e.g. "hr") — no tenant isolation
-  if (appId) {
-    const appOnlyData = await tryAppId(appId);
-    if (appOnlyData) return appOnlyData;
-  }
-
-  // 4. Empty appId (single-app / tokenizmyapp)
   const defaultData = await tryAppId('');
   if (defaultData) return defaultData;
 
-  // 5. tokenizmyapp explicitly (root config app)
   const rootData = await tryAppId('tokenizmyapp');
   if (rootData) return rootData;
 
-  // ── 3. Fallback error ─────────────────────────────────────────
   throw new Error(
     'Workbook file not found on disk and no cached copy in database. ' +
-    'Upload the June 2026 workbook via the Config > Workbook Upload page first.',
+      'Upload the workbook via the Config > Workbook Upload page first.',
   );
 }
 
@@ -212,10 +196,12 @@ export async function GET(request: Request): Promise<NextResponse> {
     if (!guard.ok) return guard.response;
     if (!sessionIsPlatformAdmin(guard.session)) return jsonError('Platform admin only', 403);
 
-    // Resolve the workbook — try disk first, then DB cache (uploaded via /config/reseed).
+    // Resolve the workbook — prefer DB cache for current app, then disk.
     const data = await resolveWorkbook();
 
     const fullPrompt = buildGenerationPrompt(data);
+    // Note: GET preview is Excel-only; POST generateAndSave also appends
+    // buildSeededPromptContext() so the live run includes projections/targets/etc.
     const promptPreview =
       fullPrompt.length > 3000
         ? fullPrompt.slice(0, 3000) + '\n\n... (truncated, full prompt available on request)'
@@ -387,77 +373,72 @@ export async function POST(request: Request): Promise<Response> {
   // Build a DbSession from the authenticated request (needed for ZenStack policy)
   const dbSession: DbSession = { tier: guard.session.tier as 'public' | 'pin' | 'google', sub: guard.session.sub };
 
-  // Resolve the workbook source — try explicit filePath, then auto-detect, then DB cache.
-  // In-memory Buffer is preferred on serverless runtimes where the filesystem is read-only.
+  // Resolve the workbook source — prefer DB cache for the current appId
+  // (fresh Upload & Seed), then disk, then broader appId fallbacks.
   let source: string | Buffer | Buffer[] | undefined;
   if (filePath) {
     source = filePath;
   } else {
     try {
-      // Try disk (auto-detect)
-      extractExcelData();
-      source = undefined; // auto-detect succeeded, leave undefined so extractExcelData finds it
-    } catch {
-      // Not on disk — resolve via DB cache (uploaded during reseed)
+      const db = createClient(dbSession);
+      const tenantConfig = getTenantConfig();
+      const tenantSlug = tenantConfig.slug;
+      const appId = getCurrentAppId();
+      const combinedAppId = tenantSlug && appId ? `${tenantSlug}_${appId}` : null;
+
+      async function tryAppId(candidate: string) {
+        const cached = await withTimeout(
+          db.knowledgeSnippet.findUnique({ where: { key_appId: { key: 'workbook_data', appId: candidate } } }),
+          8000,
+          `Workbook cache lookup (appId="${candidate}")`,
+        );
+        if (cached && typeof cached === 'object' && 'content' in cached) {
+          return Buffer.from((cached as { content: string }).content, 'base64');
+        }
+        return null;
+      }
+
+      let buffers: Buffer[] = [];
+      // Prefer current suite app cache (what reseed just wrote)
+      if (appId) {
+        const cached = await tryAppId(appId);
+        if (cached) buffers = [cached];
+      }
+      if (!buffers.length && combinedAppId) {
+        const cached = await tryAppId(combinedAppId);
+        if (cached) buffers = [cached];
+      }
+      if (!buffers.length && tenantSlug && tenantSlug !== 'tokenizmyapp') {
+        const cached = await tryAppId(tenantSlug);
+        if (cached) buffers = [cached];
+      }
+      if (!buffers.length) {
+        const cached = await tryAppId('');
+        if (cached) buffers = [cached];
+      }
+      if (!buffers.length) {
+        const cached = await tryAppId('tokenizmyapp');
+        if (cached) buffers = [cached];
+      }
+
+      if (buffers.length > 0) {
+        source = buffers;
+      } else {
+        // No DB cache — fall back to disk auto-detect inside generateAndSave
+        try {
+          extractExcelData();
+          source = undefined;
+        } catch {
+          source = undefined;
+        }
+      }
+    } catch (err) {
+      console.error('[ai-content] Workbook cache lookup failed:', err instanceof Error ? err.message : err);
       try {
-        const db = createClient(dbSession);
-        // Try DB cache with multi-tenant + suite-mode awareness — same logic as GET handler
-        const tenantConfig = getTenantConfig();
-        const tenantSlug = tenantConfig.slug;
-        const appId = getCurrentAppId(); // e.g. "hr", "sales-reporting", or ""
-        const combinedAppId = tenantSlug && appId ? `${tenantSlug}_${appId}` : null;
-
-        // Helper to try a specific appId — timeout-guarded so a single stuck
-        // DB connection (invisible to Vercel's "External APIs" trace, since
-        // Postgres isn't HTTP) can't silently eat the whole 120s function
-        // budget; up to 5 of these run sequentially below.
-        async function tryAppId(appId: string) {
-          const cached = await withTimeout(
-            db.knowledgeSnippet.findUnique({ where: { key_appId: { key: 'workbook_data', appId } } }),
-            8000,
-            `Workbook cache lookup (appId="${appId}")`,
-          );
-          if (cached && typeof cached === 'object' && 'content' in cached) {
-            return Buffer.from((cached as { content: string }).content, 'base64');
-          }
-          return null;
-        }
-
-        // Try combined tenant+appId first (e.g. "redrubybali_hr")
-        let buffers: Buffer[] = [];
-        if (combinedAppId) {
-          const cached = await tryAppId(combinedAppId);
-          if (cached) buffers = [cached];
-        }
-        // Try tenant slug only
-        if (!buffers.length && tenantSlug && tenantSlug !== 'tokenizmyapp') {
-          const cached = await tryAppId(tenantSlug);
-          if (cached) buffers = [cached];
-        }
-        // Try appId only
-        if (!buffers.length && appId) {
-          const cached = await tryAppId(appId);
-          if (cached) buffers = [cached];
-        }
-        // Try empty appId (single-app tokenizmyapp)
-        if (!buffers.length) {
-          const cached = await tryAppId('');
-          if (cached) buffers = [cached];
-        }
-        // Try tokenizmyapp explicitly
-        if (!buffers.length) {
-          const cached = await tryAppId('tokenizmyapp');
-          if (cached) buffers = [cached];
-        }
-
-        if (buffers.length > 0) {
-          source = buffers;
-        }
-      } catch (err) {
-        // DB unavailable, or one of the timeout-guarded lookups above hung —
-        // logged (not silently swallowed) so Vercel function logs show
-        // exactly which stage failed instead of just a bare 120s timeout.
-        console.error('[ai-content] Workbook cache lookup failed:', err instanceof Error ? err.message : err);
+        extractExcelData();
+        source = undefined;
+      } catch {
+        source = undefined;
       }
     }
   }

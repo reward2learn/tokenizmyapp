@@ -1,19 +1,27 @@
 import { createApi } from '@reduxjs/toolkit/query/react';
 import { baseQuery } from '@shared/store/base-query';
 import type { ApiEnvelope } from '@/store/api-types';
+import { brandConfigApi } from '@shared/store/apis/brand-config-api';
+import { configApi } from '@/store/apis/config-api';
 import type { RoleConfigView } from '@/app/api/admin/roles/route';
 import type { AdminConversationView } from '@/app/api/admin/conversations/route';
 import type { AdminUserView } from '@/app/api/admin/users/route';
 import type { BatchUserInput, BatchUserResult } from '@/app/api/admin/users/batch/route';
 import type { AdminGroupView } from '@/app/api/admin/groups/route';
 
+/** Cross-tenant browse scope — resolved server-side only for platform admins. */
+export interface TenantAppScope {
+  tenantSlug?: string;
+  appId?: string;
+}
+
 export const adminApi = createApi({
   reducerPath: 'adminApi',
   baseQuery,
-  tagTypes: ['RoleConfig', 'AdminConversations', 'AdminUsers', 'AdminGroups', 'SeedData', 'AiContent', 'BrandConfig', 'Navigation'],
+  tagTypes: ['RoleConfig', 'AdminConversations', 'AdminUsers', 'AdminGroups', 'SeedData', 'AiContent', 'BrandConfig', 'Navigation', 'AppPack', 'PageSections'],
   endpoints: (builder) => ({
-    listRoleConfigs: builder.query<ApiEnvelope<{ roles: RoleConfigView[] }>, void>({
-      query: () => 'admin/roles',
+    listRoleConfigs: builder.query<ApiEnvelope<{ roles: RoleConfigView[] }>, TenantAppScope | void>({
+      query: (scope) => ({ url: 'admin/roles', params: { tenantSlug: scope?.tenantSlug, appId: scope?.appId } }),
       providesTags: ['RoleConfig'],
     }),
     setRolePin: builder.mutation<ApiEnvelope<{ code: string; configured: boolean }>, { code: string; pin: string }>({
@@ -25,7 +33,7 @@ export const adminApi = createApi({
       invalidatesTags: ['RoleConfig'],
     }),
 
-    createRole: builder.mutation<ApiEnvelope<RoleConfigView>, { code: string; name: string; isPlatformAdmin?: boolean }>({
+    createRole: builder.mutation<ApiEnvelope<RoleConfigView>, { code: string; name: string; isPlatformAdmin?: boolean } & TenantAppScope>({
       query: (body) => ({
         url: 'admin/roles',
         method: 'PUT',
@@ -53,7 +61,7 @@ export const adminApi = createApi({
 
     listAdminConversations: builder.query<
       ApiEnvelope<{ conversations: AdminConversationView[] }>,
-      { archived?: boolean; owner?: string; limit?: number } | void
+      ({ archived?: boolean; owner?: string; limit?: number } & TenantAppScope) | void
     >({
       query: (params) => ({
         url: 'admin/conversations',
@@ -61,27 +69,30 @@ export const adminApi = createApi({
           ...(params?.archived ? { archived: 'true' } : {}),
           ...(params?.owner ? { owner: params.owner } : {}),
           ...(params?.limit ? { limit: params.limit } : {}),
+          ...(params?.tenantSlug ? { tenantSlug: params.tenantSlug } : {}),
+          ...(params?.appId ? { appId: params.appId } : {}),
         },
       }),
       providesTags: ['AdminConversations'],
     }),
     archiveAdminConversation: builder.mutation<
       ApiEnvelope<{ id: number; archived: boolean }>,
-      { id: number; archived: boolean }
+      { id: number; archived: boolean } & TenantAppScope
     >({
-      query: ({ id, archived }) => ({
-        url: `admin/conversations?id=${id}&archived=${archived}`,
+      query: ({ id, archived, tenantSlug, appId }) => ({
+        url: 'admin/conversations',
         method: 'PATCH',
+        params: { id, archived, tenantSlug, appId },
       }),
       invalidatesTags: ['AdminConversations'],
     }),
-    listAdminUsers: builder.query<ApiEnvelope<{ users: AdminUserView[] }>, void>({
-      query: () => 'admin/users',
+    listAdminUsers: builder.query<ApiEnvelope<{ users: AdminUserView[] }>, TenantAppScope | void>({
+      query: (scope) => ({ url: 'admin/users', params: { tenantSlug: scope?.tenantSlug, appId: scope?.appId } }),
       providesTags: ['AdminUsers'],
     }),
     updateAdminUser: builder.mutation<
       ApiEnvelope<{ id: string; updated: boolean }>,
-      { id: string; email?: string; isActive?: boolean; roleCode?: string | null; groupCodes?: string[]; pin?: string }
+      { id: string; email?: string; isActive?: boolean; roleCode?: string | null; groupCodes?: string[]; pin?: string } & TenantAppScope
     >({
       query: (body) => ({
         url: 'admin/users',
@@ -92,18 +103,19 @@ export const adminApi = createApi({
     }),
     deleteAdminUser: builder.mutation<
       ApiEnvelope<{ id: string; deleted: boolean }>,
-      { id: string; sub: string }
+      { id: string; sub: string } & TenantAppScope
     >({
-      query: ({ id }) => ({
-        url: `admin/users?id=${id}`,
+      query: ({ id, tenantSlug, appId }) => ({
+        url: 'admin/users',
         method: 'DELETE',
+        params: { id, tenantSlug, appId },
       }),
       invalidatesTags: ['AdminUsers'],
     }),
     /** POST /api/admin/users/batch — create/update users one-at-a-time or from a CSV upload */
     createAdminUsers: builder.mutation<
       ApiEnvelope<{ results: BatchUserResult[]; created: number; updated: number; skipped: number }>,
-      { users: BatchUserInput[] }
+      { users: BatchUserInput[] } & TenantAppScope
     >({
       query: (body) => ({
         url: 'admin/users/batch',
@@ -112,13 +124,13 @@ export const adminApi = createApi({
       }),
       invalidatesTags: ['AdminUsers', 'RoleConfig'],
     }),
-    listAdminGroups: builder.query<ApiEnvelope<{ groups: AdminGroupView[]; defaults: string[] }>, void>({
-      query: () => 'admin/groups',
+    listAdminGroups: builder.query<ApiEnvelope<{ groups: AdminGroupView[]; defaults: string[] }>, TenantAppScope | void>({
+      query: (scope) => ({ url: 'admin/groups', params: { tenantSlug: scope?.tenantSlug, appId: scope?.appId } }),
       providesTags: ['AdminGroups'],
     }),
     createAdminGroup: builder.mutation<
       ApiEnvelope<AdminGroupView>,
-      { code: string; name: string; description?: string; permissions?: string[] }
+      { code: string; name: string; description?: string; permissions?: string[] } & TenantAppScope
     >({
       query: (body) => ({
         url: 'admin/groups',
@@ -129,7 +141,7 @@ export const adminApi = createApi({
     }),
     updateAdminGroup: builder.mutation<
       ApiEnvelope<{ code: string; updated: boolean }>,
-      { code: string; name?: string; description?: string; permissions?: string[] }
+      { code: string; name?: string; description?: string; permissions?: string[] } & TenantAppScope
     >({
       query: (body) => ({
         url: 'admin/groups',
@@ -138,14 +150,32 @@ export const adminApi = createApi({
       }),
       invalidatesTags: ['AdminGroups'],
     }),
-    /** POST /api/admin/clear-seed — clear all or selected seed tables */
-    clearSeed: builder.mutation<ApiEnvelope<{ deleted: Record<string, number>; message: string }>, { mode: 'all'; confirm: string } | { mode: 'selected'; tables: string[]; confirm: string }>({
+    /** POST /api/admin/clear-seed — clear all or selected seed tables.
+     *  tenantSlug targets that tenant's own dedicated database; appId further
+     *  scopes the clear to just that app's rows within the shared database. */
+    clearSeed: builder.mutation<
+      ApiEnvelope<{ deleted: Record<string, number>; message: string }>,
+      ({ mode: 'all'; confirm: string } | { mode: 'selected'; tables: string[]; confirm: string }) & TenantAppScope
+    >({
       query: (body) => ({
         url: 'admin/clear-seed',
         method: 'POST',
         body,
       }),
       invalidatesTags: ['SeedData'],
+      async onQueryStarted(_arg, { dispatch, queryFulfilled }) {
+        try {
+          await queryFulfilled;
+          dispatch(configApi.util.invalidateTags(['SeedDetails']));
+        } catch {
+          // clear failed — keep Review Data cache
+        }
+      },
+    }),
+    /** GET /api/admin/clear-seed — row-count overview of seed tables, optionally for a specific tenant/app's own database */
+    getSeedOverview: builder.query<ApiEnvelope<{ counts: Record<string, number>; total: number; tenantSlug: string | null; appId: string | null }>, TenantAppScope | void>({
+      query: (params) => ({ url: 'admin/clear-seed', params: { tenantSlug: params?.tenantSlug, appId: params?.appId } }),
+      providesTags: ['SeedData'],
     }),
     /** GET /api/admin/ai-content — AI content generation status */
     getAiContent: builder.query<ApiEnvelope<unknown>, void>({
@@ -160,28 +190,52 @@ export const adminApi = createApi({
         body,
       }),
       invalidatesTags: ['AiContent'],
+      async onQueryStarted(_arg, { dispatch, queryFulfilled }) {
+        try {
+          await queryFulfilled;
+          // BR parts / snippets / tasks land in the same inventory Review Data reads.
+          dispatch(configApi.util.invalidateTags(['SeedDetails']));
+        } catch {
+          // generate failed — keep cache
+        }
+      },
     }),
     /** GET /api/admin/brand-config — read brand config */
-    getAdminBrandConfig: builder.query<ApiEnvelope<unknown>, void>({
-      query: () => 'admin/brand-config',
+    getAdminBrandConfig: builder.query<ApiEnvelope<unknown>, TenantAppScope | void>({
+      query: (scope) => ({ url: 'admin/brand-config', params: { tenantSlug: scope?.tenantSlug, appId: scope?.appId } }),
       providesTags: ['BrandConfig'],
     }),
-    /** PUT /api/admin/brand-config — update brand config */
-    updateAdminBrandConfig: builder.mutation<ApiEnvelope<unknown>, FormData | Record<string, unknown>>({
-      query: (body) => ({
+    /** PUT /api/admin/brand-config — update brand config. tenantSlug/appId select
+     * which row to write (query param); any tenantSlug field inside `data` is
+     * itself a value being saved, not the row selector — see route.ts resolveScope. */
+    updateAdminBrandConfig: builder.mutation<
+      ApiEnvelope<unknown>,
+      { data: FormData | Record<string, unknown> } & TenantAppScope
+    >({
+      query: ({ data, tenantSlug, appId }) => ({
         url: 'admin/brand-config',
         method: 'PUT',
-        body,
+        body: data,
+        params: { tenantSlug, appId },
       }),
       invalidatesTags: ['BrandConfig'],
+      async onQueryStarted(_arg, { dispatch, queryFulfilled }) {
+        try {
+          await queryFulfilled;
+          dispatch(brandConfigApi.util.invalidateTags(['BrandConfig']));
+        } catch {
+          // save failed — keep the public header cache as-is
+        }
+      },
     }),
     /** GET /api/admin/navigation — list nav tree */
-    getNavigation: builder.query<ApiEnvelope<unknown>, void>({
-      query: () => 'admin/navigation',
+    getNavigation: builder.query<ApiEnvelope<unknown>, TenantAppScope | void>({
+      query: (scope) => ({ url: 'admin/navigation', params: { tenantSlug: scope?.tenantSlug, appId: scope?.appId } }),
       providesTags: ['Navigation'],
     }),
-    /** POST /api/admin/navigation — create nav item */
-    createNavigationItem: builder.mutation<ApiEnvelope<unknown>, Record<string, unknown>>({
+    /** POST /api/admin/navigation — create nav item. tenantSlug/appId route the
+     *  write to that tenant's own database when it has one — see admin/navigation/route.ts. */
+    createNavigationItem: builder.mutation<ApiEnvelope<unknown>, Record<string, unknown> & TenantAppScope>({
       query: (body) => ({
         url: 'admin/navigation',
         method: 'POST',
@@ -190,7 +244,7 @@ export const adminApi = createApi({
       invalidatesTags: ['Navigation'],
     }),
     /** PUT /api/admin/navigation — batch update nav items */
-    updateNavigationItems: builder.mutation<ApiEnvelope<unknown>, { items: Record<string, unknown>[] }>({
+    updateNavigationItems: builder.mutation<ApiEnvelope<unknown>, { items: Record<string, unknown>[] } & TenantAppScope>({
       query: (body) => ({
         url: 'admin/navigation',
         method: 'PUT',
@@ -199,12 +253,161 @@ export const adminApi = createApi({
       invalidatesTags: ['Navigation'],
     }),
     /** DELETE /api/admin/navigation — delete by IDs */
-    deleteNavigationItems: builder.mutation<ApiEnvelope<unknown>, string[]>({
-      query: (ids) => ({
-        url: `admin/navigation?ids=${ids.map(encodeURIComponent).join(',')}`,
-        method: 'DELETE',
-      }),
+    deleteNavigationItems: builder.mutation<ApiEnvelope<unknown>, { ids: string[] } & TenantAppScope>({
+      query: ({ ids, tenantSlug, appId }) => {
+        const params = new URLSearchParams({ ids: ids.map(encodeURIComponent).join(',') });
+        if (tenantSlug) params.set('tenantSlug', tenantSlug);
+        if (appId) params.set('appId', appId);
+        return { url: `admin/navigation?${params.toString()}`, method: 'DELETE' };
+      },
       invalidatesTags: ['Navigation'],
+    }),
+
+    /** GET /api/admin/pages — list AppPage rows for CMS */
+    listAdminPages: builder.query<
+      ApiEnvelope<{
+        pages: Array<{
+          id: string;
+          slug: string;
+          title: string;
+          authTier: string;
+          navLabel: string | null;
+          showInNav: boolean;
+          contentLocked: boolean;
+          sortOrder: number;
+          sectionCount: number;
+        }>;
+      }>,
+      TenantAppScope | void
+    >({
+      query: (scope) => ({
+        url: 'admin/pages',
+        params: { tenantSlug: scope?.tenantSlug, appId: scope?.appId },
+      }),
+      providesTags: ['PageSections'],
+    }),
+
+    /** PUT /api/admin/pages — set contentLocked (unlock for re-seed) */
+    setPageContentLocked: builder.mutation<
+      ApiEnvelope<{ slug: string; contentLocked: boolean }>,
+      { slug: string; contentLocked: boolean } & TenantAppScope
+    >({
+      query: (body) => ({ url: 'admin/pages', method: 'PUT', body }),
+      invalidatesTags: ['PageSections'],
+    }),
+
+    /** GET /api/admin/pages/[slug]/sections */
+    getPageSections: builder.query<
+      ApiEnvelope<{
+        slug: string;
+        title: string;
+        contentLocked: boolean;
+        sections: Array<{
+          id: string;
+          sortOrder: number;
+          blockType: string;
+          config: Record<string, unknown>;
+        }>;
+      }>,
+      { slug: string } & TenantAppScope
+    >({
+      query: ({ slug, tenantSlug, appId }) => ({
+        url: `admin/pages/${encodeURIComponent(slug)}/sections`,
+        params: { tenantSlug, appId },
+      }),
+      providesTags: ['PageSections'],
+    }),
+
+    /** POST /api/admin/pages/[slug]/sections */
+    createPageSection: builder.mutation<
+      ApiEnvelope<{ created: boolean; id: string; sortOrder: number }>,
+      { slug: string; blockType: string; config?: Record<string, unknown>; sortOrder?: number } & TenantAppScope
+    >({
+      query: ({ slug, ...body }) => ({
+        url: `admin/pages/${encodeURIComponent(slug)}/sections`,
+        method: 'POST',
+        body,
+      }),
+      invalidatesTags: ['PageSections'],
+    }),
+
+    /** PUT /api/admin/pages/[slug]/sections — batch update */
+    updatePageSections: builder.mutation<
+      ApiEnvelope<{ updated: number; contentLocked: boolean }>,
+      {
+        slug: string;
+        sections: Array<{
+          id: string;
+          blockType?: string;
+          config?: Record<string, unknown>;
+          sortOrder?: number;
+        }>;
+      } & TenantAppScope
+    >({
+      query: ({ slug, ...body }) => ({
+        url: `admin/pages/${encodeURIComponent(slug)}/sections`,
+        method: 'PUT',
+        body,
+      }),
+      invalidatesTags: ['PageSections'],
+    }),
+
+    /** DELETE /api/admin/pages/[slug]/sections */
+    deletePageSections: builder.mutation<
+      ApiEnvelope<{ deleted: number; contentLocked: boolean }>,
+      { slug: string; ids: string[] } & TenantAppScope
+    >({
+      query: ({ slug, ids, tenantSlug, appId }) => {
+        const params = new URLSearchParams({ ids: ids.join(',') });
+        if (tenantSlug) params.set('tenantSlug', tenantSlug);
+        if (appId) params.set('appId', appId);
+        return {
+          url: `admin/pages/${encodeURIComponent(slug)}/sections?${params.toString()}`,
+          method: 'DELETE',
+        };
+      },
+      invalidatesTags: ['PageSections'],
+    }),
+
+    /** POST /api/admin/app-pack/generate — start app pack generation */
+    generateAppPack: builder.mutation<ApiEnvelope<{ runId: string }>, { prompt: string; mock: boolean; tenantSlug: string }>({
+      query: (body) => ({
+        url: 'admin/app-pack/generate',
+        method: 'POST',
+        body,
+      }),
+      invalidatesTags: ['AppPack'],
+    }),
+    /** GET /api/admin/app-pack/generate/status — get generation status */
+    getAppPackStatus: builder.query<ApiEnvelope<{
+      status: string;
+      runId: string;
+      error?: string;
+      result?: {
+        packId: string;
+        name: string;
+        mock: boolean;
+        ceoPurpose: string;
+        ceoKpis: string[];
+        apps: Array<{
+          appId: string;
+          appName: string;
+          department: string;
+          w3cStandard: string;
+          models: number;
+          useCases: number;
+          pages: number;
+          knowledgeSnippets: number;
+          uxStages: number;
+        }>;
+        counts: { apps: number; pages: number; sections: number; nav: number; snippets: number; groups: number };
+        schemaApplied: boolean;
+        migrationMs: number;
+        zmodel: string;
+      };
+    }>, string>({
+      query: (runId) => `admin/app-pack/generate/status?runId=${encodeURIComponent(runId)}`,
+      providesTags: ['AppPack'],
     }),
     /** POST /api/admin/populate-sheet-pages — sync sheet pages into navigation */
     populateSheetPages: builder.mutation<ApiEnvelope<{ created: number; parentId: string; totalSheets: number }>, { parentId?: string; parentTitle?: string }>({
@@ -234,6 +437,8 @@ export const {
   useCreateAdminGroupMutation,
   useUpdateAdminGroupMutation,
   useClearSeedMutation,
+  useGetSeedOverviewQuery,
+  useLazyGetSeedOverviewQuery,
   useGetAiContentQuery,
   useGenerateAiContentMutation,
   useGetAdminBrandConfigQuery,
@@ -242,5 +447,13 @@ export const {
   useCreateNavigationItemMutation,
   useUpdateNavigationItemsMutation,
   useDeleteNavigationItemsMutation,
+  useListAdminPagesQuery,
+  useSetPageContentLockedMutation,
+  useGetPageSectionsQuery,
+  useCreatePageSectionMutation,
+  useUpdatePageSectionsMutation,
+  useDeletePageSectionsMutation,
   usePopulateSheetPagesMutation,
+  useGenerateAppPackMutation,
+  useGetAppPackStatusQuery,
 } = adminApi;

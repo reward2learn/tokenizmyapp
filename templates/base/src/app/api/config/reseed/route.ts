@@ -138,23 +138,27 @@ export async function POST(request: Request): Promise<NextResponse> {
         model: model ?? 'gpt-4o',
         skipContentGeneration: false,
         tenantSlug: process.env.NEXT_PUBLIC_TENANT_SLUG || undefined,
+        appId: process.env.NEXT_PUBLIC_APP_ID?.trim() || '',
         dbUrl: process.env.POSTGRES_URL || '',
         openaiApiKey: (await resolveOpenAiKey()) || process.env.OPENAI_API_KEY || null,
       };
 
       const run = await start(handleWorkbookIngest, [input]);
 
+      // Envelope matches jsonOk so RTK clients can use result.success / result.data.
+      // Body also mirrors the 202 workflow fields the upload form expects.
       const payload = {
-        ok: true,
+        ok: true as const,
         runId: run.runId,
-        status: 'accepted',
+        status: 'accepted' as const,
         counts: baseSeed.counts,
         filesUsed: baseSeed.filesUsed,
         uploaded,
+        appId: process.env.NEXT_PUBLIC_APP_ID?.trim() || '',
         warnings: [] as string[],
       };
 
-      return NextResponse.json(payload, { status: 202 });
+      return NextResponse.json({ success: true, data: payload }, { status: 202 });
     }
 
     // ── Deterministic mode (or no Excel uploaded) ────────────

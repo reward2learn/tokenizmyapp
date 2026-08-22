@@ -30,7 +30,6 @@ import Typography from '@mui/material/Typography';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import DeleteSweepIcon from '@mui/icons-material/DeleteSweep';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
-import DescriptionIcon from '@mui/icons-material/Description';
 import DownloadIcon from '@mui/icons-material/Download';
 import UploadFileIcon from '@mui/icons-material/UploadFile';
 
@@ -81,6 +80,7 @@ const TABLE_META: Record<string, { label: string; icon: string }> = {
   task_assignments: { label: 'Task Assignments', icon: '🔗' },
   roles: { label: 'Roles', icon: '👤' },
   monthly_targets: { label: 'Monthly Targets', icon: '🎯' },
+  levers: { label: 'Levers', icon: '🔧' },
   action_items: { label: 'Action Items', icon: '📋' },
   app_pages: { label: 'App Pages', icon: '📄' },
   page_sections: { label: 'Page Sections', icon: '🧩' },
@@ -90,11 +90,6 @@ const TABLE_META: Record<string, { label: string; icon: string }> = {
   daily_z_reports: { label: 'Z-Reports', icon: '📋' },
 };
 
-function formatCount(n: number): string {
-  if (n < 0) return 'error';
-  return String(n);
-}
-
 export function DataViewTab() {
   // ── RTK Query hooks ────────────────────────────────────
   const {
@@ -102,7 +97,10 @@ export function DataViewTab() {
     isLoading: seedLoading,
     error: seedError,
     refetch: refetchDetails,
-  } = useGetSeedDetailsQuery();
+  } = useGetSeedDetailsQuery(undefined, {
+    // Always re-fetch when Review Data mounts (e.g. wizard step 3 after reseed).
+    refetchOnMountOrArgChange: true,
+  });
   const [clearSeed, { isLoading: clearing }] = useClearSeedMutation();
   const [importData, { isLoading: importing }] = useImportDataMutation();
 
@@ -193,8 +191,8 @@ export function DataViewTab() {
       key: 'roles', table: 'roles', label: 'Roles', icon: '👤',
       count: details.roleDetails.length, detail: details.roleDetails,
       renderDetail: () => details.roleDetails.length > 0 ? (
-        <Table size="small"><TableHead><TableRow><TableCell>Code</TableCell><TableCell>Name</TableCell><TableCell>Email</TableCell></TableRow></TableHead><TableBody>
-          {details.roleDetails.map((r) => <TableRow key={r.code}><TableCell>{r.code}</TableCell><TableCell>{r.name}</TableCell><TableCell>{r.email ?? '—'}</TableCell></TableRow>)}
+        <Table size="small"><TableHead><TableRow><TableCell>Code</TableCell><TableCell>Name</TableCell></TableRow></TableHead><TableBody>
+          {details.roleDetails.map((r) => <TableRow key={r.code}><TableCell>{r.code}</TableCell><TableCell>{r.name}</TableCell></TableRow>)}
         </TableBody></Table>
       ) : <Typography variant="body2" color="text.secondary">No roles seeded.</Typography>,
     },
@@ -206,6 +204,15 @@ export function DataViewTab() {
           {details.targetDetails.map((t) => <TableRow key={t.month}><TableCell>{t.month}</TableCell><TableCell align="right">{t.targetRevenue.toLocaleString('id-ID')}</TableCell><TableCell align="right">{t.targetEbitda.toLocaleString('id-ID')}</TableCell><TableCell align="right">{t.targetGuests}</TableCell></TableRow>)}
         </TableBody></Table>
       ) : <Typography variant="body2" color="text.secondary">No targets seeded.</Typography>,
+    },
+    {
+      key: 'levers', table: 'levers', label: 'Levers', icon: '🔧',
+      count: details.leverDetails.length, detail: details.leverDetails,
+      renderDetail: () => details.leverDetails.length > 0 ? (
+        <Table size="small"><TableHead><TableRow><TableCell>#</TableCell><TableCell>Name</TableCell><TableCell>Impact</TableCell></TableRow></TableHead><TableBody>
+          {details.leverDetails.map((l) => <TableRow key={l.num}><TableCell>{l.num}</TableCell><TableCell>{l.name}</TableCell><TableCell>{l.impact}</TableCell></TableRow>)}
+        </TableBody></Table>
+      ) : <Typography variant="body2" color="text.secondary">No levers seeded.</Typography>,
     },
     {
       key: 'action_items', table: 'action_items', label: 'Action Items', icon: '📋',

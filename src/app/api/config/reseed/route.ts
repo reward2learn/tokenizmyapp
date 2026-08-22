@@ -145,10 +145,12 @@ export async function POST(request: Request): Promise<NextResponse> {
 
       const run = await start(handleWorkbookIngest, [input]);
 
+      // Envelope matches jsonOk so RTK clients can use result.success / result.data.
+      // Body also mirrors the 202 workflow fields the upload form expects.
       const payload = {
-        ok: true,
+        ok: true as const,
         runId: run.runId,
-        status: 'accepted',
+        status: 'accepted' as const,
         counts: baseSeed.counts,
         filesUsed: baseSeed.filesUsed,
         uploaded,
@@ -156,7 +158,7 @@ export async function POST(request: Request): Promise<NextResponse> {
         warnings: [] as string[],
       };
 
-      return NextResponse.json(payload, { status: 202 });
+      return NextResponse.json({ success: true, data: payload }, { status: 202 });
     }
 
     // ── Deterministic mode (or no Excel uploaded) ────────────

@@ -20,6 +20,7 @@
 
 import { extractExcelData, extractExcelDataFromBuffers } from '@/domain/excel/excel-extractor';
 import { buildGenerationPrompt, buildDashboardPrompt } from '@/domain/ai-content/prompt-builder';
+import { buildSeededPromptContext } from '@/domain/ai-content/seeded-prompt-context';
 import { resolveActiveAiConfig, type ActiveAiConfig } from '@/lib/ai-providers';
 import type { DbClient } from '@/lib/db';
 import { withTimeout } from '@/lib/with-timeout';
@@ -437,14 +438,25 @@ export async function generateAndSave(
       pct: 15,
     });
 
-    // ── 2. Build prompt ─────────────────────────────────
+    // ── 2. Build prompt (Excel extract + seeded DB inventory) ─
     onProgress?.({
       step: 'prompt',
-      message: 'Building comprehensive AI prompt from financial data...',
+      message: 'Building comprehensive AI prompt from financial data + seeded inventory...',
       pct: 20,
     });
 
-    const prompt = overridePrompt ?? buildGenerationPrompt(data, additionalContext);
+    let seededContext = '';
+    try {
+      seededContext = await buildSeededPromptContext(db);
+    } catch (err) {
+      console.warn(
+        '[generateAndSave] Could not load seeded prompt context:',
+        err instanceof Error ? err.message : err,
+      );
+    }
+
+    const mergedContext = [seededContext, additionalContext].filter(Boolean).join('\n\n');
+    const prompt = overridePrompt ?? buildGenerationPrompt(data, mergedContext || undefined);
     const promptKb = (prompt.length / 1000).toFixed(0);
 
     onProgress?.({

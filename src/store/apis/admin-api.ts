@@ -2,6 +2,7 @@ import { createApi } from '@reduxjs/toolkit/query/react';
 import { baseQuery } from '@shared/store/base-query';
 import type { ApiEnvelope } from '@/store/api-types';
 import { brandConfigApi } from '@shared/store/apis/brand-config-api';
+import { configApi } from '@/store/apis/config-api';
 import type { RoleConfigView } from '@/app/api/admin/roles/route';
 import type { AdminConversationView } from '@/app/api/admin/conversations/route';
 import type { AdminUserView } from '@/app/api/admin/users/route';
@@ -162,6 +163,14 @@ export const adminApi = createApi({
         body,
       }),
       invalidatesTags: ['SeedData'],
+      async onQueryStarted(_arg, { dispatch, queryFulfilled }) {
+        try {
+          await queryFulfilled;
+          dispatch(configApi.util.invalidateTags(['SeedDetails']));
+        } catch {
+          // clear failed — keep Review Data cache
+        }
+      },
     }),
     /** GET /api/admin/clear-seed — row-count overview of seed tables, optionally for a specific tenant/app's own database */
     getSeedOverview: builder.query<ApiEnvelope<{ counts: Record<string, number>; total: number; tenantSlug: string | null; appId: string | null }>, TenantAppScope | void>({
@@ -181,6 +190,15 @@ export const adminApi = createApi({
         body,
       }),
       invalidatesTags: ['AiContent'],
+      async onQueryStarted(_arg, { dispatch, queryFulfilled }) {
+        try {
+          await queryFulfilled;
+          // BR parts / snippets / tasks land in the same inventory Review Data reads.
+          dispatch(configApi.util.invalidateTags(['SeedDetails']));
+        } catch {
+          // generate failed — keep cache
+        }
+      },
     }),
     /** GET /api/admin/brand-config — read brand config */
     getAdminBrandConfig: builder.query<ApiEnvelope<unknown>, TenantAppScope | void>({

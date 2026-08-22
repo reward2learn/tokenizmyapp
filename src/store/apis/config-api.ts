@@ -89,18 +89,22 @@ export const configApi = createApi({
   baseQuery,
   tagTypes: ['OpenAiKey', 'ChatSettings', 'SeedDetails', 'VercelToken', 'AiProvider'],
   endpoints: (builder) => ({
-    reseedFromSources: builder.mutation<ApiEnvelope<ReseedResponse>, FormData>({
+    reseedFromSources: builder.mutation<ApiEnvelope<ReseedResponse | WorkflowAcceptedResponse>, FormData>({
       query: (body) => ({
         url: 'config/reseed',
         method: 'POST',
         body,
       }),
+      // Sync seed finishes before 202; invalidate so Review Data / wizard see new counts.
+      // Workflow completion also invalidates from the upload form.
+      invalidatesTags: ['SeedDetails'],
     }),
     reprocessFromCache: builder.mutation<ApiEnvelope<ReprocessResponse>, void>({
       query: () => ({
         url: 'config/reprocess',
         method: 'POST',
       }),
+      invalidatesTags: ['SeedDetails'],
     }),
     getOpenAiKeyStatus: builder.query<ApiEnvelope<OpenAiKeyStatus>, void>({
       query: () => 'config/openai-key',
@@ -145,6 +149,7 @@ export const configApi = createApi({
         method: 'POST',
         body,
       }),
+      invalidatesTags: ['SeedDetails'],
     }),
     /** GET /api/config/vercel-token — Vercel OAuth token configuration status */
     getVercelTokenStatus: builder.query<ApiEnvelope<VercelTokenStatus>, void>({

@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useForm } from 'react-hook-form';
 import Accordion from '@mui/material/Accordion';
 import AccordionDetails from '@mui/material/AccordionDetails';
@@ -40,10 +40,10 @@ import {
   validateExcelUpload,
   validateMarkdownUpload,
 } from '@/lib/config/upload-validation';
-import { useReseedFromSourcesMutation, useReprocessFromCacheMutation, useGetSeedDetailsQuery, useLazyGetReseedWorkflowStatusQuery } from '@/store/apis/config-api';
-import type { WorkflowAcceptedResponse } from '@/store/apis/config-api';
+import { useReseedFromSourcesMutation, useReprocessFromCacheMutation, useGetSeedDetailsQuery, useLazyGetReseedWorkflowStatusQuery, configApi } from '@/store/apis/config-api';
 import type { ReseedResponse } from '@/app/api/config/reseed/route';
-
+import { useDispatch } from 'react-redux';
+import type { AppDispatch } from '@/store';
 
 interface SourceUploadFormValues {
   excel: FileList | null;
@@ -105,7 +105,51 @@ function formatBytes(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
+/**
+ * Reseed POST returns either:
+ *   - jsonOk envelope: { success, data: ReseedResponse | WorkflowAcceptedResponse }
+ *   - legacy 202 bare body: { ok, runId, counts, ... }
+ */
+function normalizeReseedMutationResult(raw: unknown): {
+  summary: ReseedResponse | null;
+  workflowRunId: string | null;
+} {
+  if (!raw || typeof raw !== 'object') return { summary: null, workflowRunId: null };
+  const body = raw as Record<string, unknown>;
+
+  const nested =
+    body.success === true && body.data && typeof body.data === 'object'
+      ? (body.data as Record<string, unknown>)
+      : body;
+
+  const runId =
+    typeof nested.runId === 'string'
+      ? nested.runId
+      : typeof body.runId === 'string'
+        ? body.runId
+        : null;
+
+  const counts = nested.counts;
+  if (!counts || typeof counts !== 'object') {
+    return { summary: null, workflowRunId: runId };
+  }
+
+  const summary: ReseedResponse = {
+    counts: counts as ReseedResponse['counts'],
+    filesUsed: (nested.filesUsed as ReseedResponse['filesUsed']) ?? {
+      excel: 'disk',
+      businessReview: 'disk',
+      executiveSummary: 'disk',
+    },
+    uploaded: (nested.uploaded as ReseedResponse['uploaded']) ?? [],
+    warnings: (nested.warnings as string[] | undefined) ?? [],
+  };
+
+  return { summary, workflowRunId: runId };
+}
+
 export function SourceUploadForm({ showSummaryOnly }: { showSummaryOnly?: boolean }) {
+  const dispatch = useDispatch<AppDispatch>();
   const [reseed, { isLoading, isError, error, isSuccess, data, reset: resetMutation }] =
     useReseedFromSourcesMutation();
   const [reprocess, { isLoading: isReprocessing, isError: isReprocessError, error: reprocessError, isSuccess: isReprocessSuccess, data: reprocessData, reset: resetReprocess }] =
@@ -127,9 +171,14 @@ export function SourceUploadForm({ showSummaryOnly }: { showSummaryOnly?: boolea
   /** Local phases before/without durable workflow SSE (upload submit + reprocess). */
   const [syncStep, setSyncStep] = useState<string | null>(null);
   const [syncError, setSyncError] = useState(false);
+  /** Counts from the last successful reseed (sync or 202-accepted), for SeedSummary. */
+  const [acceptedSummary, setAcceptedSummary] = useState<ReseedResponse | null>(null);
   const eventSourceRef = useRef<EventSource | null>(null);
   const [triggerStatus] = useLazyGetReseedWorkflowStatusQuery();
 
+  const refreshSeedDetails = useCallback(() => {
+    dispatch(configApi.util.invalidateTags(['SeedDetails']));
+  }, [dispatch]);
   const {
     register,
     handleSubmit,
@@ -184,17 +233,22 @@ export function SourceUploadForm({ showSummaryOnly }: { showSummaryOnly?: boolea
     setWorkflowProgress(null);
     setSheetStatuses([]);
     setWorkflowComplete(false);
+    setAcceptedSummary(null);
     setSyncStep('uploading');
     setSyncError(false);
 
     try {
       setSyncStep('seeding');
-      const result = await reseed(formData).unwrap();
-      if (result.success && (result.data as unknown as WorkflowAcceptedResponse)?.runId) {
-        const accepted = result.data as unknown as WorkflowAcceptedResponse;
+      const raw = await reseed(formData).unwrap();
+      const { summary, workflowRunId: runId } = normalizeReseedMutationResult(raw);
+      if (summary) setAcceptedSummary(summary);
+      // Sync seed already wrote rows — refresh Review Data immediately.
+      refreshSeedDetails();
+
+      if (runId) {
         setSyncStep('accepted');
-        setWorkflowRunId(accepted.runId);
-        startProgressStream(accepted.runId);
+        setWorkflowRunId(runId);
+        startProgressStream(runId);
       } else {
         setSyncStep('accepted');
         setWorkflowComplete(true);
@@ -254,6 +308,8 @@ export function SourceUploadForm({ showSummaryOnly }: { showSummaryOnly?: boolea
         if (chunk.pct === 100) {
           es.close();
           setWorkflowComplete(true);
+          // AI workflow may have added pages/snippets beyond the sync seed.
+          refreshSeedDetails();
         }
       } catch {
         // non-JSON message (keep-alive or heartbeat) — ignore
@@ -272,11 +328,14 @@ export function SourceUploadForm({ showSummaryOnly }: { showSummaryOnly?: boolea
       if (status.status === 'completed' || status.status === 'failed') {
         clearInterval(interval);
         setWorkflowComplete(true);
+        if (status.status === 'completed') refreshSeedDetails();
       }
     }, 2000);
   }
 
-  const result: ReseedResponse | undefined = data?.success ? data.data : undefined;
+  const normalizedMutation = normalizeReseedMutationResult(data);
+  const result: ReseedResponse | undefined =
+    acceptedSummary ?? normalizedMutation.summary ?? undefined;
   const apiError =
     isError && error && 'data' in error
       ? String((error.data as { error?: string })?.error ?? 'Upload and reseed failed')
@@ -508,7 +567,7 @@ export function SourceUploadForm({ showSummaryOnly }: { showSummaryOnly?: boolea
       {workflowComplete && (workflowRunId || syncStep) ? (
         <Alert severity="success" sx={{ mb: 2 }} role="status" data-testid="reseed-complete">
           {workflowRunId
-            ? 'Workbook ingest completed. Home, sheet pages, and seeded data are ready — refresh to view.'
+            ? 'Workbook ingest completed. Continue to Review Data — inventory refreshes automatically.'
             : 'Database reseeded successfully.'}
         </Alert>
       ) : null}

@@ -171,8 +171,18 @@ export function ConfigSetupWizard({
   );
 
   const { data: providerEnvelope } = useGetAiProviderStatusQuery();
-  const { data: seedEnvelope } = useGetSeedDetailsQuery();
+  const { data: seedEnvelope, refetch: refetchSeedDetails } = useGetSeedDetailsQuery(undefined, {
+    refetchOnMountOrArgChange: true,
+  });
 
+  // When the user opens Review Data or Generate Content, force a fresh inventory
+  // so counts match the latest reseed (RTK would otherwise serve a stale cache).
+  useEffect(() => {
+    const id = steps[activeStep]?.id;
+    if (id === 'review-data' || id === 'generate-content') {
+      void refetchSeedDetails();
+    }
+  }, [activeStep, steps, refetchSeedDetails]);
   const providerStatus = providerEnvelope?.data;
   // seed-details returns fields at the top level ({ success, counts, ... }), not under data.
   const seedPayload = seedEnvelope as unknown as

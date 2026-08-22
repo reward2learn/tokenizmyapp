@@ -26,6 +26,30 @@ export interface OpenAiKeyStatus {
   source: 'db' | 'env' | null;
 }
 
+export type AiProviderId = 'openai' | 'vercel-ai-gateway' | 'opencode-zen';
+
+export interface AiProviderInfo {
+  id: AiProviderId;
+  label: string;
+  configured: boolean;
+  source: 'db' | 'env' | null;
+  docsUrl: string;
+  keyPlaceholder: string;
+  defaultModel: string | null;
+}
+
+export interface AiProviderStatus {
+  providers: AiProviderInfo[];
+  activeProviderId: AiProviderId;
+  activeModel: string | null;
+}
+
+export interface AiModelOption {
+  id: string;
+  label: string;
+  description?: string;
+}
+
 export interface VercelTokenStatus {
   status: 'configured' | 'expired' | 'not_configured';
   tokenInfo: string | null;
@@ -63,20 +87,24 @@ export interface SeedDetailsResponse {
 export const configApi = createApi({
   reducerPath: 'configApi',
   baseQuery,
-  tagTypes: ['OpenAiKey', 'ChatSettings', 'SeedDetails', 'VercelToken'],
+  tagTypes: ['OpenAiKey', 'ChatSettings', 'SeedDetails', 'VercelToken', 'AiProvider'],
   endpoints: (builder) => ({
-    reseedFromSources: builder.mutation<ApiEnvelope<ReseedResponse>, FormData>({
+    reseedFromSources: builder.mutation<ApiEnvelope<ReseedResponse | WorkflowAcceptedResponse>, FormData>({
       query: (body) => ({
         url: 'config/reseed',
         method: 'POST',
         body,
       }),
+      // Sync seed finishes before 202; invalidate so Review Data / wizard see new counts.
+      // Workflow completion also invalidates from the upload form.
+      invalidatesTags: ['SeedDetails'],
     }),
     reprocessFromCache: builder.mutation<ApiEnvelope<ReprocessResponse>, void>({
       query: () => ({
         url: 'config/reprocess',
         method: 'POST',
       }),
+      invalidatesTags: ['SeedDetails'],
     }),
     getOpenAiKeyStatus: builder.query<ApiEnvelope<OpenAiKeyStatus>, void>({
       query: () => 'config/openai-key',
@@ -121,6 +149,7 @@ export const configApi = createApi({
         method: 'POST',
         body,
       }),
+      invalidatesTags: ['SeedDetails'],
     }),
     /** GET /api/config/vercel-token — Vercel OAuth token configuration status */
     getVercelTokenStatus: builder.query<ApiEnvelope<VercelTokenStatus>, void>({
@@ -131,6 +160,36 @@ export const configApi = createApi({
     getReseedWorkflowStatus: builder.query<WorkflowStatusResponse, string>({
       query: (runId) => `config/reseed/status?runId=${runId}`,
       keepUnusedDataFor: 5,
+    }),
+    /** GET /api/config/ai-provider — status for every provider + active selection */
+    getAiProviderStatus: builder.query<ApiEnvelope<AiProviderStatus>, void>({
+      query: () => 'config/ai-provider',
+      providesTags: ['AiProvider'],
+    }),
+    /** POST /api/config/ai-provider — save a provider's key and/or activate it */
+    saveAiProvider: builder.mutation<
+      ApiEnvelope<AiProviderStatus>,
+      { providerId: AiProviderId; apiKey?: string; model?: string; activate?: boolean }
+    >({
+      query: (body) => ({
+        url: 'config/ai-provider',
+        method: 'POST',
+        body,
+      }),
+      invalidatesTags: ['AiProvider'],
+    }),
+    /** DELETE /api/config/ai-provider — remove a provider's stored key */
+    clearAiProviderKey: builder.mutation<ApiEnvelope<AiProviderStatus>, { providerId: AiProviderId }>({
+      query: (body) => ({
+        url: 'config/ai-provider',
+        method: 'DELETE',
+        body,
+      }),
+      invalidatesTags: ['AiProvider'],
+    }),
+    /** GET /api/config/ai-models?providerId= — live model list for a provider */
+    getAiModels: builder.query<ApiEnvelope<{ providerId: AiProviderId; models: AiModelOption[] }>, AiProviderId>({
+      query: (providerId) => `config/ai-models?providerId=${providerId}`,
     }),
   }),
 });
@@ -147,4 +206,8 @@ export const {
   useImportDataMutation,
   useLazyGetReseedWorkflowStatusQuery,
   useGetVercelTokenStatusQuery,
+  useGetAiProviderStatusQuery,
+  useSaveAiProviderMutation,
+  useClearAiProviderKeyMutation,
+  useLazyGetAiModelsQuery,
 } = configApi;

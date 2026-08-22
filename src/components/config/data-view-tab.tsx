@@ -97,7 +97,10 @@ export function DataViewTab() {
     isLoading: seedLoading,
     error: seedError,
     refetch: refetchDetails,
-  } = useGetSeedDetailsQuery();
+  } = useGetSeedDetailsQuery(undefined, {
+    // Always re-fetch when Review Data mounts (e.g. wizard step 3 after reseed).
+    refetchOnMountOrArgChange: true,
+  });
   const [clearSeed, { isLoading: clearing }] = useClearSeedMutation();
   const [importData, { isLoading: importing }] = useImportDataMutation();
 
