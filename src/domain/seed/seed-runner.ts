@@ -9,6 +9,7 @@ import {
   type TaskStatus,
 } from '@/generated/prisma';
 import { getCurrentAppId } from '@shared/lib/config/tenant';
+import { addTenantColumnsIfMissing } from '@/domain/tenant/tenant-seed-service';
 import { getFullCatalog, REVIEW_PART_CATALOG } from '@/lib/page-catalog';
 import type { DbClient } from '@/lib/db';
 import { FUNCTIONAL_ROLES } from '@/domain/security/functional-roles';
@@ -607,6 +608,143 @@ export async function ensureLegacyTables(prisma: PrismaClient): Promise<void> {
   } catch {
     // ignore duplicate / conflict with legacy UNIQUE(month)
   }
+
+  // financial_projections: suite seeds write app_id = NEXT_PUBLIC_APP_ID, but many
+  // production DBs still have UNIQUE(period, data_type, scenario) without app_id.
+  // ON CONFLICT (... app_id) then does not fire and INSERT raises 23505.
+  await ensureFinancialProjectionAppScope(prisma);
+}
+
+/**
+ * Ensure financial_projections is app-scoped (column + unique key) so suite
+ * reseed can upsert without colliding with legacy app_id='' rows.
+ */
+export async function ensureFinancialProjectionAppScope(
+  prisma: PrismaClient,
+): Promise<void> {
+  try {
+    await prisma.$executeRawUnsafe(
+      `ALTER TABLE financial_projections ADD COLUMN IF NOT EXISTS app_id TEXT NOT NULL DEFAULT ''`,
+    );
+  } catch {
+    // table missing — nothing to migrate
+    return;
+  }
+
+  // Drop legacy UNIQUE(period, data_type, scenario) whether it is a constraint
+  // or a standalone unique index (prisma db push used both historically).
+  await prisma.$executeRawUnsafe(`
+    DO $$
+    DECLARE
+      r record;
+    BEGIN
+      FOR r IN
+        SELECT c.conname AS name, 'constraint' AS kind
+        FROM pg_constraint c
+        JOIN pg_class t ON t.oid = c.conrelid
+        WHERE t.relname = 'financial_projections'
+          AND c.contype = 'u'
+          AND (
+            SELECT array_agg(a.attname::text ORDER BY u.ord)
+            FROM unnest(c.conkey) WITH ORDINALITY AS u(attnum, ord)
+            JOIN pg_attribute a ON a.attrelid = c.conrelid AND a.attnum = u.attnum
+          ) = ARRAY['period','data_type','scenario']::text[]
+      LOOP
+        EXECUTE format('ALTER TABLE financial_projections DROP CONSTRAINT IF EXISTS %I', r.name);
+      END LOOP;
+
+      FOR r IN
+        SELECT i.relname AS name
+        FROM pg_index x
+        JOIN pg_class t ON t.oid = x.indrelid
+        JOIN pg_class i ON i.oid = x.indexrelid
+        WHERE t.relname = 'financial_projections'
+          AND x.indisunique
+          AND NOT x.indisprimary
+          AND NOT EXISTS (
+            SELECT 1 FROM pg_constraint c WHERE c.conindid = x.indexrelid
+          )
+          AND (
+            SELECT array_agg(a.attname::text ORDER BY u.ord)
+            FROM unnest(x.indkey) WITH ORDINALITY AS u(attnum, ord)
+            JOIN pg_attribute a ON a.attrelid = x.indrelid AND a.attnum = u.attnum
+          ) = ARRAY['period','data_type','scenario']::text[]
+      LOOP
+        EXECUTE format('DROP INDEX IF EXISTS %I', r.name);
+      END LOOP;
+    END $$;
+  `);
+
+  try {
+    await prisma.$executeRawUnsafe(
+      `CREATE UNIQUE INDEX IF NOT EXISTS financial_projections_period_data_type_scenario_app_id_key
+       ON financial_projections (period, data_type, scenario, app_id)`,
+    );
+  } catch (err) {
+    console.warn(
+      '[seed] Could not create app-scoped financial_projections unique index:',
+      err instanceof Error ? err.message : err,
+    );
+  }
+}
+
+/**
+ * When this deployment has a non-empty app id, adopt orphan rows left by older
+ * seeds that hard-coded app_id='' so Review Data / KPIs see them immediately.
+ */
+export async function reclaimOrphanAppScopedRows(
+  prisma: PrismaClient,
+  appId: string,
+): Promise<void> {
+  if (!appId) return;
+
+  await prisma.$executeRaw`
+    UPDATE financial_projections AS fp
+    SET app_id = ${appId}
+    WHERE fp.app_id = ''
+      AND NOT EXISTS (
+        SELECT 1 FROM financial_projections o
+        WHERE o.period = fp.period
+          AND o.data_type = fp.data_type
+          AND o.scenario = fp.scenario
+          AND o.app_id = ${appId}
+      )
+  `;
+
+  await prisma.$executeRaw`
+    UPDATE monthly_targets AS mt
+    SET app_id = ${appId}
+    WHERE mt.app_id = ''
+      AND NOT EXISTS (
+        SELECT 1 FROM monthly_targets o WHERE o.month = mt.month AND o.app_id = ${appId}
+      )
+  `;
+
+  await prisma.$executeRaw`
+    UPDATE levers AS l
+    SET app_id = ${appId}
+    WHERE l.app_id = ''
+      AND NOT EXISTS (
+        SELECT 1 FROM levers o WHERE o.num = l.num AND o.app_id = ${appId}
+      )
+  `;
+
+  await prisma.$executeRaw`
+    UPDATE action_items SET app_id = ${appId} WHERE app_id = ''
+  `;
+
+  await prisma.$executeRaw`
+    UPDATE tasks SET app_id = ${appId} WHERE app_id = ''
+  `;
+
+  await prisma.$executeRaw`
+    UPDATE knowledge_snippets AS ks
+    SET app_id = ${appId}
+    WHERE ks.app_id = ''
+      AND NOT EXISTS (
+        SELECT 1 FROM knowledge_snippets o WHERE o.key = ks.key AND o.app_id = ${appId}
+      )
+  `;
 }
 
 export async function ensureContentTables(prisma: PrismaClient): Promise<void> {
@@ -1128,6 +1266,17 @@ export async function seedFromSources(options: SeedOptions = {}): Promise<SeedRe
   try {
     await ensureLegacyTables(prisma);
     await ensureContentTables(prisma);
+    // Migrate UNIQUE keys to include app_id (same helper used for tenant provision).
+    try {
+      await addTenantColumnsIfMissing(prisma);
+    } catch (err) {
+      console.warn(
+        '[seed] addTenantColumnsIfMissing warning (non-fatal):',
+        err instanceof Error ? err.message : err,
+      );
+    }
+    // Adopt prior seeds that wrote app_id='' before suite scoping was fixed.
+    await reclaimOrphanAppScopedRows(prisma, appId);
 
     if (projections && !options.skipFinancialProjections) {
       for (const row of projections) {
