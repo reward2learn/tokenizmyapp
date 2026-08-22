@@ -13,6 +13,7 @@
 
 import { read, utils } from 'xlsx';
 import type { WorkSheet } from 'xlsx';
+import { findHeaderRow } from '@/lib/workbook-mapping';
 
 // ── Types ──────────────────────────────────────────────
 
@@ -154,65 +155,7 @@ function guessDataType(
   return 'string';
 }
 
-function findHeaderRow(ws: WorkSheet): { headerRow: number; headers: string[] } {
-  const rows = utils.sheet_to_json(ws, { header: 1 }) as unknown[][];
-  const maxScan = Math.min(rows.length, 20);
-
-  // Keywords that indicate a row is a column header (not a title / metadata row)
-  const HEADER_KEYWORDS = /description|amount|total|date|revenue|account|name|qty|price|cost|sales|income|expense|balance|number|ref|period|transaction|debit|credit|unit|rate|pct|margin|bills|covers|guests|staff|code|type|category|item|product|service|charge|discount|tax|subtotal|net|gross/i;
-
-  // Keywords that indicate a row is a title / section header (not column headers)
-  const TITLE_KEYWORDS = /^(profit\s*&?\s*loss|balance\s*sheet|trial\s*balance|general\s*ledger|periode|period|month\s*of|input\s*data|auto\s*calc)/i;
-
-  let bestRow = 0;
-  let bestScore = 0;
-  let bestHeaders: string[] = [];
-
-  for (let i = 0; i < maxScan; i++) {
-    const row = rows[i] ?? [];
-    const nonEmpty = row.filter((c) => c !== '' && c !== undefined && c !== null) as unknown[];
-    const nonEmptyCount = nonEmpty.length;
-
-    if (nonEmptyCount === 0) continue;
-
-    // Skip rows that are clearly titles (single long text cell with title keywords)
-    const firstCell = String(row[0] ?? '').trim();
-    if (nonEmptyCount <= 2 && TITLE_KEYWORDS.test(firstCell)) continue;
-
-    // Count how many non-empty cells look like column headers (text, not numeric)
-    let headerLikeCount = 0;
-    let numericCount = 0;
-    for (const cell of nonEmpty) {
-      const str = String(cell);
-      if (str === '#N/A' || str === '#REF!' || str === '#VALUE!') continue; // skip error cells
-      const num = Number(cell);
-      const isNumeric = typeof cell === 'number' || (typeof cell === 'string' && /^[\d,.-]+$/.test(str.trim()) && isFinite(num));
-      if (isNumeric && Math.abs(num) > 0) {
-        numericCount++;
-      } else if (HEADER_KEYWORDS.test(str)) {
-        headerLikeCount++;
-      }
-    }
-
-    // Score: prefer rows with high header-like count, low numeric count, and many non-empty cells
-    const textRatio = nonEmptyCount > 0 ? (nonEmptyCount - numericCount) / nonEmptyCount : 0;
-    const score = headerLikeCount * 3 + textRatio * 2 + (nonEmptyCount >= 3 ? 1 : 0);
-
-    if (score > bestScore) {
-      bestScore = score;
-      bestRow = i;
-      bestHeaders = row.map((c) => String(c ?? ''));
-    }
-  }
-
-  // If no row scored above threshold, fall back to first row with any text content
-  if (bestScore < 2 && rows.length > 0) {
-    const firstRow = (rows[0] ?? []).map((c) => String(c ?? ''));
-    return { headerRow: 1, headers: firstRow };
-  }
-
-  return { headerRow: bestRow + 1, headers: bestHeaders };
-}
+// Header detection: shared detectTableOrigin via @/lib/workbook-mapping (findHeaderRow).
 
 // ── Date/period extraction ──────────────────────────────
 

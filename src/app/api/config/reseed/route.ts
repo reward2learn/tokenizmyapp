@@ -120,11 +120,13 @@ export async function POST(request: Request): Promise<NextResponse> {
     }
 
     if (mode === 'ai' && overrides.excel && overrides.excel.length > 0) {
-      // ── AI-first: seed base content synchronously, then launch durable workflow ──
+      // ── AI + deterministic: always seed projections from the workbook parser
+      // so /ops-tracking is populated even if the durable AI workflow is slow
+      // or truncates wide sheets. AI may later enrich/overwrite via ON CONFLICT.
       const baseSeed = await seedFromSources({
         overrides,
         persistOverrides: true,
-        skipFinancialProjections: true,
+        skipFinancialProjections: false,
       });
 
       const input: WorkbookIngestInput = {

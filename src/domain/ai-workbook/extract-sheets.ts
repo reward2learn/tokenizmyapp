@@ -30,7 +30,8 @@ export const SHEET_CATEGORIES = [
 export type AiSheetCategory = (typeof SHEET_CATEGORIES)[number];
 
 export const MAX_SHEET_ROWS = 40;
-export const MAX_SHEET_COLS = 16;
+/** Wide enough for SUMPL-style year+month axes with interstitial % columns (~46). */
+export const MAX_SHEET_COLS = 48;
 export const MAX_CELL_CHARS = 80;
 
 export interface RenderedSheet {

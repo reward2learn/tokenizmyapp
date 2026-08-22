@@ -12,7 +12,6 @@ import Popover from '@mui/material/Popover';
 import Checkbox from '@mui/material/Checkbox';
 import List from '@mui/material/List';
 import ListItem from '@mui/material/ListItem';
-import ListItemText from '@mui/material/ListItemText';
 import FormControlLabel from '@mui/material/FormControlLabel';
 import Tooltip from '@mui/material/Tooltip';
 import Snackbar from '@mui/material/Snackbar';
@@ -41,6 +40,7 @@ import ContentCopyIcon from '@mui/icons-material/ContentCopy';
 import DeleteIcon from '@mui/icons-material/Delete';
 import Button from '@mui/material/Button';
 import Chip from '@mui/material/Chip';
+import type { SxProps, Theme } from '@mui/material/styles';
 import type {
   GridColDef,
   GridValidRowModel,
@@ -50,6 +50,7 @@ import type {
   GridRowSelectionModel,
   GridCellParams,
   GridRowId,
+  MuiEvent,
 } from '@mui/x-data-grid';
 import { GridToolbarContainer, useGridApiRef, GridFooter, GridEditInputCell } from '@mui/x-data-grid';
 import type { GridRenderEditCellParams, GridColumnResizeParams } from '@mui/x-data-grid';
@@ -62,6 +63,11 @@ import { setChatDrawerOpen } from '@/store/ui-slice';
 import { pushSheetChange, requestUndo, requestRedo, selectCanUndo, selectCanRedo, type SheetUndoBatchEntry } from '@/store/undo-redo-slice';
 import { setSelectedRange } from '@/store/sheet-viewer-slice';
 import { buildCellsPrompt, type PromptRow } from '@/lib/sheet-prompt';
+import {
+  isPercentColumnKey,
+  formatPercentDisplay,
+  parsePercentInput,
+} from '@/lib/workbook-mapping';
 import {
   setFormulaMode,
   selectSingleCell,
@@ -125,6 +131,7 @@ function colLetterFromRef(ref: string | undefined): string {
 }
 
 function isLikelyFinancial(key: string, value: unknown): boolean {
+  if (isPercentColumnKey(key)) return false;
   if (typeof value === 'number' && Math.abs(value) > 1000) return true;
   const k = key.toLowerCase();
   return /amount|total|sales|revenue|cost|price|balance|amount|sum|income|expense/i.test(k);
@@ -132,6 +139,8 @@ function isLikelyFinancial(key: string, value: unknown): boolean {
 
 function formatCellValue(key: string, value: unknown): string | number {
   if (value === '' || value === undefined || value === null) return '';
+  // Display-only: percent columns show "20.00%"; edit mode uses the raw row value.
+  if (isPercentColumnKey(key)) return formatPercentDisplay(value);
   if (typeof value === 'number') {
     if (isLikelyFinancial(key, value)) {
       // Values are full IDR amounts; display in thousands with K suffix
@@ -408,6 +417,7 @@ function FormulaEditCell(
 
   if (!isFormulaMode) {
     const { pickerRef: _pickerRef, ...rest } = props;
+    void _pickerRef;
     return <GridEditInputCell {...rest} />;
   }
 
@@ -696,7 +706,7 @@ function formatStatValue(v: number | string): string {
 }
 
 export function SheetViewerBlock({ config }: { config: Record<string, unknown> }) {
-  const { sheet, title } = config as SheetViewerConfig;
+  const { sheet } = config as SheetViewerConfig;
   // apiRef gives access to the DataGrid's CURRENT display order (post-sort/post-filter)
   const apiRef = useGridApiRef();
 
@@ -1155,12 +1165,18 @@ export function SheetViewerBlock({ config }: { config: Record<string, unknown> }
           sortIndex, // for reference (also used by custom renderHeader)
           valueGetter: (_value: unknown, row: GridValidRowModel) => {
             const raw = row[col];
+            // Keep raw numbers (including Excel % ratios like 0.2) for sort/edit.
+            if (typeof raw === 'number') return raw;
             if (isLikelyFinancial(col, raw) && typeof raw === 'number') {
-              return raw; // keep numeric for sorting/filtering
+              return raw;
             }
             return raw ?? '';
           },
           valueFormatter: (value: unknown, row: GridValidRowModel) => {
+            // Display-only percent: 0.2 → "20.00%". Edit cell uses valueGetter raw.
+            if (isPercentColumnKey(col)) {
+              return formatPercentDisplay(value);
+            }
             if (typeof value === 'number' && isLikelyFinancial(col, value)) {
               return formatCellValue(col, value);
             }
@@ -1187,7 +1203,9 @@ export function SheetViewerBlock({ config }: { config: Record<string, unknown> }
             : undefined,
           // Coerce edited strings back to numbers so IDR formatting is preserved
           // after commit (also accepts "620,122K" / "IDR 700K" style input).
+          // Percent columns: "20.00%" / "20" → Excel ratio 0.2; raw 0.2 stays 0.2.
           valueParser: (value: unknown) => {
+            if (isPercentColumnKey(col)) return parsePercentInput(value);
             if (typeof value !== 'string') return value;
             const t = value.trim().replace(/^IDR\s*/i, '');
             if (!t) return '';
@@ -1295,7 +1313,7 @@ export function SheetViewerBlock({ config }: { config: Record<string, unknown> }
     const sortedIds = apiRef.current ? (apiRef.current.getSortedRowIds() as GridRowId[]) : [];
     return sortedIds.length > 0
       ? sortedIds
-      : rows.map((r: any) => r._rowIndex ?? r.id);
+      : rows.map((r) => (r._rowIndex ?? r.id) as GridRowId);
   }, [apiRef, rows]);
 
   // Data-column order only — the Excel-style row-number gutter is a display
@@ -1317,7 +1335,7 @@ export function SheetViewerBlock({ config }: { config: Record<string, unknown> }
    */
   const handleColumnHeaderClick = useCallback((
     params: GridColumnHeaderParams,
-    event: React.MouseEvent<HTMLElement>
+    event: MuiEvent<React.MouseEvent<HTMLElement>>
   ) => {
     const field = params.field;
     console.log(`[SheetViewerBlock] Column header clicked - field: "${field}", shiftKey: ${event.shiftKey}, altKey: ${event.altKey}`);
@@ -1327,7 +1345,7 @@ export function SheetViewerBlock({ config }: { config: Record<string, unknown> }
     }
 
     // Prevent default MUI sort behavior so we fully control the click semantics
-    (event as any).defaultMuiPrevented = true;
+    event.defaultMuiPrevented = true;
 
     // ── Shift+click: header shift-select (batch resize target set) ──────
     if (event.shiftKey) {
@@ -1405,13 +1423,13 @@ export function SheetViewerBlock({ config }: { config: Record<string, unknown> }
     const keys = new Set<string>(selectedCells);
     const fields = columns.map((c) => c.field).filter((f) => f !== ROW_NUMBER_COL);
     if (selectedColumns.length > 0) {
-      rows.forEach((r: any) => {
+      rows.forEach((r) => {
         const rid = r._rowIndex ?? r.id;
         selectedColumns.forEach((f) => keys.add(`${rid}|${f}`));
       });
     }
     if (rowSelectionModel.ids.size > 0) {
-      rows.forEach((r: any) => {
+      rows.forEach((r) => {
         const rid = r._rowIndex ?? r.id;
         if (rowSelectionModel.ids.has(rid as GridRowId)) {
           fields.forEach((f) => keys.add(`${rid}|${f}`));
@@ -1423,7 +1441,7 @@ export function SheetViewerBlock({ config }: { config: Record<string, unknown> }
 
   const cellStats = useMemo(() => {
     if (effectiveSelectionKeys.size < 2) return null; // only for multi-cell selections
-    const rowById = new Map(rows.map((r: any) => [r._rowIndex, r]));
+    const rowById = new Map(rows.map((r) => [r._rowIndex, r]));
     const all: unknown[] = [];
     effectiveSelectionKeys.forEach((key) => {
       const sep = key.lastIndexOf('|');
@@ -1450,7 +1468,7 @@ export function SheetViewerBlock({ config }: { config: Record<string, unknown> }
   // - May have z-index/overlap issues with filters or other features
   // - Reordering pinned columns via state controls left position order
   const pinnedSx = useMemo(() => {
-    const sx: Record<string, any> = {
+    const sx: Record<string, unknown> = {
       border: '1px solid',
       borderColor: 'divider',
       borderRadius: 1,
@@ -1547,7 +1565,7 @@ export function SheetViewerBlock({ config }: { config: Record<string, unknown> }
       currentLeft += effWidths[field] ?? DEFAULT_PINNED_WIDTH;
     });
 
-    return sx;
+    return sx as SxProps<Theme>;
   }, [pinnedColumns, effWidths, selectedColumns]);
 
   // Excel-style row/column reference highlight while picking cells into a
@@ -1644,16 +1662,15 @@ export function SheetViewerBlock({ config }: { config: Record<string, unknown> }
       ];
 
       const selectedRowData = rows.filter((row) => {
-        const rowId = (row as any)._rowIndex ?? (row as any).id;
+        const rowId = row._rowIndex ?? row.id;
         return selectedIds.includes(rowId as GridRowId);
       });
 
       const tsvRows = selectedRowData.map((row) => {
-        const rowAny = row as any;
         const values = [
-          rowAny._rowIndex || rowAny.id || '',
+          row._rowIndex || row.id || '',
           ...colFields.map((field: string) => {
-            let val = rowAny[field];
+            let val = row[field];
             if (val == null) return '';
             if (typeof val === 'object') return JSON.stringify(val);
             return String(val); // raw value for spreadsheet compatibility (no locale strings)
@@ -1685,7 +1702,7 @@ export function SheetViewerBlock({ config }: { config: Record<string, unknown> }
   // Read a row's live cell + formula by grid row id.
   const readRow = useCallback(
     (rowId: GridRowId): Record<string, unknown> | undefined =>
-      rows.find((r: any) => String(r._rowIndex ?? r.id) === String(rowId)) as Record<string, unknown> | undefined,
+      rows.find((r) => String(r._rowIndex ?? r.id) === String(rowId)) as Record<string, unknown> | undefined,
     [rows],
   );
 
@@ -1697,10 +1714,10 @@ export function SheetViewerBlock({ config }: { config: Record<string, unknown> }
         const r = readRow(c.rowId);
         // Auto-extended paste rows carry their computed Excel row explicitly
         // (they have no grid row object yet); everything else reads _excelRow.
-        const excelRow = c.excelRow ?? (Number((r as any)?._excelRow) || Number(c.rowId) || 1);
-        const cellRef = typeof (r as any)?.[`${c.field}_cell`] === 'string' ? (r as any)[`${c.field}_cell`] : undefined;
+        const excelRow = c.excelRow ?? (Number(r?._excelRow) || Number(c.rowId) || 1);
+        const cellRef = typeof r?.[`${c.field}_cell`] === 'string' ? (r?.[`${c.field}_cell`] as string) : undefined;
         const oldFormula =
-          typeof (r as any)?.[`${c.field}_formula`] === 'string' ? (r as any)[`${c.field}_formula`] : undefined;
+          typeof r?.[`${c.field}_formula`] === 'string' ? (r?.[`${c.field}_formula`] as string) : undefined;
         const base = {
           sheet: sheet ?? '',
           rowIndex: excelRow,
@@ -1711,7 +1728,7 @@ export function SheetViewerBlock({ config }: { config: Record<string, unknown> }
         forward.push({ ...base, value: c.value, formulaMode: c.formulaMode });
         backward.push({
           ...base,
-          value: oldFormula ?? (r as any)?.[c.field],
+          value: oldFormula ?? r?.[c.field],
           formulaMode: oldFormula ? true : false,
         });
       }
@@ -1914,7 +1931,7 @@ export function SheetViewerBlock({ config }: { config: Record<string, unknown> }
   }, [fillSource, getRowOrder, getColOrder, apiRef]);
 
   const handleFillPointerUp = useCallback(
-    (e: React.PointerEvent<HTMLDivElement>) => {
+    (_e: React.PointerEvent<HTMLDivElement>) => {
       const drag = fillDragRef.current;
       fillDragRef.current = null;
       setFillPreview(null);
@@ -1969,7 +1986,7 @@ export function SheetViewerBlock({ config }: { config: Record<string, unknown> }
       const aC = colOrder.indexOf(anchor.field);
       if (aR === -1 || aC === -1) return;
       const grid = parseTsv(text);
-      const rowsById = new Map(rows.map((r: any) => [r._rowIndex ?? r.id, r]));
+      const rowsById = new Map<GridRowId, Record<string, unknown>>(rows.map((r) => [(r._rowIndex ?? r.id) as GridRowId, r]));
       const anchorRow = rowsById.get(anchor.rowId) as Record<string, unknown> | undefined;
       const { cells, skipped, newRows } = buildPasteCells({
         grid,
@@ -1979,7 +1996,7 @@ export function SheetViewerBlock({ config }: { config: Record<string, unknown> }
         colOrder,
         rowsById,
         formulaMode,
-        anchorExcelRow: Number((anchorRow as any)?._excelRow) || undefined,
+        anchorExcelRow: Number(anchorRow?._excelRow) || undefined,
       });
       if (cells.length === 0) {
         showCopyToast(skipped > 0 ? 'Paste is outside the table bounds' : 'Nothing to paste');
@@ -2264,8 +2281,8 @@ export function SheetViewerBlock({ config }: { config: Record<string, unknown> }
 
     const tsvRows: string[] = rowOrder.map((rowIdStr) => {
       const rowAny = rows.find(
-        (r: any) => String(r._rowIndex ?? r.id) === rowIdStr
-      ) as any;
+        (r) => String(r._rowIndex ?? r.id) === rowIdStr
+      ) as Record<string, unknown> | undefined;
       if (!rowAny) return '';
       const values = [
         rowIdStr,

@@ -64,6 +64,11 @@ import { pushSheetChange, requestUndo, requestRedo, selectCanUndo, selectCanRedo
 import { setSelectedRange } from '@/store/sheet-viewer-slice';
 import { buildCellsPrompt, type PromptRow } from '@/lib/sheet-prompt';
 import {
+  isPercentColumnKey,
+  formatPercentDisplay,
+  parsePercentInput,
+} from '@/lib/workbook-mapping';
+import {
   setFormulaMode,
   selectSingleCell,
   toggleCell,
@@ -126,6 +131,7 @@ function colLetterFromRef(ref: string | undefined): string {
 }
 
 function isLikelyFinancial(key: string, value: unknown): boolean {
+  if (isPercentColumnKey(key)) return false;
   if (typeof value === 'number' && Math.abs(value) > 1000) return true;
   const k = key.toLowerCase();
   return /amount|total|sales|revenue|cost|price|balance|amount|sum|income|expense/i.test(k);
@@ -133,6 +139,8 @@ function isLikelyFinancial(key: string, value: unknown): boolean {
 
 function formatCellValue(key: string, value: unknown): string | number {
   if (value === '' || value === undefined || value === null) return '';
+  // Display-only: percent columns show "20.00%"; edit mode uses the raw row value.
+  if (isPercentColumnKey(key)) return formatPercentDisplay(value);
   if (typeof value === 'number') {
     if (isLikelyFinancial(key, value)) {
       // Values are full IDR amounts; display in thousands with K suffix
@@ -1157,12 +1165,18 @@ export function SheetViewerBlock({ config }: { config: Record<string, unknown> }
           sortIndex, // for reference (also used by custom renderHeader)
           valueGetter: (_value: unknown, row: GridValidRowModel) => {
             const raw = row[col];
+            // Keep raw numbers (including Excel % ratios like 0.2) for sort/edit.
+            if (typeof raw === 'number') return raw;
             if (isLikelyFinancial(col, raw) && typeof raw === 'number') {
-              return raw; // keep numeric for sorting/filtering
+              return raw;
             }
             return raw ?? '';
           },
           valueFormatter: (value: unknown, row: GridValidRowModel) => {
+            // Display-only percent: 0.2 → "20.00%". Edit cell uses valueGetter raw.
+            if (isPercentColumnKey(col)) {
+              return formatPercentDisplay(value);
+            }
             if (typeof value === 'number' && isLikelyFinancial(col, value)) {
               return formatCellValue(col, value);
             }
@@ -1189,7 +1203,9 @@ export function SheetViewerBlock({ config }: { config: Record<string, unknown> }
             : undefined,
           // Coerce edited strings back to numbers so IDR formatting is preserved
           // after commit (also accepts "620,122K" / "IDR 700K" style input).
+          // Percent columns: "20.00%" / "20" → Excel ratio 0.2; raw 0.2 stays 0.2.
           valueParser: (value: unknown) => {
+            if (isPercentColumnKey(col)) return parsePercentInput(value);
             if (typeof value !== 'string') return value;
             const t = value.trim().replace(/^IDR\s*/i, '');
             if (!t) return '';

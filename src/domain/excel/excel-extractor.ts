@@ -379,33 +379,46 @@ function extractSummaryPl(ws: WorkSheet): SummaryPlYear[] {
   const years: SummaryPlYear[] = [];
   const rows = utils.sheet_to_json<Record<string, unknown>>(ws, { header: 1, defval: '' });
 
-  // Find header row (row 3 in the sheet, 0-indexed)
+  // DESCRIPTION may sit in col B (index 1) or C (index 2) depending on layout.
   let headerRowIdx = -1;
-  for (let i = 0; i < rows.length; i++) {
+  let descCol = 2;
+  for (let i = 0; i < Math.min(rows.length, 20); i++) {
     const r = rows[i] as unknown as unknown[];
-    if (String(r[2] ?? '').trim() === 'DESCRIPTION') {
-      headerRowIdx = i;
-      break;
+    for (let c = 0; c < Math.min(r.length, 6); c++) {
+      if (String(r[c] ?? '').trim().toUpperCase() === 'DESCRIPTION') {
+        headerRowIdx = i;
+        descCol = c;
+        break;
+      }
     }
+    if (headerRowIdx !== -1) break;
   }
   if (headerRowIdx === -1) return [];
 
+  // Account label is typically the column immediately after DESCRIPTION / code.
+  const labelCol = descCol + 1;
+
   const headerRow = rows[headerRowIdx] as unknown as unknown[];
   const yearCols: { colIdx: number; year: string }[] = [];
-  for (let c = 3; c < headerRow.length; c++) {
-    const h = String(headerRow[c] ?? '').trim();
-    if (h && /^\d{4}$/.test(h)) {
+  for (let c = 0; c < headerRow.length; c++) {
+    const raw = headerRow[c];
+    const h =
+      typeof raw === 'number' && raw >= 1900 && raw <= 2100
+        ? String(raw)
+        : String(raw ?? '').trim();
+    if (h && /^(19|20)\d{2}$/.test(h)) {
       yearCols.push({ colIdx: c, year: h });
     }
   }
 
-  // Map year column indices
   for (const yc of yearCols) {
     const lines: { description: string; amount: number }[] = [];
-    for (let r = headerRowIdx + 2; r < rows.length; r++) {
+    for (let r = headerRowIdx + 1; r < rows.length; r++) {
       const row = rows[r] as unknown as unknown[];
-      const desc = String(row[2] ?? '').trim();
-      if (!desc || row[yc.colIdx] === undefined) continue;
+      const desc =
+        String(row[labelCol] ?? '').trim() ||
+        String(row[descCol] ?? '').trim();
+      if (!desc || row[yc.colIdx] === undefined || row[yc.colIdx] === '') continue;
       const amount = toNumber(row[yc.colIdx]);
       if (amount !== 0) {
         lines.push({ description: desc, amount });
