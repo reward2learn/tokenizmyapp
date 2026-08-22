@@ -87,6 +87,7 @@ export function StripeIntegrationStep({
     message: string;
     webhookUrl?: string;
     httpStatus?: number | null;
+    steps?: Array<{ label: string; status: 'pass' | 'fail' | 'warn'; message: string }>;
   } | null>(null);
 
   const status = statusEnvelope?.data;
@@ -143,9 +144,12 @@ export function StripeIntegrationStep({
       }
       setWebhookTestResult({
         status: data.status,
-        message: data.message,
+        message: data.steps?.length
+          ? data.steps.map((step) => `${step.label}: ${step.message}`).join('\n')
+          : data.message,
         webhookUrl: data.webhookUrl,
         httpStatus: data.httpStatus,
+        steps: data.steps,
       });
     } catch (err) {
       const msg =

@@ -16,7 +16,7 @@ import { requireWriteAuth } from '@/lib/auth/guards';
 import { jsonError, jsonOk } from '@/lib/api/response';
 import { ensureTenantsTable } from '@/domain/tenant/tenant-service';
 import type { AppPackConfig } from '@/store/apis/tenant-api';
-import { testStripeWebhookForProject } from '@/domain/billing/stripe-webhook-test-service';
+import { runStripeWebhookHealthCheck } from '@/domain/billing/stripe-webhook-health-service';
 
 export const dynamic = 'force-dynamic';
 
@@ -86,14 +86,20 @@ export async function POST(
       || projectName
       || (body.appId ? `${slug}-${body.appId}` : slug);
 
-    const result = await testStripeWebhookForProject({
+    const result = await runStripeWebhookHealthCheck({
       projectId,
       projectNameHint,
       allowFactoryFallback: body.allowFactoryFallback,
       billingTarget: body.billingTarget,
     });
 
-    return jsonOk(result);
+    return jsonOk({
+      ...result.delivery,
+      status: result.status,
+      ok: result.ok,
+      message: result.delivery?.message ?? result.steps.map((s) => s.message).join(' '),
+      steps: result.steps,
+    });
   } catch (err) {
     return jsonError(
       `Stripe webhook test failed: ${err instanceof Error ? err.message : String(err)}`,

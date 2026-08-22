@@ -414,7 +414,7 @@ export const tenantApi = createApi({
       invalidatesTags: ['Tenants'],
     }),
 
-    /** POST admin/tenants/:slug/stripe-webhook-test — signed snapshot webhook probe. */
+    /** POST admin/tenants/:slug/stripe-webhook-test — full Stripe webhook health checklist. */
     testStripeWebhook: builder.mutation<
       ApiEnvelope<{
         status: 'pass' | 'fail' | 'warn';
@@ -434,6 +434,13 @@ export const tenantApi = createApi({
           stripeKeyNames: string[];
         };
         responseSnippet?: string;
+        steps?: Array<{
+          id: string;
+          label: string;
+          status: 'pass' | 'fail' | 'warn';
+          ok: boolean;
+          message: string;
+        }>;
       }>,
       { slug: string; appId?: string; projectNameHint?: string; allowFactoryFallback?: boolean; billingTarget?: boolean }
     >({

@@ -78,6 +78,7 @@ import { getTemplate, listTemplates } from '@/domain/tenant/template-catalog';
 import { DEFAULT_PLATFORM_ADMIN_EMAIL } from '@/domain/security/persons';
 import { TemplateSelector } from '@/components/ops-admin/tenant-wizard';
 import { TenantAiProviderForm } from '@/components/ops-admin/tenant-ai-provider-form';
+import { addStripeWebhookHealthToFlightCheck } from '@/components/ops-admin/stripe-flight-check';
 import type { AppPackConfig, SuiteAppInstance } from '@/store/apis/tenant-api';
 import { useAppDispatch } from '@/store/hooks';
 import { setThemeColors } from '@/store/ui-slice';
@@ -1133,23 +1134,7 @@ export function EditTenantModal({ open, tenant, onClose, onSnackbar }: EditTenan
           billingTarget: true,
         }).unwrap();
         const t = testRes.data;
-        if (t?.ok) {
-          addResult(
-            'Stripe Webhook (snapshot)',
-            'pass',
-            t.message + (t.webhookUrl ? ' · ' + t.webhookUrl : ''),
-          );
-        } else if (t?.status === 'warn') {
-          addResult('Stripe Webhook (snapshot)', 'warn', t.message, goToOrgStep, 'Go to step');
-        } else {
-          addResult(
-            'Stripe Webhook (snapshot)',
-            'fail',
-            t?.message ?? 'Webhook test failed',
-            goToOrgStep,
-            'Go to step',
-          );
-        }
+        addStripeWebhookHealthToFlightCheck(t, addResult, goToOrgStep, 'Go to step');
       } catch (err) {
         const msg =
           err && typeof err === 'object' && 'data' in err

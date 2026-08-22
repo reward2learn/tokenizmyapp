@@ -90,6 +90,7 @@ import {
   StripeIntegrationStep,
   type StripeWizardValues,
 } from './stripe-integration-step';
+import { addStripeWebhookHealthToFlightCheck } from './stripe-flight-check';
 
 // ── Types ──────────────────────────────────────────────────────
 
@@ -489,17 +490,7 @@ export function EditAppModal({ open, onClose, tenantSlug, app, onSnackbar }: Edi
           projectNameHint: vercelName,
         }).unwrap();
         const t = testRes.data;
-        if (t?.ok) {
-          addResult(
-            'Stripe Webhook (snapshot)',
-            'pass',
-            `${t.message}${t.httpStatus != null ? ` · ${t.webhookUrl}` : ''}`,
-          );
-        } else if (t?.status === 'warn') {
-          addResult('Stripe Webhook (snapshot)', 'warn', t.message);
-        } else {
-          addResult('Stripe Webhook (snapshot)', 'fail', t?.message ?? 'Webhook test failed');
-        }
+        addStripeWebhookHealthToFlightCheck(t, addResult);
       } catch (err) {
         const msg =
           err && typeof err === 'object' && 'data' in err
