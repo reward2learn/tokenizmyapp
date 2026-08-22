@@ -4,6 +4,7 @@ import type { ApiEnvelope, SessionPayload } from '@/store/api-types';
 
 export interface UserProfile {
   avatarUrl: string | null;
+  displayName: string | null;
 }
 
 export interface OrganizationBranding {
@@ -49,7 +50,10 @@ export const authApi = createApi({
       query: () => 'user/profile',
       providesTags: ['UserProfile'],
     }),
-    updateUserProfile: builder.mutation<ApiEnvelope<{ message: string }>, { avatarUrl: string }>({
+    updateUserProfile: builder.mutation<
+      ApiEnvelope<{ message: string; avatarUrl?: string | null; displayName?: string | null }>,
+      { avatarUrl?: string; displayName?: string }
+    >({
       query: (body) => ({
         url: 'user/profile',
         method: 'PATCH',

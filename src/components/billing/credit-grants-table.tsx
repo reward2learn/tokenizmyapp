@@ -3,6 +3,7 @@
 import Box from '@mui/material/Box';
 import Chip from '@mui/material/Chip';
 import LinearProgress from '@mui/material/LinearProgress';
+import { alpha } from '@mui/material/styles';
 import Table from '@mui/material/Table';
 import TableBody from '@mui/material/TableBody';
 import TableCell from '@mui/material/TableCell';
@@ -119,8 +120,15 @@ export function CreditGrantsTable({ grants }: { grants: CreditGrant[] }) {
                 <LinearProgress
                   variant="determinate"
                   value={Math.min(100, usedPct)}
-                  color={expiringSoon ? 'warning' : 'primary'}
-                  sx={{ height: 6, borderRadius: 3 }}
+                  sx={(theme) => ({
+                    height: 6,
+                    borderRadius: 3,
+                    bgcolor: alpha(theme.palette.text.secondary, 0.25),
+                    '& .MuiLinearProgress-bar': {
+                      bgcolor: theme.palette.success.main,
+                      borderRadius: 3,
+                    },
+                  })}
                 />
               </TableCell>
             </TableRow>

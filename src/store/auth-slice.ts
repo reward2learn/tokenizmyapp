@@ -56,7 +56,10 @@ export const authSlice = createSlice({
       state.user = null;
       state.bootstrapped = true;
     },
+    setUserDisplayName(state, action: { payload: string }) {
+      if (state.user) state.user.name = action.payload;
+    },
   },
 });
 
-export const { setSession, setTier, resetAuth } = authSlice.actions;
+export const { setSession, setTier, resetAuth, setUserDisplayName } = authSlice.actions;

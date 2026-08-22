@@ -749,8 +749,10 @@ model UserProfile {
   /// Email from the auth provider, used as the stable identifier.
   userEmail String   @unique() @map("user_email")
   /// Custom avatar URL or base64 data URI. Overrides the auth provider picture.
-  avatarUrl String?  @map("avatar_url")
-  createdAt DateTime @default(now()) @map("created_at")
+  avatarUrl   String?  @map("avatar_url")
+  /// User-chosen display name. Overrides the auth provider name in the app UI.
+  displayName String?  @map("display_name")
+  createdAt   DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt() @map("updated_at")
 
   @@map("user_profiles")
