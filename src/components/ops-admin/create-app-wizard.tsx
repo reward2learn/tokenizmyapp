@@ -94,6 +94,7 @@ import {
   usePushStripeEnvVarsMutation,
   useProvisionGoogleOAuthMutation,
   useSaveTenantAiProviderMutation,
+  useTestStripeWebhookMutation,
   type SuiteAppInstance,
 } from '@/store/apis/tenant-api';
 import { useListRoleConfigsQuery } from '@/store/apis/admin-api';
@@ -231,6 +232,7 @@ export function CreateAppWizard({ open, onClose, tenantSlug, sourceApp, onSnackb
   const [seedApp] = useSeedAppMutation();
   const [deployApp] = useDeployAppMutation();
   const [pushStripeEnv] = usePushStripeEnvVarsMutation();
+  const [testStripeWebhook] = useTestStripeWebhookMutation();
   const [provisionGoogleOAuth] = useProvisionGoogleOAuthMutation();
   const [saveTenantAiProvider] = useSaveTenantAiProviderMutation();
   const { data: rolesData, isLoading: rolesLoading } = useListRoleConfigsQuery();
@@ -467,9 +469,38 @@ export function CreateAppWizard({ open, onClose, tenantSlug, sourceApp, onSnackb
     addResult('PIN Sign-in', 'pass', pinSignInEnabled ? 'Enabled' : 'Disabled (Google-only)');
     addResult('OpenAI API Key', openaiApiKey ? 'pass' : 'warn', openaiApiKey ? 'Configured' : 'Not set — add OPENAI_API_KEY env var');
 
+    if (stripeWizard.enabled) {
+      try {
+        const testRes = await testStripeWebhook({
+          slug: tenantSlug,
+          projectNameHint: vercelName,
+        }).unwrap();
+        const t = testRes.data;
+        if (t?.ok) {
+          addResult(
+            'Stripe Webhook (snapshot)',
+            'pass',
+            `${t.message}${t.httpStatus != null ? ` · ${t.webhookUrl}` : ''}`,
+          );
+        } else if (t?.status === 'warn') {
+          addResult('Stripe Webhook (snapshot)', 'warn', t.message);
+        } else {
+          addResult('Stripe Webhook (snapshot)', 'fail', t?.message ?? 'Webhook test failed');
+        }
+      } catch (err) {
+        addResult(
+          'Stripe Webhook (snapshot)',
+          'warn',
+          apiErrorMessage(err, 'Could not run webhook test — deploy the app and configure STRIPE_WEBHOOK_SECRET first'),
+        );
+      }
+    } else {
+      addResult('Stripe Webhook (snapshot)', 'warn', 'Stripe disabled for this app — enable in the Stripe step to test');
+    }
+
     setFlightChecks(results);
     setFlightRunning(false);
-  }, [name, appId, appIdConflict, vercelName, dbUrl, oauthClientId, oauthRedirectUris, newAppRedirectUris, licenseKey, setupToken, adminEmail, pinSignInEnabled, openaiApiKey]);
+  }, [name, appId, appIdConflict, vercelName, dbUrl, oauthClientId, oauthRedirectUris, newAppRedirectUris, licenseKey, setupToken, adminEmail, pinSignInEnabled, openaiApiKey, stripeWizard.enabled, tenantSlug, testStripeWebhook]);
 
   // ── Create & Deploy ─────────────────────────────────────────
   const handleCreate = async () => {
@@ -1721,6 +1752,7 @@ export function CreateAppWizard({ open, onClose, tenantSlug, sourceApp, onSnackb
           value={stripeWizard}
           onChange={setStripeWizard}
           tenantSlug={tenantSlug}
+          projectNameHint={vercelName}
           tenantHasKeys={Boolean(
             (tenantCfg.stripe as { secretKey?: string } | undefined)?.secretKey,
           )}

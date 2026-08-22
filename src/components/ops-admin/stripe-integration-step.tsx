@@ -26,9 +26,11 @@ import Typography from '@mui/material/Typography';
 import OpenInNewIcon from '@mui/icons-material/OpenInNew';
 import PaymentIcon from '@mui/icons-material/Payment';
 import RefreshIcon from '@mui/icons-material/Refresh';
+import VerifiedIcon from '@mui/icons-material/Verified';
 import {
   useLazyGetStripeMarketplaceStatusQuery,
   usePrepareStripeMarketplaceInstallMutation,
+  useTestStripeWebhookMutation,
 } from '@/store/apis/tenant-api';
 
 export type StripeWizardValues = {
@@ -58,6 +60,8 @@ type Props = {
   appId?: string | null;
   /** When true, show that tenant-level keys already exist. */
   tenantHasKeys?: boolean;
+  /** Pre-deploy: `{tenantSlug}-{appId}` when Vercel project id is not known yet. */
+  projectNameHint?: string | null;
   showSecrets?: boolean;
 };
 
@@ -67,6 +71,7 @@ export function StripeIntegrationStep({
   tenantSlug,
   appId = null,
   tenantHasKeys = false,
+  projectNameHint = null,
   showSecrets = false,
 }: Props) {
   const patch = (partial: Partial<StripeWizardValues>) => onChange({ ...value, ...partial });
@@ -75,7 +80,14 @@ export function StripeIntegrationStep({
     useLazyGetStripeMarketplaceStatusQuery();
   const [prepareInstall, { isLoading: preparing }] =
     usePrepareStripeMarketplaceInstallMutation();
+  const [testWebhook, { isLoading: testingWebhook }] = useTestStripeWebhookMutation();
   const [note, setNote] = useState<string | null>(null);
+  const [webhookTestResult, setWebhookTestResult] = useState<{
+    status: 'pass' | 'fail' | 'warn';
+    message: string;
+    webhookUrl?: string;
+    httpStatus?: number | null;
+  } | null>(null);
 
   const status = statusEnvelope?.data;
 
@@ -114,6 +126,37 @@ export function StripeIntegrationStep({
     }
     void openMarketplaceInstall();
   }, [status?.projectIntegrationsUrl, openMarketplaceInstall]);
+
+  const runWebhookTest = useCallback(async () => {
+    if (!tenantSlug) return;
+    setWebhookTestResult(null);
+    try {
+      const res = await testWebhook({
+        slug: tenantSlug,
+        appId: appId ?? undefined,
+        projectNameHint: projectNameHint ?? undefined,
+      }).unwrap();
+      const data = res.data;
+      if (!data) {
+        setWebhookTestResult({ status: 'fail', message: 'Empty response from webhook test' });
+        return;
+      }
+      setWebhookTestResult({
+        status: data.status,
+        message: data.message,
+        webhookUrl: data.webhookUrl,
+        httpStatus: data.httpStatus,
+      });
+    } catch (err) {
+      const msg =
+        err && typeof err === 'object' && 'data' in err
+          ? String((err as { data?: { error?: string } }).data?.error || 'Webhook test failed')
+          : err instanceof Error
+            ? err.message
+            : 'Webhook test failed';
+      setWebhookTestResult({ status: 'fail', message: msg });
+    }
+  }, [tenantSlug, appId, projectNameHint, testWebhook]);
 
   const sourceChip =
     status?.source === 'marketplace' ? (
@@ -307,6 +350,61 @@ export function StripeIntegrationStep({
                 : 'No tenant Stripe keys yet — rely on Marketplace Install, or open Edit Tenant → Organization & Billing.'}
             </Alert>
           )}
+
+          <Divider>
+            <Typography variant="caption" color="text.secondary">
+              Verify webhook (snapshot)
+            </Typography>
+          </Divider>
+
+          <Paper variant="outlined" sx={{ p: 2 }}>
+            <Stack spacing={1.5}>
+              <Typography variant="body2" color="text.secondary">
+                Sends a signed <code>customer.subscription.updated</code> snapshot event to{' '}
+                <code>
+                  https://
+                  {projectNameHint ?? status?.projectName ?? tenantSlug}
+                  .vercel.app/api/webhooks/stripe
+                </code>{' '}
+                using this project&apos;s <code>STRIPE_WEBHOOK_SECRET</code> from Vercel. Expect HTTP 200
+                and <code>[stripe-webhook]</code> in deployment logs. HTTP 400 means the{' '}
+                <code>whsec_</code> does not match your Stripe snapshot destination.
+              </Typography>
+              <Button
+                variant="outlined"
+                size="small"
+                startIcon={
+                  testingWebhook ? <CircularProgress size={14} color="inherit" /> : <VerifiedIcon />
+                }
+                onClick={() => void runWebhookTest()}
+                disabled={testingWebhook || !tenantSlug}
+              >
+                Verify webhook on deployment
+              </Button>
+              {webhookTestResult ? (
+                <Alert
+                  severity={
+                    webhookTestResult.status === 'pass'
+                      ? 'success'
+                      : webhookTestResult.status === 'warn'
+                        ? 'warning'
+                        : 'error'
+                  }
+                  sx={{ fontSize: '0.85rem' }}
+                >
+                  {webhookTestResult.httpStatus != null
+                    ? `HTTP ${webhookTestResult.httpStatus} — `
+                    : ''}
+                  {webhookTestResult.message}
+                  {webhookTestResult.webhookUrl ? (
+                    <Typography variant="caption" component="div" sx={{ mt: 0.5 }}>
+                      URL: {webhookTestResult.webhookUrl}
+                    </Typography>
+                  ) : null}
+                </Alert>
+              ) : null}
+            </Stack>
+          </Paper>
         </Stack>
       ) : null}
     </Stack>

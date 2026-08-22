@@ -414,6 +414,36 @@ export const tenantApi = createApi({
       invalidatesTags: ['Tenants'],
     }),
 
+    /** POST admin/tenants/:slug/stripe-webhook-test — signed snapshot webhook probe. */
+    testStripeWebhook: builder.mutation<
+      ApiEnvelope<{
+        status: 'pass' | 'fail' | 'warn';
+        ok: boolean;
+        message: string;
+        webhookUrl: string;
+        httpStatus: number | null;
+        eventType: string;
+        eventId: string;
+        secretsProjectId: string;
+        usedFactoryFallback: boolean;
+        env: {
+          secretKeyPresent: boolean;
+          webhookSecretPresent: boolean;
+          publishableKeyPresent: boolean;
+          priceKeyCount: number;
+          stripeKeyNames: string[];
+        };
+        responseSnippet?: string;
+      }>,
+      { slug: string; appId?: string; projectNameHint?: string; allowFactoryFallback?: boolean }
+    >({
+      query: ({ slug, ...body }) => ({
+        url: `admin/tenants/${slug}/stripe-webhook-test`,
+        method: 'POST',
+        body,
+      }),
+    }),
+
     /** GET admin/tenants/:slug/stripe-marketplace — Marketplace install status. */
     getStripeMarketplaceStatus: builder.query<
       ApiEnvelope<{
@@ -889,6 +919,7 @@ export const {
   usePushStripeEnvVarsMutation,
   useLazyGetStripeMarketplaceStatusQuery,
   usePrepareStripeMarketplaceInstallMutation,
+  useTestStripeWebhookMutation,
   useHotDeployRegisteredMutation,
   useLazyGetVercelDeployInventoryQuery,
   useProvisionAppDeployHookMutation,

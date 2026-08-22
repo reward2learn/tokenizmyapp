@@ -78,6 +78,7 @@ import {
   usePushAppEnvVarsMutation,
   usePushStripeEnvVarsMutation,
   useProvisionAppDeployHookMutation,
+  useTestStripeWebhookMutation,
   type SuiteAppInstance,
   type GoogleOAuthConfigPatch,
   type AppScopedConfig,
@@ -214,6 +215,7 @@ export function EditAppModal({ open, onClose, tenantSlug, app, onSnackbar }: Edi
   const [syncGoogleOAuthClient] = useSyncGoogleOAuthClientMutation();
   const [pushAppEnvVars] = usePushAppEnvVarsMutation();
   const [pushStripeEnv] = usePushStripeEnvVarsMutation();
+  const [testStripeWebhook] = useTestStripeWebhookMutation();
   const [provisionDeployHook, { isLoading: generatingHook }] = useProvisionAppDeployHookMutation();
   const { data: rolesData, isLoading: rolesLoading } = useListRoleConfigsQuery();
 
@@ -479,9 +481,39 @@ export function EditAppModal({ open, onClose, tenantSlug, app, onSnackbar }: Edi
         'Not set up — Payment Methods will NOT be available for this app until the Stripe keys are set in the tenant\'s Organization & Billing step');
     }
 
+    if (stripeWizard.enabled) {
+      try {
+        const testRes = await testStripeWebhook({
+          slug: tenantSlug,
+          appId: app.appId,
+          projectNameHint: vercelName,
+        }).unwrap();
+        const t = testRes.data;
+        if (t?.ok) {
+          addResult(
+            'Stripe Webhook (snapshot)',
+            'pass',
+            `${t.message}${t.httpStatus != null ? ` · ${t.webhookUrl}` : ''}`,
+          );
+        } else if (t?.status === 'warn') {
+          addResult('Stripe Webhook (snapshot)', 'warn', t.message);
+        } else {
+          addResult('Stripe Webhook (snapshot)', 'fail', t?.message ?? 'Webhook test failed');
+        }
+      } catch (err) {
+        const msg =
+          err && typeof err === 'object' && 'data' in err
+            ? String((err as { data?: { error?: string } }).data?.error || 'Webhook test failed')
+            : 'Could not run webhook test';
+        addResult('Stripe Webhook (snapshot)', app.vercelProjectId ? 'fail' : 'warn', msg);
+      }
+    } else {
+      addResult('Stripe Webhook (snapshot)', 'warn', 'Stripe disabled — enable in the Stripe step to test');
+    }
+
     setFlightChecks(results);
     setFlightRunning(false);
-  }, [name, app, appUrl, vercelName, dbUrl, oauthClientId, oauthRedirectUris, newAppRedirectUris, licenseKey, adminEmail, openaiApiKey, cfg]);
+  }, [name, app, appUrl, vercelName, dbUrl, oauthClientId, oauthRedirectUris, newAppRedirectUris, licenseKey, adminEmail, openaiApiKey, cfg, stripeWizard.enabled, tenantSlug, testStripeWebhook]);
 
   // ── Save (PATCH app-scoped fields + editable GCP credentials + the full
   //    per-app config snapshot — stored per app_id in the appPack AND
@@ -1709,6 +1741,7 @@ export function EditAppModal({ open, onClose, tenantSlug, app, onSnackbar }: Edi
           onChange={setStripeWizard}
           tenantSlug={tenantSlug}
           appId={app.appId}
+          projectNameHint={vercelName}
           tenantHasKeys={Boolean(
             ((tenantCfg as { stripe?: { secretKey?: string } }).stripe)?.secretKey,
           )}

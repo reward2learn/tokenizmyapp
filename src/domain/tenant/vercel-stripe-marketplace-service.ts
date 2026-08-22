@@ -8,7 +8,13 @@
  * Docs: https://vercel.com/docs/integrations/ecommerce/stripe
  */
 
-import { resolveBearerToken, VERCEL_API, TEAM_ID } from '@/domain/tenant/vercel-sdk-client';
+import {
+  getVercelClient,
+  resolveBearerToken,
+  VERCEL_API,
+  TEAM_ID,
+  withTeamId404Null,
+} from '@/domain/tenant/vercel-sdk-client';
 
 export const STRIPE_MARKETPLACE_SLUG = 'stripe';
 
@@ -74,7 +80,51 @@ async function vercelGet<T>(path: string): Promise<T> {
   return res.json() as Promise<T>;
 }
 
-type EnvRow = { key: string; id?: string; type?: string; target?: string[] };
+type EnvRow = { key: string; id?: string; type?: string; target?: string[]; value?: string };
+
+/** Read decrypted env values for specific keys (server-only — never expose to client logs). */
+export async function getProjectEnvValues(
+  projectId: string,
+  keyNames: string[],
+): Promise<Record<string, string | null>> {
+  const bearer = await resolveBearerToken();
+  const want = new Set(keyNames);
+  const out: Record<string, string | null> = Object.fromEntries(
+    keyNames.map((k) => [k, null]),
+  );
+
+  const res = await fetch(
+    appendTeam(
+      `${VERCEL_API}/v9/projects/${encodeURIComponent(projectId)}/env?decrypted=true`,
+    ),
+    { headers: { Authorization: `Bearer ${bearer}` } },
+  );
+  if (!res.ok) {
+    const text = await res.text().catch(() => '');
+    throw new Error(`Vercel env read failed: ${res.status} ${text.slice(0, 200)}`);
+  }
+  const data = (await res.json()) as { envs?: EnvRow[] };
+  for (const env of data.envs ?? []) {
+    if (env.key && want.has(env.key) && env.value?.trim()) {
+      out[env.key] = env.value.trim();
+    }
+  }
+  return out;
+}
+
+/** Resolve a Vercel project's slug/name (used for *.vercel.app URLs). */
+export async function getVercelProjectName(projectId: string): Promise<string | null> {
+  try {
+    const client = await getVercelClient();
+    const project = await withTeamId404Null((teamId) =>
+      client.projects.getProject({ idOrName: projectId, teamId }),
+    );
+    return project?.name?.trim() || null;
+  } catch (err) {
+    console.warn('[stripe-marketplace] getVercelProjectName failed:', err);
+    return null;
+  }
+}
 
 /** List env var *names* on a project (values are never returned to the UI). */
 export async function listProjectEnvKeyNames(projectId: string): Promise<string[]> {

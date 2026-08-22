@@ -94,6 +94,7 @@ import {
   useSetTenantDomainMutation,
   useTriggerDeployHookMutation,
   useTestVercelWebhookMutation,
+  useTestStripeWebhookMutation,
   useLazyGetTenantQuery,
   useLazyGetDeployStatusQuery,
   useLazyGetTenantDomainsQuery,
@@ -514,6 +515,7 @@ export function EditTenantModal({ open, tenant, onClose, onSnackbar }: EditTenan
   const [setTenantDomain] = useSetTenantDomainMutation();
   const [triggerDeployHook] = useTriggerDeployHookMutation();
   const [testVercelWebhook] = useTestVercelWebhookMutation();
+  const [testStripeWebhook] = useTestStripeWebhookMutation();
   const [getTenant] = useLazyGetTenantQuery();
   const [getDeployStatus] = useLazyGetDeployStatusQuery();
   const [getTenantDomains] = useLazyGetTenantDomainsQuery();
@@ -1108,6 +1110,53 @@ export function EditTenantModal({ open, tenant, onClose, onSnackbar }: EditTenan
       addResult('Stripe Key Mode', 'warn', 'Secret and publishable key are in different modes (test vs live) — keep them in the same mode');
     }
 
+    if (freshVercelProjectId || stripeWebhook) {
+      try {
+        const testRes = await testStripeWebhook({
+          slug,
+          projectNameHint: slug,
+        }).unwrap();
+        const t = testRes.data;
+        if (t?.ok) {
+          addResult(
+            'Stripe Webhook (snapshot)',
+            'pass',
+            t.message + (t.webhookUrl ? ' · ' + t.webhookUrl : ''),
+          );
+        } else if (t?.status === 'warn') {
+          addResult('Stripe Webhook (snapshot)', 'warn', t.message, goToOrgStep, 'Go to step');
+        } else {
+          addResult(
+            'Stripe Webhook (snapshot)',
+            'fail',
+            t?.message ?? 'Webhook test failed',
+            goToOrgStep,
+            'Go to step',
+          );
+        }
+      } catch (err) {
+        const msg =
+          err && typeof err === 'object' && 'data' in err
+            ? String((err as { data?: { error?: string } }).data?.error || 'Webhook test failed')
+            : 'Could not run webhook test';
+        addResult(
+          'Stripe Webhook (snapshot)',
+          freshVercelProjectId ? 'fail' : 'warn',
+          msg,
+          goToOrgStep,
+          'Go to step',
+        );
+      }
+    } else {
+      addResult(
+        'Stripe Webhook (snapshot)',
+        'warn',
+        'Deploy the tenant to Vercel and set STRIPE_WEBHOOK_SECRET in Organization & Billing before testing',
+        goToOrgStep,
+        'Go to step',
+      );
+    }
+
     // Deployment status - live check via API
     try {
       const statusResult = await getDeployStatus(tenant.slug).unwrap();
@@ -1125,7 +1174,7 @@ export function EditTenantModal({ open, tenant, onClose, onSnackbar }: EditTenan
       setFlightChecks(results);
       setFlightRunning(false);
     }
-  }, [tenant, flightRunId, getTenant, getDeployStatus, setActiveStep]);
+  }, [tenant, flightRunId, getTenant, getDeployStatus, setActiveStep, testStripeWebhook]);
 
   // ── Export tenant config ────────────────────────────────
   const handleExport = useCallback(() => {
