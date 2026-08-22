@@ -12,7 +12,12 @@
 
 import { PrismaClient } from '@/generated/prisma';
 import { jsonOk } from '@/lib/api/response';
-import { ensureNavigationTable, seedMissingNavigationFromCatalog } from '@/lib/navigation/db';
+import {
+  ensureNavigationTable,
+  reconcileNavigationDuplicates,
+  seedMissingNavigationFromCatalog,
+} from '@/lib/navigation/db';
+import { getCurrentAppId, getTenantConfig } from '@shared/lib/config/tenant';
 
 export const dynamic = 'force-dynamic';
 
@@ -52,23 +57,38 @@ export async function GET(request: Request) {
     return jsonOk({ items: [] as NavItem[] });
   }
 
+  const tenantSlug = getTenantConfig().slug;
+  const appId = getCurrentAppId();
+  const scope = { tenantSlug, appId };
+
   const prisma = getClient();
   try {
     await ensureNavigationTable(prisma);
-    const seeded = await seedMissingNavigationFromCatalog(prisma);
+    const seeded = await seedMissingNavigationFromCatalog(prisma, scope);
     if (seeded > 0) console.log(`[navigation] Seeded ${seeded} new item(s) from page catalog`);
 
+    const { deleted } = await reconcileNavigationDuplicates(prisma, scope);
+    if (deleted > 0) {
+      console.log(`[navigation] Removed ${deleted} duplicate nav item(s) after reconcile`);
+    }
+
+    // Include current app rows + legacy unscoped rows; exclude sibling suite apps.
     const rows = await prisma.$queryRawUnsafe<Record<string, unknown>[]>(
       `SELECT id, parent_id AS "parentId", sort_order AS "sortOrder", title, path, icon,
               auth_tier AS "authTier", required_groups AS "requiredGroups",
               is_visible AS "isVisible", is_dynamic AS "isDynamic", is_default AS "isDefault"
        FROM navigation_items
        WHERE is_visible = TRUE
+         AND (COALESCE(app_id, '') = '' OR COALESCE(app_id, '') = $1)
+         AND (tenant_slug IS NULL OR tenant_slug = $2 OR $2 = 'tokenizmyapp')
        ORDER BY sort_order ASC`,
+      appId,
+      tenantSlug,
     );
 
     // Filter by tier + group access
     const filtered: NavItem[] = [];
+    const seenPaths = new Set<string>();
     for (const r of rows) {
       const itemTierRank = TIER_RANK[String(r.authTier ?? 'public')] ?? 0;
       if (itemTierRank > userTierRank) continue;
@@ -81,12 +101,18 @@ export async function GET(request: Request) {
         }
       }
 
+      const path = String(r.path ?? '');
+      // Final safety net against duplicate drawer entries for the same route.
+      const dedupeKey = `${r.parentId ?? 'root'}::${path || r.title}`;
+      if (seenPaths.has(dedupeKey)) continue;
+      seenPaths.add(dedupeKey);
+
       filtered.push({
         id: r.id as string,
         parentId: r.parentId as string | null,
         sortOrder: Number(r.sortOrder ?? 0),
         title: r.title as string,
-        path: r.path as string,
+        path,
         icon: r.icon as string,
         authTier: r.authTier as string,
         requiredGroups: r.requiredGroups as string,

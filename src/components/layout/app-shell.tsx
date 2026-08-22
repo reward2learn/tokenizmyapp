@@ -121,7 +121,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   const { tier, user, groups } = useAppSelector((s) => s.auth);
   const { themeMode, setThemeMode } = useThemeMode();
   const [themeMenuAnchor, setThemeMenuAnchor] = useState<HTMLElement | null>(null);
-  useListPagesQuery();
+  const { refetch: refetchPages } = useListPagesQuery();
 
   // Brand config via RTK Query — fallback to tenant env var, then default
   const { data: brandData } = useGetBrandConfigQuery();
@@ -131,8 +131,10 @@ export function AppShell({ children }: { children: ReactNode }) {
 
   // DB-driven navigation via RTK Query (fallback: static catalog via listNavPages)
   const groupsParam = encodeURIComponent((groups ?? []).join(','));
-  const { data: navData } = useGetNavigationQuery({ tier, groups: groupsParam });
-
+  const { data: navData, refetch: refetchNavigation } = useGetNavigationQuery(
+    { tier, groups: groupsParam },
+    { refetchOnMountOrArgChange: true },
+  );
   // Prefer ApiEnvelope `{ success, data: { items } }`; tolerate legacy `{ items }` shape.
   const envelopeItems = navData?.data?.items as DbNavItem[] | undefined;
   const legacyItems = (navData as { items?: DbNavItem[] } | undefined)?.items;
@@ -160,8 +162,19 @@ export function AppShell({ children }: { children: ReactNode }) {
 
 
   const closeDrawer = () => dispatch(setDrawerOpen(false));
-  const toggleDrawer = () => dispatch(setDrawerOpen(!drawerOpen));
-
+  const openDrawer = useCallback(() => {
+    dispatch(setDrawerOpen(true));
+    // Refresh nav tree (server reconciles duplicates) + page catalog on every open.
+    void refetchNavigation();
+    void refetchPages();
+  }, [dispatch, refetchNavigation, refetchPages]);
+  const toggleDrawer = () => {
+    if (drawerOpen) {
+      closeDrawer();
+    } else {
+      openDrawer();
+    }
+  };
   const isActive = (href: string) =>
     pathname === href || (href !== '/' && href !== '/dashboard' && pathname.startsWith(href));
 

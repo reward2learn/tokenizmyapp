@@ -15,7 +15,7 @@ import { PrismaClient } from '@/generated/prisma';
 import { requireWriteAuth } from '@/lib/auth/guards';
 import { sessionIsPlatformAdmin } from '@/lib/auth/jwt';
 import { jsonError, jsonOk } from '@/lib/api/response';
-import { ensureNavigationTable, seedMissingNavigationFromCatalog } from '@/lib/navigation/db';
+import { ensureNavigationTable, reconcileNavigationDuplicates, seedMissingNavigationFromCatalog } from '@/lib/navigation/db';
 import { resolveTenantDbUrl } from '@/domain/tenant/tenant-db-resolver';
 
 export const dynamic = 'force-dynamic';
@@ -84,6 +84,8 @@ export async function GET(request: Request): Promise<NextResponse> {
     await ensureNavigationTable(prisma);
     const seeded = await seedMissingNavigationFromCatalog(prisma, { tenantSlug, appId });
     if (seeded > 0) console.log(`[navigation] Seeded ${seeded} new item(s) from page catalog`);
+    const { deleted } = await reconcileNavigationDuplicates(prisma, { tenantSlug, appId });
+    if (deleted > 0) console.log(`[navigation] Removed ${deleted} duplicate nav item(s)`);
 
     const where: string[] = [];
     const params: unknown[] = [];

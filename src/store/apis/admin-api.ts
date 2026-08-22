@@ -3,6 +3,7 @@ import { baseQuery } from '@shared/store/base-query';
 import type { ApiEnvelope } from '@/store/api-types';
 import { brandConfigApi } from '@shared/store/apis/brand-config-api';
 import { configApi } from '@/store/apis/config-api';
+import { navigationApi } from '@/store/apis/navigation-api';
 import type { RoleConfigView } from '@/app/api/admin/roles/route';
 import type { AdminConversationView } from '@/app/api/admin/conversations/route';
 import type { AdminUserView } from '@/app/api/admin/users/route';
@@ -242,6 +243,14 @@ export const adminApi = createApi({
         body,
       }),
       invalidatesTags: ['Navigation'],
+      async onQueryStarted(_arg, { dispatch, queryFulfilled }) {
+        try {
+          await queryFulfilled;
+          dispatch(navigationApi.util.invalidateTags(['Navigation']));
+        } catch {
+          /* keep drawer cache */
+        }
+      },
     }),
     /** PUT /api/admin/navigation — batch update nav items */
     updateNavigationItems: builder.mutation<ApiEnvelope<unknown>, { items: Record<string, unknown>[] } & TenantAppScope>({
@@ -251,6 +260,14 @@ export const adminApi = createApi({
         body,
       }),
       invalidatesTags: ['Navigation'],
+      async onQueryStarted(_arg, { dispatch, queryFulfilled }) {
+        try {
+          await queryFulfilled;
+          dispatch(navigationApi.util.invalidateTags(['Navigation']));
+        } catch {
+          /* keep drawer cache */
+        }
+      },
     }),
     /** DELETE /api/admin/navigation — delete by IDs */
     deleteNavigationItems: builder.mutation<ApiEnvelope<unknown>, { ids: string[] } & TenantAppScope>({
@@ -261,6 +278,14 @@ export const adminApi = createApi({
         return { url: `admin/navigation?${params.toString()}`, method: 'DELETE' };
       },
       invalidatesTags: ['Navigation'],
+      async onQueryStarted(_arg, { dispatch, queryFulfilled }) {
+        try {
+          await queryFulfilled;
+          dispatch(navigationApi.util.invalidateTags(['Navigation']));
+        } catch {
+          /* keep drawer cache */
+        }
+      },
     }),
 
     /** GET /api/admin/pages — list AppPage rows for CMS */
@@ -416,7 +441,15 @@ export const adminApi = createApi({
         method: 'POST',
         body,
       }),
-      invalidatesTags: ['Navigation', 'SeedData'],
+      invalidatesTags: ['Navigation'],
+      async onQueryStarted(_arg, { dispatch, queryFulfilled }) {
+        try {
+          await queryFulfilled;
+          dispatch(navigationApi.util.invalidateTags(['Navigation']));
+        } catch {
+          // populate failed — keep drawer cache
+        }
+      },
     }),
   }),
 });

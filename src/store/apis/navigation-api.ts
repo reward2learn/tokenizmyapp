@@ -16,12 +16,16 @@ export interface NavigationItem {
 export const navigationApi = createApi({
   reducerPath: 'navigationApi',
   baseQuery,
+  tagTypes: ['Navigation'],
   endpoints: (builder) => ({
     getNavigation: builder.query<ApiEnvelope<{ items: NavigationItem[] }>, { tier?: string; groups?: string } | void>({
       query: (params) => ({
         url: 'navigation',
         params: params ?? {},
       }),
+      providesTags: ['Navigation'],
+      // Drawer open always wants a fresh tree after reseeds / populate-sheet-pages.
+      keepUnusedDataFor: 30,
     }),
   }),
 });

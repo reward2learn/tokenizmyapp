@@ -178,6 +178,9 @@ export function SourceUploadForm({ showSummaryOnly }: { showSummaryOnly?: boolea
 
   const refreshSeedDetails = useCallback(() => {
     dispatch(configApi.util.invalidateTags(['SeedDetails']));
+    void import('@/store/apis/navigation-api').then(({ navigationApi }) => {
+      dispatch(navigationApi.util.invalidateTags(['Navigation']));
+    });
   }, [dispatch]);
   const {
     register,

@@ -393,6 +393,7 @@ export async function upsertSheetPagesStep(
   dbUrl: string,
   tenantSlug?: string,
   writable?: WritableStream<ProgressChunk | string>,
+  appId = '',
 ): Promise<Array<{ slug: string; title: string }>> {
   'use step';
 
@@ -489,43 +490,110 @@ export async function upsertSheetPagesStep(
       });
     }
 
-    // Auto-populate navigation_items: add each sheet page as a child of the "Excel" folder.
-    // Find the Excel folder first, or create it if it doesn't exist yet.
-    const excelFolder = await queryRows<{ id: string }>(
+    // Auto-populate navigation under a single Excel folder (idempotent).
+    // Merge any prior duplicate Excel roots, then upsert sheet paths globally
+    // so reseeds never stack Home/Dashboard/sheet-* drawer entries.
+    const excelFolders = await queryRows<{ id: string }>(
       db,
-      `SELECT id FROM navigation_items WHERE title = $1 AND parent_id IS NULL LIMIT 1`,
-      ['Excel'],
+      `SELECT id FROM navigation_items
+       WHERE parent_id IS NULL
+         AND (LOWER(title) IN ('excel', 'workbook') OR path IN ('/excel', '/workbook'))
+       ORDER BY created_at ASC NULLS LAST, id ASC`,
     );
-    let excelId = excelFolder[0]?.id;
+    let excelId = excelFolders[0]?.id;
+    for (const extra of excelFolders.slice(1)) {
+      await executeOne(
+        db,
+        `UPDATE navigation_items SET parent_id = $1 WHERE parent_id = $2`,
+        [excelId!, extra.id],
+      );
+      await executeOne(db, `DELETE FROM navigation_items WHERE id = $1`, [extra.id]);
+    }
     if (!excelId) {
-      // Create the Excel folder if it doesn't exist yet
       const created = await queryRows<{ id: string }>(
         db,
-        `INSERT INTO navigation_items (id, parent_id, sort_order, title, path, icon, auth_tier, required_groups, is_visible, is_dynamic)
-         VALUES (gen_random_uuid()::TEXT, NULL, (SELECT COALESCE(MAX(sort_order), 0) + 1 FROM navigation_items WHERE parent_id IS NULL),
-         'Excel', '/excel', 'Folder', CAST('google' AS "AuthTier"), 'viewer,ops-admin,finance,platform-admin', true, true)
+        `INSERT INTO navigation_items (
+           id, parent_id, sort_order, title, path, icon, auth_tier, required_groups,
+           is_visible, is_dynamic, tenant_slug, app_id
+         )
+         VALUES (
+           gen_random_uuid()::TEXT, NULL,
+           (SELECT COALESCE(MAX(sort_order), 0) + 1 FROM navigation_items WHERE parent_id IS NULL),
+           'Excel', '/excel', 'Folder', CAST('google' AS "AuthTier"), 'viewer,ops-admin,finance,platform-admin',
+           true, true, $1, $2
+         )
          RETURNING id`,
+        [tenantSlug ?? null, appId || null],
       );
       excelId = created[0]?.id;
+    } else if (appId) {
+      await executeOne(
+        db,
+        `UPDATE navigation_items
+         SET app_id = COALESCE(NULLIF(app_id, ''), $1),
+             tenant_slug = COALESCE(tenant_slug, $2)
+         WHERE id = $3`,
+        [appId, tenantSlug ?? null, excelId],
+      );
     }
+
     if (excelId) {
       let navSort = 0;
       for (const sheet of comprehension.sheets) {
         const slug = `sheet-${normalizeSlug(sheet.tabName)}`;
-        // Skip if already present
+        const path = `/${slug}`;
         const existing = await queryRows<{ id: string }>(
           db,
-          `SELECT id FROM navigation_items WHERE path = $1 AND parent_id = $2 LIMIT 1`,
-          [`/${slug}`, excelId],
+          `SELECT id FROM navigation_items WHERE path = $1 LIMIT 1`,
+          [path],
         );
-        if (existing.length === 0) {
+        if (existing.length > 0) {
           await executeOne(
             db,
-            `INSERT INTO navigation_items (id, parent_id, sort_order, title, path, icon, auth_tier, required_groups, is_visible, is_dynamic)
-             VALUES (gen_random_uuid()::TEXT, $1, $2, $3, $4, 'Description', CAST('google' AS "AuthTier"), '', true, true)`,
-            [excelId, navSort++, sheet.title, `/${slug}`],
+            `UPDATE navigation_items
+             SET parent_id = $1, title = $2,
+                 app_id = COALESCE(NULLIF(app_id, ''), $3),
+                 tenant_slug = COALESCE(tenant_slug, $4)
+             WHERE id = $5`,
+            [excelId, sheet.title, appId || null, tenantSlug ?? null, existing[0]!.id],
+          );
+        } else {
+          await executeOne(
+            db,
+            `INSERT INTO navigation_items (
+               id, parent_id, sort_order, title, path, icon, auth_tier, required_groups,
+               is_visible, is_dynamic, tenant_slug, app_id
+             )
+             VALUES (
+               gen_random_uuid()::TEXT, $1, $2, $3, $4, 'Description',
+               CAST('google' AS "AuthTier"), '', true, true, $5, $6
+             )`,
+            [excelId, navSort++, sheet.title, path, tenantSlug ?? null, appId || null],
           );
         }
+      }
+
+      // Collapse any remaining duplicate (parent_id, path) pairs.
+      const dupes = await queryRows<{ keep_id: string; drop_id: string }>(
+        db,
+        `SELECT keep_id, drop_id FROM (
+           SELECT
+             (ARRAY_AGG(id ORDER BY created_at ASC NULLS LAST, id ASC))[1] AS keep_id,
+             UNNEST(ARRAY_AGG(id ORDER BY created_at ASC NULLS LAST, id ASC)) AS drop_id
+           FROM navigation_items
+           WHERE path <> ''
+           GROUP BY parent_id, path
+           HAVING COUNT(*) > 1
+         ) d
+         WHERE drop_id <> keep_id`,
+      );
+      for (const d of dupes) {
+        await executeOne(
+          db,
+          `UPDATE navigation_items SET parent_id = $1 WHERE parent_id = $2`,
+          [d.keep_id, d.drop_id],
+        );
+        await executeOne(db, `DELETE FROM navigation_items WHERE id = $1`, [d.drop_id]);
       }
     }
   });

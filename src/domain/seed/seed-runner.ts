@@ -1431,11 +1431,13 @@ export async function seedFromSources(options: SeedOptions = {}): Promise<SeedRe
           title: page.title,
           authTier: page.authTier as AuthTier,
           sortOrder: pageSort++,
+          appId: appId || null,
         },
         update: {
           title: page.title,
           authTier: page.authTier as AuthTier,
           sortOrder: pageSort - 1,
+          appId: appId || null,
         },
       });
 
@@ -1448,6 +1450,21 @@ export async function seedFromSources(options: SeedOptions = {}): Promise<SeedRe
           config: section.config as Prisma.InputJsonValue,
         })),
       });
+    }
+
+    // Keep drawer nav idempotent after every reseed (collapse Excel/sheet dupes).
+    try {
+      const { reconcileNavigationDuplicates, syncSheetPagesIntoNavigation } = await import(
+        '@/lib/navigation/db'
+      );
+      const tenantSlug = process.env.NEXT_PUBLIC_TENANT_SLUG?.trim() || null;
+      await reconcileNavigationDuplicates(prisma, { tenantSlug, appId });
+      await syncSheetPagesIntoNavigation(prisma, { tenantSlug, appId });
+    } catch (err) {
+      console.warn(
+        '[seed] Navigation reconcile skipped:',
+        err instanceof Error ? err.message : err,
+      );
     }
 
     return { counts, filesUsed };

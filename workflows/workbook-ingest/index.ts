@@ -142,6 +142,7 @@ export async function handleWorkbookIngest(
     dbUrl,
     input.tenantSlug,
     writable,
+    appId,
   );
 
   // ── 7. REGISTER DYNAMIC PAGES (best-effort runtime catalog) ────

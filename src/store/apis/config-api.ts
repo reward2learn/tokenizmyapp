@@ -98,6 +98,15 @@ export const configApi = createApi({
       // Sync seed finishes before 202; invalidate so Review Data / wizard see new counts.
       // Workflow completion also invalidates from the upload form.
       invalidatesTags: ['SeedDetails'],
+      async onQueryStarted(_arg, { dispatch, queryFulfilled }) {
+        try {
+          await queryFulfilled;
+          const { navigationApi } = await import('@/store/apis/navigation-api');
+          dispatch(navigationApi.util.invalidateTags(['Navigation']));
+        } catch {
+          // reseed failed
+        }
+      },
     }),
     reprocessFromCache: builder.mutation<ApiEnvelope<ReprocessResponse>, void>({
       query: () => ({
@@ -105,6 +114,15 @@ export const configApi = createApi({
         method: 'POST',
       }),
       invalidatesTags: ['SeedDetails'],
+      async onQueryStarted(_arg, { dispatch, queryFulfilled }) {
+        try {
+          await queryFulfilled;
+          const { navigationApi } = await import('@/store/apis/navigation-api');
+          dispatch(navigationApi.util.invalidateTags(['Navigation']));
+        } catch {
+          // reprocess failed
+        }
+      },
     }),
     getOpenAiKeyStatus: builder.query<ApiEnvelope<OpenAiKeyStatus>, void>({
       query: () => 'config/openai-key',
