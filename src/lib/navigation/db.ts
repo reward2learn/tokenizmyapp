@@ -41,14 +41,16 @@ export const DEFAULT_INFRA_NAV_SLUGS = [
 /** Paths nested under the /admin nav item by default. */
 export const ADMIN_CHILD_PATHS = ['/ops-admin', '/ops-tracking', '/config'] as const;
 
-function scopeSql(alias = ''): string {
+function scopeSql(alias = '', paramStart = 1): string {
   const p = alias ? `${alias}.` : '';
+  const appParam = `$${paramStart}`;
+  const tenantParam = `$${paramStart + 1}`;
   return `
-    COALESCE(${p}app_id, '') = $1
+    COALESCE(${p}app_id, '') = ${appParam}
     AND (
-      $2::text IS NULL
+      ${tenantParam}::text IS NULL
       OR ${p}tenant_slug IS NULL
-      OR ${p}tenant_slug = $2
+      OR ${p}tenant_slug = ${tenantParam}
     )
   `;
 }
@@ -482,11 +484,10 @@ export async function ensureDefaultNavigationHierarchy(
   scope?: NavigationScope,
 ): Promise<{ updated: number }> {
   const [appId, tenantSlug] = scopeParams(scope);
-  const filter = scopeSql();
 
   const adminRows = await prisma.$queryRawUnsafe<{ id: string }[]>(
     `SELECT id FROM navigation_items
-     WHERE path = '/admin' AND ${filter}
+     WHERE path = '/admin' AND ${scopeSql('', 1)}
      ORDER BY is_dynamic ASC, created_at ASC NULLS LAST, id ASC
      LIMIT 1`,
     appId,
@@ -497,7 +498,7 @@ export async function ensureDefaultNavigationHierarchy(
 
   await prisma.$executeRawUnsafe(
     `UPDATE navigation_items SET parent_id = NULL, updated_at = CURRENT_TIMESTAMP
-     WHERE id = $1 AND ${filter}`,
+     WHERE id = $1 AND ${scopeSql('', 2)}`,
     adminId,
     appId,
     tenantSlug,
@@ -509,7 +510,7 @@ export async function ensureDefaultNavigationHierarchy(
     const result = await prisma.$executeRawUnsafe(
       `UPDATE navigation_items
        SET parent_id = $1, sort_order = $2, updated_at = CURRENT_TIMESTAMP
-       WHERE path = $3 AND ${filter}`,
+       WHERE path = $3 AND ${scopeSql('', 4)}`,
       adminId,
       i,
       childPath,

@@ -181,9 +181,11 @@ export function AppShell({ children }: { children: ReactNode }) {
   const openDrawer = useCallback(() => {
     dispatch(setDrawerOpen(true));
     // Refresh nav tree (server reconciles duplicates) + page catalog on every open.
-    void refetchNavigation();
+    if (bootstrapped) {
+      void refetchNavigation();
+    }
     void refetchPages();
-  }, [dispatch, refetchNavigation, refetchPages]);
+  }, [dispatch, refetchNavigation, refetchPages, bootstrapped]);
   const toggleDrawer = () => {
     if (drawerOpen) {
       closeDrawer();
