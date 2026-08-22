@@ -110,6 +110,9 @@ export const CREDIT_FLOORS = {
   tenantProvisioning: 30,
 } as const;
 
+/** Offer in-chat top-up when balance falls below this (5 chat turns). */
+export const LOW_CREDIT_THRESHOLD = CREDIT_FLOORS.chat * 5;
+
 /**
  * Most debt one job may leave behind, as a fallback when the org's plan grants
  * no monthly allowance (Enterprise, whose allowance is negotiated).
@@ -836,7 +839,7 @@ export async function grantMonthlyAllowanceIfDue(
  * a gate that checks one org while metering debits another would let a tenant
  * generate forever against a balance nobody is watching.
  */
-async function resolvePayingOrgId(tenantSlug: string, db: RawDb): Promise<string> {
+export async function resolvePayingOrgId(tenantSlug: string, db: RawDb): Promise<string> {
   const { resolveOrgForTenant, backfillDefaultOrganization } = await import(
     '@/domain/billing/organization-service'
   );

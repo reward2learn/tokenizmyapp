@@ -291,3 +291,26 @@ describe('invoice events', () => {
     expect(grantCredits).not.toHaveBeenCalled();
   });
 });
+
+describe('checkout.session.completed credit top-up', () => {
+  it('redeems the pack for agentic/payment checkout sessions', async () => {
+    const result = await service.processStripeEvent(
+      event('checkout.session.completed', {
+        id: 'cs_topup',
+        mode: 'payment',
+        client_reference_id: 'org_known',
+        customer: 'cus_known',
+        metadata: { kind: 'credit_topup', orgId: 'org_known', packId: 'pack-50' },
+      }),
+      db,
+    );
+
+    expect(result.handled).toBe(true);
+    expect(redeemCreditPack).toHaveBeenCalledWith(
+      'org_known',
+      'pack-50',
+      expect.objectContaining({ paymentRef: 'cs_topup' }),
+      db,
+    );
+  });
+});

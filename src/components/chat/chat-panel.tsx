@@ -56,8 +56,12 @@ import {
   clearPendingSessionActions,
   sendStreamingMessage,
   setActiveTool,
+  setPendingCreditTopUp,
   type ChatStreamMessage,
 } from '@/store/chat-stream-slice';
+import { StripeTopUpDialog } from '@/components/ops-admin/stripe-topup-dialog';
+import { useBillingOrgId } from '@/components/billing/use-billing-org';
+import type { CreditTopUpAction } from '@/lib/chat/session-tools';
 import { getClientTenantConfig } from '@shared/lib/config/tenant';
 import { selectActiveSheetArg, selectSelectedCells } from '@/store/sheet-viewer-slice';
 import { sheetDataApi } from '@/store/apis/sheet-data-api';
@@ -131,6 +135,19 @@ export function ChatPanel({ variant = 'page' }: { variant?: 'page' | 'drawer' } 
     isPlatformAdmin,
     isAdminRoute: (pathname ?? '').startsWith('/admin'),
   });
+  const billingOrgId = useBillingOrgId();
+  const pendingCreditTopUp = useAppSelector((s) => s.chatStream.pendingCreditTopUp);
+  const [topUpDialog, setTopUpDialog] = useState<{ orgId: string; packId: string } | null>(null);
+
+  const openCreditTopUp = useCallback((action: CreditTopUpAction) => {
+    if (action.checkoutUrl && action.agentic) {
+      window.open(action.checkoutUrl, '_blank', 'noopener,noreferrer');
+      dispatch(setPendingCreditTopUp(null));
+      return;
+    }
+    setTopUpDialog({ orgId: action.orgId, packId: action.packId });
+    dispatch(setPendingCreditTopUp(null));
+  }, [dispatch]);
   const [attachmentLoading, setAttachmentLoading] = useState(false);
   const [status, setStatus] = useState<string | null>(null);
   const [saveConversation, { isLoading: isSaving }] = useSaveConversationMutation();
@@ -299,6 +316,14 @@ export function ChatPanel({ variant = 'page' }: { variant?: 'page' | 'drawer' } 
         dispatch(chatApi.util.invalidateTags(['Conversations']));
         setStatus('Conversation saved.');
       }
+      if (action === 'open_credit_topup') {
+        // Legacy action path — payload should arrive via pendingCreditTopUp.
+        if (pendingCreditTopUp) {
+          openCreditTopUp(pendingCreditTopUp);
+        } else if (billingOrgId) {
+          setTopUpDialog({ orgId: billingOrgId, packId: 'pack-25' });
+        }
+      }
       if (isClientClearSessionAction(action) && explicitSessionRequest) {
         shouldClear = true;
       }
@@ -309,7 +334,12 @@ export function ChatPanel({ variant = 'page' }: { variant?: 'page' | 'drawer' } 
       setInput('');
       if (voiceMode) resetVoiceTranscript();
     }
-  }, [dispatch, isStreaming, pendingSessionActions, resetVoiceTranscript, voiceMode]);
+  }, [billingOrgId, dispatch, isStreaming, messages, openCreditTopUp, pendingCreditTopUp, pendingSessionActions, resetVoiceTranscript, voiceMode]);
+
+  useEffect(() => {
+    if (isStreaming || !pendingCreditTopUp) return;
+    openCreditTopUp(pendingCreditTopUp);
+  }, [isStreaming, openCreditTopUp, pendingCreditTopUp]);
 
   const handleSend = async () => {
     const trimmed = input.trim();
@@ -1132,6 +1162,15 @@ export function ChatPanel({ variant = 'page' }: { variant?: 'page' | 'drawer' } 
           </Stack>
         </Paper>
       </Box>
+
+      {topUpDialog && (
+        <StripeTopUpDialog
+          open
+          orgId={topUpDialog.orgId}
+          packId={topUpDialog.packId}
+          onClose={() => setTopUpDialog(null)}
+        />
+      )}
     </>
   );
 }

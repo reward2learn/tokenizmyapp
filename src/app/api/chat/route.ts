@@ -3,7 +3,7 @@
  */
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
-import { createClient } from '@/lib/db';
+import { createClient, createRawClient } from '@/lib/db';
 import { resolveOpenAiKey } from '@/lib/openai';
 import { resolveActiveAiConfig } from '@/lib/ai-providers';
 import { KnowledgeService } from '@/domain/knowledge/knowledge-service';
@@ -31,7 +31,10 @@ import { resolveEffectiveChatModel } from '@/lib/chat/chat-model';
 import { getAppSettings } from '@/domain/config/app-settings-service';
 import { isExplicitSessionRequest } from '@/lib/chat/session-tools';
 import { ensureConversationsColumns } from '@/lib/db-migrate';
-import { requireCreditsForTenant } from '@/domain/billing/credit-service';
+import { requireCreditsForTenant, resolvePayingOrgId, LOW_CREDIT_THRESHOLD } from '@/domain/billing/credit-service';
+import { canPurchaseCreditPacks } from '@/lib/billing/plans';
+import { getSubscription } from '@/domain/billing/entitlement-service';
+import { isAgenticCatalogLive, resolveTenantAgenticCommerce } from '@/domain/billing/agentic-catalog-service';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
@@ -429,6 +432,11 @@ async function handleChatPost(request: Request): Promise<Response> {
     // BYOK tenants (keySource === 'db') pay their provider directly and are
     // never gated. Platform-key usage with an empty balance degrades to a
     // friendly reply instead of a hard error — chat must keep working.
+    let creditBalance: number | null = null;
+    let billingOrgId: string | null = null;
+    let planId: import('@/lib/billing/plans').PlanId = 'free';
+    let agenticCatalogLive = false;
+
     if (ai.keySource === 'env') {
       const tenantSlug = process.env.NEXT_PUBLIC_TENANT_SLUG ?? 'tokenizmyapp';
       // The platform owner is exempt (see isCreditExemptEmail) — they pay the
@@ -441,7 +449,21 @@ async function handleChatPost(request: Request): Promise<Response> {
           stream === true,
         );
       }
+      creditBalance = gate.balance === Infinity ? null : gate.balance;
+      const rawDb = createRawClient();
+      billingOrgId = await resolvePayingOrgId(tenantSlug, rawDb);
+      const sub = await getSubscription(billingOrgId, rawDb);
+      planId = sub.planId;
+      const agentic = await resolveTenantAgenticCommerce(billingOrgId, rawDb);
+      agenticCatalogLive = isAgenticCatalogLive(agentic.config);
     }
+
+    const tenantSlugForTools = process.env.NEXT_PUBLIC_TENANT_SLUG ?? 'tokenizmyapp';
+    const lowBalance = creditBalance != null && creditBalance < LOW_CREDIT_THRESHOLD;
+    const billingToolsEnabled = Boolean(
+      billingOrgId && ai.keySource === 'env' && canPurchaseCreditPacks(planId),
+    );
+    const sessionToolsEnabled = Boolean(activeTool) || isExplicitSessionRequest(message) || lowBalance;
 
     const appSettings = await getAppSettings(db);
     // Web search relies on OpenAI's own search-preview model — no equivalent
@@ -451,11 +473,13 @@ async function handleChatPost(request: Request): Promise<Response> {
     // capability would just produce misleading answers, so this degrades to
     // off rather than sending a broken request.
     const webSearchEnabled = appSettings.webSearchEnabled && ai.provider.id === 'openai';
-    const sessionToolsEnabled = Boolean(activeTool) || isExplicitSessionRequest(message);
 
     const systemSections = [
       systemPrompt,
-      ...(sessionToolsEnabled ? [CHAT_SESSION_TOOL_INSTRUCTIONS] : []),
+      ...(sessionToolsEnabled || billingToolsEnabled ? [CHAT_SESSION_TOOL_INSTRUCTIONS] : []),
+      ...(lowBalance && billingToolsEnabled
+        ? [`The organization's AI credit balance is low (${creditBalance} remaining). Proactively offer a credit top-up via purchase_credits when appropriate.`]
+        : []),
       // Only honoured for a platform admin. A non-admin who sets activeTool
       // gets no instruction here, and executeSessionTool refuses the call
       // anyway — belt and braces, since this arms a privileged tool.
@@ -524,6 +548,19 @@ async function handleChatPost(request: Request): Promise<Response> {
       // boundary that keeps `build_custom_template` (which writes platform
       // configuration) out of reach of non-admins, whatever the client sends.
       isPlatformAdmin: sessionIsPlatformAdmin(session),
+      ...(billingOrgId
+        ? {
+            billing: {
+              orgId: billingOrgId,
+              tenantSlug: tenantSlugForTools,
+              availableCredits: creditBalance ?? 0,
+              planId,
+              lowBalance,
+              canPurchaseCredits: canPurchaseCreditPacks(planId),
+              agenticCatalogLive,
+            },
+          }
+        : {}),
     };
 
     return completeChatWithSessionTools({
@@ -538,7 +575,8 @@ async function handleChatPost(request: Request): Promise<Response> {
       stream: stream === true,
       webSearchEnabled,
       sessionToolsEnabled,
-      tenantSlug: process.env.NEXT_PUBLIC_TENANT_SLUG ?? 'tokenizmyapp',
+      billingToolsEnabled,
+      tenantSlug: tenantSlugForTools,
       keySource: ai.keySource,
       viewerEmail: session?.email,
     });

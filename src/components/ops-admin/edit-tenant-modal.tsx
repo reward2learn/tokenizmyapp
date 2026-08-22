@@ -78,7 +78,7 @@ import { getTemplate, listTemplates } from '@/domain/tenant/template-catalog';
 import { DEFAULT_PLATFORM_ADMIN_EMAIL } from '@/domain/security/persons';
 import { TemplateSelector } from '@/components/ops-admin/tenant-wizard';
 import { TenantAiProviderForm } from '@/components/ops-admin/tenant-ai-provider-form';
-import { addStripeWebhookHealthToFlightCheck } from '@/components/ops-admin/stripe-flight-check';
+import { addAgenticCommerceToFlightCheck, addStripeWebhookHealthToFlightCheck } from '@/components/ops-admin/stripe-flight-check';
 import type { AppPackConfig, SuiteAppInstance } from '@/store/apis/tenant-api';
 import { useAppDispatch } from '@/store/hooks';
 import { setThemeColors } from '@/store/ui-slice';
@@ -289,12 +289,16 @@ interface ConfigFieldsInput {
   vercelProjectId: string;
   adminEmail: string;
   pinSignInEnabled: boolean;
-  stripe: { 
-  secretKey: string; 
-  webhookSecret: string; 
-  publishableKey: string; 
-  prices: { PRO_MONTHLY?: string; PRO_YEARLY?: string; BUSINESS_MONTHLY?: string; BUSINESS_YEARLY?: string } 
-};
+  stripe: {
+    secretKey: string;
+    webhookSecret: string;
+    publishableKey: string;
+    prices: { PRO_MONTHLY?: string; PRO_YEARLY?: string; BUSINESS_MONTHLY?: string; BUSINESS_YEARLY?: string };
+    agenticCommerce?: {
+      enabled: boolean;
+      connectPlatformWaitlist?: boolean;
+    };
+  };
 }
 
 /**
@@ -306,6 +310,11 @@ interface ConfigFieldsInput {
  */
 function buildConfigFields(input: ConfigFieldsInput) {
   const { tenant, license, googleOAuth, dbConfig, envPairs, deployHookUrl, vercelProjectId, adminEmail, pinSignInEnabled, stripe } = input;
+  const existingStripe = (
+    ((tenant.metadata as Record<string, unknown>)?.config as Record<string, unknown> | undefined)?.stripe
+    ?? {}
+  ) as Record<string, unknown>;
+  const existingAgentic = (existingStripe.agenticCommerce ?? {}) as Record<string, unknown>;
   const env: Record<string, string> = {};
   for (const pair of envPairs) {
     if (pair.key) env[pair.key] = pair.value;
@@ -348,6 +357,19 @@ function buildConfigFields(input: ConfigFieldsInput) {
         PRO_YEARLY: stripe.prices?.PRO_YEARLY,
         BUSINESS_MONTHLY: stripe.prices?.BUSINESS_MONTHLY,
         BUSINESS_YEARLY: stripe.prices?.BUSINESS_YEARLY,
+      },
+      agenticCommerce: {
+        ...existingAgentic,
+        enabled: stripe.agenticCommerce?.enabled === true,
+        connectPlatform: {
+          ...((existingAgentic.connectPlatform ?? {}) as Record<string, unknown>),
+          ...(stripe.agenticCommerce?.connectPlatformWaitlist
+            ? {
+                waitlistRequested: true,
+                waitlistRequestedAt: new Date().toISOString(),
+              }
+            : {}),
+        },
       },
     },
     hooks: { deployHookUrl: deployHookUrl || undefined },
@@ -449,14 +471,17 @@ export function EditTenantModal({ open, tenant, onClose, onSnackbar }: EditTenan
 
   // ── Stripe payment keys (Organization & Billing step) ──
   // Stored in metadata.config.stripe; pushed to Vercel env on Save Changes.
-  const initStripe = (): { 
-    secretKey: string; 
-    webhookSecret: string; 
-    publishableKey: string; 
-    prices: { PRO_MONTHLY?: string; PRO_YEARLY?: string; BUSINESS_MONTHLY?: string; BUSINESS_YEARLY?: string } 
+  const initStripe = (): {
+    secretKey: string;
+    webhookSecret: string;
+    publishableKey: string;
+    prices: { PRO_MONTHLY?: string; PRO_YEARLY?: string; BUSINESS_MONTHLY?: string; BUSINESS_YEARLY?: string };
+    agenticCommerce: { enabled: boolean; connectPlatformWaitlist: boolean };
   } => {
     const cfg = (tenant?.metadata?.config ?? {}) as Record<string, unknown>;
     const stripe = (cfg.stripe ?? {}) as Record<string, unknown>;
+    const agentic = (stripe.agenticCommerce ?? {}) as Record<string, unknown>;
+    const connectPlatform = (agentic.connectPlatform ?? {}) as Record<string, unknown>;
     return {
       secretKey: String(stripe.secretKey ?? ''),
       webhookSecret: String(stripe.webhookSecret ?? ''),
@@ -466,6 +491,10 @@ export function EditTenantModal({ open, tenant, onClose, onSnackbar }: EditTenan
         PRO_YEARLY: stripe.PRO_YEARLY as string | undefined,
         BUSINESS_MONTHLY: stripe.BUSINESS_MONTHLY as string | undefined,
         BUSINESS_YEARLY: stripe.BUSINESS_YEARLY as string | undefined,
+      },
+      agenticCommerce: {
+        enabled: agentic.enabled === true,
+        connectPlatformWaitlist: connectPlatform.waitlistRequested === true,
       },
     };
   };
@@ -928,6 +957,11 @@ export function EditTenantModal({ open, tenant, onClose, onSnackbar }: EditTenan
           } else if (stripeRes.data?.note) {
             message += ` — ${stripeRes.data.note}`;
           }
+          if (stripeRes.data?.catalogSync) {
+            message += stripeRes.data.catalogSync.ok
+              ? ` — ${stripeRes.data.catalogSync.message}`
+              : ` — ⚠️ agentic catalog: ${stripeRes.data.catalogSync.message}`;
+          }
         } catch (stripeErr) {
           const stripeMsg = stripeErr && typeof stripeErr === 'object' && 'data' in stripeErr
             ? String((stripeErr as { data?: { error?: string } }).data?.error || 'Stripe env push failed')
@@ -1156,6 +1190,32 @@ export function EditTenantModal({ open, tenant, onClose, onSnackbar }: EditTenan
         goToOrgStep,
         'Go to step',
       );
+    }
+
+    if (stripeComplete) {
+      try {
+        const res = await fetch(`/api/admin/tenants/${slug}/agentic-commerce-health`, { credentials: 'include' });
+        const payload = await res.json() as { success?: boolean; data?: { steps?: { label: string; status: 'pass' | 'fail' | 'warn'; message: string }[] }; error?: string };
+        if (payload.success && payload.data?.steps) {
+          addAgenticCommerceToFlightCheck(payload.data.steps, addResult, goToOrgStep, 'Go to step');
+        } else {
+          addResult(
+            'Agentic Commerce (ACS seller)',
+            'warn',
+            payload.error ?? 'Could not load agentic commerce health',
+            goToOrgStep,
+            'Go to step',
+          );
+        }
+      } catch (err) {
+        addResult(
+          'Agentic Commerce (ACS seller)',
+          'warn',
+          err instanceof Error ? err.message : 'Could not evaluate agentic commerce health',
+          goToOrgStep,
+          'Go to step',
+        );
+      }
     }
 
     // Deployment status - live check via API
@@ -1994,6 +2054,39 @@ export function EditTenantModal({ open, tenant, onClose, onSnackbar }: EditTenan
               guard rejects a mix — keep them in the same mode.
             </Alert>
           )}
+
+          <FormControlLabel
+            control={
+              <Switch
+                checked={stripeKeys.agenticCommerce.enabled}
+                onChange={(e) =>
+                  setStripeKeys((s) => ({
+                    ...s,
+                    agenticCommerce: { ...s.agenticCommerce, enabled: e.target.checked },
+                  }))
+                }
+              />
+            }
+            label="Agentic Commerce (ACS seller) — publish credit packs to Stripe catalog"
+          />
+          <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: -1 }}>
+            Requires Stripe Dashboard → Agentic commerce seller onboarding (supported countries).
+            Save Changes syncs CREDIT_PACKS SKUs after pushing keys to Vercel.
+          </Typography>
+          <FormControlLabel
+            control={
+              <Switch
+                checked={stripeKeys.agenticCommerce.connectPlatformWaitlist}
+                onChange={(e) =>
+                  setStripeKeys((s) => ({
+                    ...s,
+                    agenticCommerce: { ...s.agenticCommerce, connectPlatformWaitlist: e.target.checked },
+                  }))
+                }
+              />
+            }
+            label="Flag Stripe Connect platform waitlist (Phase 4 — external agents)"
+          />
 
           {/* Tenant-specific price IDs — override the deployment-level defaults */}
           <Typography variant="caption" color="text.secondary" sx={{ mb: 1, fontSize: '0.7rem' }}>

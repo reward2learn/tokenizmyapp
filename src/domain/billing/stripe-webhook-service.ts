@@ -177,6 +177,11 @@ async function route(event: Stripe.Event, db: RawDb): Promise<WebhookResult> {
       return handleInvoicePaymentFailed(event.data.object, db);
     case 'payment_intent.succeeded':
       return handlePaymentIntentSucceeded(event.data.object, db);
+    case 'v2.commerce.product_catalog.import.succeeded':
+    case 'v2.commerce.product_catalog.import.completed':
+      return handleCatalogImportSucceeded(event, db);
+    case 'v2.commerce.product_catalog.import.failed':
+      return handleCatalogImportFailed(event, db);
     default:
       return {
         handled: false,
@@ -210,6 +215,62 @@ async function handleCheckoutCompleted(
       eventType: 'checkout.session.completed',
       orgId: null,
       message: 'Checkout completed but no org could be resolved — linkage not recorded.',
+    };
+  }
+
+  // One-time credit top-up (PaymentElement fallback or agentic checkout).
+  if (session.mode === 'payment' && session.metadata?.kind === 'credit_topup') {
+    const packId = session.metadata.packId;
+    if (packId) {
+      const { redeemCreditPack } = await import('@/domain/billing/credit-service');
+      const result = await redeemCreditPack(orgId, packId, { paymentRef: session.id }, db);
+      return {
+        handled: true,
+        duplicate: false,
+        eventType: 'checkout.session.completed',
+        orgId,
+        message:
+          `Redeemed ${packId} via checkout for org ${orgId}: ${result.baseGrant.amount} purchased` +
+          `${result.bonusGrant ? ` + ${result.bonusGrant.amount} bonus` : ''}.`,
+      };
+    }
+  }
+
+  // Agentic checkout may identify the pack by SKU on line items.
+  if (session.mode === 'payment') {
+    const { resolveTenantAgenticCommerce, resolvePackIdFromCheckoutMetadata } = await import(
+      '@/domain/billing/agentic-catalog-service'
+    );
+    const agentic = await resolveTenantAgenticCommerce(orgId, db);
+    const lineSkus: string[] = [];
+    if (session.metadata?.sku) lineSkus.push(session.metadata.sku);
+    const packId = resolvePackIdFromCheckoutMetadata(
+      session.metadata as Record<string, string> | undefined,
+      lineSkus,
+      agentic.config?.skuByPackId,
+    );
+    if (packId) {
+      const { redeemCreditPack } = await import('@/domain/billing/credit-service');
+      const result = await redeemCreditPack(orgId, packId, { paymentRef: session.id }, db);
+      return {
+        handled: true,
+        duplicate: false,
+        eventType: 'checkout.session.completed',
+        orgId,
+        message:
+          `Redeemed ${packId} (SKU checkout) for org ${orgId}: ${result.baseGrant.amount} purchased` +
+          `${result.bonusGrant ? ` + ${result.bonusGrant.amount} bonus` : ''}.`,
+      };
+    }
+  }
+
+  if (session.mode !== 'subscription') {
+    return {
+      handled: true,
+      duplicate: false,
+      eventType: 'checkout.session.completed',
+      orgId,
+      message: `Checkout session ${session.id} completed (mode ${session.mode}) — no subscription linkage.`,
     };
   }
 
@@ -483,6 +544,45 @@ async function handlePaymentIntentSucceeded(
     message:
       `Redeemed ${packId} for org ${orgId}: ${result.baseGrant.amount} purchased` +
       `${result.bonusGrant ? ` + ${result.bonusGrant.amount} bonus` : ''}.`,
+  };
+}
+
+async function handleCatalogImportSucceeded(
+  event: Stripe.Event,
+  db: RawDb,
+): Promise<WebhookResult> {
+  const payload = event.data.object as { id?: string; feed_type?: string; metadata?: Record<string, string> };
+  const importId = payload.id ?? event.id;
+  const feedType = payload.feed_type;
+  const tenantSlug = payload.metadata?.tenant_slug;
+
+  if (tenantSlug && (feedType === 'product' || feedType === 'pricing' || feedType === 'inventory')) {
+    const { markCatalogImportComplete } = await import('@/domain/billing/agentic-catalog-service');
+    await markCatalogImportComplete(tenantSlug, feedType, importId, db);
+  }
+
+  return {
+    handled: true,
+    duplicate: false,
+    eventType: event.type,
+    orgId: null,
+    message: `Catalog import ${importId} succeeded${feedType ? ` (${feedType})` : ''}.`,
+  };
+}
+
+async function handleCatalogImportFailed(
+  event: Stripe.Event,
+  _db: RawDb,
+): Promise<WebhookResult> {
+  const payload = event.data.object as { id?: string; feed_type?: string; error?: { message?: string } };
+  return {
+    handled: true,
+    duplicate: false,
+    eventType: event.type,
+    orgId: null,
+    message:
+      `Catalog import ${payload.id ?? event.id} failed` +
+      `${payload.feed_type ? ` (${payload.feed_type})` : ''}: ${payload.error?.message ?? 'unknown error'}.`,
   };
 }
 

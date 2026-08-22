@@ -404,6 +404,7 @@ export const tenantApi = createApi({
         pushed: string[];
         redeployTriggered: string[];
         note?: string;
+        catalogSync?: { ok: boolean; message: string } | null;
       }>,
       { slug: string }
     >({

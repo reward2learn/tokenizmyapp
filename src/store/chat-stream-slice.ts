@@ -4,6 +4,7 @@ import {
   isChatSessionAction,
   type ChatComposerTool,
   type ChatSessionAction,
+  type CreditTopUpAction,
   type CustomTemplateDraft,
 } from '@/lib/chat/session-tools';
 import type { ChatAttachment } from '@/lib/chat/attachments';
@@ -20,6 +21,8 @@ export interface ChatStreamState {
   isStreaming: boolean;
   error: string | null;
   pendingSessionActions: ChatSessionAction[];
+  /** Top-up dialog payload from purchase_credits tool. */
+  pendingCreditTopUp: CreditTopUpAction | null;
   /**
    * Tool selected in the chat composer, e.g. "Custom Template Build".
    *
@@ -48,6 +51,7 @@ const initialState: ChatStreamState = {
   isStreaming: false,
   error: null,
   pendingSessionActions: [],
+  pendingCreditTopUp: null,
   activeTool: null,
   templateDraft: null,
 };
@@ -98,7 +102,7 @@ export const sendStreamingMessage = createAsyncThunk<
     const contentType = response.headers.get('content-type') ?? '';
     if (contentType.includes('application/json')) {
       const payload = await response.json() as {
-        data?: { reply?: string; templateDraft?: CustomTemplateDraft };
+        data?: { reply?: string; templateDraft?: CustomTemplateDraft; creditTopUp?: CreditTopUpAction };
         error?: string;
       };
       const reply = payload.data?.reply ?? payload.error ?? 'No reply returned.';
@@ -107,6 +111,9 @@ export const sendStreamingMessage = createAsyncThunk<
       // SSE event; both must surface the confirmation card.
       if (payload.data?.templateDraft) {
         dispatch(setTemplateDraft(payload.data.templateDraft));
+      }
+      if (payload.data?.creditTopUp) {
+        dispatch(setPendingCreditTopUp(payload.data.creditTopUp));
       }
       return;
     }
@@ -133,6 +140,11 @@ export const sendStreamingMessage = createAsyncThunk<
 
       if (event.type === 'template_draft') {
         dispatch(setTemplateDraft(event.draft));
+        return;
+      }
+
+      if (event.type === 'credit_topup') {
+        dispatch(setPendingCreditTopUp(event.creditTopUp));
         return;
       }
 
@@ -209,6 +221,9 @@ export const chatStreamSlice = createSlice({
     clearPendingSessionActions(state) {
       state.pendingSessionActions = [];
     },
+    setPendingCreditTopUp(state, action: { payload: CreditTopUpAction | null }) {
+      state.pendingCreditTopUp = action.payload;
+    },
   },
 });
 
@@ -222,6 +237,7 @@ export const {
   resetStream,
   setActiveTool,
   setMessages,
+  setPendingCreditTopUp,
   setStreamError,
   setStreaming,
   setTemplateDraft,

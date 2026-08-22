@@ -1,10 +1,12 @@
-import type { CustomTemplateDraft } from '@/lib/chat/session-tools';
+import type { CustomTemplateDraft, CreditTopUpAction } from '@/lib/chat/session-tools';
 
 export type SseStreamEvent =
   | { type: 'token'; token: string }
   | { type: 'action'; action: string }
   /** A generated template awaiting the administrator's confirmation. */
   | { type: 'template_draft'; draft: CustomTemplateDraft }
+  /** Credit top-up initiated from purchase_credits tool. */
+  | { type: 'credit_topup'; creditTopUp: CreditTopUpAction }
   | { type: 'error'; error: string }
   | { type: 'done' };
 
@@ -28,6 +30,7 @@ export function parseSsePayload(payload: unknown): SseStreamEvent[] {
     type?: string;
     action?: string;
     draft?: CustomTemplateDraft;
+    creditTopUp?: CreditTopUpAction;
     error?: string | { message?: string };
     choices?: { delta?: { content?: string }; message?: { content?: string } }[];
   };
@@ -38,6 +41,10 @@ export function parseSsePayload(payload: unknown): SseStreamEvent[] {
 
   if (data.type === 'template_draft' && data.draft && typeof data.draft === 'object') {
     return [{ type: 'template_draft', draft: data.draft }];
+  }
+
+  if (data.type === 'credit_topup' && data.creditTopUp && typeof data.creditTopUp === 'object') {
+    return [{ type: 'credit_topup', creditTopUp: data.creditTopUp }];
   }
 
   if (data.error) {

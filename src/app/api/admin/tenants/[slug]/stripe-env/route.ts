@@ -120,6 +120,23 @@ export async function POST(
       }
     }
 
+    const agentic = (stripe.agenticCommerce ?? {}) as Record<string, unknown>;
+    const agenticEnabled = agentic.enabled === true;
+
+    let catalogSync: { ok: boolean; message: string } | null = null;
+    if (agenticEnabled && secretKey) {
+      try {
+        const { syncAgenticCatalogForTenant } = await import('@/domain/billing/agentic-catalog-service');
+        const result = await syncAgenticCatalogForTenant(slug, db, { secretKey, webhookSecret, publishableKey });
+        catalogSync = { ok: true, message: result.message };
+      } catch (err) {
+        catalogSync = {
+          ok: false,
+          message: err instanceof Error ? err.message : 'Agentic catalog sync failed',
+        };
+      }
+    }
+
     return jsonOk({
       projects: projects.length,
       envCount,
@@ -128,6 +145,7 @@ export async function POST(
       note: redeployTriggered.length === 0
         ? 'Keys pushed, but no deploy hook is set — redeploy the app so NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY reaches the client bundle.'
         : undefined,
+      catalogSync,
     });
   } catch (err) {
     return jsonError('Failed to push Stripe env vars: ' + (err as Error).message, 500);

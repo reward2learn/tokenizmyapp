@@ -17,12 +17,12 @@
 import { z } from 'zod';
 import { createRawClient } from '@/lib/db';
 import { requireWriteAuth } from '@/lib/auth/guards';
-import { sessionIsPlatformAdmin } from '@/lib/auth/jwt';
 import { jsonError, jsonOk } from '@/lib/api/response';
 import { getOrganization, resolveTenantStripeConfig } from '@/domain/billing/organization-service';
 import { createTopUpIntent, stripeReadiness } from '@/domain/billing/stripe-service';
 import { getStripePublishableKey, requireStripeFor } from '@/lib/billing/stripe-client';
-import { CREDIT_PACKS } from '@/lib/billing/plans';
+import { CREDIT_PACKS, canPurchaseCreditPacks } from '@/lib/billing/plans';
+import { getSubscription } from '@/domain/billing/entitlement-service';
 
 export const dynamic = 'force-dynamic';
 
@@ -36,7 +36,6 @@ export async function POST(
 ): Promise<Response> {
   const guard = await requireWriteAuth(request);
   if (!guard.ok) return guard.response;
-  if (!sessionIsPlatformAdmin(guard.session)) return jsonError('Platform admin only', 403);
 
   const { orgId } = await params;
   const db = createRawClient();
@@ -80,6 +79,11 @@ export async function POST(
   try {
     const organization = await getOrganization(db, orgId);
     if (!organization) return jsonError('Organization not found', 404);
+
+    const subscription = await getSubscription(orgId, db);
+    if (!canPurchaseCreditPacks(subscription.planId)) {
+      return jsonError('Credit pack purchases require a Pro plan or higher.', 403);
+    }
 
     const intent = await createTopUpIntent(orgId, pack.id, db, stripe);
 

@@ -75,6 +75,10 @@
     {
       "path": "/api/cron/stripe-webhook-health",
       "schedule": "0 5 * * *"
+    },
+    {
+      "path": "/api/cron/agentic-catalog-sync",
+      "schedule": "0 6 * * *"
     }
   ]
 }

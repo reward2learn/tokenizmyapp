@@ -134,6 +134,52 @@ describe('build_custom_template draft', () => {
   });
 });
 
+describe('purchase_credits', () => {
+  it('refuses when billing context is missing', async () => {
+    const result = await executeSessionTool('purchase_credits', '{}', ctx());
+    expect(result.toolMessage).toContain('not available');
+  });
+
+  it('refuses on Free plan', async () => {
+    const result = await executeSessionTool(
+      'purchase_credits',
+      JSON.stringify({ packId: 'pack-25' }),
+      ctx({
+        billing: {
+          orgId: 'org_1',
+          tenantSlug: 'demo',
+          availableCredits: 2,
+          planId: 'free',
+          lowBalance: true,
+          canPurchaseCredits: false,
+          agenticCatalogLive: false,
+        },
+      }),
+    );
+    expect(result.toolMessage).toContain('Pro plan');
+  });
+
+  it('opens PaymentElement top-up on Pro plan', async () => {
+    const result = await executeSessionTool(
+      'purchase_credits',
+      JSON.stringify({ packId: 'pack-25', reason: 'low balance' }),
+      ctx({
+        billing: {
+          orgId: 'org_1',
+          tenantSlug: 'demo',
+          availableCredits: 2,
+          planId: 'pro',
+          lowBalance: true,
+          canPurchaseCredits: true,
+          agenticCatalogLive: false,
+        },
+      }),
+    );
+    expect(result.clientAction).toBe('open_credit_topup');
+    expect(result.creditTopUp?.packId).toBe('pack-25');
+  });
+});
+
 describe('template_draft stream event', () => {
   it('parses the draft out of the SSE payload', () => {
     const draft = { label: 'Bakery', pageTitles: ['Dashboard'] };
@@ -144,5 +190,12 @@ describe('template_draft stream event', () => {
 
   it('ignores a draft event with no payload', () => {
     expect(parseSsePayload({ type: 'template_draft' })).toEqual([]);
+  });
+
+  it('parses credit_topup events', () => {
+    const creditTopUp = { orgId: 'org_1', packId: 'pack-25' };
+    expect(parseSsePayload({ type: 'credit_topup', creditTopUp })).toEqual([
+      { type: 'credit_topup', creditTopUp },
+    ]);
   });
 });

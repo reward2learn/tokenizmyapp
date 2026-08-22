@@ -1,20 +1,31 @@
 import {
   CHAT_SESSION_OPENAI_TOOLS,
   type ChatSessionAction,
+  type CreditTopUpAction,
   type CustomTemplateDraft,
   executeSessionTool,
+  PURCHASE_CREDITS_OPENAI_TOOL,
   type SessionToolContext,
 } from '@/lib/chat/session-tools';
 import { meterAiUsage } from '@/domain/billing/credit-service';
 
 export const CHAT_WEB_SEARCH_INSTRUCTIONS = `Web search is enabled on this chat model. When the user asks about current events, live market data, recent news, or information that may have changed after your training data, search the web before answering. Cite sources briefly when web results are used.`;
 
-function buildOpenAiTools(webSearchEnabled: boolean, sessionToolsEnabled: boolean) {
-  if (webSearchEnabled || !sessionToolsEnabled) return undefined;
-  return [...CHAT_SESSION_OPENAI_TOOLS];
+function buildOpenAiTools(
+  webSearchEnabled: boolean,
+  sessionToolsEnabled: boolean,
+  billingToolsEnabled: boolean,
+) {
+  if (webSearchEnabled) return undefined;
+  const tools = sessionToolsEnabled ? [...CHAT_SESSION_OPENAI_TOOLS] : [];
+  if (billingToolsEnabled && !tools.some((tool) => tool.function.name === 'purchase_credits')) {
+    tools.push(PURCHASE_CREDITS_OPENAI_TOOL);
+  }
+  return tools.length > 0 ? tools : undefined;
 }
 
 function isSessionFunctionToolCall(toolCall: OpenAiToolCall): boolean {
+  if (toolCall.function.name === 'purchase_credits') return true;
   return CHAT_SESSION_OPENAI_TOOLS.some((tool) => tool.function.name === toolCall.function.name);
 }
 
@@ -108,8 +119,9 @@ async function requestOpenAiCompletion(
   stream: boolean,
   webSearchEnabled: boolean,
   sessionToolsEnabled: boolean,
+  billingToolsEnabled: boolean,
 ): Promise<Response> {
-  const tools = buildOpenAiTools(webSearchEnabled, sessionToolsEnabled);
+  const tools = buildOpenAiTools(webSearchEnabled, sessionToolsEnabled, billingToolsEnabled);
   const body = {
     model,
     messages,
@@ -290,6 +302,7 @@ async function completeChatWithoutStreaming(options: {
   toolContext: SessionToolContext;
   webSearchEnabled: boolean;
   sessionToolsEnabled: boolean;
+  billingToolsEnabled: boolean;
   tenantSlug: string;
   keySource: 'db' | 'env';
   /** Signed-in viewer; exempt operators are recorded but never charged. */
@@ -297,6 +310,7 @@ async function completeChatWithoutStreaming(options: {
 }): Promise<Response> {
   const clientActions: ChatSessionAction[] = [];
   let templateDraft: CustomTemplateDraft | undefined;
+  let creditTopUp: CreditTopUpAction | undefined;
   let currentMessages = [...options.messages];
 
   for (let round = 0; round < MAX_TOOL_ROUNDS; round += 1) {
@@ -308,6 +322,7 @@ async function completeChatWithoutStreaming(options: {
       false,
       options.webSearchEnabled,
       options.sessionToolsEnabled,
+      options.billingToolsEnabled,
     );
 
     if (!chatResp.ok) {
@@ -339,6 +354,7 @@ async function completeChatWithoutStreaming(options: {
           );
           if (result.clientAction) clientActions.push(result.clientAction);
           if (result.templateDraft) templateDraft = result.templateDraft;
+          if (result.creditTopUp) creditTopUp = result.creditTopUp;
           currentMessages.push({
             role: 'tool',
             tool_call_id: toolCall.id,
@@ -359,6 +375,7 @@ async function completeChatWithoutStreaming(options: {
         reply,
         actions: clientActions,
         ...(templateDraft ? { templateDraft } : {}),
+        ...(creditTopUp ? { creditTopUp } : {}),
       },
     });
   }
@@ -375,6 +392,7 @@ async function completeChatWithStreaming(options: {
   toolContext: SessionToolContext;
   webSearchEnabled: boolean;
   sessionToolsEnabled: boolean;
+  billingToolsEnabled: boolean;
   tenantSlug: string;
   keySource: 'db' | 'env';
   /** Signed-in viewer; exempt operators are recorded but never charged. */
@@ -403,6 +421,7 @@ async function completeChatWithStreaming(options: {
           true,
           options.webSearchEnabled,
           options.sessionToolsEnabled,
+          options.billingToolsEnabled,
         );
 
         if (!chatResp.ok || !chatResp.body) {
@@ -449,6 +468,12 @@ async function completeChatWithStreaming(options: {
                 // button, and the model's prose cannot carry a payload.
                 await writeLine({ type: 'template_draft', draft: result.templateDraft });
               }
+              if (result.creditTopUp) {
+                await writeLine({ type: 'credit_topup', creditTopUp: result.creditTopUp });
+              }
+              if (result.clientAction === 'open_credit_topup' && result.creditTopUp) {
+                await writeLine({ type: 'chat_action', action: result.clientAction });
+              }
               currentMessages.push({
                 role: 'tool',
                 tool_call_id: toolCall.id,
@@ -490,6 +515,7 @@ export async function completeChatWithSessionTools(options: {
   stream: boolean;
   webSearchEnabled: boolean;
   sessionToolsEnabled: boolean;
+  billingToolsEnabled: boolean;
   tenantSlug: string;
   keySource: 'db' | 'env';
   /** Signed-in viewer; exempt operators are recorded but never charged. */

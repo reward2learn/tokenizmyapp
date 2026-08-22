@@ -433,7 +433,23 @@ export const organizationApi = createApi({
       // Credits land asynchronously when payment_intent.succeeded arrives, so
       // this does NOT invalidate Credits — the balance is refetched after the
       // client confirms payment instead.
-}),
+    }),
+
+    createAgenticTopUp: builder.mutation<
+      ApiEnvelope<{
+        checkoutUrl: string;
+        sessionId: string;
+        sku: string;
+        pack: { id: string; label: string; baseCredits: number; bonusCredits: number };
+      }>,
+      { orgId: string; packId: string; successUrl?: string; cancelUrl?: string }
+    >({
+      query: ({ orgId, ...body }) => ({
+        url: `admin/organizations/${orgId}/agentic-topup`,
+        method: 'POST',
+        body,
+      }),
+    }),
   }),
 });
 
@@ -457,4 +473,5 @@ export const {
   useGetOrganizationInvoicesQuery,
   useStartCheckoutMutation,
   useCreateTopUpIntentMutation,
+  useCreateAgenticTopUpMutation,
 } = organizationApi;

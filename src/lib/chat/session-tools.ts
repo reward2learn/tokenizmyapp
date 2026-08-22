@@ -1,5 +1,7 @@
 import type { DbClient } from '@/lib/db';
 import { sanitizeConversationMessages, type ConversationMessageInput } from '@/lib/chat/conversation-messages';
+import { CREDIT_PACKS, canPurchaseCreditPacks, type PlanId } from '@/lib/billing/plans';
+import type { AgenticCommerceConfig } from '@/lib/billing/agentic-commerce-types';
 
 export type ChatSessionAction =
   | 'new_chat_session'
@@ -7,7 +9,8 @@ export type ChatSessionAction =
   | 'close_conversation'
   | 'save_conversation'
   | 'update_review_documents'
-  | 'build_custom_template';
+  | 'build_custom_template'
+  | 'open_credit_topup';
 
 export const CHAT_SESSION_ACTIONS: ChatSessionAction[] = [
   'new_chat_session',
@@ -16,6 +19,7 @@ export const CHAT_SESSION_ACTIONS: ChatSessionAction[] = [
   'save_conversation',
   'update_review_documents',
   'build_custom_template',
+  'open_credit_topup',
 ];
 
 /**
@@ -114,6 +118,14 @@ To build a reusable app template ("Custom Template Build"):
   presses "Save & Create Template" to add it to the platform library. Never claim it has been
   created, added or saved — say it is ready for review and name the button.
 - Once saved it becomes selectable in the "Create New App" wizard for any tenant.
+
+To purchase AI credit top-ups:
+- Call "purchase_credits" when the user asks to buy credits, add credits, or top up — or when
+  their balance is low and they need more to keep chatting.
+- Requires a Pro-or-higher plan. On Free, tell them to upgrade first.
+- Default pack is pack-25 unless they ask for a specific amount ($50 → pack-50, $100 → pack-100).
+- When agentic checkout is available, the tool returns a checkout link; otherwise it opens the
+  in-app payment dialog. Tell the user what will happen next.
 
 To update the Business Review and Executive Summary with insights from your conversation:
 - When the user says something like "update the review" or "save this to the review" or provides substantive new financial/operational information, call the "update_review_documents" tool.
@@ -218,7 +230,34 @@ export const CHAT_SESSION_OPENAI_TOOLS = [
       },
     },
   },
+  {
+    type: 'function' as const,
+    function: {
+      name: 'purchase_credits',
+      description:
+        'Start a paid AI credit top-up for this organization. Opens checkout or the payment dialog.',
+      parameters: {
+        type: 'object',
+        properties: {
+          packId: {
+            type: 'string',
+            enum: ['pack-25', 'pack-50', 'pack-100'],
+            description: 'Credit pack to purchase. Defaults to pack-25 ($25).',
+          },
+          reason: {
+            type: 'string',
+            description: 'Brief reason shown to the user (e.g. low balance, user requested).',
+          },
+        },
+        additionalProperties: false,
+      },
+    },
+  },
 ];
+
+export const PURCHASE_CREDITS_OPENAI_TOOL = CHAT_SESSION_OPENAI_TOOLS.find(
+  (tool) => tool.function.name === 'purchase_credits',
+)!;
 
 export interface SessionToolContext {
   db: DbClient;
@@ -237,20 +276,37 @@ export interface SessionToolContext {
    * session in the chat route, never from anything the client sends.
    */
   isPlatformAdmin?: boolean;
+  /** Billing context for credit top-ups (tenant/org chat on platform key). */
+  billing?: SessionToolBillingContext;
 }
 
-/**
- * A generated-but-unsaved template, handed to the client for confirmation.
- *
- * The tool used to generate AND store in one step, so a chat turn silently
- * added platform configuration that the administrator had not yet seen. Since
- * generation costs credits, re-running it to "preview then confirm" would
- * charge twice and could return a different template the second time — so the
- * draft itself travels to the client and comes back on save.
- *
- * Carries everything `saveCustomTemplate` needs, so the save endpoint stores
- * without touching an AI provider.
- */
+export interface SessionToolBillingContext {
+  orgId: string;
+  tenantSlug: string;
+  availableCredits: number;
+  planId: PlanId;
+  lowBalance: boolean;
+  canPurchaseCredits: boolean;
+  agenticCatalogLive: boolean;
+  agenticCommerce?: AgenticCommerceConfig | null;
+}
+
+export interface CreditTopUpAction {
+  orgId: string;
+  packId: string;
+  checkoutUrl?: string;
+  agentic?: boolean;
+}
+
+export interface SessionToolResult {
+  toolMessage: string;
+  clientAction?: ChatSessionAction;
+  /** Set by build_custom_template — rendered as a confirmation card. */
+  templateDraft?: CustomTemplateDraft;
+  /** Set by purchase_credits — opens top-up UI or agentic checkout. */
+  creditTopUp?: CreditTopUpAction;
+}
+
 export interface CustomTemplateDraft {
   label: string;
   description: string;
@@ -267,13 +323,6 @@ export interface CustomTemplateDraft {
   /** One line on why the design came out this way — shown for review. */
   rationale: string | null;
   walletSummary: string;
-}
-
-export interface SessionToolResult {
-  toolMessage: string;
-  clientAction?: ChatSessionAction;
-  /** Set by build_custom_template — rendered as a confirmation card. */
-  templateDraft?: CustomTemplateDraft;
 }
 
 export async function executeSessionTool(
@@ -454,6 +503,76 @@ export async function executeSessionTool(
       } catch (err) {
         return { toolMessage: `Could not build the template: ${(err as Error).message}` };
       }
+    }
+    case 'purchase_credits': {
+      const billing = ctx.billing;
+      if (!billing?.orgId) {
+        return {
+          toolMessage:
+            'Credit top-ups are not available in this chat context — billing organization could not be resolved.',
+        };
+      }
+
+      const credits = await import('@/domain/billing/credit-service');
+      if (credits.isCreditExemptEmail(ctx.viewerEmail)) {
+        return {
+          toolMessage:
+            'This account is exempt from credit billing — no top-up is needed. Tell the user they can keep chatting.',
+        };
+      }
+
+      if (!billing.canPurchaseCredits || !canPurchaseCreditPacks(billing.planId)) {
+        return {
+          toolMessage:
+            'Credit pack purchases require a Pro plan or higher. Tell the user to upgrade their plan in Settings → Billing first.',
+        };
+      }
+
+      const packArg = typeof args.packId === 'string' ? args.packId : 'pack-25';
+      const pack = CREDIT_PACKS.find((p) => p.id === packArg) ?? CREDIT_PACKS[0];
+      const reason = typeof args.reason === 'string' && args.reason.trim()
+        ? args.reason.trim()
+        : billing.lowBalance
+          ? 'AI credits are running low'
+          : 'User requested a credit top-up';
+
+      let checkoutUrl: string | undefined;
+      let agentic = false;
+
+      if (billing.agenticCatalogLive) {
+        try {
+          const origin = process.env.NEXT_PUBLIC_APP_URL?.trim()
+            || process.env.VERCEL_URL?.trim()
+            || 'https://tokenizmyapp.vercel.app';
+          const base = origin.startsWith('http') ? origin : `https://${origin}`;
+          const { createAgenticTopUpCheckout } = await import('@/domain/billing/agentic-catalog-service');
+          const { createRawClient } = await import('@/lib/db');
+          const checkout = await createAgenticTopUpCheckout(
+            billing.orgId,
+            pack.id,
+            `${base}/settings/billing?topup=success`,
+            `${base}/settings/billing?topup=cancelled`,
+            createRawClient(),
+          );
+          checkoutUrl = checkout.url;
+          agentic = true;
+        } catch (err) {
+          console.warn('[purchase_credits] Agentic checkout unavailable, falling back to PaymentElement:', err);
+        }
+      }
+
+      return {
+        toolMessage: agentic && checkoutUrl
+          ? `Opening agentic checkout for ${pack.label} (${reason}). Credits arrive after payment completes.`
+          : `Opening the credit top-up dialog for ${pack.label} (${reason}). Credits arrive after payment completes.`,
+        clientAction: agentic && checkoutUrl ? undefined : 'open_credit_topup',
+        creditTopUp: {
+          orgId: billing.orgId,
+          packId: pack.id,
+          checkoutUrl,
+          agentic,
+        },
+      };
     }
     case 'update_review_documents': {
       const summary = typeof args.summary === 'string' ? args.summary.trim() : '';

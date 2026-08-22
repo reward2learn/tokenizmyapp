@@ -211,3 +211,8 @@ export const CREDIT_PACKS: CreditPack[] = [
  * $25/mo — the Pro plan").
  */
 export const CREDIT_PACK_MIN_PRICE_CENTS = 2500;
+
+/** Credit pack purchases require a paid plan (Pro or above). */
+export function canPurchaseCreditPacks(planId: PlanId): boolean {
+  return planId !== 'free';
+}

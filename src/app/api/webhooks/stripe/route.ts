@@ -7,6 +7,7 @@
  *   customer.subscription.created | updated | deleted
  *   invoice.paid | invoice.payment_failed
  *   payment_intent.succeeded
+ *   v2.commerce.product_catalog.import.succeeded | failed (ACS catalog sync)
  *
  * Follows the same shape as the Vercel webhook route next door: read the raw
  * body first, verify, delegate everything else to a service.

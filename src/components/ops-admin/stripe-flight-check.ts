@@ -59,3 +59,27 @@ export function addStripeWebhookHealthToFlightCheck(
     fixLabel,
   );
 }
+
+export type AgenticFlightCheckStepResult = {
+  label: string;
+  status: 'pass' | 'fail' | 'warn';
+  message: string;
+};
+
+export function addAgenticCommerceToFlightCheck(
+  steps: AgenticFlightCheckStepResult[] | null | undefined,
+  addResult: AddFlightCheckResult,
+  fixAction?: () => Promise<void>,
+  fixLabel = 'Go to step',
+): void {
+  if (!steps?.length) return;
+  for (const step of steps) {
+    addResult(
+      step.label,
+      step.status,
+      step.message,
+      step.status !== 'pass' ? fixAction : undefined,
+      step.status !== 'pass' ? fixLabel : undefined,
+    );
+  }
+}
