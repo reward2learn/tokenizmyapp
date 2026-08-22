@@ -380,6 +380,10 @@ model NavigationItem {
   @@index([parentId, sortOrder])
   @@index([tenantSlug], map: "idx_navigation_items_tenant_slug")
   @@index([tenantSlug, appId], map: "idx_navigation_items_tenant_app")
+  /// Suite uniqueness is enforced at runtime via expression unique index
+  /// uq_navigation_items_tenant_app_parent_path on
+  /// (COALESCE(tenant_slug,''), COALESCE(app_id,''), COALESCE(parent_id,''), path)
+  /// so finance and hr can each own /dashboard in a shared database.
   @@map("navigation_items")
 }
 

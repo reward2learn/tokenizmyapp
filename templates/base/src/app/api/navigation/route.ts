@@ -72,15 +72,16 @@ export async function GET(request: Request) {
       console.log(`[navigation] Removed ${deleted} duplicate nav item(s) after reconcile`);
     }
 
-    // Include current app rows + legacy unscoped rows; exclude sibling suite apps.
+    // Strict per-app filter. reconcileNavigationDuplicates already claimed
+    // legacy unscoped rows for this app, so sibling suite apps stay isolated.
     const rows = await prisma.$queryRawUnsafe<Record<string, unknown>[]>(
       `SELECT id, parent_id AS "parentId", sort_order AS "sortOrder", title, path, icon,
               auth_tier AS "authTier", required_groups AS "requiredGroups",
               is_visible AS "isVisible", is_dynamic AS "isDynamic", is_default AS "isDefault"
        FROM navigation_items
        WHERE is_visible = TRUE
-         AND (COALESCE(app_id, '') = '' OR COALESCE(app_id, '') = $1)
-         AND (tenant_slug IS NULL OR tenant_slug = $2 OR $2 = 'tokenizmyapp')
+         AND COALESCE(app_id, '') = COALESCE($1, '')
+         AND ($2::text IS NULL OR $2 = '' OR tenant_slug IS NULL OR tenant_slug = $2)
        ORDER BY sort_order ASC`,
       appId,
       tenantSlug,
