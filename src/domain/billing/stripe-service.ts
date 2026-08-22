@@ -225,8 +225,6 @@ export interface EmbeddedCheckoutSessionInput {
   orgId: string;
   planId: PlanId;
   interval: BillingInterval;
-  /** Required by Stripe even when redirect_on_completion is 'never'. */
-  returnUrl: string;
 }
 
 /**
@@ -259,7 +257,6 @@ export async function createEmbeddedSubscriptionCheckoutSession(
     mode: 'subscription',
     customer: customerId,
     line_items: [{ price: priceId, quantity: 1 }],
-    return_url: input.returnUrl,
     client_reference_id: input.orgId,
     subscription_data: { metadata: { orgId: input.orgId, planId: input.planId } },
     metadata: { orgId: input.orgId, planId: input.planId, interval: input.interval },

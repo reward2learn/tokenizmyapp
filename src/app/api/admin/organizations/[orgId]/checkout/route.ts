@@ -216,7 +216,6 @@ export async function POST(
           orgId,
           planId,
           interval,
-          returnUrl: parsed.data.successUrl ?? urls.successUrl,
         },
         db,
         stripeConfig ?? undefined,
