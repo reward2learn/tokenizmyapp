@@ -15,7 +15,7 @@ import { PrismaClient } from '@/generated/prisma';
 import { requireWriteAuth } from '@/lib/auth/guards';
 import { sessionIsPlatformAdmin } from '@/lib/auth/jwt';
 import { jsonError, jsonOk } from '@/lib/api/response';
-import { ensureNavigationTable, reconcileNavigation } from '@/lib/navigation/db';
+import { ensureNavigationTable, reconcileNavigation, resolveNavigationScope } from '@/lib/navigation/db';
 import { resolveTenantDbUrl } from '@/domain/tenant/tenant-db-resolver';
 
 export const dynamic = 'force-dynamic';
@@ -71,8 +71,12 @@ export async function GET(request: Request): Promise<NextResponse> {
   // any other caller so a tenant's own admin panel keeps seeing everything.
   const { searchParams } = new URL(request.url);
   const isPlatformAdmin = sessionIsPlatformAdmin(guard.session);
-  const tenantSlug = isPlatformAdmin ? searchParams.get('tenantSlug') : null;
-  const appId = isPlatformAdmin ? searchParams.get('appId') : null;
+  const scope = resolveNavigationScope({
+    isPlatformAdmin,
+    tenantSlug: searchParams.get('tenantSlug'),
+    appId: searchParams.get('appId'),
+  });
+  const { tenantSlug, appId } = scope;
 
   // Tenants with their own dedicated database must be read there — the
   // tenant's own live app reads/writes that same DB via its own POSTGRES_URL,
@@ -86,27 +90,29 @@ export async function GET(request: Request): Promise<NextResponse> {
       deleted,
       seeded,
       hierarchyUpdated,
-    } = await reconcileNavigation(prisma, { tenantSlug, appId });
+    } = await reconcileNavigation(prisma, scope);
     if (seeded > 0) console.log(`[navigation] Seeded ${seeded} new item(s) from page catalog`);
     if (deleted > 0) console.log(`[navigation] Removed ${deleted} duplicate nav item(s)`);
     if (hierarchyUpdated > 0) {
       console.log(`[navigation] Applied default hierarchy to ${hierarchyUpdated} item(s)`);
     }
 
-    const where: string[] = [];
-    const params: unknown[] = [];
-    if (tenantSlug) { params.push(tenantSlug); where.push(`tenant_slug = $${params.length}`); }
-    if (appId) { params.push(appId); where.push(`app_id = $${params.length}`); }
-    const whereClause = where.length ? `WHERE ${where.join(' AND ')}` : '';
-
+    const [scopeAppId, scopeTenantSlug] = [
+      (appId ?? '').trim(),
+      (tenantSlug ?? '').trim() || null,
+    ];
     const items = await prisma.$queryRawUnsafe<Record<string, unknown>[]>(
       `SELECT id, parent_id AS "parentId", sort_order AS "sortOrder", title, path, icon,
               auth_tier AS "authTier", required_groups AS "requiredGroups",
               is_visible AS "isVisible", is_dynamic AS "isDynamic", is_default AS "isDefault",
               tenant_slug AS "tenantSlug", app_id AS "appId",
               created_at AS "createdAt", updated_at AS "updatedAt"
-       FROM navigation_items ${whereClause} ORDER BY sort_order ASC`,
-      ...params,
+       FROM navigation_items
+       WHERE COALESCE(app_id, '') = $1
+         AND ($2::text IS NULL OR tenant_slug IS NULL OR tenant_slug = $2)
+       ORDER BY sort_order ASC`,
+      scopeAppId,
+      scopeTenantSlug,
     );
     // Build a tree structure for the UI
     const itemMap = new Map<string, Record<string, unknown>>();

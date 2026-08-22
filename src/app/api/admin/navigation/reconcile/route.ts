@@ -4,9 +4,9 @@ import { PrismaClient } from '@/generated/prisma';
 import { requireWriteAuth } from '@/lib/auth/guards';
 import { sessionIsPlatformAdmin } from '@/lib/auth/jwt';
 import { jsonError, jsonOk } from '@/lib/api/response';
-import { reconcileNavigation } from '@/lib/navigation/db';
+import { reconcileNavigation, resolveNavigationScope } from '@/lib/navigation/db';
 import { resolveTenantDbUrl } from '@/domain/tenant/tenant-db-resolver';
-import { getCurrentAppId, getTenantConfig, isPlatformApp } from '@shared/lib/config/tenant';
+import { isPlatformApp } from '@shared/lib/config/tenant';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 30;
@@ -46,17 +46,16 @@ export async function POST(request: Request): Promise<NextResponse> {
   }
 
   const isPlatformAdmin = sessionIsPlatformAdmin(guard.session);
-  const tenantSlug = isPlatformAdmin
-    ? (parsed.data.tenantSlug ?? null)
-    : getTenantConfig().slug;
-  const appId = isPlatformAdmin
-    ? (parsed.data.appId ?? null)
-    : getCurrentAppId();
+  const scope = resolveNavigationScope({
+    isPlatformAdmin,
+    tenantSlug: parsed.data.tenantSlug ?? null,
+    appId: parsed.data.appId ?? null,
+  });
 
-  const dbUrl = await resolveTenantDbUrl(tenantSlug, appId);
+  const dbUrl = await resolveTenantDbUrl(scope.tenantSlug, scope.appId);
   const prisma = getClient(dbUrl);
   try {
-    const result = await reconcileNavigation(prisma, { tenantSlug, appId });
+    const result = await reconcileNavigation(prisma, scope);
     return jsonOk(result);
   } catch (err) {
     return jsonError(err instanceof Error ? err.message : String(err), 500);

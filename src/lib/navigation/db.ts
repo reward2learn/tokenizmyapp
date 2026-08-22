@@ -8,6 +8,7 @@
  */
 
 import type { PrismaClient } from '@/generated/prisma';
+import { getCurrentAppId, getTenantConfig } from '@shared/lib/config/tenant';
 
 const NAV_DDL = `
 CREATE TABLE IF NOT EXISTS navigation_items (
@@ -57,6 +58,200 @@ function scopeSql(alias = '', paramStart = 1): string {
 
 function scopeParams(scope?: NavigationScope): [string, string | null] {
   return [normalizeAppId(scope?.appId), normalizeTenantSlug(scope?.tenantSlug) || null];
+}
+
+/** Resolve tenant/app scope for reconcile + list (matches reconcile POST route). */
+export function resolveNavigationScope(input: {
+  isPlatformAdmin: boolean;
+  tenantSlug?: string | null;
+  appId?: string | null;
+}): NavigationScope {
+  if (input.isPlatformAdmin && (input.tenantSlug || input.appId)) {
+    return {
+      tenantSlug: input.tenantSlug ?? null,
+      appId: input.appId ?? null,
+    };
+  }
+  return {
+    tenantSlug: getTenantConfig().slug,
+    appId: getCurrentAppId(),
+  };
+}
+
+/** SQL expression: canonical route identity for dedup (path, or Excel folder title). */
+const ROUTE_KEY_SQL = `
+  CASE
+    WHEN COALESCE(TRIM(path), '') <> '' THEN LOWER(TRIM(path))
+    WHEN LOWER(TRIM(title)) IN ('excel', 'workbook') THEN '/excel'
+    ELSE NULL
+  END
+`;
+
+/** Prefer nested, catalog-seeded, then oldest. */
+const KEEP_ORDER_SQL = `
+  (parent_id IS NULL) ASC,
+  is_dynamic ASC,
+  created_at ASC NULLS LAST,
+  id ASC
+`;
+
+async function normalizeNavigationPathsInScope(
+  prisma: PrismaClient,
+  scope?: NavigationScope,
+): Promise<number> {
+  const [appId, tenantSlug] = scopeParams(scope);
+  const n1 = await prisma.$executeRawUnsafe(
+    `UPDATE navigation_items
+     SET path = '/' || LTRIM(path, '/'), updated_at = CURRENT_TIMESTAMP
+     WHERE COALESCE(TRIM(path), '') <> ''
+       AND path NOT LIKE '/%'
+       AND ${scopeSql('', 1)}`,
+    appId,
+    tenantSlug,
+  );
+  const n2 = await prisma.$executeRawUnsafe(
+    `UPDATE navigation_items
+     SET path = '/excel', updated_at = CURRENT_TIMESTAMP
+     WHERE COALESCE(TRIM(path), '') = ''
+       AND LOWER(TRIM(title)) IN ('excel', 'workbook')
+       AND ${scopeSql('', 1)}`,
+    appId,
+    tenantSlug,
+  );
+  return (typeof n1 === 'number' ? n1 : 0) + (typeof n2 === 'number' ? n2 : 0);
+}
+
+async function deleteNavRow(
+  prisma: PrismaClient,
+  keepId: string,
+  dupeId: string,
+): Promise<void> {
+  await prisma.$executeRawUnsafe(
+    `UPDATE navigation_items SET parent_id = $1 WHERE parent_id = $2`,
+    keepId,
+    dupeId,
+  );
+  await prisma.$executeRawUnsafe(`DELETE FROM navigation_items WHERE id = $1`, dupeId);
+}
+
+/** One surviving row per route in scope; nested copies beat root copies. */
+async function dedupeDuplicateRoutesInScope(
+  prisma: PrismaClient,
+  scope?: NavigationScope,
+): Promise<number> {
+  const [appId, tenantSlug] = scopeParams(scope);
+
+  const pairs = await prisma.$queryRawUnsafe<{ keep_id: string; dupe_id: string }[]>(
+    `WITH keyed AS (
+       SELECT id,
+              ${ROUTE_KEY_SQL} AS route_key,
+              ROW_NUMBER() OVER (
+                PARTITION BY ${ROUTE_KEY_SQL}
+                ORDER BY ${KEEP_ORDER_SQL}
+              ) AS rn
+       FROM navigation_items
+       WHERE ${scopeSql('', 1)}
+         AND ${ROUTE_KEY_SQL} IS NOT NULL
+     )
+     SELECT k1.id AS keep_id, k2.id AS dupe_id
+     FROM keyed k1
+     INNER JOIN keyed k2
+       ON k1.route_key = k2.route_key AND k1.rn = 1 AND k2.rn > 1`,
+    appId,
+    tenantSlug,
+  );
+
+  let deleted = 0;
+  for (const { keep_id, dupe_id } of pairs) {
+    await deleteNavRow(prisma, keep_id, dupe_id);
+    deleted += 1;
+  }
+  return deleted;
+}
+
+/**
+ * Remove folder parents that carry the same child-route set (e.g. two Admin trees
+ * with identical ops-admin / tracking / config children).
+ */
+async function removeDuplicateParentTreesInScope(
+  prisma: PrismaClient,
+  scope?: NavigationScope,
+): Promise<number> {
+  const [appId, tenantSlug] = scopeParams(scope);
+  let deleted = 0;
+
+  const pairs = await prisma.$queryRawUnsafe<{ keep_id: string; dupe_id: string }[]>(
+    `WITH child_sigs AS (
+       SELECT p.id AS parent_id,
+              STRING_AGG(
+                COALESCE(
+                  CASE
+                    WHEN COALESCE(TRIM(c.path), '') <> '' THEN LOWER(TRIM(c.path))
+                    WHEN LOWER(TRIM(c.title)) IN ('excel', 'workbook') THEN '/excel'
+                    ELSE LOWER(TRIM(c.title))
+                  END,
+                  ''
+                ),
+                ',' ORDER BY 1
+              ) AS child_sig
+       FROM navigation_items p
+       INNER JOIN navigation_items c ON c.parent_id = p.id
+       WHERE ${scopeSql('p', 1)}
+       GROUP BY p.id
+       HAVING COUNT(c.id) > 0
+     ),
+     ranked AS (
+       SELECT cs.parent_id,
+              cs.child_sig,
+              ROW_NUMBER() OVER (
+                PARTITION BY cs.child_sig
+                ORDER BY (p.parent_id IS NULL) ASC,
+                         p.is_dynamic ASC,
+                         p.created_at ASC NULLS LAST,
+                         p.id ASC
+              ) AS rn
+       FROM child_sigs cs
+       INNER JOIN navigation_items p ON p.id = cs.parent_id
+     )
+     SELECT r1.parent_id AS keep_id, r2.parent_id AS dupe_id
+     FROM ranked r1
+     INNER JOIN ranked r2
+       ON r1.child_sig = r2.child_sig AND r1.rn = 1 AND r2.rn > 1`,
+    appId,
+    tenantSlug,
+  );
+
+  for (const { keep_id, dupe_id } of pairs) {
+    await deleteNavRow(prisma, keep_id, dupe_id);
+    deleted += 1;
+  }
+
+  return deleted;
+}
+
+async function ensureSingleDefaultNavInScope(
+  prisma: PrismaClient,
+  scope?: NavigationScope,
+): Promise<number> {
+  const [appId, tenantSlug] = scopeParams(scope);
+  const rows = await prisma.$queryRawUnsafe<{ id: string }[]>(
+    `WITH ranked AS (
+       SELECT id,
+              ROW_NUMBER() OVER (ORDER BY is_dynamic ASC, created_at ASC NULLS LAST, id ASC) AS rn
+       FROM navigation_items
+       WHERE is_default = TRUE AND ${scopeSql('', 1)}
+     )
+     SELECT id FROM ranked WHERE rn > 1`,
+    appId,
+    tenantSlug,
+  );
+  for (const row of rows) {
+    await prisma.$executeRawUnsafe(
+      `UPDATE navigation_items SET is_default = FALSE, updated_at = CURRENT_TIMESTAMP WHERE id = $1`,
+      row.id,
+    );
+  }
+  return rows.length;
 }
 
 /** Normalize empty / missing ids to '' for comparisons and unique indexes. */
@@ -172,6 +367,8 @@ export async function reconcileNavigationDuplicates(
 
   let deleted = 0;
 
+  deleted += await normalizeNavigationPathsInScope(prisma, scope);
+
   // ── 1. Merge duplicate root Excel / Workbook folders (this app only) ──
   const excelFolders = await prisma.$queryRawUnsafe<{ id: string }[]>(
     `SELECT id FROM navigation_items
@@ -214,42 +411,19 @@ export async function reconcileNavigationDuplicates(
     const ids = group.ids.split(',').filter(Boolean);
     for (const id of ids) {
       if (id === group.keep_id) continue;
-      await prisma.$executeRawUnsafe(
-        `UPDATE navigation_items SET parent_id = $1 WHERE parent_id = $2`,
-        group.keep_id,
-        id,
-      );
-      await prisma.$executeRawUnsafe(`DELETE FROM navigation_items WHERE id = $1`, id);
+      await deleteNavRow(prisma, group.keep_id, id);
       deleted += 1;
     }
   }
 
-  // ── 3. Same path under different parents — prefer nested over root ─────
-  const pathDupes = await prisma.$queryRawUnsafe<{ path: string; keep_id: string; ids: string }[]>(
-    `SELECT path,
-            (ARRAY_AGG(id ORDER BY (parent_id IS NULL) ASC, is_dynamic ASC, created_at ASC NULLS LAST, id ASC))[1] AS keep_id,
-            ARRAY_TO_STRING(ARRAY_AGG(id ORDER BY (parent_id IS NULL) ASC, is_dynamic ASC, created_at ASC NULLS LAST, id ASC), ',') AS ids
-     FROM navigation_items
-     WHERE path <> '' AND path <> '/excel' AND path <> '/workbook'
-       AND ${scopeFilter}
-     GROUP BY path
-     HAVING COUNT(*) > 1`,
-    ...scopeBind,
-  );
+  // ── 3. Global route dedup (same path anywhere in scope) ──────────────
+  deleted += await dedupeDuplicateRoutesInScope(prisma, scope);
 
-  for (const group of pathDupes) {
-    const ids = group.ids.split(',').filter(Boolean);
-    for (const id of ids) {
-      if (id === group.keep_id) continue;
-      await prisma.$executeRawUnsafe(
-        `UPDATE navigation_items SET parent_id = $1 WHERE parent_id = $2`,
-        group.keep_id,
-        id,
-      );
-      await prisma.$executeRawUnsafe(`DELETE FROM navigation_items WHERE id = $1`, id);
-      deleted += 1;
-    }
-  }
+  // ── 4. Duplicate parent folders with identical child routes ──────────
+  deleted += await removeDuplicateParentTreesInScope(prisma, scope);
+
+  // ── 5. Second route pass after parent merges ─────────────────────────
+  deleted += await dedupeDuplicateRoutesInScope(prisma, scope);
 
   if (excelFolderId && appId) {
     await prisma.$executeRawUnsafe(
@@ -538,9 +712,22 @@ export async function reconcileNavigation(
 }> {
   await ensureNavigationTable(prisma);
   const seeded = await seedMissingNavigationFromCatalog(prisma, scope);
-  const { deleted, excelFolderId } = await reconcileNavigationDuplicates(prisma, scope);
+  let deleted = 0;
+  let excelFolderId: string | null = null;
+
+  const firstPass = await reconcileNavigationDuplicates(prisma, scope);
+  deleted += firstPass.deleted;
+  excelFolderId = firstPass.excelFolderId;
+
   const sheetResult = await syncSheetPagesIntoNavigation(prisma, scope);
   const { updated: hierarchyUpdated } = await ensureDefaultNavigationHierarchy(prisma, scope);
+
+  const secondPass = await reconcileNavigationDuplicates(prisma, scope);
+  deleted += secondPass.deleted;
+  excelFolderId = secondPass.excelFolderId ?? excelFolderId;
+
+  await ensureSingleDefaultNavInScope(prisma, scope);
+
   return {
     deleted,
     seeded,
