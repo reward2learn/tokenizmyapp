@@ -54,12 +54,36 @@ export async function POST(
     const meta = (tenant.metadata ?? {}) as Record<string, unknown>;
     const cfg = (meta.config ?? {}) as Record<string, unknown>;
     const stripe = (cfg.stripe ?? {}) as Record<string, unknown>;
-    const secretKey = String(stripe.secretKey ?? '').trim();
+    let secretKey = String(stripe.secretKey ?? '').trim();
     const webhookSecret = String(stripe.webhookSecret ?? '').trim();
-    const publishableKey = String(stripe.publishableKey ?? '').trim();
+    let publishableKey = String(stripe.publishableKey ?? '').trim();
+    const agentic = (stripe.agenticCommerce ?? {}) as Record<string, unknown>;
+    const agenticEnabled = agentic.enabled === true;
+    const selfServe = (stripe.selfServeBilling ?? {}) as Record<string, unknown>;
+    const selfServeBillingEnabled = selfServe.enabled === true;
 
-    if (!secretKey && !webhookSecret && !publishableKey) {
-      return jsonError('No Stripe keys saved for this tenant — fill them in the Organization & Billing step first.', 400);
+    const tenantProjectId = String(tenant.vercel_project_id ?? '');
+    if (tenantProjectId && (!secretKey || !publishableKey)) {
+      try {
+        const { getProjectEnvValues } = await import('@/domain/tenant/vercel-stripe-marketplace-service');
+        const vercel = await getProjectEnvValues(tenantProjectId, [
+          'STRIPE_SECRET_KEY',
+          'NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY',
+        ]);
+        if (!secretKey && vercel.STRIPE_SECRET_KEY) secretKey = vercel.STRIPE_SECRET_KEY.trim();
+        if (!publishableKey && vercel.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY) {
+          publishableKey = vercel.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY.trim();
+        }
+      } catch (err) {
+        console.warn('[stripe-env] Could not read Marketplace keys from Vercel:', (err as Error).message);
+      }
+    }
+
+    if (!secretKey && !webhookSecret && !publishableKey && !agenticEnabled && !selfServeBillingEnabled) {
+      return jsonError(
+        'Nothing to push — connect Vercel Marketplace Install Stripe and/or paste STRIPE_WEBHOOK_SECRET in Organization & Billing.',
+        400,
+      );
     }
 
     if (webhookSecret.startsWith('eyJ')) {
@@ -78,7 +102,6 @@ export async function POST(
     // Collect every Vercel project this tenant owns: its own project plus
     // each suite app's project.
     const projects: { id: string; name: string; deployHookUrl?: string }[] = [];
-    const tenantProjectId = String(tenant.vercel_project_id ?? '');
     if (tenantProjectId) {
       projects.push({
         id: tenantProjectId,
@@ -98,7 +121,7 @@ export async function POST(
     }
 
     if (projects.length === 0) {
-      return jsonError('Tenant has no Vercel project yet — deploy the app first, then save the Stripe keys.', 400);
+      return jsonError('Tenant has no Vercel project yet — deploy the app first, then save Stripe settings.', 400);
     }
 
     let envCount = 0;
@@ -124,11 +147,6 @@ export async function POST(
         }
       }
     }
-
-    const agentic = (stripe.agenticCommerce ?? {}) as Record<string, unknown>;
-    const agenticEnabled = agentic.enabled === true;
-    const selfServe = (stripe.selfServeBilling ?? {}) as Record<string, unknown>;
-    const selfServeBillingEnabled = selfServe.enabled === true;
 
     let catalogSync: { ok: boolean; message: string } | null = null;
     if (agenticEnabled && secretKey) {

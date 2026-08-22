@@ -56,6 +56,8 @@ type Props = {
   value: StripeWizardValues;
   onChange: (next: StripeWizardValues) => void;
   tenantSlug: string;
+  /** Suite app wizard vs tenant factory Organization & Billing. */
+  scope?: 'tenant' | 'app';
   /** Suite app id when editing/creating a suite app; omit for tenant project. */
   appId?: string | null;
   /** When true, show that tenant-level keys already exist. */
@@ -69,11 +71,14 @@ export function StripeIntegrationStep({
   value,
   onChange,
   tenantSlug,
+  scope = 'app',
   appId = null,
   tenantHasKeys = false,
   projectNameHint = null,
   showSecrets = false,
 }: Props) {
+  const isTenantScope = scope === 'tenant';
+  const stripeEnabled = isTenantScope ? true : value.enabled;
   const patch = (partial: Partial<StripeWizardValues>) => onChange({ ...value, ...partial });
 
   const [fetchStatus, { data: statusEnvelope, isFetching }] =
@@ -185,24 +190,38 @@ export function StripeIntegrationStep({
 
       <Alert severity="info" sx={{ fontSize: '0.85rem' }}>
         <AlertTitle>Marketplace Install + optional key push</AlertTitle>
-        Prefer <strong>Vercel Marketplace → Install Stripe</strong> (sandbox or import live).
-        Vercel OAuth-provisions <code>STRIPE_SECRET_KEY</code> and{' '}
-        <code>NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY</code> onto the project. Manual key push
-        remains available for overrides and <code>STRIPE_WEBHOOK_SECRET</code>.
+        {isTenantScope ? (
+          <>
+            Connect <strong>Vercel Marketplace → Install Stripe</strong> to this tenant&apos;s
+            project. Vercel OAuth-provisions <code>STRIPE_SECRET_KEY</code> and{' '}
+            <code>NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY</code>. You still paste{' '}
+            <code>STRIPE_WEBHOOK_SECRET</code> (<code>whsec_</code>) and subscription{' '}
+            <code>STRIPE_PRICE_*</code> IDs below — Marketplace does not supply those.
+          </>
+        ) : (
+          <>
+            Prefer <strong>Vercel Marketplace → Install Stripe</strong> (sandbox or import live).
+            Vercel OAuth-provisions <code>STRIPE_SECRET_KEY</code> and{' '}
+            <code>NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY</code> onto the project. Manual key push
+            remains available for overrides and <code>STRIPE_WEBHOOK_SECRET</code>.
+          </>
+        )}
       </Alert>
 
-      <FormControlLabel
-        control={
-          <Switch
-            checked={value.enabled}
-            onChange={(e) => patch({ enabled: e.target.checked })}
-            color="primary"
-          />
-        }
-        label="Enable Stripe payments for this app"
-      />
+      {!isTenantScope ? (
+        <FormControlLabel
+          control={
+            <Switch
+              checked={value.enabled}
+              onChange={(e) => patch({ enabled: e.target.checked })}
+              color="primary"
+            />
+          }
+          label="Enable Stripe payments for this app"
+        />
+      ) : null}
 
-      {value.enabled ? (
+      {stripeEnabled ? (
         <Stack spacing={2}>
           <FormControlLabel
             control={
@@ -289,43 +308,49 @@ export function StripeIntegrationStep({
 
           <Divider>
             <Typography variant="caption" color="text.secondary">
-              Key push fallback
+              {isTenantScope ? 'Webhook & optional overrides' : 'Key push fallback'}
             </Typography>
           </Divider>
 
-          <FormControlLabel
-            control={
-              <Switch
-                checked={value.inheritFromTenant}
-                onChange={(e) => patch({ inheritFromTenant: e.target.checked })}
-                color="primary"
-              />
-            }
-            label={
-              tenantHasKeys
-                ? 'Use tenant Organization & Billing Stripe keys when pushing'
-                : 'Use tenant Organization & Billing Stripe keys (configure on tenant first)'
-            }
-          />
+          {!isTenantScope ? (
+            <FormControlLabel
+              control={
+                <Switch
+                  checked={value.inheritFromTenant}
+                  onChange={(e) => patch({ inheritFromTenant: e.target.checked })}
+                  color="primary"
+                />
+              }
+              label={
+                tenantHasKeys
+                  ? 'Use tenant Organization & Billing Stripe keys when pushing'
+                  : 'Use tenant Organization & Billing Stripe keys (configure on tenant first)'
+              }
+            />
+          ) : null}
 
-          {!value.inheritFromTenant ? (
+          {isTenantScope || !value.inheritFromTenant ? (
             <Paper variant="outlined" sx={{ p: 2 }}>
               <Stack spacing={2}>
                 <Typography variant="body2" color="text.secondary">
-                  App-specific keys override Marketplace / tenant defaults when pushed via
-                  Save → stripe-env. Prefer Marketplace for secret + publishable; use this for
-                  webhook signing secrets or break-glass overrides.
+                  {isTenantScope
+                    ? value.preferMarketplace
+                      ? 'Paste the Stripe snapshot webhook signing secret (whsec_) — Save Changes pushes it to Vercel. Leave sk/pk blank when Marketplace is connected unless you need a break-glass override.'
+                      : 'Manual keys saved on Save Changes and pushed to this tenant’s Vercel project (and suite apps).'
+                    : 'App-specific keys override Marketplace / tenant defaults when pushed via Save → stripe-env. Prefer Marketplace for secret + publishable; use this for webhook signing secrets or break-glass overrides.'}
                 </Typography>
-                <TextField
-                  label="STRIPE_SECRET_KEY"
-                  type={showSecrets ? 'text' : 'password'}
-                  value={value.secretKey}
-                  onChange={(e) => patch({ secretKey: e.target.value })}
-                  fullWidth
-                  size="small"
-                  placeholder="sk_test_… or rk_…"
-                  helperText="Server-only. Prefer a restricted key (rk_)."
-                />
+                {(!isTenantScope || !value.preferMarketplace) ? (
+                  <TextField
+                    label="STRIPE_SECRET_KEY"
+                    type={showSecrets ? 'text' : 'password'}
+                    value={value.secretKey}
+                    onChange={(e) => patch({ secretKey: e.target.value })}
+                    fullWidth
+                    size="small"
+                    placeholder="sk_test_… or rk_…"
+                    helperText="Server-only. Prefer a restricted key (rk_)."
+                  />
+                ) : null}
                 <TextField
                   label="STRIPE_WEBHOOK_SECRET"
                   type={showSecrets ? 'text' : 'password'}
@@ -334,17 +359,24 @@ export function StripeIntegrationStep({
                   fullWidth
                   size="small"
                   placeholder="whsec_…"
+                  helperText={
+                    value.webhookSecret && !value.webhookSecret.startsWith('whsec_')
+                      ? 'Expected whsec_ — Marketplace eyJ tokens are not valid signing secrets.'
+                      : 'From Stripe Dashboard → Webhooks → snapshot destination signing secret.'
+                  }
                 />
-                <TextField
-                  label="NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY"
-                  type={showSecrets ? 'text' : 'password'}
-                  value={value.publishableKey}
-                  onChange={(e) => patch({ publishableKey: e.target.value })}
-                  fullWidth
-                  size="small"
-                  placeholder="pk_test_…"
-                  helperText="Inlined into the client bundle at build time — redeploy after changing."
-                />
+                {(!isTenantScope || !value.preferMarketplace) ? (
+                  <TextField
+                    label="NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY"
+                    type={showSecrets ? 'text' : 'password'}
+                    value={value.publishableKey}
+                    onChange={(e) => patch({ publishableKey: e.target.value })}
+                    fullWidth
+                    size="small"
+                    placeholder="pk_test_…"
+                    helperText="Inlined into the client bundle at build time — redeploy after changing."
+                  />
+                ) : null}
               </Stack>
             </Paper>
           ) : (

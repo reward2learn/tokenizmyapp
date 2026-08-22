@@ -79,6 +79,10 @@ import { DEFAULT_PLATFORM_ADMIN_EMAIL } from '@/domain/security/persons';
 import { TemplateSelector } from '@/components/ops-admin/tenant-wizard';
 import { TenantAiProviderForm } from '@/components/ops-admin/tenant-ai-provider-form';
 import { addAgenticCommerceToFlightCheck, addEmbeddedCheckoutProbeToFlightCheck, addStripeWebhookHealthToFlightCheck } from '@/components/ops-admin/stripe-flight-check';
+import {
+  StripeIntegrationStep,
+  type StripeWizardValues,
+} from '@/components/ops-admin/stripe-integration-step';
 import type { AppPackConfig, SuiteAppInstance } from '@/store/apis/tenant-api';
 import { useAppDispatch } from '@/store/hooks';
 import { setThemeColors } from '@/store/ui-slice';
@@ -103,6 +107,7 @@ import {
   useAddAppToSuiteMutation,
   useRemoveAppFromSuiteMutation,
   usePushStripeEnvVarsMutation,
+  useLazyGetStripeMarketplaceStatusQuery,
   type TenantEntry
 } from '@/store/apis/tenant-api';
 import {
@@ -514,8 +519,10 @@ export function EditTenantModal({ open, tenant, onClose, onSnackbar }: EditTenan
     };
   };
   const [stripeKeys, setStripeKeys] = useState(initStripe);
+  const [stripePreferMarketplace, setStripePreferMarketplace] = useState(true);
   const [showStripeSecrets, setShowStripeSecrets] = useState(false);
   const [pushStripeEnv, { isLoading: pushingStripeEnv }] = usePushStripeEnvVarsMutation();
+  const [fetchMarketplaceStatus] = useLazyGetStripeMarketplaceStatusQuery();
 
   const applySuiteChanges = useCallback(async () => {
     if (!tenant) return;
@@ -960,9 +967,15 @@ export function EditTenantModal({ open, tenant, onClose, onSnackbar }: EditTenan
         const orgName = organizations.find((o) => o.id === orgId)?.displayName ?? orgId;
         message += ` — billing owner: ${orgName}`;
       }
-      // Push the Stripe keys to Vercel env (own project + suite apps) when
-      // any key is present, so Payment Methods can be enabled for the app.
-      if (stripeKeys.secretKey.trim() || stripeKeys.webhookSecret.trim() || stripeKeys.publishableKey.trim()) {
+      // Push webhook / overrides / billing toggles to Vercel when Marketplace
+      // supplies sk/pk or when manual keys are present.
+      const shouldPushStripeEnv =
+        stripeKeys.secretKey.trim() ||
+        stripeKeys.webhookSecret.trim() ||
+        stripeKeys.publishableKey.trim() ||
+        stripeKeys.agenticCommerce.enabled ||
+        stripeKeys.selfServeBilling.enabled;
+      if (shouldPushStripeEnv) {
         try {
           const stripeRes = await pushStripeEnv({ slug: tenant.slug }).unwrap();
           const envCount = stripeRes.data?.envCount ?? 0;
@@ -1133,47 +1146,91 @@ export function EditTenantModal({ open, tenant, onClose, onSnackbar }: EditTenan
     const openaiKey = (cfg?.openaiApiKey as string) || '';
     addResult('OpenAI API Key', openaiKey ? 'pass' : 'warn', openaiKey ? 'Configured' : 'Not set - add OPENAI_API_KEY env var');
 
-    // Stripe payment keys — Payment Methods availability
+    // Stripe payment keys — Payment Methods availability (metadata + Vercel Marketplace)
     const stripeCfg = (cfg?.stripe ?? {}) as Record<string, unknown>;
     const stripeSecret = String(stripeCfg.secretKey ?? '');
     const stripeWebhook = String(stripeCfg.webhookSecret ?? '');
     const stripePublishable = String(stripeCfg.publishableKey ?? '');
-    const stripeComplete = !!(stripeSecret && stripeWebhook && stripePublishable);
+    let marketplaceSource: string | undefined;
+    let marketplaceSecret = false;
+    let marketplacePublishable = false;
+    let marketplaceWebhook = false;
+    try {
+      const mktRes = await fetchMarketplaceStatus({ slug }).unwrap();
+      const mkt = mktRes.data;
+      if (mkt) {
+        marketplaceSource = mkt.source;
+        marketplaceSecret = mkt.secretKeyPresent;
+        marketplacePublishable = mkt.publishableKeyPresent;
+        marketplaceWebhook = mkt.webhookSecretPresent;
+      }
+    } catch {
+      /* Flight Check continues with metadata-only */
+    }
+    const hasSecret = !!(stripeSecret || marketplaceSecret);
+    const hasPublishable = !!(stripePublishable || marketplacePublishable);
+    const hasWhsec = stripeWebhook.startsWith('whsec_');
+    const stripeComplete = hasSecret && hasPublishable && hasWhsec;
     const goToOrgStep = async () => {
       setActiveStep(EDIT_STEPS.findIndex((s) => s.key === 'org'));
-      onSnackbar({ message: 'Set the Stripe keys in the Organization & Billing step', severity: 'success' });
+      onSnackbar({ message: 'Configure Stripe in Organization & Billing (Marketplace + webhook + prices)', severity: 'success' });
     };
     if (stripeComplete) {
-      const mode = stripeSecret.startsWith('sk_test_') ? 'test' : 'live';
-      if (!stripeWebhook.startsWith('whsec_')) {
-        addResult(
-          'Stripe Payment Keys',
-          'warn',
-          'Tenant config has STRIPE_WEBHOOK_SECRET but it is not a whsec_ signing secret — ' +
-            'Payment Methods may work; billing webhooks will not until you paste the Stripe snapshot whsec_',
-          goToOrgStep,
-          'Go to step',
-        );
-      } else {
-        addResult(
-          'Stripe Payment Keys',
-          'pass',
-          'Tenant metadata configured (' + mode + ' mode) — sk/pk/whsec present; Vercel runtime checked below',
-        );
-      }
+      const mode = stripeSecret.startsWith('sk_test_')
+        ? 'test'
+        : stripeSecret.startsWith('sk_live_')
+          ? 'live'
+          : marketplaceSource === 'marketplace'
+            ? 'Marketplace'
+            : 'configured';
+      addResult(
+        'Stripe Payment Keys',
+        'pass',
+        marketplaceSource === 'marketplace' && !stripeSecret
+          ? 'Vercel Marketplace connected — sk/pk on project; whsec_ in config'
+          : `Stripe configured (${mode} mode) — secret, publishable, and whsec_ present`,
+      );
+    } else if (hasSecret && hasPublishable) {
+      addResult(
+        'Stripe Payment Keys',
+        'warn',
+        hasWhsec
+          ? 'Keys present but incomplete — verify Marketplace Connect Project or paste whsec_ webhook secret'
+          : 'Secret + publishable OK (metadata or Marketplace) — paste STRIPE_WEBHOOK_SECRET (whsec_) in Organization & Billing',
+        goToOrgStep,
+        'Go to step',
+      );
     } else {
       const missing = [
-        !stripeSecret && 'STRIPE_SECRET_KEY',
-        !stripeWebhook && 'STRIPE_WEBHOOK_SECRET',
-        !stripePublishable && 'NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY',
+        !hasSecret && 'STRIPE_SECRET_KEY (Install Stripe on Vercel or paste sk_)',
+        !hasPublishable && 'NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY (Marketplace or paste pk_)',
+        !hasWhsec && 'STRIPE_WEBHOOK_SECRET (whsec_ from Stripe Dashboard)',
       ].filter(Boolean).join(', ');
-      addResult('Stripe Payment Keys', 'warn',
-        'Not set up (missing: ' + missing + ') — Payment Methods will NOT be available until the keys are set in the Organization & Billing step',
-        goToOrgStep, 'Go to step');
+      addResult(
+        'Stripe Payment Keys',
+        'warn',
+        'Not ready (missing: ' + missing + ') — Payment Methods unavailable until Marketplace is connected and webhook secret is set',
+        goToOrgStep,
+        'Go to step',
+      );
     }
     if (stripeSecret && stripePublishable && stripeSecret.startsWith('sk_test_') !== stripePublishable.startsWith('pk_test_')) {
       addResult('Stripe Key Mode', 'warn', 'Secret and publishable key are in different modes (test vs live) — keep them in the same mode');
     }
+
+    const savedPrices = (stripeCfg.prices ?? {}) as Record<string, unknown>;
+    const configuredPriceCount = ['PRO_MONTHLY', 'PRO_YEARLY', 'BUSINESS_MONTHLY', 'BUSINESS_YEARLY'].filter(
+      (key) => String(savedPrices[key] ?? stripeCfg[key] ?? '').trim(),
+    ).length;
+    addResult(
+      'Stripe subscription prices',
+      configuredPriceCount > 0 ? 'pass' : 'warn',
+      configuredPriceCount > 0
+        ? `${configuredPriceCount} STRIPE_PRICE_* saved — Choose Plan can offer purchasable tiers`
+        : 'No STRIPE_PRICE_* in tenant config — Choose Plan shows Unavailable until at least one Pro/Business price ID is saved (Marketplace does not create these)',
+      goToOrgStep,
+      'Go to step',
+    );
 
     const selfServeRaw = (stripeCfg.selfServeBilling ?? {}) as Record<string, unknown>;
     const selfServeEnabled = selfServeRaw.enabled === true;
@@ -1189,7 +1246,7 @@ export function EditTenantModal({ open, tenant, onClose, onSnackbar }: EditTenan
       'Go to step',
     );
 
-    if (freshVercelProjectId || stripeWebhook) {
+    if (freshVercelProjectId || stripeWebhook || marketplaceWebhook) {
       try {
         const testRes = await testStripeWebhook({
           slug,
@@ -1221,7 +1278,7 @@ export function EditTenantModal({ open, tenant, onClose, onSnackbar }: EditTenan
       );
     }
 
-    if (stripeComplete) {
+    if (hasSecret && hasPublishable) {
       try {
         const res = await fetch(`/api/admin/tenants/${slug}/agentic-commerce-health`, { credentials: 'include' });
         const payload = await res.json() as { success?: boolean; data?: { steps?: { label: string; status: 'pass' | 'fail' | 'warn'; message: string }[] }; error?: string };
@@ -1296,7 +1353,7 @@ export function EditTenantModal({ open, tenant, onClose, onSnackbar }: EditTenan
       setFlightChecks(results);
       setFlightRunning(false);
     }
-  }, [tenant, flightRunId, getTenant, getDeployStatus, setActiveStep, testStripeWebhook]);
+  }, [tenant, flightRunId, getTenant, getDeployStatus, setActiveStep, testStripeWebhook, fetchMarketplaceStatus, onSnackbar]);
 
   // ── Export tenant config ────────────────────────────────
   const handleExport = useCallback(() => {
@@ -2055,11 +2112,11 @@ export function EditTenantModal({ open, tenant, onClose, onSnackbar }: EditTenan
         </Button>
       </Stack>
 
-      {/* Stripe payment keys — pushed to Vercel env on Save Changes */}
+      {/* Stripe — Vercel Marketplace + tenant-specific billing config */}
       <Paper variant="outlined" sx={{ p: 2 }}>
         <Stack direction="row" spacing={1} sx={{ alignItems: 'center', justifyContent: 'space-between', mb: 1 }}>
           <Typography variant="subtitle2" sx={{ fontWeight: 600 }}>
-            Stripe Payment Keys
+            Stripe Integration
           </Typography>
           <Button
             size="small"
@@ -2067,55 +2124,44 @@ export function EditTenantModal({ open, tenant, onClose, onSnackbar }: EditTenan
             onClick={() => setShowStripeSecrets((s) => !s)}
             startIcon={showStripeSecrets ? <VisibilityOff /> : <Visibility />}
           >
-            {showStripeSecrets ? 'Hide' : 'Show'}
+            {showStripeSecrets ? 'Hide secrets' : 'Show secrets'}
           </Button>
         </Stack>
+        <StripeIntegrationStep
+          scope="tenant"
+          value={{
+            enabled: true,
+            preferMarketplace: stripePreferMarketplace,
+            inheritFromTenant: false,
+            secretKey: stripeKeys.secretKey,
+            webhookSecret: stripeKeys.webhookSecret,
+            publishableKey: stripeKeys.publishableKey,
+          }}
+          onChange={(next: StripeWizardValues) => {
+            setStripePreferMarketplace(next.preferMarketplace);
+            setStripeKeys((s) => ({
+              ...s,
+              secretKey: next.secretKey,
+              webhookSecret: next.webhookSecret,
+              publishableKey: next.publishableKey,
+            }));
+          }}
+          tenantSlug={tenantSlug}
+          tenantHasKeys={Boolean(stripeKeys.secretKey || stripeKeys.publishableKey)}
+          showSecrets={showStripeSecrets}
+        />
+      </Paper>
+
+      <Paper variant="outlined" sx={{ p: 2 }}>
+        <Typography variant="subtitle2" sx={{ fontWeight: 600, mb: 1 }}>
+          Subscription catalog & billing toggles
+        </Typography>
         <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-          These are the Vercel Global Variables that enable Payment Methods for this
-          tenant&apos;s application. Create them in your Stripe dashboard (test keys{' '}
-          <code>sk_test_</code>/<code>pk_test_</code> locally, live keys for production) and
-          register the webhook endpoint at <code>https://&lt;domain&gt;/api/webhooks/stripe</code>{' '}
-          — see <strong>docs/STRIPE-SETUP.md</strong>. Secret and publishable key must be in
-          the same mode. Saved on <strong>Save Changes</strong> and pushed to Vercel env for
-          this app (and every suite app); a redeploy is triggered automatically so the
-          publishable key reaches the client bundle.
+          Vercel Marketplace does not create subscription prices or business toggles — save these
+          on <strong>Save Changes</strong> (price IDs stay in tenant metadata; webhook and toggles
+          push to Vercel env).
         </Typography>
         <Stack spacing={2}>
-          <TextField
-            label="STRIPE_SECRET_KEY"
-            type={showStripeSecrets ? 'text' : 'password'}
-            value={stripeKeys.secretKey}
-            onChange={(e) => setStripeKeys((s) => ({ ...s, secretKey: e.target.value }))}
-            fullWidth
-            placeholder="sk_test_… / sk_live_…"
-            helperText={stripeKeys.secretKey && !stripeKeys.secretKey.startsWith('sk_') ? '⚠️ Expected an "sk_" prefix.' : 'Server-only key — never exposed to the browser.'}
-          />
-          <TextField
-            label="STRIPE_WEBHOOK_SECRET"
-            type={showStripeSecrets ? 'text' : 'password'}
-            value={stripeKeys.webhookSecret}
-            onChange={(e) => setStripeKeys((s) => ({ ...s, webhookSecret: e.target.value }))}
-            fullWidth
-            placeholder="whsec_…"
-            helperText={stripeKeys.webhookSecret && !stripeKeys.webhookSecret.startsWith('whsec_') ? '⚠️ Expected a "whsec_" prefix (the webhook signing secret).' : 'Signing secret for /api/webhooks/stripe — from the dashboard-registered endpoint.'}
-          />
-          <TextField
-            label="NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY"
-            type={showStripeSecrets ? 'text' : 'password'}
-            value={stripeKeys.publishableKey}
-            onChange={(e) => setStripeKeys((s) => ({ ...s, publishableKey: e.target.value }))}
-            fullWidth
-            placeholder="pk_test_… / pk_live_…"
-            helperText={stripeKeys.publishableKey && !stripeKeys.publishableKey.startsWith('pk_') ? '⚠️ Expected a "pk_" prefix.' : 'Public key — inlined into the client bundle at build time.'}
-          />
-          {stripeKeys.secretKey && stripeKeys.publishableKey &&
-            stripeKeys.secretKey.startsWith('sk_test_') !== stripeKeys.publishableKey.startsWith('pk_test_') && (
-            <Alert severity="warning">
-              Secret and publishable key are in different modes (test vs live). The config
-              guard rejects a mix — keep them in the same mode.
-            </Alert>
-          )}
-
           <FormControlLabel
             control={
               <Switch
@@ -2168,9 +2214,8 @@ export function EditTenantModal({ open, tenant, onClose, onSnackbar }: EditTenan
             (not plan changes). Pushed as SELF_SERVE_BILLING_ENABLED on Save — requires Pro+ plan and Stripe keys.
           </Typography>
 
-          {/* Tenant-specific price IDs — override the deployment-level defaults */}
           <Typography variant="caption" color="text.secondary" sx={{ mb: 1, fontSize: '0.7rem' }}>
-            Tenant price IDs (override deployment defaults)
+            Tenant price IDs (required for Choose Plan — create in Stripe Dashboard)
           </Typography>
           <TextField
             label="STRIPE_PRICE_PRO_MONTHLY"
@@ -2178,7 +2223,7 @@ export function EditTenantModal({ open, tenant, onClose, onSnackbar }: EditTenan
             onChange={(e) => setStripeKeys((s) => ({ ...s, prices: { ...s.prices, PRO_MONTHLY: e.target.value } }))}
             fullWidth
             placeholder="price_1U..."
-            helperText="Pro monthly price ID. Leave blank to use deployment default."
+            helperText="Pro monthly price ID."
           />
           <TextField
             label="STRIPE_PRICE_PRO_YEARLY"
@@ -2186,7 +2231,7 @@ export function EditTenantModal({ open, tenant, onClose, onSnackbar }: EditTenan
             onChange={(e) => setStripeKeys((s) => ({ ...s, prices: { ...s.prices, PRO_YEARLY: e.target.value } }))}
             fullWidth
             placeholder="price_1U..."
-            helperText="Pro yearly price ID. Leave blank to use deployment default."
+            helperText="Pro yearly price ID."
           />
           <TextField
             label="STRIPE_PRICE_BUSINESS_MONTHLY"
@@ -2194,7 +2239,7 @@ export function EditTenantModal({ open, tenant, onClose, onSnackbar }: EditTenan
             onChange={(e) => setStripeKeys((s) => ({ ...s, prices: { ...s.prices, BUSINESS_MONTHLY: e.target.value } }))}
             fullWidth
             placeholder="price_1U..."
-            helperText="Business monthly price ID. Leave blank to use deployment default."
+            helperText="Business monthly price ID."
           />
           <TextField
             label="STRIPE_PRICE_BUSINESS_YEARLY"
@@ -2202,7 +2247,7 @@ export function EditTenantModal({ open, tenant, onClose, onSnackbar }: EditTenan
             onChange={(e) => setStripeKeys((s) => ({ ...s, prices: { ...s.prices, BUSINESS_YEARLY: e.target.value } }))}
             fullWidth
             placeholder="price_1U..."
-            helperText="Business yearly price ID. Leave blank to use deployment default."
+            helperText="Business yearly price ID."
           />
           {pushingStripeEnv && <LinearProgress />}
         </Stack>

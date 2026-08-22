@@ -604,7 +604,7 @@ export async function resolveTenantStripeConfig(
 ): Promise<StripeEnvConfig | null> {
   await ensureOrganizationTables(db);
   const rows = (await db.$queryRawUnsafe(
-    `SELECT metadata FROM tenants WHERE organization_id = $1 LIMIT 1;`,
+    `SELECT slug, vercel_project_id, metadata FROM tenants WHERE organization_id = $1 LIMIT 1;`,
     orgId,
   )) as Record<string, unknown>[];
   if (rows.length === 0) return null;
@@ -612,10 +612,9 @@ export async function resolveTenantStripeConfig(
   const meta = (rows[0].metadata ?? {}) as Record<string, unknown>;
   const cfg = (meta.config ?? {}) as Record<string, unknown>;
   const stripe = (cfg.stripe ?? {}) as Record<string, unknown>;
-  const secretKey = String(stripe.secretKey ?? '').trim();
-  const webhookSecret = String(stripe.webhookSecret ?? '').trim();
-  const publishableKey = String(stripe.publishableKey ?? '').trim();
-  if (!secretKey && !webhookSecret && !publishableKey) return null;
+  let secretKey = String(stripe.secretKey ?? '').trim();
+  let webhookSecret = String(stripe.webhookSecret ?? '').trim();
+  let publishableKey = String(stripe.publishableKey ?? '').trim();
 
   // Price ids saved alongside the keys (metadata.config.stripe.prices), keyed
   // by the short env-var form (`PRO_MONTHLY`). Only non-empty strings are kept.
@@ -624,6 +623,33 @@ export async function resolveTenantStripeConfig(
   for (const [key, value] of Object.entries(savedPrices)) {
     const trimmed = String(value ?? '').trim();
     if (trimmed) prices[key] = trimmed;
+  }
+
+  // Vercel Marketplace provisions sk/pk onto the tenant project — merge when
+  // metadata is empty so factory billing (Choose Plan, Flight Check) agrees
+  // with the connected integration without duplicate key paste.
+  const projectId = String(rows[0].vercel_project_id ?? '').trim();
+  if (projectId && (!secretKey || !publishableKey || !webhookSecret)) {
+    try {
+      const { getProjectEnvValues } = await import('@/domain/tenant/vercel-stripe-marketplace-service');
+      const vercel = await getProjectEnvValues(projectId, [
+        'STRIPE_SECRET_KEY',
+        'STRIPE_WEBHOOK_SECRET',
+        'NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY',
+      ]);
+      if (!secretKey && vercel.STRIPE_SECRET_KEY) secretKey = vercel.STRIPE_SECRET_KEY;
+      if (!publishableKey && vercel.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY) {
+        publishableKey = vercel.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY;
+      }
+      const whsec = vercel.STRIPE_WEBHOOK_SECRET?.trim();
+      if (!webhookSecret && whsec?.startsWith('whsec_')) webhookSecret = whsec;
+    } catch (err) {
+      console.warn('[billing] Vercel Stripe env read failed:', (err as Error).message);
+    }
+  }
+
+  if (!secretKey && !webhookSecret && !publishableKey && Object.keys(prices).length === 0) {
+    return null;
   }
 
   return {
