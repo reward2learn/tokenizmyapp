@@ -109,16 +109,70 @@ async function normalizeNavigationPathsInScope(
     appId,
     tenantSlug,
   );
+  // Only set /excel when no sibling row already owns that path (avoids uq index 23505).
   const n2 = await prisma.$executeRawUnsafe(
-    `UPDATE navigation_items
+    `UPDATE navigation_items AS ni
      SET path = '/excel', updated_at = CURRENT_TIMESTAMP
-     WHERE COALESCE(TRIM(path), '') = ''
-       AND LOWER(TRIM(title)) IN ('excel', 'workbook')
-       AND ${scopeSql('', 1)}`,
+     WHERE COALESCE(TRIM(ni.path), '') = ''
+       AND LOWER(TRIM(ni.title)) IN ('excel', 'workbook')
+       AND ${scopeSql('ni', 1)}
+       AND NOT EXISTS (
+         SELECT 1 FROM navigation_items AS existing
+         WHERE existing.path IN ('/excel', '/workbook')
+           AND COALESCE(existing.parent_id, '') = COALESCE(ni.parent_id, '')
+           AND existing.id <> ni.id
+           AND ${scopeSql('existing', 3)}
+       )`,
+    appId,
+    tenantSlug,
     appId,
     tenantSlug,
   );
   return (typeof n1 === 'number' ? n1 : 0) + (typeof n2 === 'number' ? n2 : 0);
+}
+
+/** Merge empty-path Excel/Workbook rows into an existing /excel sibling. */
+async function mergeEmptyPathExcelFolders(
+  prisma: PrismaClient,
+  keeperId: string,
+  scope?: NavigationScope,
+): Promise<number> {
+  const [appId, tenantSlug] = scopeParams(scope);
+  const empties = await prisma.$queryRawUnsafe<{ id: string }[]>(
+    `SELECT id FROM navigation_items
+     WHERE id <> $1
+       AND COALESCE(TRIM(path), '') = ''
+       AND LOWER(TRIM(title)) IN ('excel', 'workbook')
+       AND parent_id IS NULL
+       AND ${scopeSql('', 2)}`,
+    keeperId,
+    appId,
+    tenantSlug,
+  );
+  let deleted = 0;
+  for (const row of empties) {
+    await deleteNavRow(prisma, keeperId, row.id);
+    deleted += 1;
+  }
+  return deleted;
+}
+
+async function findExcelFolderIdInScope(
+  prisma: PrismaClient,
+  scope?: NavigationScope,
+): Promise<string | null> {
+  const [appId, tenantSlug] = scopeParams(scope);
+  const rows = await prisma.$queryRawUnsafe<{ id: string }[]>(
+    `SELECT id FROM navigation_items
+     WHERE parent_id IS NULL
+       AND (path IN ('/excel', '/workbook') OR LOWER(TRIM(title)) IN ('excel', 'workbook'))
+       AND ${scopeSql('', 1)}
+     ORDER BY (path IN ('/excel', '/workbook')) DESC, is_dynamic ASC, created_at ASC NULLS LAST, id ASC
+     LIMIT 1`,
+    appId,
+    tenantSlug,
+  );
+  return rows[0]?.id ?? null;
 }
 
 async function deleteNavRow(
@@ -367,29 +421,33 @@ export async function reconcileNavigationDuplicates(
 
   let deleted = 0;
 
-  deleted += await normalizeNavigationPathsInScope(prisma, scope);
-
-  // ── 1. Merge duplicate root Excel / Workbook folders (this app only) ──
+  // ── 1. Merge duplicate root Excel / Workbook folders (before path normalize) ──
   const excelFolders = await prisma.$queryRawUnsafe<{ id: string }[]>(
     `SELECT id FROM navigation_items
      WHERE parent_id IS NULL
        AND (LOWER(title) IN ('excel', 'workbook') OR path IN ('/excel', '/workbook'))
        AND ${scopeFilter}
-     ORDER BY created_at ASC NULLS LAST, id ASC`,
+     ORDER BY (path IN ('/excel', '/workbook')) DESC, created_at ASC NULLS LAST, id ASC`,
     ...scopeBind,
   );
 
   let excelFolderId: string | null = excelFolders[0]?.id ?? null;
   if (excelFolders.length > 1 && excelFolderId) {
     for (const extra of excelFolders.slice(1)) {
-      await prisma.$executeRawUnsafe(
-        `UPDATE navigation_items SET parent_id = $1 WHERE parent_id = $2`,
-        excelFolderId,
-        extra.id,
-      );
-      await prisma.$executeRawUnsafe(`DELETE FROM navigation_items WHERE id = $1`, extra.id);
+      await deleteNavRow(prisma, excelFolderId, extra.id);
       deleted += 1;
     }
+  }
+  if (excelFolderId) {
+    deleted += await mergeEmptyPathExcelFolders(prisma, excelFolderId, scope);
+  }
+
+  deleted += await normalizeNavigationPathsInScope(prisma, scope);
+
+  // Re-resolve keeper after normalize may assign /excel to a former empty-path row.
+  excelFolderId = (await findExcelFolderIdInScope(prisma, scope)) ?? excelFolderId;
+  if (excelFolderId) {
+    deleted += await mergeEmptyPathExcelFolders(prisma, excelFolderId, scope);
   }
 
   // ── 2. Dedupe by (parent_id, path) within this app ───────────────────
@@ -463,25 +521,32 @@ export async function ensureExcelNavigationFolder(
   const { excelFolderId } = await reconcileNavigationDuplicates(prisma, scope);
   if (excelFolderId) return excelFolderId;
 
+  const existingId = await findExcelFolderIdInScope(prisma, scope);
+  if (existingId) return existingId;
+
   const appId = normalizeAppId(scope?.appId) || null;
   const tenantSlug = normalizeTenantSlug(scope?.tenantSlug) || null;
-  const rows = await prisma.$queryRawUnsafe<{ id: string }[]>(
-    `INSERT INTO navigation_items (
-       id, parent_id, sort_order, title, path, icon, auth_tier, required_groups,
-       is_visible, is_dynamic, is_default, tenant_slug, app_id, updated_at
-     )
-     VALUES (
-       gen_random_uuid()::TEXT, NULL,
-       (SELECT COALESCE(MAX(sort_order), 0) + 1 FROM navigation_items
-        WHERE parent_id IS NULL AND COALESCE(app_id, '') = COALESCE($2, '')),
-       'Excel', '/excel', 'Folder', CAST('google' AS "AuthTier"), '',
-       TRUE, TRUE, FALSE, $1, $2, CURRENT_TIMESTAMP
-     )
-     RETURNING id`,
-    tenantSlug,
-    appId,
-  );
-  return rows[0]?.id ?? null;
+  try {
+    const rows = await prisma.$queryRawUnsafe<{ id: string }[]>(
+      `INSERT INTO navigation_items (
+         id, parent_id, sort_order, title, path, icon, auth_tier, required_groups,
+         is_visible, is_dynamic, is_default, tenant_slug, app_id, updated_at
+       )
+       VALUES (
+         gen_random_uuid()::TEXT, NULL,
+         (SELECT COALESCE(MAX(sort_order), 0) + 1 FROM navigation_items
+          WHERE parent_id IS NULL AND COALESCE(app_id, '') = COALESCE($2, '')),
+         'Excel', '/excel', 'Folder', CAST('google' AS "AuthTier"), '',
+         TRUE, TRUE, FALSE, $1, $2, CURRENT_TIMESTAMP
+       )
+       RETURNING id`,
+      tenantSlug,
+      appId,
+    );
+    return rows[0]?.id ?? null;
+  } catch {
+    return (await findExcelFolderIdInScope(prisma, scope)) ?? null;
+  }
 }
 
 /**

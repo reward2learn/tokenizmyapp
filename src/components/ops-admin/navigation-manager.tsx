@@ -1,6 +1,8 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import Link from 'next/link';
+import type { Route } from 'next';
 import Alert from '@mui/material/Alert';
 import Box from '@mui/material/Box';
 import Button from '@mui/material/Button';
@@ -19,6 +21,7 @@ import Select from '@mui/material/Select';
 import Stack from '@mui/material/Stack';
 import Switch from '@mui/material/Switch';
 import TextField from '@mui/material/TextField';
+import Tooltip from '@mui/material/Tooltip';
 import Typography from '@mui/material/Typography';
 import AddIcon from '@mui/icons-material/Add';
 import DeleteIcon from '@mui/icons-material/Delete';
@@ -30,6 +33,8 @@ import InsertDriveFileIcon from '@mui/icons-material/InsertDriveFile';
 import SaveIcon from '@mui/icons-material/Save';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import ChevronRightIcon from '@mui/icons-material/ChevronRight';
+import VisibilityOffOutlinedIcon from '@mui/icons-material/VisibilityOffOutlined';
+import OpenInNewIcon from '@mui/icons-material/OpenInNew';
 import FormControlLabel from '@mui/material/FormControlLabel';
 import ListItemText from '@mui/material/ListItemText';
 import Checkbox from '@mui/material/Checkbox';
@@ -522,6 +527,15 @@ export function NavigationManager({ tenantSlug, appId }: NavigationManagerProps 
   function renderRow(item: FlatItem & { depth: number }, idx: number) {
     const isDrag = dragIndex === idx;
     const isDrop = dropIndex === idx;
+    const isHidden = !item.isVisible;
+    const isExternalPath = Boolean(item.path?.startsWith('http'));
+    const internalPath = item.path && !isExternalPath ? (item.path as Route) : null;
+    const linkSx = {
+      color: 'inherit',
+      textDecoration: 'none',
+      '&:hover': { textDecoration: 'underline', color: 'primary.main' },
+    } as const;
+
     return (
       <Paper
         key={item.id}
@@ -535,10 +549,10 @@ export function NavigationManager({ tenantSlug, appId }: NavigationManagerProps 
           gap: 1,
           p: 1.5,
           mb: 0.5,
-          bgcolor: isDrag ? 'action.selected' : isDrop ? 'action.hover' : 'transparent',
+          bgcolor: isDrag ? 'action.selected' : isDrop ? 'action.hover' : isHidden ? 'action.hover' : 'transparent',
           border: '1px solid',
-          borderColor: isDrop ? 'primary.main' : 'divider',
-          opacity: isDrag ? 0.5 : 1,
+          borderColor: isDrop ? 'primary.main' : isHidden ? 'warning.light' : 'divider',
+          opacity: isDrag ? 0.5 : isHidden ? 0.72 : 1,
           cursor: 'grab',
           ml: item.depth * 3,
           '&:hover': { bgcolor: 'action.hover' },
@@ -565,6 +579,11 @@ export function NavigationManager({ tenantSlug, appId }: NavigationManagerProps 
           <Box sx={{ width: 28 }} />
         )}
         <DragIndicatorIcon fontSize="small" color="disabled" sx={{ cursor: 'grab', flexShrink: 0 }} />
+        {isHidden ? (
+          <Tooltip title="Hidden from navigation drawer">
+            <VisibilityOffOutlinedIcon fontSize="small" color="warning" sx={{ flexShrink: 0 }} />
+          </Tooltip>
+        ) : null}
         <Box sx={{ flexShrink: 0, color: 'text.secondary', display: 'flex', alignItems: 'center' }}>
           {item.icon ? (
             <NavIcon name={item.icon} />
@@ -577,12 +596,57 @@ export function NavigationManager({ tenantSlug, appId }: NavigationManagerProps 
           )}
         </Box>
         <Box sx={{ flex: 1, minWidth: 0 }}>
-          <Typography variant="body2" sx={{ fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-            {item.title}
-          </Typography>
-          <Typography variant="caption" color="text.secondary" sx={{ display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-            {item.path || '(no path)'}
-          </Typography>
+          {internalPath ? (
+            <Link href={internalPath} style={linkSx}>
+              <Typography
+                variant="body2"
+                component="span"
+                sx={{ fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', display: 'inline-flex', alignItems: 'center', gap: 0.5 }}
+              >
+                {item.title}
+                <OpenInNewIcon sx={{ fontSize: 14, opacity: 0.6 }} />
+              </Typography>
+            </Link>
+          ) : isExternalPath ? (
+            <Typography
+              variant="body2"
+              component="a"
+              href={item.path}
+              target="_blank"
+              rel="noopener noreferrer"
+              sx={{ fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: 'inherit', textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 0.5, '&:hover': { textDecoration: 'underline', color: 'primary.main' } }}
+            >
+              {item.title}
+              <OpenInNewIcon sx={{ fontSize: 14, opacity: 0.6 }} />
+            </Typography>
+          ) : (
+            <Typography variant="body2" sx={{ fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              {item.title}
+            </Typography>
+          )}
+          {internalPath ? (
+            <Link href={internalPath} style={linkSx}>
+              <Typography variant="caption" color="text.secondary" component="span" sx={{ display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                {item.path}
+              </Typography>
+            </Link>
+          ) : isExternalPath ? (
+            <Typography
+              variant="caption"
+              color="text.secondary"
+              component="a"
+              href={item.path}
+              target="_blank"
+              rel="noopener noreferrer"
+              sx={{ display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: 'text.secondary', textDecoration: 'none', '&:hover': { textDecoration: 'underline', color: 'primary.main' } }}
+            >
+              {item.path}
+            </Typography>
+          ) : (
+            <Typography variant="caption" color="text.secondary" sx={{ display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              {item.path || '(no path)'}
+            </Typography>
+          )}
         </Box>
         {item.isDefault ? (
           <Chip label="Default" size="small" color="primary" variant="filled" sx={{ height: 20, fontSize: { xs: '0.7rem', md: '0.75rem' } }} />
