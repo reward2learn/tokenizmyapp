@@ -16,7 +16,7 @@
  */
 import { z } from 'zod';
 import { createRawClient } from '@/lib/db';
-import { requireWriteAuth } from '@/lib/auth/guards';
+import { requireOrgCreditPurchase } from '@/lib/auth/billing-guards';
 import { jsonError, jsonOk } from '@/lib/api/response';
 import { getOrganization, resolveTenantStripeConfig } from '@/domain/billing/organization-service';
 import { createTopUpIntent, stripeReadiness } from '@/domain/billing/stripe-service';
@@ -34,10 +34,10 @@ export async function POST(
   request: Request,
   { params }: { params: Promise<{ orgId: string }> },
 ): Promise<Response> {
-  const guard = await requireWriteAuth(request);
+  const { orgId } = await params;
+  const guard = await requireOrgCreditPurchase(request, orgId);
   if (!guard.ok) return guard.response;
 
-  const { orgId } = await params;
   const db = createRawClient();
   const stripeConfig = await resolveTenantStripeConfig(orgId, db);
   const stripe = stripeConfig ? requireStripeFor(stripeConfig) : undefined;

@@ -49,6 +49,7 @@ import KeyboardArrowDownIcon from '@mui/icons-material/KeyboardArrowDown';
 import KeyboardArrowRightIcon from '@mui/icons-material/KeyboardArrowRight';
 import ApartmentIcon from '@mui/icons-material/Apartment';
 import AddBoxIcon from '@mui/icons-material/AddBox';
+import CreditCardIcon from '@mui/icons-material/CreditCard';
 import SyncIcon from '@mui/icons-material/Sync';
 import SelectAllIcon from '@mui/icons-material/SelectAll';
 import ExpandLessIcon from '@mui/icons-material/ExpandLess';
@@ -85,6 +86,7 @@ import { AppRow } from '@/components/ops-admin/app-row';
 import { AppActionsMenuButton } from '@/components/ops-admin/app-actions-menu';
 import { AddAppButton } from '@/components/ops-admin/add-app-dialog';
 import { CreateAppWizard } from '@/components/ops-admin/create-app-wizard';
+import { ChoosePlanDialog } from '@/components/ops-admin/choose-plan-dialog';
 import { DEFAULT_TENANT } from '@shared/lib/config/tenant';
 
 /** Extracts the API envelope's `error` string off an RTK Query error, without `any`. */
@@ -181,6 +183,7 @@ export function TenantDashboard() {
   const [editor, setEditor] = useState<TenantEntry | null>(null);
   // Create New App wizard state — tenant slug to create an app for.
   const [createAppFor, setCreateAppFor] = useState<string | null>(null);
+  const [choosePlanFor, setChoosePlanFor] = useState<{ slug: string; displayName: string } | null>(null);
 
   // Three-dot menu state — track which row's menu is open
   const [menuAnchor, setMenuAnchor] = useState<{ slug: string; el: HTMLElement } | null>(null);
@@ -709,6 +712,10 @@ export function TenantDashboard() {
                       <ListItemIcon><AddBoxIcon fontSize="small" /></ListItemIcon>
                       <ListItemText>Create New App</ListItemText>
                     </MenuItem>
+                    <MenuItem onClick={() => { handleMenuClose(); setChoosePlanFor({ slug: t.slug, displayName: t.displayName }); }}>
+                      <ListItemIcon><CreditCardIcon fontSize="small" /></ListItemIcon>
+                      <ListItemText>Choose a Plan</ListItemText>
+                    </MenuItem>
                     <Divider />
                     {isSuite ? (
                       <>
@@ -880,6 +887,10 @@ export function TenantDashboard() {
                             <MenuItem onClick={() => { handleMenuClose(); setCreateAppFor(t.slug); }}>
                               <ListItemIcon><AddBoxIcon fontSize="small" /></ListItemIcon>
                               <ListItemText>Create New App</ListItemText>
+                            </MenuItem>
+                            <MenuItem onClick={() => { handleMenuClose(); setChoosePlanFor({ slug: t.slug, displayName: t.displayName }); }}>
+                              <ListItemIcon><CreditCardIcon fontSize="small" /></ListItemIcon>
+                              <ListItemText>Choose a Plan</ListItemText>
                             </MenuItem>
                             <Divider />
                             {isSuite ? (
@@ -1146,6 +1157,15 @@ export function TenantDashboard() {
         tenantSlug={createAppFor ?? ''}
         onSnackbar={(msg) => setSnackbar(msg)}
       />
+
+      {choosePlanFor && (
+        <ChoosePlanDialog
+          open
+          onClose={() => setChoosePlanFor(null)}
+          tenantSlug={choosePlanFor.slug}
+          tenantDisplayName={choosePlanFor.displayName}
+        />
+      )}
 
       {/* Feedback Snackbar */}
       <Snackbar

@@ -83,3 +83,25 @@ export function addAgenticCommerceToFlightCheck(
     );
   }
 }
+
+export type EmbeddedCheckoutProbePayload = {
+  ok?: boolean;
+  status?: 'pass' | 'fail' | 'warn';
+  message?: string;
+};
+
+export function addEmbeddedCheckoutProbeToFlightCheck(
+  payload: EmbeddedCheckoutProbePayload | null | undefined,
+  addResult: AddFlightCheckResult,
+  fixAction?: () => Promise<void>,
+  fixLabel = 'Go to step',
+): void {
+  const status = payload?.status ?? (payload?.ok ? 'pass' : 'fail');
+  addResult(
+    'Stripe Embedded Checkout (probe)',
+    status,
+    payload?.message ?? (status === 'pass' ? 'Embedded Checkout API OK' : 'Embedded Checkout probe failed'),
+    status !== 'pass' ? fixAction : undefined,
+    status !== 'pass' ? fixLabel : undefined,
+  );
+}

@@ -18,6 +18,7 @@ import {
   resolveOrgForTenant,
 } from '@/domain/billing/organization-service';
 import { getPlanForOrg, getSubscription } from '@/domain/billing/entitlement-service';
+import { resolveTenantSelfServeBilling } from '@/domain/billing/self-serve-billing-service';
 
 export const dynamic = 'force-dynamic';
 
@@ -40,12 +41,15 @@ export async function GET(
       getPlanForOrg(organization.id, db),
     ]);
 
+    const selfServe = await resolveTenantSelfServeBilling(organization.id, db);
+
     return jsonOk({
       organization,
       subscription,
       plan,
       // Resolved server-side so a client never has to map planId → features.
       features: plan.features,
+      selfServeBilling: selfServe.config,
     });
   } catch (err) {
     return jsonError('Failed to resolve organization: ' + (err as Error).message, 500);

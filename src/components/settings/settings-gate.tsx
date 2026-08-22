@@ -1,7 +1,7 @@
 'use client';
 
 import { SettingsPanel } from '@/components/settings/settings-panel';
-import { useBillingOrgId } from '@/components/billing/use-billing-org';
+import { useBillingOrgId, useSelfServeBillingEnabled } from '@/components/billing/use-billing-org';
 
 /**
  * Supplies Settings with the organization currently selected in the admin
@@ -18,5 +18,7 @@ import { useBillingOrgId } from '@/components/billing/use-billing-org';
  * actually pays for this tenant instead of a "No organization" pane.
  */
 export function SettingsGate() {
-  return <SettingsPanel orgId={useBillingOrgId()} />;
+  const orgId = useBillingOrgId();
+  const selfServeBilling = useSelfServeBillingEnabled();
+  return <SettingsPanel orgId={orgId} selfServeBilling={selfServeBilling} />;
 }

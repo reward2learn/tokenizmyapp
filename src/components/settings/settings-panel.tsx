@@ -71,7 +71,13 @@ const PERSONAL_SECTIONS: SectionDef[] = [
   { id: 'security', label: 'Security', icon: LockIcon },
 ];
 
-export function SettingsPanel({ orgId }: { orgId: string | null }) {
+export function SettingsPanel({
+  orgId,
+  selfServeBilling = false,
+}: {
+  orgId: string | null;
+  selfServeBilling?: boolean;
+}) {
   const dispatch = useAppDispatch();
   const section = useAppSelector((s) => s.ui.settingsSection);
   const onPlatform = isPlatformApp();
@@ -139,7 +145,7 @@ export function SettingsPanel({ orgId }: { orgId: string | null }) {
           ))}
         {section === 'billing' &&
           (orgId ? (
-            <BillingPanel orgId={orgId} readOnly={!onPlatform} />
+            <BillingPanel orgId={orgId} readOnly={!onPlatform} selfServeBilling={selfServeBilling} />
           ) : (
             <NoOrganization what={onPlatform ? 'Billing' : 'Usage'} />
           ))}

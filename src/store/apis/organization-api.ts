@@ -263,6 +263,7 @@ export const organizationApi = createApi({
         subscription: Subscription;
         plan: PlanDef;
         features: Feature[];
+        selfServeBilling?: { enabled: boolean };
       }>,
       string
     >({
@@ -287,6 +288,7 @@ export const organizationApi = createApi({
         balance: CreditBalance;
         grants: CreditGrant[];
         ledger: CreditLedgerEntry[];
+        paymentsReady?: boolean;
       }>,
       string
     >({
@@ -360,6 +362,8 @@ export const organizationApi = createApi({
          * panel greys the plan out as well as explaining why.
          */
         priceMismatches: string[];
+        /** Tenant publishable key for Stripe.js embedded Checkout. */
+        publishableKey: string | null;
       }>,
       string
     >({
@@ -378,9 +382,15 @@ export const organizationApi = createApi({
     startCheckout: builder.mutation<
       ApiEnvelope<
         | { mode: 'checkout'; url: string; sessionId: string }
+        | {
+            mode: 'embedded_checkout';
+            clientSecret: string;
+            sessionId: string;
+            publishableKey: string;
+          }
         | { mode: 'plan_change'; applied: 'immediate' | 'scheduled'; planId: string; interval: string }
       >,
-      { orgId: string; planId: string; interval: 'monthly' | 'yearly' }
+      { orgId: string; planId: string; interval: 'monthly' | 'yearly'; embedded?: boolean }
     >({
       query: ({ orgId, ...body }) => ({
         url: `admin/organizations/${orgId}/checkout`,

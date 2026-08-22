@@ -9,8 +9,8 @@ import BoltIcon from '@mui/icons-material/Bolt';
 import { useAppDispatch } from '@/store/hooks';
 import { openSettingsDialog } from '@/store/ui-slice';
 import { useGetOrganizationCreditsQuery } from '@/store/apis/organization-api';
-import { useBillingOrgId } from '@/components/billing/use-billing-org';
-import { isPlatformApp } from '@shared/lib/config/tenant';
+import { useBillingOrgId, useSelfServeBillingEnabled } from '@/components/billing/use-billing-org';
+import { getClientTenantConfig, isPlatformApp } from '@shared/lib/config/tenant';
 
 /**
  * AI credit balance and a top-up button, in the app header.
@@ -35,12 +35,15 @@ export function HeaderCredits() {
   const dispatch = useAppDispatch();
   const orgId = useBillingOrgId();
   const onPlatform = isPlatformApp();
+  const selfServeBilling = useSelfServeBillingEnabled();
   const { data } = useGetOrganizationCreditsQuery(orgId ?? '', { skip: !orgId });
   const balance = data?.data?.balance ?? null;
 
   if (!orgId || !balance) return null;
 
   const open = () => dispatch(openSettingsDialog({ section: 'billing', billingTab: 'ai-credits' }));
+
+  const canTopUp = onPlatform || selfServeBilling;
 
   // Debt outranks the expiry warning: an org in arrears is blocked right now,
   // which matters more than credits that lapse later. Same precedence as the
@@ -56,7 +59,7 @@ export function HeaderCredits() {
             ? `Blocked — owes ${balance.debt} credit(s). Add ${balance.debt}+ to settle.`
             : expiring
               ? `${balance.expiringSoon} credits expiring within 7 days`
-              : onPlatform
+              : canTopUp
                 ? 'AI credits — open billing'
                 : 'AI credits — view usage'
         }
@@ -71,9 +74,9 @@ export function HeaderCredits() {
           sx={{ fontVariantNumeric: 'tabular-nums', cursor: 'pointer' }}
         />
       </Tooltip>
-      <Tooltip title={onPlatform ? 'Add AI credits' : 'Request more AI credits'}>
+      <Tooltip title={canTopUp ? 'Add AI credits' : 'Request more AI credits'}>
         <IconButton
-          aria-label={onPlatform ? 'Add AI credits' : 'Request more AI credits'}
+          aria-label={canTopUp ? 'Add AI credits' : 'Request more AI credits'}
           onClick={open}
           sx={{ color: 'text.secondary' }}
         >

@@ -12,14 +12,16 @@
  *   consumption). This is the admin top-up path; the Stripe purchase flow
  *   (Phase 4) will call the same redeemCreditPack() with the payment reference.
  *
- * Auth: requireWriteAuth + platform admin — credits are control-plane money.
+ * Auth: platform admin, or self-serve tenant users (read balance only).
  */
 import { z } from 'zod';
 import { createRawClient } from '@/lib/db';
 import { requireWriteAuth } from '@/lib/auth/guards';
+import { requireOrgCreditsRead } from '@/lib/auth/billing-guards';
 import { sessionIsPlatformAdmin } from '@/lib/auth/jwt';
 import { jsonError, jsonOk } from '@/lib/api/response';
-import { getOrganization } from '@/domain/billing/organization-service';
+import { getOrganization, resolveTenantStripeConfig } from '@/domain/billing/organization-service';
+import { stripeReadiness } from '@/domain/billing/stripe-service';
 import {
   getCreditBalance,
   grantCredits,
@@ -61,11 +63,10 @@ export async function GET(
   request: Request,
   { params }: { params: Promise<{ orgId: string }> },
 ): Promise<Response> {
-  const guard = await requireWriteAuth(request);
-  if (!guard.ok) return guard.response;
-  if (!sessionIsPlatformAdmin(guard.session)) return jsonError('Platform admin only', 403);
-
   const { orgId } = await params;
+  const guard = await requireOrgCreditsRead(request, orgId);
+  if (!guard.ok) return guard.response;
+
   const db = createRawClient();
 
   try {
@@ -84,6 +85,9 @@ export async function GET(
       ) as Promise<Record<string, unknown>[]>,
     ]);
 
+    const stripeConfig = await resolveTenantStripeConfig(orgId, db);
+    const paymentsReadiness = stripeReadiness(stripeConfig ?? undefined);
+
     return jsonOk({
       balance,
       // Surfaced with the balance so a bookkeeping bug is visible where the
@@ -91,6 +95,7 @@ export async function GET(
       reconciliation: await reconcileCredits(orgId, db),
       grants: grants.map(mapCreditGrant),
       ledger: ledger.map(mapCreditLedgerEntry),
+      paymentsReady: paymentsReadiness.ready,
     });
   } catch (err) {
     return jsonError('Failed to load credits: ' + (err as Error).message, 500);

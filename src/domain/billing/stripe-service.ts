@@ -220,6 +220,120 @@ export async function createCheckoutSession(
   return { url: session.url, sessionId: session.id };
 }
 
+export interface EmbeddedCheckoutSessionInput {
+  orgId: string;
+  planId: PlanId;
+  interval: BillingInterval;
+  /** Required by Stripe even when redirect_on_completion is 'never'. */
+  returnUrl: string;
+}
+
+/**
+ * Embedded Checkout for a new subscription — used in the factory Choose Plan modal.
+ *
+ * Same subscription + webhook path as hosted Checkout; only the UI surface differs.
+ */
+export async function createEmbeddedSubscriptionCheckoutSession(
+  input: EmbeddedCheckoutSessionInput,
+  db?: RawDb,
+  config?: StripeEnvConfig,
+): Promise<{ clientSecret: string; sessionId: string }> {
+  db = await getDb(db);
+  const stripe = requireStripeFor(config);
+
+  const priceId = getPriceId(input.planId, input.interval, config);
+  if (!priceId) {
+    throw new Error(
+      `Plan "${input.planId}" (${input.interval}) is not purchasable. ` +
+        `Free needs no payment and Enterprise is negotiated; anything else means the ` +
+        `price id env var is missing.`,
+    );
+  }
+
+  const customerId = await ensureStripeCustomer(input.orgId, db, stripe);
+
+  const session = await stripe.checkout.sessions.create({
+    ui_mode: 'embedded',
+    redirect_on_completion: 'never',
+    mode: 'subscription',
+    customer: customerId,
+    line_items: [{ price: priceId, quantity: 1 }],
+    return_url: input.returnUrl,
+    client_reference_id: input.orgId,
+    subscription_data: { metadata: { orgId: input.orgId, planId: input.planId } },
+    metadata: { orgId: input.orgId, planId: input.planId, interval: input.interval },
+  });
+
+  if (!session.client_secret) {
+    throw new Error('Stripe returned an embedded checkout session with no client_secret.');
+  }
+  return { clientSecret: session.client_secret, sessionId: session.id };
+}
+
+/**
+ * One-time embedded Checkout probe (Vercel × Stripe guide pattern).
+ *
+ * Flight Check only — creates a $40 T-shirt-style session and verifies
+ * client_secret is returned. No payment is taken and no catalog SKU is needed.
+ */
+export async function probeEmbeddedCheckoutHealth(
+  config?: StripeEnvConfig,
+): Promise<{ ok: boolean; status: 'pass' | 'fail' | 'warn'; message: string; sessionId?: string }> {
+  const stripe = getStripeFor(config);
+  if (!stripe) {
+    return { ok: false, status: 'fail', message: 'STRIPE_SECRET_KEY is not set for this tenant.' };
+  }
+
+  const publishableKey = (config?.publishableKey ?? process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY)?.trim();
+  if (!publishableKey) {
+    return {
+      ok: false,
+      status: 'fail',
+      message:
+        'Publishable key missing — embedded Checkout needs tenant publishableKey or NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY.',
+    };
+  }
+
+  try {
+    const session = await stripe.checkout.sessions.create({
+      ui_mode: 'embedded',
+      redirect_on_completion: 'never',
+      mode: 'payment',
+      line_items: [
+        {
+          price_data: {
+            currency: 'usd',
+            product_data: { name: 'Flight Check — Stripe embedded probe (do not pay)' },
+            unit_amount: 4000,
+          },
+          quantity: 1,
+        },
+      ],
+    });
+
+    if (!session.client_secret) {
+      return {
+        ok: false,
+        status: 'fail',
+        message: 'Stripe returned an embedded session without client_secret.',
+      };
+    }
+
+    return {
+      ok: true,
+      status: 'pass',
+      message: `Embedded Checkout API OK — probe session ${session.id} (no charge).`,
+      sessionId: session.id,
+    };
+  } catch (err) {
+    return {
+      ok: false,
+      status: 'fail',
+      message: `Embedded Checkout probe failed: ${err instanceof Error ? err.message : String(err)}`,
+    };
+  }
+}
+
 /**
  * Change plan on an existing subscription, applying the roadmap's proration
  * rules (§4.3).

@@ -32,6 +32,7 @@ import { jsonError, jsonOk } from '@/lib/api/response';
 import { getOrganization, resolveTenantStripeConfig } from '@/domain/billing/organization-service';
 import {
   createCheckoutSession,
+  createEmbeddedSubscriptionCheckoutSession,
   changePlan,
   findPriceMismatches,
   getStripeLinkage,
@@ -39,7 +40,7 @@ import {
   stripeReadiness,
 } from '@/domain/billing/stripe-service';
 import { getSubscription } from '@/domain/billing/entitlement-service';
-import { listConfiguredPrices } from '@/lib/billing/stripe-client';
+import { getStripePublishableKey, listConfiguredPrices } from '@/lib/billing/stripe-client';
 import { isPlanId } from '@/lib/billing/plans';
 
 export const dynamic = 'force-dynamic';
@@ -49,6 +50,8 @@ const postSchema = z.object({
   interval: z.enum(['monthly', 'yearly']).default('monthly'),
   successUrl: z.string().url().optional(),
   cancelUrl: z.string().url().optional(),
+  /** When true, return an embedded Checkout client_secret instead of a hosted URL. */
+  embedded: z.boolean().optional().default(false),
 });
 
 /** Fallback return URLs when the caller does not supply them. */
@@ -125,6 +128,7 @@ export async function GET(
       // from the customer's side, so it has to be visible in the panel and not
       // only in the server log.
       reconcileNote: reconcile?.code === 'price_unknown' ? reconcile.reason : null,
+      publishableKey: stripeConfig?.publishableKey?.trim() || getStripePublishableKey(),
     });
   } catch (err) {
     return jsonError('Failed to read billing state: ' + (err as Error).message, 500);
@@ -171,7 +175,7 @@ export async function POST(
     const organization = await getOrganization(db, orgId);
     if (!organization) return jsonError('Organization not found', 404);
 
-    const { planId, interval } = parsed.data;
+    const { planId, interval, embedded } = parsed.data;
     const linkage = await getStripeLinkage(orgId, db);
 
     // An existing subscription is modified in place so the billing anchor and
@@ -188,6 +192,33 @@ export async function POST(
     }
 
     const urls = defaultUrls(request);
+    const publishableKey = stripeConfig?.publishableKey?.trim() || getStripePublishableKey();
+
+    if (embedded) {
+      if (!publishableKey) {
+        return jsonError(
+          'Embedded Checkout requires a publishable key on this tenant (Organization & Billing → Stripe publishable key).',
+          503,
+        );
+      }
+      const session = await createEmbeddedSubscriptionCheckoutSession(
+        {
+          orgId,
+          planId,
+          interval,
+          returnUrl: parsed.data.successUrl ?? urls.successUrl,
+        },
+        db,
+        stripeConfig ?? undefined,
+      );
+      return jsonOk({
+        mode: 'embedded_checkout',
+        clientSecret: session.clientSecret,
+        sessionId: session.sessionId,
+        publishableKey,
+      });
+    }
+
     const session = await createCheckoutSession(
       {
         orgId,

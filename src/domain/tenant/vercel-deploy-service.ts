@@ -381,7 +381,12 @@ export async function buildEnvVarsForProject(input: DeployTenantInput): Promise<
  */
 export async function syncStripeEnvVars(
   projectId: string,
-  stripe: { secretKey?: string; webhookSecret?: string; publishableKey?: string },
+  stripe: {
+    secretKey?: string;
+    webhookSecret?: string;
+    publishableKey?: string;
+    selfServeBillingEnabled?: boolean;
+  },
 ): Promise<number> {
   const webhook = stripe.webhookSecret?.trim();
   if (webhook) {
@@ -433,6 +438,17 @@ export async function syncStripeEnvVars(
       console.error(`[vercel-deploy] Failed to set env ${key}:`, err);
     }
   }
+
+  const selfServeValue = stripe.selfServeBillingEnabled ? 'true' : 'false';
+  for (const key of ['SELF_SERVE_BILLING_ENABLED', 'NEXT_PUBLIC_SELF_SERVE_BILLING'] as const) {
+    try {
+      const ok = await upsertEnvVar(projectId, key, selfServeValue);
+      if (ok) envCount++;
+    } catch (err) {
+      console.error(`[vercel-deploy] Failed to set env ${key}:`, err);
+    }
+  }
+
   return envCount;
 }
 

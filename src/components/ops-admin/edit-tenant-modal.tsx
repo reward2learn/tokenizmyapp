@@ -78,7 +78,7 @@ import { getTemplate, listTemplates } from '@/domain/tenant/template-catalog';
 import { DEFAULT_PLATFORM_ADMIN_EMAIL } from '@/domain/security/persons';
 import { TemplateSelector } from '@/components/ops-admin/tenant-wizard';
 import { TenantAiProviderForm } from '@/components/ops-admin/tenant-ai-provider-form';
-import { addAgenticCommerceToFlightCheck, addStripeWebhookHealthToFlightCheck } from '@/components/ops-admin/stripe-flight-check';
+import { addAgenticCommerceToFlightCheck, addEmbeddedCheckoutProbeToFlightCheck, addStripeWebhookHealthToFlightCheck } from '@/components/ops-admin/stripe-flight-check';
 import type { AppPackConfig, SuiteAppInstance } from '@/store/apis/tenant-api';
 import { useAppDispatch } from '@/store/hooks';
 import { setThemeColors } from '@/store/ui-slice';
@@ -298,6 +298,9 @@ interface ConfigFieldsInput {
       enabled: boolean;
       connectPlatformWaitlist?: boolean;
     };
+    selfServeBilling?: {
+      enabled: boolean;
+    };
   };
 }
 
@@ -370,6 +373,9 @@ function buildConfigFields(input: ConfigFieldsInput) {
               }
             : {}),
         },
+      },
+      selfServeBilling: {
+        enabled: stripe.selfServeBilling?.enabled === true,
       },
     },
     hooks: { deployHookUrl: deployHookUrl || undefined },
@@ -477,11 +483,13 @@ export function EditTenantModal({ open, tenant, onClose, onSnackbar }: EditTenan
     publishableKey: string;
     prices: { PRO_MONTHLY?: string; PRO_YEARLY?: string; BUSINESS_MONTHLY?: string; BUSINESS_YEARLY?: string };
     agenticCommerce: { enabled: boolean; connectPlatformWaitlist: boolean };
+    selfServeBilling: { enabled: boolean };
   } => {
     const cfg = (tenant?.metadata?.config ?? {}) as Record<string, unknown>;
     const stripe = (cfg.stripe ?? {}) as Record<string, unknown>;
     const agentic = (stripe.agenticCommerce ?? {}) as Record<string, unknown>;
     const connectPlatform = (agentic.connectPlatform ?? {}) as Record<string, unknown>;
+    const selfServe = (stripe.selfServeBilling ?? {}) as Record<string, unknown>;
     return {
       secretKey: String(stripe.secretKey ?? ''),
       webhookSecret: String(stripe.webhookSecret ?? ''),
@@ -495,6 +503,9 @@ export function EditTenantModal({ open, tenant, onClose, onSnackbar }: EditTenan
       agenticCommerce: {
         enabled: agentic.enabled === true,
         connectPlatformWaitlist: connectPlatform.waitlistRequested === true,
+      },
+      selfServeBilling: {
+        enabled: selfServe.enabled === true,
       },
     };
   };
@@ -1160,6 +1171,20 @@ export function EditTenantModal({ open, tenant, onClose, onSnackbar }: EditTenan
       addResult('Stripe Key Mode', 'warn', 'Secret and publishable key are in different modes (test vs live) — keep them in the same mode');
     }
 
+    const selfServeRaw = (stripeCfg.selfServeBilling ?? {}) as Record<string, unknown>;
+    const selfServeEnabled = selfServeRaw.enabled === true;
+    addResult(
+      'Self-serve AI credit top-ups',
+      selfServeEnabled ? (stripeComplete ? 'pass' : 'warn') : 'warn',
+      selfServeEnabled
+        ? stripeComplete
+          ? 'Enabled — signed-in users on the deployed tenant app can buy AI credit packs (Pro+ plan required). Save pushes SELF_SERVE_BILLING_ENABLED to Vercel.'
+          : 'Enabled in config but Stripe keys incomplete — finish Organization & Billing before tenant users can pay.'
+        : 'Disabled — tenant app users see request-only billing. Enable the toggle in Organization & Billing for individual top-ups.',
+      goToOrgStep,
+      'Go to step',
+    );
+
     if (freshVercelProjectId || stripeWebhook) {
       try {
         const testRes = await testStripeWebhook({
@@ -1212,6 +1237,38 @@ export function EditTenantModal({ open, tenant, onClose, onSnackbar }: EditTenan
           'Agentic Commerce (ACS seller)',
           'warn',
           err instanceof Error ? err.message : 'Could not evaluate agentic commerce health',
+          goToOrgStep,
+          'Go to step',
+        );
+      }
+
+      try {
+        const probeRes = await fetch(`/api/admin/tenants/${slug}/stripe-embedded-checkout-probe`, {
+          credentials: 'include',
+        });
+        const probePayload = (await probeRes.json()) as {
+          success?: boolean;
+          data?: { ok?: boolean; status?: 'pass' | 'fail' | 'warn'; message?: string };
+          error?: string;
+        };
+        if (probePayload.success && probePayload.data) {
+          addEmbeddedCheckoutProbeToFlightCheck(probePayload.data, addResult, goToOrgStep, 'Go to step');
+        } else {
+          addEmbeddedCheckoutProbeToFlightCheck(
+            { ok: false, status: 'warn', message: probePayload.error ?? 'Could not run embedded Checkout probe' },
+            addResult,
+            goToOrgStep,
+            'Go to step',
+          );
+        }
+      } catch (err) {
+        addEmbeddedCheckoutProbeToFlightCheck(
+          {
+            ok: false,
+            status: 'warn',
+            message: err instanceof Error ? err.message : 'Could not run embedded Checkout probe',
+          },
+          addResult,
           goToOrgStep,
           'Go to step',
         );
@@ -2087,6 +2144,25 @@ export function EditTenantModal({ open, tenant, onClose, onSnackbar }: EditTenan
             }
             label="Flag Stripe Connect platform waitlist (Phase 4 — external agents)"
           />
+
+          <FormControlLabel
+            control={
+              <Switch
+                checked={stripeKeys.selfServeBilling.enabled}
+                onChange={(e) =>
+                  setStripeKeys((s) => ({
+                    ...s,
+                    selfServeBilling: { enabled: e.target.checked },
+                  }))
+                }
+              />
+            }
+            label="Self-serve AI credit top-ups on deployed tenant app"
+          />
+          <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: -1, mb: 1 }}>
+            When enabled, signed-in users on this tenant&apos;s deployed app can buy AI credit packs
+            (not plan changes). Pushed as SELF_SERVE_BILLING_ENABLED on Save — requires Pro+ plan and Stripe keys.
+          </Typography>
 
           {/* Tenant-specific price IDs — override the deployment-level defaults */}
           <Typography variant="caption" color="text.secondary" sx={{ mb: 1, fontSize: '0.7rem' }}>

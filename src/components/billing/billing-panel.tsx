@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useCallback, useState } from 'react';
 import Alert from '@mui/material/Alert';
 import AlertTitle from '@mui/material/AlertTitle';
 import Box from '@mui/material/Box';
@@ -42,8 +42,13 @@ import {
   useGetBillingCheckoutQuery,
   useGetOrganizationInvoicesQuery,
   useStartCheckoutMutation,
+  organizationApi,
 } from '@/store/apis/organization-api';
 import { PLANS, CREDIT_PACKS, YEARLY_DISCOUNT, type PlanId } from '@/lib/billing/plans';
+import {
+  EmbeddedPlanCheckoutDialog,
+  type EmbeddedPlanCheckoutTarget,
+} from '@/components/billing/embedded-plan-checkout';
 import { CreditGrantsTable } from '@/components/billing/credit-grants-table';
 import { CreditUsageTable } from '@/components/billing/credit-usage-table';
 import { BillingDetailsTab } from '@/components/billing/billing-details-tab';
@@ -61,8 +66,7 @@ import { TenantManagedOrgAlert } from '@/components/settings/tenant-managed-mess
  * otherwise would be worse than an absent one.
  *
  * Tab selection lives in the ui slice, not component state, so returning from
- * a hosted-Checkout redirect lands the admin back where they were instead of
- * on the first tab.
+ * embedded Checkout keeps the admin on the Plan tab instead of resetting.
  */
 
 function formatMoney(cents: number, currency = 'usd'): string {
@@ -73,13 +77,23 @@ function formatMoney(cents: number, currency = 'usd'): string {
   }).format(cents / 100);
 }
 
-export function BillingPanel({ orgId, readOnly = false }: { orgId: string; readOnly?: boolean }) {
+export function BillingPanel({
+  orgId,
+  readOnly = false,
+  selfServeBilling = false,
+}: {
+  orgId: string;
+  readOnly?: boolean;
+  selfServeBilling?: boolean;
+}) {
   const dispatch = useAppDispatch();
   const tab = useAppSelector((s) => s.ui.billingTab);
 
   const { data: orgData } = useGetOrganizationQuery(orgId, { skip: !orgId });
   const { data: creditsData } = useGetOrganizationCreditsQuery(orgId, { skip: !orgId });
-  const { data: checkoutData } = useGetBillingCheckoutQuery(orgId, { skip: !orgId });
+  const { data: checkoutData } = useGetBillingCheckoutQuery(orgId, {
+    skip: !orgId || (readOnly && selfServeBilling),
+  });
 
   // The checkout query reconciles against Stripe before answering, so its copy
   // is the fresher of the two. Falling back to the organization query keeps the
@@ -89,6 +103,11 @@ export function BillingPanel({ orgId, readOnly = false }: { orgId: string; readO
   const grants = creditsData?.data?.grants ?? [];
   const ledger = creditsData?.data?.ledger ?? [];
   const readiness = checkoutData?.data?.readiness ?? null;
+  const creditsPaymentsReady = creditsData?.data?.paymentsReady;
+  const effectiveReadiness =
+    readOnly && selfServeBilling
+      ? { ready: creditsPaymentsReady === true }
+      : readiness;
   const linkage = checkoutData?.data?.linkage ?? null;
   const reconcileNote = checkoutData?.data?.reconcileNote ?? null;
   const priceMismatches = checkoutData?.data?.priceMismatches ?? [];
@@ -117,10 +136,16 @@ export function BillingPanel({ orgId, readOnly = false }: { orgId: string; readO
       </Tabs>
 
       <Box sx={{ p: { xs: 2, md: 3 } }}>
-        {readOnly && (
+        {readOnly && !selfServeBilling && (
           <Box sx={{ mb: 2 }}>
             <TenantManagedOrgAlert />
           </Box>
+        )}
+        {readOnly && selfServeBilling && (
+          <Alert severity="info" sx={{ mb: 2 }}>
+            You can purchase AI credit top-ups for this organization. Plan changes and billing
+            details are managed by your administrator.
+          </Alert>
         )}
 
         {!readOnly && readiness?.configError && (
@@ -160,7 +185,9 @@ export function BillingPanel({ orgId, readOnly = false }: { orgId: string; readO
             pendingPlanId={linkage?.pendingPlanId ?? null}
             gracePeriodEndsAt={linkage?.gracePeriodEndsAt ?? null}
             purchasable={checkoutData?.data?.purchasable ?? []}
-            paymentsReady={Boolean(readiness?.ready)}
+            paymentsReady={Boolean(effectiveReadiness?.ready)}
+            publishableKey={checkoutData?.data?.publishableKey ?? null}
+            hasExistingSubscription={Boolean(linkage?.subscriptionId)}
             readOnly={readOnly}
           />
         )}
@@ -170,8 +197,9 @@ export function BillingPanel({ orgId, readOnly = false }: { orgId: string; readO
             balance={balance}
             grants={grants}
             ledger={ledger}
-            readiness={readiness}
+            readiness={effectiveReadiness}
             readOnly={readOnly}
+            selfServeTopUp={selfServeBilling}
           />
         )}
         {!readOnly && activeTab === 'cloud-credits' && <CloudCreditsTab orgId={orgId} />}
@@ -193,6 +221,8 @@ function PlanTab({
   gracePeriodEndsAt,
   purchasable,
   paymentsReady,
+  publishableKey,
+  hasExistingSubscription,
   readOnly = false,
 }: {
   orgId: string;
@@ -202,39 +232,57 @@ function PlanTab({
   gracePeriodEndsAt: string | null;
   purchasable: Array<{ planId: string; interval: 'monthly' | 'yearly' }>;
   paymentsReady: boolean;
+  publishableKey: string | null;
+  hasExistingSubscription: boolean;
   readOnly?: boolean;
 }) {
+  const dispatch = useAppDispatch();
   const [interval, setInterval] = useState<'monthly' | 'yearly'>('monthly');
+  const [checkoutTarget, setCheckoutTarget] = useState<EmbeddedPlanCheckoutTarget | null>(null);
+  const [checkoutOpen, setCheckoutOpen] = useState(false);
   const [startCheckout, { isLoading }] = useStartCheckoutMutation();
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
 
+  const embeddedReady = paymentsReady && Boolean(publishableKey);
+
   const canBuy = (planId: string) =>
     purchasable.some((p) => p.planId === planId && p.interval === interval);
+
+  const handleCheckoutComplete = useCallback(() => {
+    dispatch(organizationApi.util.invalidateTags(['Subscription']));
+    setNotice('Payment submitted — plan and credits activate when Stripe confirms via webhook.');
+  }, [dispatch]);
 
   const choose = async (planId: PlanId) => {
     if (readOnly) return;
     setError(null);
     setNotice(null);
-    try {
-      const result = await startCheckout({ orgId, planId, interval }).unwrap();
-      const payload = result.data;
-      if (payload && 'url' in payload) {
-        // Hosted Checkout: a full navigation, not a new tab — returning from
-        // Stripe should come back into this same app context.
-        window.location.href = payload.url;
-        return;
+
+    if (hasExistingSubscription) {
+      try {
+        const result = await startCheckout({ orgId, planId, interval }).unwrap();
+        const payload = result.data;
+        if (payload && payload.mode === 'plan_change') {
+          setNotice(
+            payload.applied === 'immediate'
+              ? `Upgraded to ${planId}. The prorated charge is on its way and credits arrive when the invoice is paid.`
+              : `Downgrade to ${planId} scheduled for the end of the current period. Nothing changes until then.`,
+          );
+        }
+      } catch {
+        setError('Could not start the plan change.');
       }
-      if (payload && payload.mode === 'plan_change') {
-        setNotice(
-          payload.applied === 'immediate'
-            ? `Upgraded to ${planId}. The prorated charge is on its way and credits arrive when the invoice is paid.`
-            : `Downgrade to ${planId} scheduled for the end of the current period. Nothing changes until then.`,
-        );
-      }
-    } catch {
-      setError('Could not start the plan change.');
+      return;
     }
+
+    if (!embeddedReady || !publishableKey) {
+      setError('Embedded Checkout is not ready — confirm Stripe keys and publishable key are configured.');
+      return;
+    }
+
+    setCheckoutTarget({ planId, interval });
+    setCheckoutOpen(true);
   };
 
   const currentPlan = PLANS.find((plan) => plan.id === currentPlanId) ?? PLANS[0];
@@ -337,6 +385,12 @@ function PlanTab({
           purchased.
         </Alert>
       )}
+      {paymentsReady && !publishableKey && (
+        <Alert severity="warning">
+          Publishable key missing — add Stripe publishable key in Organization &amp; Billing
+          for embedded Checkout.
+        </Alert>
+      )}
       {error && <Alert severity="error">{error}</Alert>}
       {notice && <Alert severity="success">{notice}</Alert>}
 
@@ -435,7 +489,12 @@ function PlanTab({
                 <Button
                   fullWidth
                   variant={isCurrent ? 'outlined' : 'contained'}
-                  disabled={isCurrent || isLoading || !purchasableNow}
+                  disabled={
+                    isCurrent ||
+                    isLoading ||
+                    !purchasableNow ||
+                    (!hasExistingSubscription && !embeddedReady)
+                  }
                   onClick={() => choose(plan.id)}
                 >
                   {isCurrent
@@ -443,7 +502,9 @@ function PlanTab({
                     : plan.priceMonthly === null
                       ? 'Contact sales'
                       : purchasableNow
-                        ? 'Choose'
+                        ? hasExistingSubscription
+                          ? 'Change plan'
+                          : 'Choose'
                         : 'Unavailable'}
                 </Button>
               </Box>
@@ -451,6 +512,15 @@ function PlanTab({
           );
         })}
       </Box>
+
+      <EmbeddedPlanCheckoutDialog
+        open={checkoutOpen}
+        onClose={() => setCheckoutOpen(false)}
+        orgId={orgId}
+        target={checkoutTarget}
+        publishableKey={publishableKey}
+        onComplete={handleCheckoutComplete}
+      />
     </Stack>
   );
 }
@@ -464,6 +534,7 @@ function AiCreditsTab({
   ledger,
   readiness,
   readOnly = false,
+  selfServeTopUp = false,
 }: {
   orgId: string;
   balance: { available: number; expiringSoon: number; debt: number; net: number } | null;
@@ -471,6 +542,7 @@ function AiCreditsTab({
   ledger: React.ComponentProps<typeof CreditUsageTable>['ledger'];
   readiness: { ready: boolean } | null;
   readOnly?: boolean;
+  selfServeTopUp?: boolean;
 }) {
   const [historyTab, setHistoryTab] = useState<'usage' | 'grants'>('usage');
   const [topUpPackId, setTopUpPackId] = useState<string | null>(null);
@@ -485,6 +557,8 @@ function AiCreditsTab({
     .filter((g) => g.source === 'addon' || g.source === 'onetime')
     .reduce((sum, g) => sum + g.remaining, 0);
   const byPromo = grants.filter((g) => g.source === 'promo').reduce((sum, g) => sum + g.remaining, 0);
+
+  const canTopUp = !readOnly || selfServeTopUp;
 
   const requestMessage = [
     'Hi,',
@@ -506,7 +580,7 @@ function AiCreditsTab({
 
   return (
     <Stack spacing={3}>
-      {balance && balance.debt > 0 && !readOnly && (
+      {balance && balance.debt > 0 && canTopUp && (
         <Alert severity="error">
           <AlertTitle>Generation is blocked</AlertTitle>
           A previous generation ran past the available balance and this organization owes{' '}
@@ -577,20 +651,7 @@ function AiCreditsTab({
         </Box>
       </Stack>
 
-      {readOnly ? (
-        <Box>
-          <Typography variant="subtitle2" sx={{ mb: 1 }}>
-            Need more credits?
-          </Typography>
-          <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
-            Your organization administrator manages AI credit purchases and limits. You can copy a
-            request message and send it to them.
-          </Typography>
-          <Button variant="outlined" startIcon={<BoltIcon />} onClick={() => setRequestOpen(true)}>
-            Request more AI credits
-          </Button>
-        </Box>
-      ) : (
+      {canTopUp ? (
         <Box>
           <Typography variant="subtitle2" sx={{ mb: 1 }}>
             Add credits
@@ -609,10 +670,28 @@ function AiCreditsTab({
             ))}
           </Stack>
         </Box>
+      ) : (
+        <Box>
+          <Typography variant="subtitle2" sx={{ mb: 1 }}>
+            Need more credits?
+          </Typography>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
+            Your organization administrator manages AI credit purchases and limits. You can copy a
+            request message and send it to them.
+          </Typography>
+          <Button variant="outlined" startIcon={<BoltIcon />} onClick={() => setRequestOpen(true)}>
+            Request more AI credits
+          </Button>
+        </Box>
       )}
-      {!readOnly && !readiness?.ready && (
+      {!canTopUp && !readiness?.ready && (
         <Typography variant="caption" color="text.secondary">
           Payments are not configured, so credits can only be granted by a platform admin.
+        </Typography>
+      )}
+      {canTopUp && !readiness?.ready && (
+        <Typography variant="caption" color="text.secondary">
+          Payments are not configured — top-ups are unavailable until Stripe Flight Check passes.
         </Typography>
       )}
 
@@ -637,7 +716,7 @@ function AiCreditsTab({
         )}
       </Box>
 
-      {topUpPackId && !readOnly && (
+      {topUpPackId && canTopUp && (
         <StripeTopUpDialog
           open
           orgId={orgId}

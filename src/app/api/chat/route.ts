@@ -11,7 +11,7 @@ import { getSessionFromRequest } from '@/lib/auth/session';
 import { sessionIsPlatformAdmin } from '@/lib/auth/jwt';
 import { legacyError } from '@/lib/api/response';
 import { sanitizeConversationMessages } from '@/lib/chat/conversation-messages';
-import { getCurrentAppId } from '@shared/lib/config/tenant';
+import { getCurrentAppId, isPlatformApp } from '@shared/lib/config/tenant';
 import {
   attachmentDataUrl,
   describeAttachmentForPrompt,
@@ -35,6 +35,7 @@ import { requireCreditsForTenant, resolvePayingOrgId, LOW_CREDIT_THRESHOLD } fro
 import { canPurchaseCreditPacks } from '@/lib/billing/plans';
 import { getSubscription } from '@/domain/billing/entitlement-service';
 import { isAgenticCatalogLive, resolveTenantAgenticCommerce } from '@/domain/billing/agentic-catalog-service';
+import { resolveTenantSelfServeBilling } from '@/domain/billing/self-serve-billing-service';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
@@ -436,6 +437,7 @@ async function handleChatPost(request: Request): Promise<Response> {
     let billingOrgId: string | null = null;
     let planId: import('@/lib/billing/plans').PlanId = 'free';
     let agenticCatalogLive = false;
+    let selfServeBillingEnabled = false;
 
     if (ai.keySource === 'env') {
       const tenantSlug = process.env.NEXT_PUBLIC_TENANT_SLUG ?? 'tokenizmyapp';
@@ -456,12 +458,18 @@ async function handleChatPost(request: Request): Promise<Response> {
       planId = sub.planId;
       const agentic = await resolveTenantAgenticCommerce(billingOrgId, rawDb);
       agenticCatalogLive = isAgenticCatalogLive(agentic.config);
+      if (billingOrgId) {
+        const selfServe = await resolveTenantSelfServeBilling(billingOrgId, rawDb);
+        selfServeBillingEnabled = selfServe.enabled;
+      }
     }
 
     const tenantSlugForTools = process.env.NEXT_PUBLIC_TENANT_SLUG ?? 'tokenizmyapp';
     const lowBalance = creditBalance != null && creditBalance < LOW_CREDIT_THRESHOLD;
+    const canPurchaseCredits =
+      canPurchaseCreditPacks(planId) && (isPlatformApp() || selfServeBillingEnabled);
     const billingToolsEnabled = Boolean(
-      billingOrgId && ai.keySource === 'env' && canPurchaseCreditPacks(planId),
+      billingOrgId && ai.keySource === 'env' && canPurchaseCredits,
     );
     const sessionToolsEnabled = Boolean(activeTool) || isExplicitSessionRequest(message) || lowBalance;
 
@@ -556,7 +564,7 @@ async function handleChatPost(request: Request): Promise<Response> {
               availableCredits: creditBalance ?? 0,
               planId,
               lowBalance,
-              canPurchaseCredits: canPurchaseCreditPacks(planId),
+              canPurchaseCredits,
               agenticCatalogLive,
             },
           }

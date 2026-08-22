@@ -42,3 +42,15 @@ export function useBillingOrgId(): string | null {
 
   return selectedOrgId ?? tenantOrgId ?? orgList?.data?.organizations?.[0]?.id ?? null;
 }
+
+/** Whether this deployment allows signed-in users to buy AI credit top-ups. */
+export function useSelfServeBillingEnabled(): boolean {
+  const tenantSlug = getClientTenantConfig().slug;
+  const onPlatform = isPlatformApp();
+  const { data: tenantOrg } = useGetTenantOrganizationQuery(tenantSlug, {
+    skip: !tenantSlug || onPlatform,
+  });
+
+  if (onPlatform) return false;
+  return tenantOrg?.data?.selfServeBilling?.enabled === true;
+}

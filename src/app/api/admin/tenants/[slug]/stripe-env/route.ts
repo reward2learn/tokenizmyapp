@@ -105,7 +105,12 @@ export async function POST(
     const pushed: string[] = [];
     const redeployTriggered: string[] = [];
     for (const project of projects) {
-      const count = await syncStripeEnvVars(project.id, { secretKey, webhookSecret, publishableKey });
+      const count = await syncStripeEnvVars(project.id, {
+        secretKey,
+        webhookSecret,
+        publishableKey,
+        selfServeBillingEnabled,
+      });
       envCount += count;
       if (count > 0) pushed.push(project.name);
       // NEXT_PUBLIC_ vars are inlined at build time — redeploy so the
@@ -122,6 +127,8 @@ export async function POST(
 
     const agentic = (stripe.agenticCommerce ?? {}) as Record<string, unknown>;
     const agenticEnabled = agentic.enabled === true;
+    const selfServe = (stripe.selfServeBilling ?? {}) as Record<string, unknown>;
+    const selfServeBillingEnabled = selfServe.enabled === true;
 
     let catalogSync: { ok: boolean; message: string } | null = null;
     if (agenticEnabled && secretKey) {
