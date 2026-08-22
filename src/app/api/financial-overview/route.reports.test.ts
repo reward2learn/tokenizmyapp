@@ -35,13 +35,18 @@ vi.mock('@/lib/db', () => ({
   })),
 }));
 
-import { requireRead } from '@/lib/auth/guards';
+import { requireRead, requireWriteAuth } from '@/lib/auth/guards';
 
 describe('GET /api/financial-overview?resource=reports', () => {
   it('UC-RPT-01: returns daily rollup metrics', async () => {
-    vi.mocked(requireRead).mockResolvedValue({
+    const session = { sub: 'test-user', tier: 'pin' as const };
+    (requireWriteAuth as unknown as { mockResolvedValue: (v: unknown) => void }).mockResolvedValue({
       ok: true,
-      session: { sub: 'test-user', tier: 'pin' as const },
+      session,
+    });
+    (requireRead as unknown as { mockResolvedValue: (v: unknown) => void }).mockResolvedValue({
+      ok: true,
+      session,
     });
 
     const response = await GET(

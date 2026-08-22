@@ -21,6 +21,8 @@
 import { read, readFile, utils } from 'xlsx';
 import type { WorkBook, WorkSheet } from 'xlsx';
 import { PNL_LINE_ITEMS, rowForItem, layoutForSheet } from '@/domain/seed/pnl-rows';
+import { enrichPnlLinesWithMetrics } from '@/domain/financial/pnl-calculator';
+import type { PnlLine as CalcPnlLine } from '@/domain/financial/pnl-calculator';
 
 export type ProjectionDataType = 'actual' | 'forecast';
 export type ProjectionScenario = 'actual' | 'conservative' | 'realistic' | 'aspirational';
@@ -530,6 +532,10 @@ function parseGenericSheet(sheet: WorkSheet, sheetName: string): FinancialProjec
     scenario: ProjectionScenario,
   ): FinancialProjectionRow => {
     const metrics = genericMetrics(grid, rowByLabel, valueCol);
+    const pnlLines = enrichPnlLinesWithMetrics(
+      genericPnlLines(grid, rowByLabel, labelCol, valueCol) as CalcPnlLine[],
+      metrics,
+    ) as PnlLine[];
     return {
       period: `${year}-${String(month).padStart(2, '0')}`,
       year,
@@ -537,7 +543,7 @@ function parseGenericSheet(sheet: WorkSheet, sheetName: string): FinancialProjec
       dataType,
       scenario,
       ...metrics,
-      pnlLines: genericPnlLines(grid, rowByLabel, labelCol, valueCol),
+      pnlLines,
     };
   };
 

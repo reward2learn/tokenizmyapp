@@ -14,8 +14,9 @@ describe('FinancialProjectionService scenario resolution', () => {
       expect(resolveDbPeriod('2026-08', 'actual')).toBe('2026-08');
     });
 
-    it('returns null for conservative before Jun 2026', () => {
-      expect(resolveDbPeriod('2026-05', 'conservative')).toBeNull();
+    it('returns same period for conservative before Jun 2026 (workbook forecasts)', () => {
+      expect(resolveDbPeriod('2026-05', 'conservative')).toBe('2026-05');
+      expect(resolveDbPeriod('2026-04', 'conservative')).toBe('2026-04');
     });
 
     it('returns same period for conservative from Jun 2026', () => {
@@ -39,13 +40,11 @@ describe('FinancialProjectionService scenario resolution', () => {
   });
 
   describe('resolveForecastPeriod', () => {
-    it('aligns conservative forecast with chart year/month', () => {
+    it('aligns conservative forecast with chart year/month including Jan–May 2026', () => {
+      expect(resolveForecastPeriod(2026, 4, 'conservative', SCENARIO_MAP.conservative)).toBe('2026-04');
+      expect(resolveForecastPeriod(2026, 5, 'conservative', SCENARIO_MAP.conservative)).toBe('2026-05');
       expect(resolveForecastPeriod(2026, 8, 'conservative', SCENARIO_MAP.conservative)).toBe('2026-08');
       expect(resolveForecastPeriod(2027, 1, 'conservative', SCENARIO_MAP.conservative)).toBe('2027-01');
-    });
-
-    it('returns null for conservative before Jun 2026 on chart', () => {
-      expect(resolveForecastPeriod(2026, 5, 'conservative', SCENARIO_MAP.conservative)).toBeNull();
     });
 
     it('maps realistic chart months to scenario year 2029', () => {

@@ -450,8 +450,16 @@ async function handleReports(url: URL): Promise<NextResponse> {
 }
 
 export async function GET(request: Request) {
-  const groupGuard = await requireRead('financials', request);
-  if (!groupGuard.ok) return groupGuard.response;
+  // Home KPI cards / P&L are gated at the block level (minTier pin|google).
+  // Accept any signed-in pin/google session here — not only financials:read —
+  // so seeded projections reach the dashboard for owners without that capability.
+  const sessionGuard = await requireWriteAuth(request);
+  if (!sessionGuard.ok) {
+    // Platform admins / capability holders may also read via financials:read
+    // even if tier encoding differs; fall through to capability check.
+    const capGuard = await requireRead('financials', request);
+    if (!capGuard.ok) return sessionGuard.response;
+  }
 
   const url = new URL(request.url);
   const resource = url.searchParams.get('resource');

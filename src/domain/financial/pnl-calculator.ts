@@ -389,6 +389,57 @@ export function parsePnlLines(val: unknown): PnlLine[] {
   return [];
 }
 
+/**
+ * Accountant / SUMPL workbooks often populate row-level KPI columns
+ * (revenue, ebitda, …) while `pnl_lines` stay null — label text does not match
+ * the legacy English P&L template. Stamp the known metric keys so Breakdown /
+ * P&L tables are not empty when the projection row itself has values.
+ */
+export function enrichPnlLinesWithMetrics(
+  lines: PnlLine[],
+  metrics: {
+    revenue?: number | null;
+    ebitda?: number | null;
+    netIncome?: number | null;
+    guests?: number | null;
+    staffCost?: number | null;
+  },
+): PnlLine[] {
+  const stamps: Record<string, number | null | undefined> = {
+    total_income_idr: metrics.revenue,
+    ebitda: metrics.ebitda,
+    net_income_pre_tax: metrics.netIncome,
+    total_guests_month: metrics.guests,
+    total_staff_cost: metrics.staffCost,
+  };
+
+  const base =
+    lines.length > 0
+      ? lines
+      : PNL_LINE_ITEMS.map((item) =>
+          item.header
+            ? { key: item.key, label: item.label, header: true as const, value: null }
+            : {
+                key: item.key,
+                label: item.label,
+                value: null as number | null,
+                pct: !!item.pct,
+                sub: !!item.sub,
+              },
+        );
+
+  return base.map((line) => {
+    if (line.header) return line;
+    if (line.value != null) return line;
+    const stamped = stamps[line.key];
+    // Do not stamp 0 — genericMetrics defaults missing fields to 0, and
+    // writing zeros into every template line makes empty sheets look "complete"
+    // and survive projection dedupe as ghost rows.
+    if (stamped == null || stamped === 0) return line;
+    return { ...line, value: stamped };
+  });
+}
+
 export function computedPreview(values: Record<string, number | null>): Record<string, number | null> {
   const out: Record<string, number | null> = {};
   COMPUTED_PREVIEW_KEYS.forEach((item) => {

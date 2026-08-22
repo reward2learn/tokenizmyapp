@@ -59,7 +59,7 @@ function KpiCardsBlockInner({ config }: { config: Record<string, unknown> }) {
   const chartKpi = useAppSelector((s) => s.ui.chartKpi);
   const selectedMonthLabel = useAppSelector((s) => s.ui.selectedMonthLabel);
 
-  const { data, isLoading } = useGetChartOverviewQuery('conservative');
+  const { data, isLoading, isError } = useGetChartOverviewQuery('conservative');
   const overview = data?.data;
   const labels = overview?.labels ?? [];
   const actualSeries = pickActualSeriesForDefault(overview?.actual);
@@ -76,7 +76,11 @@ function KpiCardsBlockInner({ config }: { config: Record<string, unknown> }) {
   const cards = OPS_KPIS.map(({ key, label: kpiLabel }) => {
     const raw = getValAtIndex(overview?.actual?.[key], overview?.forecast?.[key], monthIndex);
     let display = '—';
-    let change = isLoading ? 'Loading…' : `${label} · Forecast`;
+    let change = isLoading
+      ? 'Loading…'
+      : isError
+        ? 'Sign in to load figures'
+        : `${label} · Forecast`;
 
     if (raw != null) {
       if (key === 'staff_cost') {
@@ -93,6 +97,8 @@ function KpiCardsBlockInner({ config }: { config: Record<string, unknown> }) {
         const isActual = overview?.actual?.[key]?.[monthIndex] != null;
         change = `${label} · ${isActual ? 'Actual' : 'Forecast'}`;
       }
+    } else if (!isLoading && !isError && overview && label) {
+      change = `${label} · No data`;
     }
 
     return { key, kpiLabel, display, change };

@@ -3,7 +3,11 @@ import { getCurrentAppId } from '@shared/lib/config/tenant';
 export type ProjectionDataType = 'actual' | 'forecast';
 export type ProjectionScenario = 'actual' | 'conservative' | 'realistic' | 'aspirational';
 import { SyncMonthlyActuals, type ScenarioPayload } from '@/domain/actuals/sync-monthly-actuals';
-import { isExcelLedgerMonth, parsePnlLines } from '@/domain/financial/pnl-calculator';
+import {
+  enrichPnlLinesWithMetrics,
+  isExcelLedgerMonth,
+  parsePnlLines,
+} from '@/domain/financial/pnl-calculator';
 import { toIdrInt } from '@/domain/shared/number-utils';
 
 export const SCENARIO_MAP = {
@@ -38,8 +42,10 @@ export function resolveForecastPeriod(
 ): string | null {
   const mm = String(chartMonth).padStart(2, '0');
 
+  // Conservative forecasts are stored on the same YYYY-MM as the chart month.
+  // (Older code blanked Jan–May 2026 assuming a legacy RedRuby sheet layout —
+  // that hid real workbook forecasts for those months.)
   if (scenario === 'conservative') {
-    if (chartYear === 2026 && chartMonth < 6) return null;
     if (chartYear === 2026 || chartYear === 2027) return `${chartYear}-${mm}`;
     return null;
   }
@@ -55,8 +61,8 @@ export function resolveDbPeriod(chartPeriod: string, scenarioKey: ScenarioKey): 
   if (scenarioKey === 'actual') return chartPeriod;
 
   if (scenarioKey === 'conservative') {
-    if (y === 2026 && m < 6) return null;
-    return `${y}-${mm}`;
+    if (y === 2026 || y === 2027) return `${y}-${mm}`;
+    return null;
   }
 
   if (y === 2026 || y === 2027) return `${SCENARIO_MAP[scenarioKey].year}-${mm}`;
@@ -127,19 +133,31 @@ export class FinancialProjectionService {
 
       const row = await this.findByTypeAndScenario({ period: dbPeriod, dataType, scenario });
 
-      scenarios[key] = row
-        ? {
-            period: row.period,
-            data_type: row.dataType as ProjectionDataType,
-            scenario: row.scenario as ProjectionScenario,
-            lines: parsePnlLines(row.pnlLines),
-            revenue: toIdrInt(row.revenue),
-            ebitda: toIdrInt(row.ebitda),
-            net_income: toIdrInt(row.netIncome),
+      if (row) {
+        const revenue = toIdrInt(row.revenue);
+        const ebitda = toIdrInt(row.ebitda);
+        const netIncome = toIdrInt(row.netIncome);
+        const staffCost = toIdrInt(row.staffCost);
+        scenarios[key] = {
+          period: row.period,
+          data_type: row.dataType as ProjectionDataType,
+          scenario: row.scenario as ProjectionScenario,
+          lines: enrichPnlLinesWithMetrics(parsePnlLines(row.pnlLines), {
+            revenue,
+            ebitda,
+            netIncome,
             guests: row.guests,
-            staff_cost: toIdrInt(row.staffCost),
-          }
-        : { period: dbPeriod, lines: [] };
+            staffCost,
+          }),
+          revenue,
+          ebitda,
+          net_income: netIncome,
+          guests: row.guests,
+          staff_cost: staffCost,
+        };
+      } else {
+        scenarios[key] = { period: dbPeriod, lines: [] };
+      }
     }
 
     const zAgg = await this.sync.aggregateZReportsForMonth(chartPeriod);

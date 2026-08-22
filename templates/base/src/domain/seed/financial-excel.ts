@@ -21,6 +21,8 @@
 import { read, readFile, utils } from 'xlsx';
 import type { WorkBook, WorkSheet } from 'xlsx';
 import { PNL_LINE_ITEMS, rowForItem, layoutForSheet } from '@/domain/seed/pnl-rows';
+import { enrichPnlLinesWithMetrics } from '@/domain/financial/pnl-calculator';
+import type { PnlLine as CalcPnlLine } from '@/domain/financial/pnl-calculator';
 
 export type ProjectionDataType = 'actual' | 'forecast';
 export type ProjectionScenario = 'actual' | 'conservative' | 'realistic' | 'aspirational';
@@ -505,7 +507,7 @@ function parseGenericSheet(sheet: WorkSheet, sheetName: string): FinancialProjec
 
   // Which columns hold values? For single-period sheets, pick the column with
   // the most numeric cells on recognized label rows.
-  const valueColFor = (c: number): number => {
+  const valueColFor = (_c: number): number => {
     let best = 0;
     let bestCount = -1;
     for (let col = 0; col < Math.min(grid[0]?.length ?? 0, 26); col++) {
@@ -530,6 +532,10 @@ function parseGenericSheet(sheet: WorkSheet, sheetName: string): FinancialProjec
     scenario: ProjectionScenario,
   ): FinancialProjectionRow => {
     const metrics = genericMetrics(grid, rowByLabel, valueCol);
+    const pnlLines = enrichPnlLinesWithMetrics(
+      genericPnlLines(grid, rowByLabel, labelCol, valueCol) as CalcPnlLine[],
+      metrics,
+    ) as PnlLine[];
     return {
       period: `${year}-${String(month).padStart(2, '0')}`,
       year,
@@ -537,7 +543,7 @@ function parseGenericSheet(sheet: WorkSheet, sheetName: string): FinancialProjec
       dataType,
       scenario,
       ...metrics,
-      pnlLines: genericPnlLines(grid, rowByLabel, labelCol, valueCol),
+      pnlLines,
     };
   };
 
