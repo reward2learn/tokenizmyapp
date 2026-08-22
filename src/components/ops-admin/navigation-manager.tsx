@@ -39,6 +39,7 @@ import {
   useCreateNavigationItemMutation,
   useUpdateNavigationItemsMutation,
   useDeleteNavigationItemsMutation,
+  useReconcileNavigationMutation,
   useListAdminGroupsQuery,
 } from '@/store/apis/admin-api';
 
@@ -154,9 +155,8 @@ export function NavigationManager({ tenantSlug, appId }: NavigationManagerProps 
   const [batchTier, setBatchTier] = useState<'public' | 'pin' | 'google'>('public');
   const [batchGroups, setBatchGroups] = useState<string[]>([]);
 
-  // ── Dedup ────────────────────────────────────────────
-  const [dedupDialogOpen, setDedupDialogOpen] = useState(false);
-  const [dedupCandidates, setDedupCandidates] = useState<string[]>([]);
+  // ── Dedup / reconcile ──────────────────────────────────
+  const [reconcileSummary, setReconcileSummary] = useState<string | null>(null);
 
   // ── RTK Query: navigation ─────────────────────────────
   // Cross-tenant browsing (tenantSlug/appId) is enforced server-side to
@@ -205,6 +205,7 @@ export function NavigationManager({ tenantSlug, appId }: NavigationManagerProps 
   const [createNavRaw] = useCreateNavigationItemMutation();
   const [updateNavRaw] = useUpdateNavigationItemsMutation();
   const [deleteNavRaw] = useDeleteNavigationItemsMutation();
+  const [reconcileNavRaw] = useReconcileNavigationMutation();
   const createNav = useCallback(
     (body: Record<string, unknown>) => createNavRaw({ ...body, tenantSlug, appId: appId ?? undefined }),
     [createNavRaw, tenantSlug, appId],
@@ -217,6 +218,38 @@ export function NavigationManager({ tenantSlug, appId }: NavigationManagerProps 
     (ids: string[]) => deleteNavRaw({ ids, tenantSlug, appId: appId ?? undefined }),
     [deleteNavRaw, tenantSlug, appId],
   );
+
+  const handleReconcileNavigation = useCallback(async () => {
+    setSaving(true);
+    setError(null);
+    setReconcileSummary(null);
+    try {
+      const result = await reconcileNavRaw(
+        tenantSlug ? { tenantSlug, appId: appId ?? undefined } : undefined,
+      ).unwrap();
+      if (!result.success) {
+        throw new Error(result.error ?? 'Reconcile failed');
+      }
+      const data = result.data as {
+        deleted?: number;
+        seeded?: number;
+        hierarchyUpdated?: number;
+        sheetsSynced?: number;
+      };
+      const deleted = data.deleted ?? 0;
+      const seeded = data.seeded ?? 0;
+      const hierarchyUpdated = data.hierarchyUpdated ?? 0;
+      setReconcileSummary(
+        `Removed ${deleted} duplicate(s), seeded ${seeded} default item(s), nested ${hierarchyUpdated} under Admin, synced ${data.sheetsSynced ?? 0} sheet page(s).`,
+      );
+      setSuccess(true);
+      setTimeout(() => setSuccess(false), 3000);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setSaving(false);
+    }
+  }, [reconcileNavRaw, tenantSlug, appId]);
 
   // ── Create ────────────────────────────────────────────
   const [newTitle, setNewTitle] = useState('');
@@ -374,59 +407,6 @@ export function NavigationManager({ tenantSlug, appId }: NavigationManagerProps 
     setBatchGroups([]);
     setBatchDialogOpen(true);
   }, []);
-
-  // ── Find duplicates ────────────────────────────────────
-  const handleFindDuplicates = useCallback(() => {
-    const seen = new Map<string, { id: string; sortOrder: number }[]>();
-    const dupIds: string[] = [];
-    for (const item of flatItems) {
-      const key = `${item.title}|${item.parentId ?? ''}`;
-      if (seen.has(key)) {
-        seen.get(key)!.push({ id: item.id, sortOrder: item.sortOrder });
-      } else {
-        seen.set(key, [{ id: item.id, sortOrder: item.sortOrder }]);
-      }
-    }
-    for (const [, group] of seen) {
-      if (group.length > 1) {
-        // Keep the first (lowest sortOrder), mark rest as duplicates
-        group.sort((a, b) => a.sortOrder - b.sortOrder);
-        for (let i = 1; i < group.length; i++) {
-          dupIds.push(group[i].id);
-        }
-      }
-    }
-    setDedupCandidates(dupIds);
-    if (dupIds.length === 0) {
-      setError(null);
-      setSuccess(true);
-      setTimeout(() => setSuccess(false), 2000);
-    } else {
-      setDedupDialogOpen(true);
-    }
-  }, [flatItems]);
-
-  const handleConfirmDedup = useCallback(async () => {
-    if (dedupCandidates.length === 0) return;
-    setSaving(true);
-    setError(null);
-    try {
-      const result = await deleteNav(dedupCandidates).unwrap();
-      if (result.success) {
-        setDedupDialogOpen(false);
-        setDedupCandidates([]);
-        setSuccess(true);
-        setTimeout(() => setSuccess(false), 2000);
-        // RTKQ invalidatesTags:['Navigation'] auto-refetches
-      } else {
-        throw new Error(result.error ?? 'Dedup failed');
-      }
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
-    } finally {
-      setSaving(false);
-    }
-  }, [dedupCandidates, deleteNav]);
 
   const handleBatchDelete = useCallback(async () => {
     if (selectedIds.size === 0) return;
@@ -653,8 +633,15 @@ export function NavigationManager({ tenantSlug, appId }: NavigationManagerProps 
             >
               Collapse All
             </Button>
-            <Button variant="outlined" size="small" color="warning" onClick={handleFindDuplicates}>
-              Remove Duplicates
+            <Button
+              variant="outlined"
+              size="small"
+              color="warning"
+              onClick={handleReconcileNavigation}
+              disabled={saving}
+              startIcon={saving ? <CircularProgress size={16} color="inherit" /> : null}
+            >
+              {saving ? 'Reconciling...' : 'Remove Duplicates'}
             </Button>
             <Button variant="contained" size="small" startIcon={<AddIcon />} onClick={() => setCreateDialogOpen(true)}>
               Add Item
@@ -667,7 +654,12 @@ export function NavigationManager({ tenantSlug, appId }: NavigationManagerProps 
         </Typography>
 
         {error ? <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError(null)}>{error}</Alert> : null}
-        {success ? <Alert severity="success" icon={<CheckCircleIcon />} sx={{ mb: 2 }}>Saved.</Alert> : null}
+        {reconcileSummary ? (
+          <Alert severity="info" sx={{ mb: 2 }} onClose={() => setReconcileSummary(null)}>
+            {reconcileSummary}
+          </Alert>
+        ) : null}
+        {success ? <Alert severity="success" icon={<CheckCircleIcon />} sx={{ mb: 2 }}>Navigation reconciled.</Alert> : null}
 
         {/* Batch action toolbar */}
         {selectedIds.size > 0 ? (
@@ -898,6 +890,9 @@ export function NavigationManager({ tenantSlug, appId }: NavigationManagerProps 
                   <MenuItem value="pin">PIN</MenuItem>
                   <MenuItem value="google">Google</MenuItem>
                 </Select>
+                <Typography variant="caption" color="text.secondary" sx={{ mt: 0.75, display: 'block' }}>
+                  Minimum tier required — Google users also see PIN and Public items; PIN users see Public and PIN only.
+                </Typography>
               </FormControl>
               <FormControl fullWidth size="small">
                 <InputLabel id="edit-req-groups-label">Required Groups</InputLabel>
@@ -1026,28 +1021,6 @@ export function NavigationManager({ tenantSlug, appId }: NavigationManagerProps 
             startIcon={saving ? <CircularProgress size={16} color="inherit" /> : null}
           >
             {saving ? 'Saving...' : batchDialogMode === 'delete' ? 'Delete' : 'Apply'}
-          </Button>
-        </DialogActions>
-      </Dialog>
-
-      {/* ── Dedup confirmation dialog ──────────────────── */}
-      <Dialog open={dedupDialogOpen} onClose={() => !saving && setDedupDialogOpen(false)} maxWidth="sm" fullWidth>
-        <DialogTitle>Remove Duplicate Items</DialogTitle>
-        <DialogContent dividers>
-          <Stack spacing={2}>
-            <Typography variant="body2">
-              Found <strong>{dedupCandidates.length}</strong> duplicate navigation item(s) — same title and parent.
-              The first occurrence (by sort order) will be kept, and the rest will be removed.
-            </Typography>
-            <Typography variant="body2" color="text.secondary">
-              This action cannot be undone.
-            </Typography>
-          </Stack>
-        </DialogContent>
-        <DialogActions sx={{ px: 3, py: 2 }}>
-          <Button onClick={() => setDedupDialogOpen(false)} disabled={saving}>Cancel</Button>
-          <Button variant="contained" color="error" onClick={handleConfirmDedup} disabled={saving}>
-            {saving ? 'Removing...' : `Remove ${dedupCandidates.length} Duplicate(s)`}
           </Button>
         </DialogActions>
       </Dialog>

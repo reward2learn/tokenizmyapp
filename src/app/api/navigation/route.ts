@@ -12,10 +12,13 @@
 
 import { PrismaClient } from '@/generated/prisma';
 import { jsonOk } from '@/lib/api/response';
+import { sessionIsPlatformAdmin } from '@/lib/auth/jwt';
+import { getSessionFromRequest } from '@/lib/auth/session';
+import { resolveViewerAuthTier, tierAllowsAccess } from '@/lib/auth/tier-access';
+import type { AuthTier } from '@/lib/page-catalog';
 import {
   ensureNavigationTable,
-  reconcileNavigationDuplicates,
-  seedMissingNavigationFromCatalog,
+  reconcileNavigation,
 } from '@/lib/navigation/db';
 import { getCurrentAppId, getTenantConfig } from '@shared/lib/config/tenant';
 
@@ -26,8 +29,6 @@ function getClient() {
   if (!url) throw new Error('POSTGRES_URL is not set');
   return new PrismaClient({ datasources: { db: { url } } });
 }
-
-const TIER_RANK: Record<string, number> = { public: 0, pin: 1, google: 2 };
 
 interface NavItem {
   id: string;
@@ -46,10 +47,11 @@ interface NavItem {
 
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
-  const tier = searchParams.get('tier') || 'public';
   const groupsParam = searchParams.get('groups') || '';
   const userGroups = groupsParam.split(',').map((g) => g.trim()).filter(Boolean);
-  const userTierRank = TIER_RANK[tier] ?? 0;
+  const session = await getSessionFromRequest(request);
+  const viewerTier = resolveViewerAuthTier(session, searchParams.get('tier'));
+  const isPlatformAdmin = sessionIsPlatformAdmin(session);
 
   // If no DB is configured, return empty nav (graceful fallback for dev/demo)
   const dbUrl = process.env.POSTGRES_URL ?? process.env.DATABASE_URL;
@@ -64,12 +66,13 @@ export async function GET(request: Request) {
   const prisma = getClient();
   try {
     await ensureNavigationTable(prisma);
-    const seeded = await seedMissingNavigationFromCatalog(prisma, scope);
+    const { deleted, seeded, hierarchyUpdated } = await reconcileNavigation(prisma, scope);
     if (seeded > 0) console.log(`[navigation] Seeded ${seeded} new item(s) from page catalog`);
-
-    const { deleted } = await reconcileNavigationDuplicates(prisma, scope);
     if (deleted > 0) {
       console.log(`[navigation] Removed ${deleted} duplicate nav item(s) after reconcile`);
+    }
+    if (hierarchyUpdated > 0) {
+      console.log(`[navigation] Applied default hierarchy to ${hierarchyUpdated} item(s)`);
     }
 
     // Strict per-app filter. reconcileNavigationDuplicates already claimed
@@ -91,11 +94,11 @@ export async function GET(request: Request) {
     const filtered: NavItem[] = [];
     const seenPaths = new Set<string>();
     for (const r of rows) {
-      const itemTierRank = TIER_RANK[String(r.authTier ?? 'public')] ?? 0;
-      if (itemTierRank > userTierRank) continue;
+      const itemTier = String(r.authTier ?? 'public') as AuthTier;
+      if (!tierAllowsAccess(viewerTier, itemTier)) continue;
 
       const reqGroups = String(r.requiredGroups ?? '');
-      if (reqGroups) {
+      if (reqGroups && !isPlatformAdmin) {
         const groups = reqGroups.split(',').map((g: string) => g.trim()).filter(Boolean);
         if (groups.length > 0 && !groups.some((g: string) => userGroups.includes(g)) && !userGroups.includes('platform-admin')) {
           continue;

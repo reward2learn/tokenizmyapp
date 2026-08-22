@@ -31,6 +31,22 @@ export function sessionIsPlatformAdmin(
   return (session.groups ?? []).includes('platform-admin');
 }
 
+/**
+ * Security groups effective for access checks. Platform admins implicitly carry
+ * `platform-admin` even when membership was granted via role rather than an
+ * explicit user_groups row — navigation and group-gated surfaces must agree.
+ */
+export function effectiveUserGroups(
+  groups: string[] | undefined,
+  platformAdmin: boolean | undefined,
+): string[] {
+  const base = groups ?? [];
+  if (platformAdmin && !base.includes('platform-admin')) {
+    return [...base, 'platform-admin'];
+  }
+  return base;
+}
+
 function getJwtSecret(): Uint8Array {
   const key = process.env.ENCRYPTION_KEY;
   if (!key) throw new Error('ENCRYPTION_KEY not set');

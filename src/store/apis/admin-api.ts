@@ -434,6 +434,32 @@ export const adminApi = createApi({
       query: (runId) => `admin/app-pack/generate/status?runId=${encodeURIComponent(runId)}`,
       providesTags: ['AppPack'],
     }),
+    /** POST /api/admin/navigation/reconcile — dedupe, seed defaults, apply hierarchy */
+    reconcileNavigation: builder.mutation<
+      ApiEnvelope<{
+        deleted: number;
+        seeded: number;
+        sheetsSynced: number;
+        hierarchyUpdated: number;
+        excelFolderId: string | null;
+      }>,
+      TenantAppScope | void
+    >({
+      query: (scope) => ({
+        url: 'admin/navigation/reconcile',
+        method: 'POST',
+        body: scope ?? {},
+      }),
+      invalidatesTags: ['Navigation'],
+      async onQueryStarted(_arg, { dispatch, queryFulfilled }) {
+        try {
+          await queryFulfilled;
+          dispatch(navigationApi.util.invalidateTags(['Navigation']));
+        } catch {
+          /* reconcile failed — keep drawer cache */
+        }
+      },
+    }),
     /** POST /api/admin/populate-sheet-pages — sync sheet pages into navigation */
     populateSheetPages: builder.mutation<ApiEnvelope<{ created: number; parentId: string; totalSheets: number }>, { parentId?: string; parentTitle?: string }>({
       query: (body) => ({
@@ -480,6 +506,7 @@ export const {
   useCreateNavigationItemMutation,
   useUpdateNavigationItemsMutation,
   useDeleteNavigationItemsMutation,
+  useReconcileNavigationMutation,
   useListAdminPagesQuery,
   useSetPageContentLockedMutation,
   useGetPageSectionsQuery,

@@ -16,7 +16,7 @@ import {
   signRelayState,
   verifyRelayTicket,
 } from '@/lib/auth/google-relay';
-import { sessionIsPlatformAdmin, signSession } from '@/lib/auth/jwt';
+import { effectiveUserGroups, sessionIsPlatformAdmin, signSession } from '@/lib/auth/jwt';
 import { resolveRoleForEmail } from '@/domain/seed/seed-runner';
 import {
   clearSessionCookie,
@@ -248,6 +248,7 @@ async function buildGoogleSessionToken(user: {
     (matchedRole?.isPlatformAdmin ?? false) ||
     dbPlatformAdmin ||
     groups.includes('platform-admin');
+  const effectiveGroups = effectiveUserGroups(groups, platformAdmin);
   return signSession({
     sub: user.id,
     tier: 'google',
@@ -256,7 +257,7 @@ async function buildGoogleSessionToken(user: {
     picture: user.picture,
     roleCode: dbRoleCode,
     platformAdmin,
-    groups,
+    groups: effectiveGroups,
     permissions,
   });
 }
@@ -337,6 +338,7 @@ async function resolveSessionGroups(input: {
 async function handleMe(request: Request): Promise<NextResponse> {
   try {
     const session = await getSessionFromRequest(request);
+    const platformAdmin = sessionIsPlatformAdmin(session);
     return NextResponse.json({
       success: true,
       data: {
@@ -351,8 +353,8 @@ async function handleMe(request: Request): Promise<NextResponse> {
           : null,
         tier: session?.tier ?? 'public',
         roleCode: session?.roleCode ?? null,
-        platformAdmin: sessionIsPlatformAdmin(session),
-        groups: session?.groups ?? [],
+        platformAdmin,
+        groups: effectiveUserGroups(session?.groups, platformAdmin),
         permissions: session?.permissions ?? [],
       },
     });
@@ -501,13 +503,14 @@ async function handleVerifyPin(request: Request): Promise<NextResponse> {
       // DB unavailable — use minimal claims; user can still sign in
     }
     const platformAdmin = isPlatformAdmin || groups.includes('platform-admin');
+    const effectiveGroups = effectiveUserGroups(groups, platformAdmin);
     const token = await signSession({
       sub,
       name: displayName,
       tier: 'pin',
       roleCode,
       platformAdmin,
-      groups,
+      groups: effectiveGroups,
       permissions,
     });
     const response = NextResponse.json({ ok: true, success: true });

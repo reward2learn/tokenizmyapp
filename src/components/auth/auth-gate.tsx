@@ -4,17 +4,8 @@ import type { ReactNode } from 'react';
 import Box from '@mui/material/Box';
 import CircularProgress from '@mui/material/CircularProgress';
 import type { AuthTier } from '@/lib/page-catalog';
+import { tierAllowsAccess } from '@/lib/auth/tier-access';
 import { useAppSelector } from '@/store/hooks';
-
-const TIER_RANK: Record<AuthTier, number> = {
-  public: 0,
-  pin: 1,
-  google: 2,
-};
-
-function tierAllowsAccess(current: AuthTier, required: AuthTier): boolean {
-  return TIER_RANK[current] >= TIER_RANK[required];
-}
 
 export interface AuthGateProps {
   requiredTier: AuthTier;

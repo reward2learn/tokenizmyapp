@@ -28,6 +28,35 @@ CREATE TABLE IF NOT EXISTS navigation_items (
 
 export type NavigationScope = { tenantSlug?: string | null; appId?: string | null };
 
+/** Default infrastructure nav slugs seeded from the page catalog. */
+export const DEFAULT_INFRA_NAV_SLUGS = [
+  'admin',
+  'config',
+  'ops-admin',
+  'ops-tracking',
+  'ops-chat',
+  'settings',
+] as const;
+
+/** Paths nested under the /admin nav item by default. */
+export const ADMIN_CHILD_PATHS = ['/ops-admin', '/ops-tracking', '/config'] as const;
+
+function scopeSql(alias = ''): string {
+  const p = alias ? `${alias}.` : '';
+  return `
+    COALESCE(${p}app_id, '') = $1
+    AND (
+      $2::text IS NULL
+      OR ${p}tenant_slug IS NULL
+      OR ${p}tenant_slug = $2
+    )
+  `;
+}
+
+function scopeParams(scope?: NavigationScope): [string, string | null] {
+  return [normalizeAppId(scope?.appId), normalizeTenantSlug(scope?.tenantSlug) || null];
+}
+
 /** Normalize empty / missing ids to '' for comparisons and unique indexes. */
 export function normalizeAppId(appId?: string | null): string {
   return (appId ?? '').trim();
@@ -136,15 +165,8 @@ export async function reconcileNavigationDuplicates(
   // Strict per-app filter (after claiming legacy orphans for this app).
   await claimLegacyUnscopedRows(prisma, { appId, tenantSlug });
 
-  const scopeSql = `
-    COALESCE(app_id, '') = $1
-    AND (
-      $2::text IS NULL
-      OR tenant_slug IS NULL
-      OR tenant_slug = $2
-    )
-  `;
-  const scopeParams: unknown[] = [appId, tenantSlug];
+  const scopeFilter = scopeSql();
+  const scopeBind: unknown[] = [appId, tenantSlug];
 
   let deleted = 0;
 
@@ -153,9 +175,9 @@ export async function reconcileNavigationDuplicates(
     `SELECT id FROM navigation_items
      WHERE parent_id IS NULL
        AND (LOWER(title) IN ('excel', 'workbook') OR path IN ('/excel', '/workbook'))
-       AND ${scopeSql}
+       AND ${scopeFilter}
      ORDER BY created_at ASC NULLS LAST, id ASC`,
-    ...scopeParams,
+    ...scopeBind,
   );
 
   let excelFolderId: string | null = excelFolders[0]?.id ?? null;
@@ -176,14 +198,14 @@ export async function reconcileNavigationDuplicates(
     { parent_id: string | null; path: string; keep_id: string; ids: string }[]
   >(
     `SELECT parent_id, path,
-            (ARRAY_AGG(id ORDER BY created_at ASC NULLS LAST, id ASC))[1] AS keep_id,
-            ARRAY_TO_STRING(ARRAY_AGG(id ORDER BY created_at ASC NULLS LAST, id ASC), ',') AS ids
+            (ARRAY_AGG(id ORDER BY is_dynamic ASC, created_at ASC NULLS LAST, id ASC))[1] AS keep_id,
+            ARRAY_TO_STRING(ARRAY_AGG(id ORDER BY is_dynamic ASC, created_at ASC NULLS LAST, id ASC), ',') AS ids
      FROM navigation_items
      WHERE path <> ''
-       AND ${scopeSql}
+       AND ${scopeFilter}
      GROUP BY parent_id, path
      HAVING COUNT(*) > 1`,
-    ...scopeParams,
+    ...scopeBind,
   );
 
   for (const group of dupGroups) {
@@ -203,14 +225,14 @@ export async function reconcileNavigationDuplicates(
   // ── 3. Same path under different parents — still within this app only ─
   const pathDupes = await prisma.$queryRawUnsafe<{ path: string; keep_id: string; ids: string }[]>(
     `SELECT path,
-            (ARRAY_AGG(id ORDER BY created_at ASC NULLS LAST, id ASC))[1] AS keep_id,
-            ARRAY_TO_STRING(ARRAY_AGG(id ORDER BY created_at ASC NULLS LAST, id ASC), ',') AS ids
+            (ARRAY_AGG(id ORDER BY is_dynamic ASC, created_at ASC NULLS LAST, id ASC))[1] AS keep_id,
+            ARRAY_TO_STRING(ARRAY_AGG(id ORDER BY is_dynamic ASC, created_at ASC NULLS LAST, id ASC), ',') AS ids
      FROM navigation_items
      WHERE path <> '' AND path <> '/excel' AND path <> '/workbook'
-       AND ${scopeSql}
+       AND ${scopeFilter}
      GROUP BY path
      HAVING COUNT(*) > 1`,
-    ...scopeParams,
+    ...scopeBind,
   );
 
   for (const group of pathDupes) {
@@ -366,10 +388,10 @@ interface CatalogPage {
   requiredGroups?: string[];
 }
 
-const STATIC_NAV_SLUGS = new Set(['admin', 'config', 'ops-chat', 'settings']);
+const STATIC_NAV_SLUGS = new Set<string>(DEFAULT_INFRA_NAV_SLUGS);
 
 async function deriveNavItemsFromCatalog(): Promise<
-  { id: string; title: string; path: string; authTier: string }[]
+  { id: string; title: string; path: string; authTier: string; requiredGroups: string }[]
 > {
   const { getFullCatalog } = await import('@/lib/page-catalog');
   const catalog = getFullCatalog();
@@ -382,6 +404,7 @@ async function deriveNavItemsFromCatalog(): Promise<
         title: p.navLabel ?? p.title,
         path: `/${slug}`,
         authTier: p.authTier,
+        requiredGroups: (p.requiredGroups ?? []).join(','),
       };
     });
 }
@@ -410,7 +433,13 @@ export async function seedMissingNavigationFromCatalog(
   const catalogItems = await deriveNavItemsFromCatalog();
   let inserted = 0;
 
-  const insertIfMissing = async (id: string, title: string, path: string, authTier: string) => {
+  const insertIfMissing = async (
+    id: string,
+    title: string,
+    path: string,
+    authTier: string,
+    requiredGroups: string,
+  ) => {
     if (existingPaths.has(path)) return;
     const scopedId =
       tenantSlug || appId ? `${id}_${appId || tenantSlug}` : id;
@@ -418,12 +447,13 @@ export async function seedMissingNavigationFromCatalog(
     try {
       await prisma.$executeRawUnsafe(
         `INSERT INTO navigation_items (id, parent_id, sort_order, title, path, icon, auth_tier, required_groups, is_visible, is_dynamic, is_default, tenant_slug, app_id, updated_at)
-         VALUES ($1, NULL, $2, $3, $4, '', CAST($5 AS "AuthTier"), '', TRUE, FALSE, $6, $7, $8, NOW())`,
+         VALUES ($1, NULL, $2, $3, $4, '', CAST($5 AS "AuthTier"), $6, TRUE, FALSE, $7, $8, $9, NOW())`,
         scopedId,
         inserted,
         title,
         path,
         authTier,
+        requiredGroups,
         path === '/',
         tenantSlug,
         appId || null,
@@ -437,8 +467,84 @@ export async function seedMissingNavigationFromCatalog(
   };
 
   for (const item of catalogItems) {
-    await insertIfMissing(item.id, item.title, item.path, item.authTier);
+    await insertIfMissing(item.id, item.title, item.path, item.authTier, item.requiredGroups);
   }
 
   return inserted;
+}
+
+/**
+ * Nest default infrastructure items:
+ *   - /admin stays at root and becomes parent of ops-admin, ops-tracking, config
+ */
+export async function ensureDefaultNavigationHierarchy(
+  prisma: PrismaClient,
+  scope?: NavigationScope,
+): Promise<{ updated: number }> {
+  const [appId, tenantSlug] = scopeParams(scope);
+  const filter = scopeSql();
+
+  const adminRows = await prisma.$queryRawUnsafe<{ id: string }[]>(
+    `SELECT id FROM navigation_items
+     WHERE path = '/admin' AND ${filter}
+     ORDER BY is_dynamic ASC, created_at ASC NULLS LAST, id ASC
+     LIMIT 1`,
+    appId,
+    tenantSlug,
+  );
+  const adminId = adminRows[0]?.id;
+  if (!adminId) return { updated: 0 };
+
+  await prisma.$executeRawUnsafe(
+    `UPDATE navigation_items SET parent_id = NULL, updated_at = CURRENT_TIMESTAMP
+     WHERE id = $1 AND ${filter}`,
+    adminId,
+    appId,
+    tenantSlug,
+  );
+
+  let updated = 0;
+  for (let i = 0; i < ADMIN_CHILD_PATHS.length; i++) {
+    const childPath = ADMIN_CHILD_PATHS[i]!;
+    const result = await prisma.$executeRawUnsafe(
+      `UPDATE navigation_items
+       SET parent_id = $1, sort_order = $2, updated_at = CURRENT_TIMESTAMP
+       WHERE path = $3 AND ${filter}`,
+      adminId,
+      i,
+      childPath,
+      appId,
+      tenantSlug,
+    );
+    updated += typeof result === 'number' ? result : 0;
+  }
+
+  return { updated };
+}
+
+/**
+ * Full navigation reconcile: seed defaults, dedupe, sync workbook sheets, apply hierarchy.
+ */
+export async function reconcileNavigation(
+  prisma: PrismaClient,
+  scope?: NavigationScope,
+): Promise<{
+  deleted: number;
+  seeded: number;
+  sheetsSynced: number;
+  hierarchyUpdated: number;
+  excelFolderId: string | null;
+}> {
+  await ensureNavigationTable(prisma);
+  const seeded = await seedMissingNavigationFromCatalog(prisma, scope);
+  const { deleted, excelFolderId } = await reconcileNavigationDuplicates(prisma, scope);
+  const sheetResult = await syncSheetPagesIntoNavigation(prisma, scope);
+  const { updated: hierarchyUpdated } = await ensureDefaultNavigationHierarchy(prisma, scope);
+  return {
+    deleted,
+    seeded,
+    sheetsSynced: sheetResult.created,
+    hierarchyUpdated,
+    excelFolderId: sheetResult.parentId ?? excelFolderId,
+  };
 }

@@ -2,6 +2,7 @@
 
 import { useEffect, type ReactNode } from 'react';
 import { useGetSessionQuery } from '@/store/apis/auth-api';
+import { effectiveUserGroups } from '@/lib/auth/jwt';
 import { resetAuth, setSession } from '@/store/auth-slice';
 import { useAppDispatch } from '@/store/hooks';
 
@@ -18,7 +19,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         platformAdmin:
           (data.data.platformAdmin ?? false) ||
           (data.data.groups ?? []).includes('platform-admin'),
-        groups: data.data.groups ?? [],
+        groups: effectiveUserGroups(
+          data.data.groups ?? [],
+          (data.data.platformAdmin ?? false) ||
+            (data.data.groups ?? []).includes('platform-admin'),
+        ),
         permissions: data.data.permissions ?? [],
       }));
       return;

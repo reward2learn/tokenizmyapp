@@ -546,15 +546,7 @@ export const PAGE_CATALOG: Record<string, PageDefinition> = {
   },
 };
 
-const TIER_RANK: Record<AuthTier, number> = {
-  public: 0,
-  pin: 1,
-  google: 2,
-};
-
-export function tierAllowsAccess(current: AuthTier, required: AuthTier): boolean {
-  return TIER_RANK[current] >= TIER_RANK[required];
-}
+export { tierAllowsAccess } from '@/lib/auth/tier-access';
 
 export function listNavPages(tier: AuthTier, groups: string[] = []): PageDefinition[] {
   return Object.values(getFullCatalog())

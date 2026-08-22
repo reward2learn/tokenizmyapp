@@ -15,7 +15,7 @@ import { PrismaClient } from '@/generated/prisma';
 import { requireWriteAuth } from '@/lib/auth/guards';
 import { sessionIsPlatformAdmin } from '@/lib/auth/jwt';
 import { jsonError, jsonOk } from '@/lib/api/response';
-import { ensureNavigationTable, reconcileNavigationDuplicates, seedMissingNavigationFromCatalog } from '@/lib/navigation/db';
+import { ensureNavigationTable, reconcileNavigation } from '@/lib/navigation/db';
 import { resolveTenantDbUrl } from '@/domain/tenant/tenant-db-resolver';
 
 export const dynamic = 'force-dynamic';
@@ -82,10 +82,16 @@ export async function GET(request: Request): Promise<NextResponse> {
   const prisma = getClient(dbUrl);
   try {
     await ensureNavigationTable(prisma);
-    const seeded = await seedMissingNavigationFromCatalog(prisma, { tenantSlug, appId });
+    const {
+      deleted,
+      seeded,
+      hierarchyUpdated,
+    } = await reconcileNavigation(prisma, { tenantSlug, appId });
     if (seeded > 0) console.log(`[navigation] Seeded ${seeded} new item(s) from page catalog`);
-    const { deleted } = await reconcileNavigationDuplicates(prisma, { tenantSlug, appId });
     if (deleted > 0) console.log(`[navigation] Removed ${deleted} duplicate nav item(s)`);
+    if (hierarchyUpdated > 0) {
+      console.log(`[navigation] Applied default hierarchy to ${hierarchyUpdated} item(s)`);
+    }
 
     const where: string[] = [];
     const params: unknown[] = [];

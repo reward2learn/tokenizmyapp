@@ -46,6 +46,7 @@ import { useGetBrandConfigQuery } from '@shared/store/apis/brand-config-api';
 import { useGetNavigationQuery } from '@/store/apis/navigation-api';
 import { NavIcon } from '@/components/shared/nav-icon';
 import { getClientTenantConfig } from '@shared/lib/config/tenant';
+import { effectiveUserGroups } from '@/lib/auth/jwt';
 import { useUserAvatarUrl } from '@/lib/auth/use-user-avatar-url';
 import { useThemeMode } from '@/theme/theme-registry';
 import type { ThemeMode } from '@/theme/design-tokens';
@@ -119,8 +120,12 @@ export function AppShell({ children }: { children: ReactNode }) {
   const dispatch = useAppDispatch();
   const drawerOpen = useAppSelector((s) => s.ui.drawerOpen);
   const chatDrawerOpen = useAppSelector((s) => s.ui.chatDrawerOpen);
-  const { tier, user, groups } = useAppSelector((s) => s.auth);
+  const { tier, user, groups, platformAdmin, bootstrapped } = useAppSelector((s) => s.auth);
   const avatarUrl = useUserAvatarUrl();
+  const navGroups = useMemo(
+    () => effectiveUserGroups(groups, platformAdmin),
+    [groups, platformAdmin],
+  );
   const { themeMode, setThemeMode } = useThemeMode();
   const [themeMenuAnchor, setThemeMenuAnchor] = useState<HTMLElement | null>(null);
   const { refetch: refetchPages } = useListPagesQuery();
@@ -132,17 +137,17 @@ export function AppShell({ children }: { children: ReactNode }) {
   const brandLogoUrl = brandData?.data?.brandLogoUrl ?? '';
 
   // DB-driven navigation via RTK Query (fallback: static catalog via listNavPages)
-  const groupsParam = encodeURIComponent((groups ?? []).join(','));
+  const groupsParam = encodeURIComponent(navGroups.join(','));
   const { data: navData, refetch: refetchNavigation } = useGetNavigationQuery(
     { tier, groups: groupsParam },
-    { refetchOnMountOrArgChange: true },
+    { skip: !bootstrapped, refetchOnMountOrArgChange: true },
   );
   // Prefer ApiEnvelope `{ success, data: { items } }`; tolerate legacy `{ items }` shape.
   const envelopeItems = navData?.data?.items as DbNavItem[] | undefined;
   const legacyItems = (navData as { items?: DbNavItem[] } | undefined)?.items;
   const dbNavItems = envelopeItems ?? legacyItems;
 
-  const catalogFallback = listNavPages(tier, groups ?? []).map((p) => ({
+  const catalogFallback = listNavPages(tier, navGroups).map((p) => ({
     id: `static-${p.slug}`,
     parentId: null,
     sortOrder: 0,
@@ -161,8 +166,17 @@ export function AppShell({ children }: { children: ReactNode }) {
   // Only fall back to the static catalog when the response is missing/malformed.
   const navItems = (dbNavItems !== undefined ? dbNavItems : catalogFallback) as DbNavItem[];
 
-
-
+  const logoHref = useMemo((): Route => {
+    const findDefault = (items: DbNavItem[]): string | null => {
+      for (const item of items) {
+        if (item.isDefault && item.path) return item.path;
+        const childDefault = findDefault(item.children ?? []);
+        if (childDefault) return childDefault;
+      }
+      return null;
+    };
+    return (findDefault(navItems) ?? '/') as Route;
+  }, [navItems]);
   const closeDrawer = () => dispatch(setDrawerOpen(false));
   const openDrawer = useCallback(() => {
     dispatch(setDrawerOpen(true));
@@ -322,7 +336,7 @@ export function AppShell({ children }: { children: ReactNode }) {
           </IconButton>
 
           {/* Logo image + brand text always visible side by side */}
-          <Link href="/dashboard" style={{ ...linkSx, alignItems: 'center', gap: 1 }}>
+          <Link href={logoHref} style={{ ...linkSx, alignItems: 'center', gap: 1 }}>
             {brandLogoUrl && (
               <Box
                 component="img"

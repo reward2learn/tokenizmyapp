@@ -16,6 +16,13 @@
  */
 
 import { PrismaClient } from '@/generated/prisma';
+import {
+  ensureNavigationTable,
+  normalizeAppId,
+  normalizeTenantSlug,
+  type NavigationScope,
+} from '@/lib/navigation/db';
+import { getCurrentAppId, getTenantConfig } from '@shared/lib/config/tenant';
 
 /**
  * Where to land when nothing is configured.
@@ -33,14 +40,24 @@ const FALLBACK_PATH = '/';
  *          or "/" (the landing page) when nothing is configured or the
  *          database is unavailable.
  */
-export async function getDefaultRoutePath(): Promise<string> {
+export async function getDefaultRoutePath(scope?: NavigationScope): Promise<string> {
   const url = process.env.POSTGRES_URL ?? process.env.DATABASE_URL;
   if (!url) return FALLBACK_PATH;
 
+  const appId = normalizeAppId(scope?.appId ?? getCurrentAppId());
+  const tenantSlug = normalizeTenantSlug(scope?.tenantSlug ?? getTenantConfig().slug) || null;
+
   const prisma = new PrismaClient({ datasources: { db: { url } } });
   try {
+    await ensureNavigationTable(prisma);
     const rows = await prisma.$queryRawUnsafe<{ path: string }[]>(
-      `SELECT path FROM navigation_items WHERE is_default = TRUE AND is_visible = TRUE LIMIT 1`,
+      `SELECT path FROM navigation_items
+       WHERE is_default = TRUE AND is_visible = TRUE
+         AND COALESCE(app_id, '') = $1
+         AND ($2::text IS NULL OR tenant_slug IS NULL OR tenant_slug = $2)
+       LIMIT 1`,
+      appId,
+      tenantSlug,
     );
     const path = rows.length > 0 ? rows[0].path : '';
     // Guard: never return an empty or external URL. The '/' path is VALID —
