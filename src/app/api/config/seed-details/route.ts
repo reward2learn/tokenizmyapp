@@ -219,6 +219,25 @@ export async function GET(): Promise<NextResponse> {
       receipt_images: z.receiptImages,
     }));
 
+    // ── Financial projections (KPI / chart source of truth) ──
+    const projectionRows = await prisma.financialProjection.findMany({
+      where: { appId },
+      orderBy: [{ year: 'asc' }, { month: 'asc' }, { dataType: 'asc' }, { scenario: 'asc' }],
+      take: 500,
+    });
+    const projectionDetails = projectionRows.map((p) => ({
+      period: p.period,
+      year: p.year,
+      month: p.month,
+      dataType: p.dataType,
+      scenario: p.scenario,
+      revenue: Number(p.revenue),
+      ebitda: Number(p.ebitda),
+      netIncome: Number(p.netIncome),
+      guests: p.guests,
+      staffCost: Number(p.staffCost),
+    }));
+
     // ── Counts ────────────────────────────────────────────
     const counts: Record<string, number> = {
       appPages: appPages.length,
@@ -231,6 +250,7 @@ export async function GET(): Promise<NextResponse> {
       levers: leverRecords.length,
       actionItems: actionItemRecords.length,
       dailyZReports: zReports.length,
+      financialProjections: projectionRows.length,
     };
 
     // ── Executive Summary from knowledge snippets ────────
@@ -247,6 +267,14 @@ export async function GET(): Promise<NextResponse> {
     if (appPages.length === 0) {
       warnings.push('No app pages seeded. The navigation may be empty.');
     }
+    if (projectionRows.length === 0) {
+      warnings.push(
+        'No financial projections seeded. Upload & reseed the Excel workbook — KPIs and charts stay empty until projections exist.',
+      );
+    }
+    if (targets.length === 0) {
+      warnings.push('No monthly targets seeded. Re-run Config → Upload & Seed.');
+    }
 
     return NextResponse.json({
       success: true,
@@ -260,6 +288,7 @@ export async function GET(): Promise<NextResponse> {
       leverDetails,
       actionItemDetails,
       zReportDetails,
+      projectionDetails,
       executiveSummary: execSummarySnippet?.content ?? null,
       seedStatus: {
         ok: warnings.length === 0,

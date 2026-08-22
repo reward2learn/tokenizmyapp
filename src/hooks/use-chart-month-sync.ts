@@ -39,10 +39,24 @@ export function useChartMonthSync(overview: ChartOverview | undefined, enabled =
       return;
     }
 
-    if (selectedMonthLabel && labels.includes(selectedMonthLabel)) return;
-
     const actualSeries = pickActualSeriesForDefault(overview?.actual);
-    const defaultIdx = resolveDefaultMonthIndex(labels, actualSeries);
+    const forecastSeries =
+      pickActualSeriesForDefault(overview?.forecast) ?? overview?.forecast?.revenue;
+    const hasValueAt = (i: number) =>
+      (actualSeries?.[i] != null) || (forecastSeries?.[i] != null);
+    const anySeeded = labels.some((_, i) => hasValueAt(i));
+
+    // Keep the current selection only when it has data, or when nothing is
+    // seeded yet (avoid thrashing before upload). If the user is stuck on
+    // e.g. "Aug 2026" (calendar default) while only Jun actuals exist, re-pick.
+    if (selectedMonthLabel && labels.includes(selectedMonthLabel)) {
+      const selectedIdx = labels.indexOf(selectedMonthLabel);
+      if (!anySeeded || hasValueAt(selectedIdx)) return;
+    }
+
+    // Prefer latest actual; if only forecasts were seeded, use those so we
+    // do not land on calendar "now" (empty Aug) while Jun forecast exists.
+    const defaultIdx = resolveDefaultMonthIndex(labels, actualSeries ?? forecastSeries);
     const label = labels[defaultIdx];
     if (label) {
       dispatch(

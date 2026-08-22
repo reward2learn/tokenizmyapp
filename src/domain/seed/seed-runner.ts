@@ -591,6 +591,21 @@ function buildTasks(): BuiltTask[] {
 export async function ensureLegacyTables(prisma: PrismaClient): Promise<void> {
   await prisma.$executeRawUnsafe(DAILY_METRICS_DDL);
   await prisma.$executeRawUnsafe(MONTHLY_TARGETS_DDL);
+  // Older DBs may have monthly_targets without app_id — Prisma upserts need it.
+  try {
+    await prisma.$executeRawUnsafe(
+      `ALTER TABLE monthly_targets ADD COLUMN IF NOT EXISTS app_id TEXT NOT NULL DEFAULT ''`,
+    );
+  } catch {
+    // ignore — table may not exist yet / already migrated
+  }
+  try {
+    await prisma.$executeRawUnsafe(
+      `CREATE UNIQUE INDEX IF NOT EXISTS monthly_targets_month_app_id_key ON monthly_targets (month, app_id)`,
+    );
+  } catch {
+    // ignore duplicate / conflict with legacy UNIQUE(month)
+  }
 }
 
 export async function ensureContentTables(prisma: PrismaClient): Promise<void> {
@@ -1157,6 +1172,7 @@ export async function seedFromSources(options: SeedOptions = {}): Promise<SeedRe
         label: item.label,
         sortOrder: item.sortOrder,
         completed: false,
+        appId: '',
       })),
     });
 

@@ -49,6 +49,13 @@ interface SeedDetails {
   targetDetails: { month: string; targetRevenue: number; targetEbitda: number; targetGuests: number }[];
   leverDetails: { num: number; name: string; impact: string }[];
   actionItemDetails: { priority: string; label: string; completed: boolean }[];
+  projectionDetails?: {
+    period: string;
+    dataType: string;
+    scenario: string;
+    revenue: number;
+    ebitda: number;
+  }[];
   zReportDetails: Record<string, unknown>[];
   executiveSummary: string | null;
   seedStatus?: { ok: boolean; warnings: string[]; totalTables: number; totalRows: number };
@@ -211,8 +218,25 @@ export function DataViewTab() {
     },
     {
       key: 'financial_projections', table: 'financial_projections', label: 'Financial Projections', icon: '📊',
-      count: details.counts.financialProjections ?? 0, detail: [],
-      renderDetail: () => <Typography variant="body2" color="text.secondary">Financial projections: {details.counts.financialProjections ?? 0} rows.</Typography>,
+      count: details.counts.financialProjections ?? details.projectionDetails?.length ?? 0,
+      detail: details.projectionDetails ?? [],
+      renderDetail: () => (details.projectionDetails?.length ?? 0) > 0 ? (
+        <Table size="small"><TableHead><TableRow><TableCell>Period</TableCell><TableCell>Type</TableCell><TableCell>Scenario</TableCell><TableCell align="right">Revenue</TableCell><TableCell align="right">EBITDA</TableCell></TableRow></TableHead><TableBody>
+          {details.projectionDetails!.slice(0, 50).map((p) => (
+            <TableRow key={`${p.period}-${p.dataType}-${p.scenario}`}>
+              <TableCell>{p.period}</TableCell>
+              <TableCell>{p.dataType}</TableCell>
+              <TableCell>{p.scenario}</TableCell>
+              <TableCell align="right">{p.revenue.toLocaleString('id-ID')}</TableCell>
+              <TableCell align="right">{p.ebitda.toLocaleString('id-ID')}</TableCell>
+            </TableRow>
+          ))}
+        </TableBody></Table>
+      ) : (
+        <Typography variant="body2" color="text.secondary">
+          No financial projections. KPIs/charts stay empty until Upload &amp; Seed writes rows into this table.
+        </Typography>
+      ),
     },
     {
       key: 'z_reports', table: 'daily_z_reports', label: 'Z-Reports', icon: '📋',
