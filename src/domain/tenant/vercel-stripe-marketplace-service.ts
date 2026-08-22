@@ -80,13 +80,96 @@ async function vercelGet<T>(path: string): Promise<T> {
   return res.json() as Promise<T>;
 }
 
-type EnvRow = { key: string; id?: string; type?: string; target?: string[]; value?: string };
+type EnvRow = { key: string; id?: string; type?: string; target?: string[]; value?: string; integrationId?: string | null; updatedAt?: number };
 
+export type WebhookSecretEnvDiagnostic = {
+  entryCount: number;
+  selectedPrefix: 'whsec' | 'eyJ' | 'other' | 'missing';
+  duplicateKinds: Array<'whsec' | 'eyJ' | 'other'>;
+  /** Env row ids (for support — not secret values). */
+  entryIds: string[];
+};
+
+function classifySecretPrefix(value: string): 'whsec' | 'eyJ' | 'other' {
+  const v = value.trim();
+  if (v.startsWith('whsec_')) return 'whsec';
+  if (v.startsWith('eyJ')) return 'eyJ';
+  return 'other';
+}
+
+/**
+ * When multiple STRIPE_WEBHOOK_SECRET rows exist (Marketplace JWT + manual whsec_),
+ * Vercel may expose both. Prefer whsec_ for production billing verification.
+ */
 function pickEnvValue(envs: EnvRow[], key: string): string | null {
   const matching = envs.filter((e) => e.key === key && e.value?.trim());
   if (matching.length === 0) return null;
+
+  if (key === 'STRIPE_WEBHOOK_SECRET') {
+    const whsecRows = matching.filter((e) => e.value!.trim().startsWith('whsec_'));
+    if (whsecRows.length > 0) {
+      const production = whsecRows.find((e) => e.target?.includes('production'));
+      return (production ?? whsecRows[0]).value!.trim();
+    }
+  }
+
   const production = matching.find((e) => e.target?.includes('production'));
   return (production ?? matching[0]).value!.trim();
+}
+
+/** List decrypted env rows for one key (server-only). */
+export async function listProjectEnvRowsForKey(
+  projectId: string,
+  key: string,
+): Promise<EnvRow[]> {
+  const bearer = await resolveBearerToken();
+  const res = await fetch(
+    appendTeam(
+      `${VERCEL_API}/v9/projects/${encodeURIComponent(projectId)}/env?decrypted=true`,
+    ),
+    { headers: { Authorization: `Bearer ${bearer}` } },
+  );
+  if (!res.ok) {
+    const text = await res.text().catch(() => '');
+    throw new Error(`Vercel env read failed: ${res.status} ${text.slice(0, 200)}`);
+  }
+  const data = (await res.json()) as { envs?: EnvRow[] };
+  return (data.envs ?? []).filter((e) => e.key === key && e.value?.trim());
+}
+
+export async function diagnoseWebhookSecretEnv(projectId: string): Promise<WebhookSecretEnvDiagnostic> {
+  const rows = await listProjectEnvRowsForKey(projectId, 'STRIPE_WEBHOOK_SECRET');
+  if (rows.length === 0) {
+    return { entryCount: 0, selectedPrefix: 'missing', duplicateKinds: [], entryIds: [] };
+  }
+  const kinds = rows.map((r) => classifySecretPrefix(r.value!));
+  const selected = pickEnvValue(rows, 'STRIPE_WEBHOOK_SECRET');
+  return {
+    entryCount: rows.length,
+    selectedPrefix: selected ? classifySecretPrefix(selected) : 'missing',
+    duplicateKinds: [...new Set(kinds)],
+    entryIds: rows.map((r) => r.id).filter(Boolean) as string[],
+  };
+}
+
+/** Remove STRIPE_WEBHOOK_SECRET rows whose value is a Marketplace JWT (eyJ…). */
+export async function purgeMarketplaceWebhookSecrets(projectId: string): Promise<number> {
+  const rows = await listProjectEnvRowsForKey(projectId, 'STRIPE_WEBHOOK_SECRET');
+  const junk = rows.filter((r) => r.value!.trim().startsWith('eyJ') && r.id);
+  if (junk.length === 0) return 0;
+
+  const bearer = await resolveBearerToken();
+  let removed = 0;
+  for (const row of junk) {
+    const res = await fetch(
+      appendTeam(
+        `${VERCEL_API}/v9/projects/${encodeURIComponent(projectId)}/env/${encodeURIComponent(row.id!)}`,
+      ),
+      { method: 'DELETE', headers: { Authorization: `Bearer ${bearer}` } },
+    );
+    if (res.ok) removed += 1;
+  }
+  return removed;
 }
 
 /** Read decrypted env values for specific keys (server-only — never expose to client logs). */

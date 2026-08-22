@@ -18,6 +18,7 @@ import {
   type StripeWebhookTestStatus,
 } from '@/domain/billing/stripe-webhook-test-service';
 import {
+  diagnoseWebhookSecretEnv,
   getProjectEnvValues,
 } from '@/domain/tenant/vercel-stripe-marketplace-service';
 
@@ -123,8 +124,18 @@ async function checkDashboardDestination(
   }
 }
 
-async function checkVercelWebhookSecret(projectId: string): Promise<StripeWebhookHealthStep> {
+async function checkVercelWebhookSecret(
+  projectId: string,
+  metadataWebhookSecret?: string | null,
+): Promise<StripeWebhookHealthStep> {
   const label = 'Vercel STRIPE_WEBHOOK_SECRET';
+  let diagnostic: Awaited<ReturnType<typeof diagnoseWebhookSecretEnv>> | null = null;
+  try {
+    diagnostic = await diagnoseWebhookSecretEnv(projectId);
+  } catch {
+    /* fall through — getProjectEnvValues may still work */
+  }
+
   const envValues = await getProjectEnvValues(projectId, ['STRIPE_WEBHOOK_SECRET']);
   const raw = envValues.STRIPE_WEBHOOK_SECRET?.trim();
 
@@ -141,14 +152,24 @@ async function checkVercelWebhookSecret(projectId: string): Promise<StripeWebhoo
   }
 
   if (raw.startsWith('whsec_')) {
+    const dupNote =
+      diagnostic && diagnostic.entryCount > 1
+        ? ` (${diagnostic.entryCount} env rows — selected whsec_. Remove any leftover eyJ… row in Vercel Settings → Environment Variables.)`
+        : '';
     return {
       id: 'vercel-webhook-secret',
       label,
       status: 'pass',
       ok: true,
-      message: 'Production env uses a Stripe webhook signing secret (whsec_…).',
+      message: `Production env uses a Stripe webhook signing secret (whsec_…).${dupNote}`,
     };
   }
+
+  const metaWhsec = metadataWebhookSecret?.trim().startsWith('whsec_') ?? false;
+  const dupDetail =
+    diagnostic && diagnostic.entryCount > 0
+      ? ` Vercel reports ${diagnostic.entryCount} STRIPE_WEBHOOK_SECRET row(s) (${diagnostic.duplicateKinds.join(' + ')}).`
+      : '';
 
   if (raw.startsWith('eyJ')) {
     return {
@@ -156,9 +177,14 @@ async function checkVercelWebhookSecret(projectId: string): Promise<StripeWebhoo
       label,
       status: 'fail',
       ok: false,
-      message:
-        'Vercel has a Stripe Marketplace integration token (eyJ…), not whsec_…. ' +
-        'Overwrite STRIPE_WEBHOOK_SECRET with the Signing secret from your Stripe snapshot destination.',
+      message: metaWhsec
+        ? 'Tenant metadata has whsec_ but the Vercel API still resolves to a Marketplace eyJ… token.' +
+          dupDetail +
+          ' Organization & Billing → Save Changes purges eyJ rows and pushes whsec_. ' +
+          'If you edited Vercel manually, redeploy tokenizmyapp so runtime picks up the new secret.'
+        : 'Vercel has a Stripe Marketplace integration token (eyJ…), not whsec_….' +
+          dupDetail +
+          ' Overwrite STRIPE_WEBHOOK_SECRET with the Signing secret from your Stripe snapshot destination.',
     };
   }
 
@@ -168,7 +194,8 @@ async function checkVercelWebhookSecret(projectId: string): Promise<StripeWebhoo
     status: 'fail',
     ok: false,
     message:
-      'STRIPE_WEBHOOK_SECRET on Vercel is not a webhook signing secret (expected whsec_ prefix).',
+      'STRIPE_WEBHOOK_SECRET on Vercel is not a webhook signing secret (expected whsec_ prefix).' +
+      dupDetail,
   };
 }
 
@@ -265,6 +292,8 @@ export async function runStripeWebhookHealthCheck(input: {
   allowFactoryFallback?: boolean;
   /** Skip Stripe API trigger when only verifying env + signed POST. */
   skipStripeTrigger?: boolean;
+  /** Tenant metadata whsec — used to explain metadata vs Vercel mismatches. */
+  metadataWebhookSecret?: string | null;
 }): Promise<StripeWebhookHealthResult> {
   const webhookUrl = FACTORY_WEBHOOK_URL;
   const factoryProjectId = FACTORY_VERCEL_PROJECT_ID;
@@ -283,7 +312,7 @@ export async function runStripeWebhookHealthCheck(input: {
     steps.push(await checkDashboardDestination(stripe, webhookUrl));
   }
 
-  steps.push(await checkVercelWebhookSecret(factoryProjectId));
+  steps.push(await checkVercelWebhookSecret(factoryProjectId, input.metadataWebhookSecret));
 
   const vercelSecretOk = steps.find((s) => s.id === 'vercel-webhook-secret')?.ok === true;
   if (stripe && vercelSecretOk && input.skipStripeTrigger !== true) {

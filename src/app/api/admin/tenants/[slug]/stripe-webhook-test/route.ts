@@ -80,7 +80,13 @@ export async function POST(
     )) as Record<string, unknown>[];
     if (rows.length === 0) return jsonError('Tenant not found', 404);
 
-    const { projectId, projectName } = await resolveProject(rows[0], slug, body.appId ?? null);
+    const tenant = rows[0];
+    const meta = (tenant.metadata ?? {}) as Record<string, unknown>;
+    const cfg = (meta.config ?? {}) as Record<string, unknown>;
+    const stripe = (cfg.stripe ?? {}) as Record<string, unknown>;
+    const metadataWebhookSecret = String(stripe.webhookSecret ?? '').trim() || null;
+
+    const { projectId, projectName } = await resolveProject(tenant, slug, body.appId ?? null);
     const projectNameHint =
       body.projectNameHint?.trim()
       || projectName
@@ -91,6 +97,7 @@ export async function POST(
       projectNameHint,
       allowFactoryFallback: body.allowFactoryFallback,
       billingTarget: body.billingTarget,
+      metadataWebhookSecret,
     });
 
     return jsonOk({

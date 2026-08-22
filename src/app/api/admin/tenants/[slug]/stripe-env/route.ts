@@ -62,6 +62,17 @@ export async function POST(
       return jsonError('No Stripe keys saved for this tenant — fill them in the Organization & Billing step first.', 400);
     }
 
+    if (webhookSecret.startsWith('eyJ')) {
+      return jsonError(
+        'STRIPE_WEBHOOK_SECRET in tenant config is a Vercel Marketplace token (eyJ…), not a Stripe whsec_ signing secret. ' +
+          'Paste the Signing secret from Stripe Dashboard → Webhooks → your snapshot destination, then Save again.',
+        400,
+      );
+    }
+    if (webhookSecret && !webhookSecret.startsWith('whsec_')) {
+      return jsonError('STRIPE_WEBHOOK_SECRET must start with whsec_ (Stripe webhook signing secret).', 400);
+    }
+
     const { syncStripeEnvVars } = await import('@/domain/tenant/vercel-deploy-service');
 
     // Collect every Vercel project this tenant owns: its own project plus

@@ -5,6 +5,7 @@
  * fallback) is handled by vercel-sdk-client.ts.
  */
 import { getVercelClient, withTeamId, withTeamId404Null, TEAM_ID, resolveBearerToken, listVercelBearerTokens, VERCEL_API } from './vercel-sdk-client';
+import { purgeMarketplaceWebhookSecrets } from './vercel-stripe-marketplace-service';
 import { DEFAULT_RELAY_REDIRECT_URI } from '@/lib/auth/google-relay';
 import { buildWeb3EnvVars } from '@/lib/web3/reown';
 import { resolveTemplate } from '@/domain/tenant/custom-template-service';
@@ -382,9 +383,30 @@ export async function syncStripeEnvVars(
   projectId: string,
   stripe: { secretKey?: string; webhookSecret?: string; publishableKey?: string },
 ): Promise<number> {
+  const webhook = stripe.webhookSecret?.trim();
+  if (webhook) {
+    if (webhook.startsWith('eyJ')) {
+      throw new Error(
+        'STRIPE_WEBHOOK_SECRET looks like a Vercel Stripe Marketplace token (eyJ…), not a Stripe whsec_ signing secret. ' +
+          'Paste the Signing secret from Stripe Dashboard → Webhooks → your snapshot destination.',
+      );
+    }
+    if (!webhook.startsWith('whsec_')) {
+      throw new Error('STRIPE_WEBHOOK_SECRET must start with whsec_ (Stripe webhook signing secret).');
+    }
+    try {
+      const purged = await purgeMarketplaceWebhookSecrets(projectId);
+      if (purged > 0) {
+        console.log(`[vercel-deploy] Removed ${purged} Marketplace STRIPE_WEBHOOK_SECRET row(s) from ${projectId}`);
+      }
+    } catch (err) {
+      console.warn('[vercel-deploy] Could not purge Marketplace webhook secrets:', err);
+    }
+  }
+
   const entries: [string, string][] = [];
   if (stripe.secretKey?.trim()) entries.push(['STRIPE_SECRET_KEY', stripe.secretKey.trim()]);
-  if (stripe.webhookSecret?.trim()) entries.push(['STRIPE_WEBHOOK_SECRET', stripe.webhookSecret.trim()]);
+  if (webhook) entries.push(['STRIPE_WEBHOOK_SECRET', webhook]);
   if (stripe.publishableKey?.trim()) entries.push(['NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY', stripe.publishableKey.trim()]);
 
   let envCount = 0;
