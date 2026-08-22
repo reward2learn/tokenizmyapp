@@ -631,17 +631,26 @@ export async function resolveTenantStripeConfig(
   const projectId = String(rows[0].vercel_project_id ?? '').trim();
   if (projectId && (!secretKey || !publishableKey || !webhookSecret)) {
     try {
-      const { getProjectEnvValues } = await import('@/domain/tenant/vercel-stripe-marketplace-service');
+      const { getProjectEnvValues, TOKENIZ_SNAPSHOT_WHSEC_KEY } = await import(
+        '@/domain/tenant/vercel-stripe-marketplace-service'
+      );
       const vercel = await getProjectEnvValues(projectId, [
         'STRIPE_SECRET_KEY',
         'STRIPE_WEBHOOK_SECRET',
+        TOKENIZ_SNAPSHOT_WHSEC_KEY,
+        'STRIPE_SNAPSHOT_WEBHOOK_SECRET',
         'NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY',
       ]);
       if (!secretKey && vercel.STRIPE_SECRET_KEY) secretKey = vercel.STRIPE_SECRET_KEY;
       if (!publishableKey && vercel.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY) {
         publishableKey = vercel.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY;
       }
-      const whsec = vercel.STRIPE_WEBHOOK_SECRET?.trim();
+      const whsec =
+        vercel[TOKENIZ_SNAPSHOT_WHSEC_KEY]?.trim()?.startsWith('whsec_')
+          ? vercel[TOKENIZ_SNAPSHOT_WHSEC_KEY]!.trim()
+          : vercel.STRIPE_SNAPSHOT_WEBHOOK_SECRET?.trim()?.startsWith('whsec_')
+            ? vercel.STRIPE_SNAPSHOT_WEBHOOK_SECRET!.trim()
+            : vercel.STRIPE_WEBHOOK_SECRET?.trim();
       if (!webhookSecret && whsec?.startsWith('whsec_')) webhookSecret = whsec;
     } catch (err) {
       console.warn('[billing] Vercel Stripe env read failed:', (err as Error).message);

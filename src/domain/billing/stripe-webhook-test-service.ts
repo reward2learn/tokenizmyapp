@@ -104,6 +104,24 @@ function webhookUrlForProjectName(projectName: string): string {
   return `https://${projectName}.vercel.app/api/webhooks/stripe`;
 }
 
+async function loadFactoryTenantWebhookSecret(): Promise<string | null> {
+  try {
+    const { createRawClient } = await import('@/lib/db');
+    const db = createRawClient();
+    const rows = (await db.$queryRawUnsafe(
+      `SELECT metadata FROM tenants WHERE slug = 'tokenizmyapp' LIMIT 1;`,
+    )) as Record<string, unknown>[];
+    if (rows.length === 0) return null;
+    const meta = (rows[0].metadata ?? {}) as Record<string, unknown>;
+    const cfg = (meta.config ?? {}) as Record<string, unknown>;
+    const stripe = (cfg.stripe ?? {}) as Record<string, unknown>;
+    const whsec = String(stripe.webhookSecret ?? '').trim();
+    return whsec.startsWith('whsec_') ? whsec : null;
+  } catch {
+    return null;
+  }
+}
+
 async function postSignedTestEvent(input: {
   webhookUrl: string;
   webhookSecret: string;
@@ -111,7 +129,7 @@ async function postSignedTestEvent(input: {
 }): Promise<{ httpStatus: number; body: string }> {
   const event = buildTestEvent(input.eventId);
   const payload = JSON.stringify(event);
-  const signature = Stripe.webhooks.generateTestHeaderString({
+  const signature = await Stripe.webhooks.generateTestHeaderStringAsync({
     payload,
     secret: input.webhookSecret,
   });
@@ -269,6 +287,11 @@ export async function testStripeWebhookForProject(input: {
 
   if (!resolvedSigningSecret && signingDiagnostic?.selectedPrefix === 'whsec' && metaWhsec?.startsWith('whsec_')) {
     resolvedSigningSecret = metaWhsec;
+  }
+
+  if (!resolvedSigningSecret && signingProjectId === FACTORY_VERCEL_PROJECT_ID) {
+    const fromDb = await loadFactoryTenantWebhookSecret();
+    if (fromDb) resolvedSigningSecret = fromDb;
   }
 
   const secretKeyPresent = Boolean(envValues.STRIPE_SECRET_KEY?.trim());
