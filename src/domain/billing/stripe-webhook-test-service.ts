@@ -261,12 +261,18 @@ export async function testStripeWebhookForProject(input: {
 
   const webhookSecret = envValues.STRIPE_WEBHOOK_SECRET!.trim();
   if (!webhookSecret.startsWith('whsec_')) {
+    const vercelMarketplaceToken = webhookSecret.startsWith('eyJ');
     return {
       status: 'fail',
       ok: false,
-      message:
-        'STRIPE_WEBHOOK_SECRET on Vercel is not a webhook signing secret (expected whsec_ prefix). ' +
-        'Use the Signing secret from your Stripe snapshot destination, not an API key.',
+      message: vercelMarketplaceToken
+        ? 'STRIPE_WEBHOOK_SECRET on Vercel is a Vercel Stripe Marketplace token (starts with eyJ…), ' +
+          'not a Stripe webhook signing secret (whsec_…). Marketplace provisions API keys but ' +
+          'does not replace the snapshot destination whsec_. Open Stripe → Developers → Webhooks → ' +
+          'your snapshot destination for https://tokenizmyapp.vercel.app/api/webhooks/stripe, copy ' +
+          'Signing secret, paste in Organization & Billing → Save Changes to overwrite Vercel env.'
+        : 'STRIPE_WEBHOOK_SECRET on Vercel is not a webhook signing secret (expected whsec_ prefix). ' +
+          'Use the Signing secret from your Stripe snapshot destination, not an API key.',
       webhookUrl: projectName ? webhookUrlForProjectName(projectName) : FACTORY_WEBHOOK_URL,
       httpStatus: null,
       eventType: TEST_EVENT_TYPE,

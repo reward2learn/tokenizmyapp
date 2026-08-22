@@ -1095,7 +1095,22 @@ export function EditTenantModal({ open, tenant, onClose, onSnackbar }: EditTenan
     };
     if (stripeComplete) {
       const mode = stripeSecret.startsWith('sk_test_') ? 'test' : 'live';
-      addResult('Stripe Payment Keys', 'pass', 'Configured (' + mode + ' mode) — Payment Methods available');
+      if (!stripeWebhook.startsWith('whsec_')) {
+        addResult(
+          'Stripe Payment Keys',
+          'warn',
+          'Tenant config has STRIPE_WEBHOOK_SECRET but it is not a whsec_ signing secret — ' +
+            'Payment Methods may work; billing webhooks will not until you paste the Stripe snapshot whsec_',
+          goToOrgStep,
+          'Go to step',
+        );
+      } else {
+        addResult(
+          'Stripe Payment Keys',
+          'pass',
+          'Tenant metadata configured (' + mode + ' mode) — sk/pk/whsec present; Vercel runtime checked below',
+        );
+      }
     } else {
       const missing = [
         !stripeSecret && 'STRIPE_SECRET_KEY',
