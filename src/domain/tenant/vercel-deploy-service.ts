@@ -5,7 +5,11 @@
  * fallback) is handled by vercel-sdk-client.ts.
  */
 import { getVercelClient, withTeamId, withTeamId404Null, TEAM_ID, resolveBearerToken, listVercelBearerTokens, VERCEL_API } from './vercel-sdk-client';
-import { purgeMarketplaceWebhookSecrets, replaceStripeWebhookSecretOnProject } from './vercel-stripe-marketplace-service';
+import {
+  purgeMarketplaceWebhookSecrets,
+  replaceStripeWebhookSecretOnProject,
+  TOKENIZ_SNAPSHOT_WHSEC_KEY,
+} from './vercel-stripe-marketplace-service';
 import { DEFAULT_RELAY_REDIRECT_URI } from '@/lib/auth/google-relay';
 import { buildWeb3EnvVars } from '@/lib/web3/reown';
 import { resolveTemplate } from '@/domain/tenant/custom-template-service';
