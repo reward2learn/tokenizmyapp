@@ -113,13 +113,7 @@ function KpiCardsBlockInner({ config }: { config: Record<string, unknown> }) {
         <Typography variant="h6" sx={{ fontWeight: 700 }}>
           Monthly Snapshot
         </Typography>
-        {showMonthSelect ? (
-          <MonthSelect
-            labels={labels}
-            actualSeries={actualSeries}
-            disabled={isLoading || labels.length === 0}
-          />
-        ) : null}
+        {showMonthSelect ? <MonthSelect /> : null}
       </Box>
       <Box
         sx={{

@@ -275,6 +275,22 @@ exports.Prisma.ConversationScalarFieldEnum = {
   updatedAt: 'updatedAt'
 };
 
+exports.Prisma.FinancialProjectionScalarFieldEnum = {
+  id: 'id',
+  period: 'period',
+  year: 'year',
+  month: 'month',
+  dataType: 'dataType',
+  scenario: 'scenario',
+  revenue: 'revenue',
+  ebitda: 'ebitda',
+  netIncome: 'netIncome',
+  guests: 'guests',
+  staffCost: 'staffCost',
+  pnlLines: 'pnlLines',
+  appId: 'appId'
+};
+
 exports.Prisma.TenantScalarFieldEnum = {
   id: 'id',
   slug: 'slug',
@@ -817,6 +833,7 @@ exports.Prisma.ModelName = {
   AppSetting: 'AppSetting',
   GoogleOAuthConfig: 'GoogleOAuthConfig',
   Conversation: 'Conversation',
+  FinancialProjection: 'FinancialProjection',
   Tenant: 'Tenant',
   ContentPage: 'ContentPage',
   MediaAsset: 'MediaAsset',

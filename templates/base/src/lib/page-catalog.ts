@@ -9,9 +9,21 @@ export type AuthTier = 'public' | 'pin' | 'google';
 
 export type BlockType =
   | 'hero'
+  | 'metric_grid'
+  | 'chart_financial'
+  | 'lever_accordion'
+  | 'action_checklist'
   | 'doc_markdown'
+  | 'pnl_table'
+  | 'ops_admin_tabs'
+  | 'z_report_form'
+  | 'costs_form'
   | 'calendar_import'
-  | 'chat_panel';
+  | 'chat_panel'
+  | 'review_blocks'
+  | 'kpi_cards'
+  | 'reports_rollup'
+  | 'sheet_viewer';
 
 export interface PageSectionDefinition {
   blockType: BlockType;

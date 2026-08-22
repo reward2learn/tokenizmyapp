@@ -1,5 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
+  buildYearMonthLabels,
+  defaultChartMonthLabels,
   parseMonthQueryParam,
   pickActualSeriesForDefault,
   resolveDefaultMonthIndex,
@@ -19,8 +21,23 @@ describe('chart-utils month helpers', () => {
     vi.useRealTimers();
   });
 
+  it('builds a full year–month label range', () => {
+    const built = buildYearMonthLabels(2026, 2026);
+    expect(built).toHaveLength(12);
+    expect(built[0]).toBe('Jan 2026');
+    expect(built[11]).toBe('Dec 2026');
+  });
+
+  it('default chart labels span previous through next year', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date(2026, 7, 15, 12));
+    const built = defaultChartMonthLabels();
+    expect(built).toHaveLength(36);
+    expect(built[0]).toBe('Jan 2025');
+    expect(built[35]).toBe('Dec 2027');
+  });
+
   it('resolves default month to latest index with actuals when provided', () => {
-    // Aug is current but forecast-only; Feb has the latest actual → prefer Feb.
     vi.useFakeTimers();
     vi.setSystemTime(new Date(2026, 7, 15, 12)); // Aug 2026
     const actuals = [100, 200, null];

@@ -1,4 +1,5 @@
 import type { DbClient } from '@/lib/db';
+import { getCurrentAppId } from '@shared/lib/config/tenant';
 export type ProjectionDataType = 'actual' | 'forecast';
 export type ProjectionScenario = 'actual' | 'conservative' | 'realistic' | 'aspirational';
 import { SyncMonthlyActuals, type ScenarioPayload } from '@/domain/actuals/sync-monthly-actuals';
@@ -100,10 +101,11 @@ export class FinancialProjectionService {
   async findByTypeAndScenario(query: ProjectionQuery) {
     return this.db.financialProjection.findUnique({
       where: {
-        period_dataType_scenario: {
+        period_dataType_scenario_appId: {
           period: query.period,
           dataType: query.dataType,
           scenario: query.scenario,
+          appId: getCurrentAppId(),
         },
       },
     });
@@ -157,35 +159,26 @@ export class FinancialProjectionService {
 
   async getChartOverview(scenario: ForecastScenarioKey = 'conservative'): Promise<ChartOverview> {
     const scenarioCfg = SCENARIO_MAP[scenario] ?? SCENARIO_MAP.conservative;
+    const KPI_KEYS = ['revenue', 'ebitda', 'net_income', 'guests', 'staff_cost'] as const;
 
-    const rows = await this.db.financialProjection.findMany({
-      orderBy: [{ year: 'asc' }, { month: 'asc' }, { dataType: 'asc' }, { scenario: 'asc' }],
+    const emptySeries = (): Record<string, (number | null)[]> => ({
+      revenue: [], ebitda: [], net_income: [], guests: [], staff_cost: [],
     });
 
-    if (!rows.length) {
-      return {
-        labels: [],
-        actual: {},
-        forecast: {},
-        scenario,
-        scenario_year: scenarioCfg.year,
-        scenario_label: scenarioCfg.label,
-        ebitda_target: scenarioCfg.target,
-      };
-    }
+    const rows = await this.db.financialProjection.findMany({
+      where: { appId: getCurrentAppId() },
+      orderBy: [{ year: 'asc' }, { month: 'asc' }, { dataType: 'asc' }, { scenario: 'asc' }],
+    });
 
     const groups = groupProjectionsByTypeScenario(rows);
     const actualRows = groups.get('actual:actual') ?? [];
     const forecastRows = groups.get(`forecast:${scenario}`) ?? [];
 
+    // Always emit a full month grid so the UI month dropdown stays enabled
+    // even when projections have not been seeded yet.
     const labels: string[] = [];
-    const actual: Record<string, (number | null)[]> = {
-      revenue: [], ebitda: [], net_income: [], guests: [], staff_cost: [],
-    };
-    const forecast: Record<string, (number | null)[]> = {
-      revenue: [], ebitda: [], net_income: [], guests: [], staff_cost: [],
-    };
-    const KPI_KEYS = ['revenue', 'ebitda', 'net_income', 'guests', 'staff_cost'] as const;
+    const actual = emptySeries();
+    const forecast = emptySeries();
 
     let zKpisByMonth: Record<string, { revenue: number | null; guests: number | null }> = {};
     try {

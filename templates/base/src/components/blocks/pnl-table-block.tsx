@@ -133,13 +133,7 @@ function PnlTableBlockInner({ config }: { config: Record<string, unknown> }) {
         <Typography variant="h6" sx={{ fontWeight: 700 }}>
           {activeLabel ? `${activeLabel} — P&L Detail` : 'P&L Detail'}
         </Typography>
-        {showMonthSelect ? (
-          <MonthSelect
-            labels={labels}
-            actualSeries={actualSeries}
-            disabled={labels.length === 0}
-          />
-        ) : null}
+        {showMonthSelect ? <MonthSelect /> : null}
       </Box>
 
       <TableContainer component={Paper} elevation={0} sx={{ overflowX: 'auto', mb: 4, border: '1px solid', borderColor: 'divider' }}>

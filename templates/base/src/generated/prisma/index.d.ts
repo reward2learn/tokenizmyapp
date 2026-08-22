@@ -91,9 +91,12 @@ export type GoogleOAuthConfig = $Result.DefaultSelection<Prisma.$GoogleOAuthConf
  */
 export type Conversation = $Result.DefaultSelection<Prisma.$ConversationPayload>
 /**
- * Model Tenant
+ * Model FinancialProjection
  * Financial projections — preserve data_type + scenario (tri-review requirement)
- * Legacy — schema.sql only; ensure migration creates if missing (see website-db-migration ensureLegacyTables)
+ */
+export type FinancialProjection = $Result.DefaultSelection<Prisma.$FinancialProjectionPayload>
+/**
+ * Model Tenant
  * A registered tenant application — created via the root config app wizard.
  */
 export type Tenant = $Result.DefaultSelection<Prisma.$TenantPayload>
@@ -579,6 +582,16 @@ export class PrismaClient<
     * ```
     */
   get conversation(): Prisma.ConversationDelegate<ExtArgs, ClientOptions>;
+
+  /**
+   * `prisma.financialProjection`: Exposes CRUD operations for the **FinancialProjection** model.
+    * Example usage:
+    * ```ts
+    * // Fetch zero or more FinancialProjections
+    * const financialProjections = await prisma.financialProjection.findMany()
+    * ```
+    */
+  get financialProjection(): Prisma.FinancialProjectionDelegate<ExtArgs, ClientOptions>;
 
   /**
    * `prisma.tenant`: Exposes CRUD operations for the **Tenant** model.
@@ -1304,6 +1317,7 @@ export namespace Prisma {
     AppSetting: 'AppSetting',
     GoogleOAuthConfig: 'GoogleOAuthConfig',
     Conversation: 'Conversation',
+    FinancialProjection: 'FinancialProjection',
     Tenant: 'Tenant',
     ContentPage: 'ContentPage',
     MediaAsset: 'MediaAsset',
@@ -1349,7 +1363,7 @@ export namespace Prisma {
       omit: GlobalOmitOptions
     }
     meta: {
-      modelProps: "appPage" | "pageSection" | "role" | "userAccount" | "securityGroup" | "userGroup" | "task" | "taskAssignment" | "taskUserAssignment" | "knowledgeSnippet" | "navigationItem" | "secret" | "appSetting" | "googleOAuthConfig" | "conversation" | "tenant" | "contentPage" | "mediaAsset" | "notification" | "product" | "order" | "booking" | "blogPost" | "subscriber" | "lead" | "campaign" | "analyticsEvent" | "userActivity" | "userTask" | "aiAgentConfig" | "aiActionLog" | "aiToolPending" | "whatsAppSession" | "whatsAppMessage" | "whatsAppContact" | "integration" | "integrationSyncLog" | "creditBalance" | "creditTransaction" | "creditPack" | "campaignAnalytics" | "emailLog"
+      modelProps: "appPage" | "pageSection" | "role" | "userAccount" | "securityGroup" | "userGroup" | "task" | "taskAssignment" | "taskUserAssignment" | "knowledgeSnippet" | "navigationItem" | "secret" | "appSetting" | "googleOAuthConfig" | "conversation" | "financialProjection" | "tenant" | "contentPage" | "mediaAsset" | "notification" | "product" | "order" | "booking" | "blogPost" | "subscriber" | "lead" | "campaign" | "analyticsEvent" | "userActivity" | "userTask" | "aiAgentConfig" | "aiActionLog" | "aiToolPending" | "whatsAppSession" | "whatsAppMessage" | "whatsAppContact" | "integration" | "integrationSyncLog" | "creditBalance" | "creditTransaction" | "creditPack" | "campaignAnalytics" | "emailLog"
       txIsolationLevel: Prisma.TransactionIsolationLevel
     }
     model: {
@@ -2460,6 +2474,80 @@ export namespace Prisma {
           count: {
             args: Prisma.ConversationCountArgs<ExtArgs>
             result: $Utils.Optional<ConversationCountAggregateOutputType> | number
+          }
+        }
+      }
+      FinancialProjection: {
+        payload: Prisma.$FinancialProjectionPayload<ExtArgs>
+        fields: Prisma.FinancialProjectionFieldRefs
+        operations: {
+          findUnique: {
+            args: Prisma.FinancialProjectionFindUniqueArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$FinancialProjectionPayload> | null
+          }
+          findUniqueOrThrow: {
+            args: Prisma.FinancialProjectionFindUniqueOrThrowArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$FinancialProjectionPayload>
+          }
+          findFirst: {
+            args: Prisma.FinancialProjectionFindFirstArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$FinancialProjectionPayload> | null
+          }
+          findFirstOrThrow: {
+            args: Prisma.FinancialProjectionFindFirstOrThrowArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$FinancialProjectionPayload>
+          }
+          findMany: {
+            args: Prisma.FinancialProjectionFindManyArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$FinancialProjectionPayload>[]
+          }
+          create: {
+            args: Prisma.FinancialProjectionCreateArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$FinancialProjectionPayload>
+          }
+          createMany: {
+            args: Prisma.FinancialProjectionCreateManyArgs<ExtArgs>
+            result: BatchPayload
+          }
+          createManyAndReturn: {
+            args: Prisma.FinancialProjectionCreateManyAndReturnArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$FinancialProjectionPayload>[]
+          }
+          delete: {
+            args: Prisma.FinancialProjectionDeleteArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$FinancialProjectionPayload>
+          }
+          update: {
+            args: Prisma.FinancialProjectionUpdateArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$FinancialProjectionPayload>
+          }
+          deleteMany: {
+            args: Prisma.FinancialProjectionDeleteManyArgs<ExtArgs>
+            result: BatchPayload
+          }
+          updateMany: {
+            args: Prisma.FinancialProjectionUpdateManyArgs<ExtArgs>
+            result: BatchPayload
+          }
+          updateManyAndReturn: {
+            args: Prisma.FinancialProjectionUpdateManyAndReturnArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$FinancialProjectionPayload>[]
+          }
+          upsert: {
+            args: Prisma.FinancialProjectionUpsertArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$FinancialProjectionPayload>
+          }
+          aggregate: {
+            args: Prisma.FinancialProjectionAggregateArgs<ExtArgs>
+            result: $Utils.Optional<AggregateFinancialProjection>
+          }
+          groupBy: {
+            args: Prisma.FinancialProjectionGroupByArgs<ExtArgs>
+            result: $Utils.Optional<FinancialProjectionGroupByOutputType>[]
+          }
+          count: {
+            args: Prisma.FinancialProjectionCountArgs<ExtArgs>
+            result: $Utils.Optional<FinancialProjectionCountAggregateOutputType> | number
           }
         }
       }
@@ -4560,6 +4648,7 @@ export namespace Prisma {
     appSetting?: AppSettingOmit
     googleOAuthConfig?: GoogleOAuthConfigOmit
     conversation?: ConversationOmit
+    financialProjection?: FinancialProjectionOmit
     tenant?: TenantOmit
     contentPage?: ContentPageOmit
     mediaAsset?: MediaAssetOmit
@@ -21319,6 +21408,1166 @@ export namespace Prisma {
      * Omit specific fields from the Conversation
      */
     omit?: ConversationOmit<ExtArgs> | null
+  }
+
+
+  /**
+   * Model FinancialProjection
+   */
+
+  export type AggregateFinancialProjection = {
+    _count: FinancialProjectionCountAggregateOutputType | null
+    _avg: FinancialProjectionAvgAggregateOutputType | null
+    _sum: FinancialProjectionSumAggregateOutputType | null
+    _min: FinancialProjectionMinAggregateOutputType | null
+    _max: FinancialProjectionMaxAggregateOutputType | null
+  }
+
+  export type FinancialProjectionAvgAggregateOutputType = {
+    id: number | null
+    year: number | null
+    month: number | null
+    revenue: Decimal | null
+    ebitda: Decimal | null
+    netIncome: Decimal | null
+    guests: number | null
+    staffCost: Decimal | null
+  }
+
+  export type FinancialProjectionSumAggregateOutputType = {
+    id: number | null
+    year: number | null
+    month: number | null
+    revenue: Decimal | null
+    ebitda: Decimal | null
+    netIncome: Decimal | null
+    guests: number | null
+    staffCost: Decimal | null
+  }
+
+  export type FinancialProjectionMinAggregateOutputType = {
+    id: number | null
+    period: string | null
+    year: number | null
+    month: number | null
+    dataType: string | null
+    scenario: string | null
+    revenue: Decimal | null
+    ebitda: Decimal | null
+    netIncome: Decimal | null
+    guests: number | null
+    staffCost: Decimal | null
+    appId: string | null
+  }
+
+  export type FinancialProjectionMaxAggregateOutputType = {
+    id: number | null
+    period: string | null
+    year: number | null
+    month: number | null
+    dataType: string | null
+    scenario: string | null
+    revenue: Decimal | null
+    ebitda: Decimal | null
+    netIncome: Decimal | null
+    guests: number | null
+    staffCost: Decimal | null
+    appId: string | null
+  }
+
+  export type FinancialProjectionCountAggregateOutputType = {
+    id: number
+    period: number
+    year: number
+    month: number
+    dataType: number
+    scenario: number
+    revenue: number
+    ebitda: number
+    netIncome: number
+    guests: number
+    staffCost: number
+    pnlLines: number
+    appId: number
+    _all: number
+  }
+
+
+  export type FinancialProjectionAvgAggregateInputType = {
+    id?: true
+    year?: true
+    month?: true
+    revenue?: true
+    ebitda?: true
+    netIncome?: true
+    guests?: true
+    staffCost?: true
+  }
+
+  export type FinancialProjectionSumAggregateInputType = {
+    id?: true
+    year?: true
+    month?: true
+    revenue?: true
+    ebitda?: true
+    netIncome?: true
+    guests?: true
+    staffCost?: true
+  }
+
+  export type FinancialProjectionMinAggregateInputType = {
+    id?: true
+    period?: true
+    year?: true
+    month?: true
+    dataType?: true
+    scenario?: true
+    revenue?: true
+    ebitda?: true
+    netIncome?: true
+    guests?: true
+    staffCost?: true
+    appId?: true
+  }
+
+  export type FinancialProjectionMaxAggregateInputType = {
+    id?: true
+    period?: true
+    year?: true
+    month?: true
+    dataType?: true
+    scenario?: true
+    revenue?: true
+    ebitda?: true
+    netIncome?: true
+    guests?: true
+    staffCost?: true
+    appId?: true
+  }
+
+  export type FinancialProjectionCountAggregateInputType = {
+    id?: true
+    period?: true
+    year?: true
+    month?: true
+    dataType?: true
+    scenario?: true
+    revenue?: true
+    ebitda?: true
+    netIncome?: true
+    guests?: true
+    staffCost?: true
+    pnlLines?: true
+    appId?: true
+    _all?: true
+  }
+
+  export type FinancialProjectionAggregateArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Filter which FinancialProjection to aggregate.
+     */
+    where?: FinancialProjectionWhereInput
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/sorting Sorting Docs}
+     * 
+     * Determine the order of FinancialProjections to fetch.
+     */
+    orderBy?: FinancialProjectionOrderByWithRelationInput | FinancialProjectionOrderByWithRelationInput[]
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination#cursor-based-pagination Cursor Docs}
+     * 
+     * Sets the start position
+     */
+    cursor?: FinancialProjectionWhereUniqueInput
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
+     * 
+     * Take `±n` FinancialProjections from the position of the cursor.
+     */
+    take?: number
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
+     * 
+     * Skip the first `n` FinancialProjections.
+     */
+    skip?: number
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/aggregations Aggregation Docs}
+     * 
+     * Count returned FinancialProjections
+    **/
+    _count?: true | FinancialProjectionCountAggregateInputType
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/aggregations Aggregation Docs}
+     * 
+     * Select which fields to average
+    **/
+    _avg?: FinancialProjectionAvgAggregateInputType
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/aggregations Aggregation Docs}
+     * 
+     * Select which fields to sum
+    **/
+    _sum?: FinancialProjectionSumAggregateInputType
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/aggregations Aggregation Docs}
+     * 
+     * Select which fields to find the minimum value
+    **/
+    _min?: FinancialProjectionMinAggregateInputType
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/aggregations Aggregation Docs}
+     * 
+     * Select which fields to find the maximum value
+    **/
+    _max?: FinancialProjectionMaxAggregateInputType
+  }
+
+  export type GetFinancialProjectionAggregateType<T extends FinancialProjectionAggregateArgs> = {
+        [P in keyof T & keyof AggregateFinancialProjection]: P extends '_count' | 'count'
+      ? T[P] extends true
+        ? number
+        : GetScalarType<T[P], AggregateFinancialProjection[P]>
+      : GetScalarType<T[P], AggregateFinancialProjection[P]>
+  }
+
+
+
+
+  export type FinancialProjectionGroupByArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    where?: FinancialProjectionWhereInput
+    orderBy?: FinancialProjectionOrderByWithAggregationInput | FinancialProjectionOrderByWithAggregationInput[]
+    by: FinancialProjectionScalarFieldEnum[] | FinancialProjectionScalarFieldEnum
+    having?: FinancialProjectionScalarWhereWithAggregatesInput
+    take?: number
+    skip?: number
+    _count?: FinancialProjectionCountAggregateInputType | true
+    _avg?: FinancialProjectionAvgAggregateInputType
+    _sum?: FinancialProjectionSumAggregateInputType
+    _min?: FinancialProjectionMinAggregateInputType
+    _max?: FinancialProjectionMaxAggregateInputType
+  }
+
+  export type FinancialProjectionGroupByOutputType = {
+    id: number
+    period: string
+    year: number
+    month: number
+    dataType: string
+    scenario: string
+    revenue: Decimal
+    ebitda: Decimal
+    netIncome: Decimal
+    guests: number
+    staffCost: Decimal
+    pnlLines: JsonValue | null
+    appId: string
+    _count: FinancialProjectionCountAggregateOutputType | null
+    _avg: FinancialProjectionAvgAggregateOutputType | null
+    _sum: FinancialProjectionSumAggregateOutputType | null
+    _min: FinancialProjectionMinAggregateOutputType | null
+    _max: FinancialProjectionMaxAggregateOutputType | null
+  }
+
+  type GetFinancialProjectionGroupByPayload<T extends FinancialProjectionGroupByArgs> = Prisma.PrismaPromise<
+    Array<
+      PickEnumerable<FinancialProjectionGroupByOutputType, T['by']> &
+        {
+          [P in ((keyof T) & (keyof FinancialProjectionGroupByOutputType))]: P extends '_count'
+            ? T[P] extends boolean
+              ? number
+              : GetScalarType<T[P], FinancialProjectionGroupByOutputType[P]>
+            : GetScalarType<T[P], FinancialProjectionGroupByOutputType[P]>
+        }
+      >
+    >
+
+
+  export type FinancialProjectionSelect<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = $Extensions.GetSelect<{
+    id?: boolean
+    period?: boolean
+    year?: boolean
+    month?: boolean
+    dataType?: boolean
+    scenario?: boolean
+    revenue?: boolean
+    ebitda?: boolean
+    netIncome?: boolean
+    guests?: boolean
+    staffCost?: boolean
+    pnlLines?: boolean
+    appId?: boolean
+  }, ExtArgs["result"]["financialProjection"]>
+
+  export type FinancialProjectionSelectCreateManyAndReturn<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = $Extensions.GetSelect<{
+    id?: boolean
+    period?: boolean
+    year?: boolean
+    month?: boolean
+    dataType?: boolean
+    scenario?: boolean
+    revenue?: boolean
+    ebitda?: boolean
+    netIncome?: boolean
+    guests?: boolean
+    staffCost?: boolean
+    pnlLines?: boolean
+    appId?: boolean
+  }, ExtArgs["result"]["financialProjection"]>
+
+  export type FinancialProjectionSelectUpdateManyAndReturn<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = $Extensions.GetSelect<{
+    id?: boolean
+    period?: boolean
+    year?: boolean
+    month?: boolean
+    dataType?: boolean
+    scenario?: boolean
+    revenue?: boolean
+    ebitda?: boolean
+    netIncome?: boolean
+    guests?: boolean
+    staffCost?: boolean
+    pnlLines?: boolean
+    appId?: boolean
+  }, ExtArgs["result"]["financialProjection"]>
+
+  export type FinancialProjectionSelectScalar = {
+    id?: boolean
+    period?: boolean
+    year?: boolean
+    month?: boolean
+    dataType?: boolean
+    scenario?: boolean
+    revenue?: boolean
+    ebitda?: boolean
+    netIncome?: boolean
+    guests?: boolean
+    staffCost?: boolean
+    pnlLines?: boolean
+    appId?: boolean
+  }
+
+  export type FinancialProjectionOmit<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = $Extensions.GetOmit<"id" | "period" | "year" | "month" | "dataType" | "scenario" | "revenue" | "ebitda" | "netIncome" | "guests" | "staffCost" | "pnlLines" | "appId", ExtArgs["result"]["financialProjection"]>
+
+  export type $FinancialProjectionPayload<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    name: "FinancialProjection"
+    objects: {}
+    scalars: $Extensions.GetPayloadResult<{
+      id: number
+      period: string
+      year: number
+      month: number
+      dataType: string
+      scenario: string
+      revenue: Prisma.Decimal
+      ebitda: Prisma.Decimal
+      netIncome: Prisma.Decimal
+      guests: number
+      staffCost: Prisma.Decimal
+      pnlLines: Prisma.JsonValue | null
+      /**
+       * Suite-mode app id — empty string means the tenant's own (single-app) copy.
+       */
+      appId: string
+    }, ExtArgs["result"]["financialProjection"]>
+    composites: {}
+  }
+
+  type FinancialProjectionGetPayload<S extends boolean | null | undefined | FinancialProjectionDefaultArgs> = $Result.GetResult<Prisma.$FinancialProjectionPayload, S>
+
+  type FinancialProjectionCountArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> =
+    Omit<FinancialProjectionFindManyArgs, 'select' | 'include' | 'distinct' | 'omit'> & {
+      select?: FinancialProjectionCountAggregateInputType | true
+    }
+
+  export interface FinancialProjectionDelegate<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs, GlobalOmitOptions = {}> {
+    [K: symbol]: { types: Prisma.TypeMap<ExtArgs>['model']['FinancialProjection'], meta: { name: 'FinancialProjection' } }
+    /**
+     * Find zero or one FinancialProjection that matches the filter.
+     * @param {FinancialProjectionFindUniqueArgs} args - Arguments to find a FinancialProjection
+     * @example
+     * // Get one FinancialProjection
+     * const financialProjection = await prisma.financialProjection.findUnique({
+     *   where: {
+     *     // ... provide filter here
+     *   }
+     * })
+     */
+    findUnique<T extends FinancialProjectionFindUniqueArgs>(args: SelectSubset<T, FinancialProjectionFindUniqueArgs<ExtArgs>>): Prisma__FinancialProjectionClient<$Result.GetResult<Prisma.$FinancialProjectionPayload<ExtArgs>, T, "findUnique", GlobalOmitOptions> | null, null, ExtArgs, GlobalOmitOptions>
+
+    /**
+     * Find one FinancialProjection that matches the filter or throw an error with `error.code='P2025'`
+     * if no matches were found.
+     * @param {FinancialProjectionFindUniqueOrThrowArgs} args - Arguments to find a FinancialProjection
+     * @example
+     * // Get one FinancialProjection
+     * const financialProjection = await prisma.financialProjection.findUniqueOrThrow({
+     *   where: {
+     *     // ... provide filter here
+     *   }
+     * })
+     */
+    findUniqueOrThrow<T extends FinancialProjectionFindUniqueOrThrowArgs>(args: SelectSubset<T, FinancialProjectionFindUniqueOrThrowArgs<ExtArgs>>): Prisma__FinancialProjectionClient<$Result.GetResult<Prisma.$FinancialProjectionPayload<ExtArgs>, T, "findUniqueOrThrow", GlobalOmitOptions>, never, ExtArgs, GlobalOmitOptions>
+
+    /**
+     * Find the first FinancialProjection that matches the filter.
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * @param {FinancialProjectionFindFirstArgs} args - Arguments to find a FinancialProjection
+     * @example
+     * // Get one FinancialProjection
+     * const financialProjection = await prisma.financialProjection.findFirst({
+     *   where: {
+     *     // ... provide filter here
+     *   }
+     * })
+     */
+    findFirst<T extends FinancialProjectionFindFirstArgs>(args?: SelectSubset<T, FinancialProjectionFindFirstArgs<ExtArgs>>): Prisma__FinancialProjectionClient<$Result.GetResult<Prisma.$FinancialProjectionPayload<ExtArgs>, T, "findFirst", GlobalOmitOptions> | null, null, ExtArgs, GlobalOmitOptions>
+
+    /**
+     * Find the first FinancialProjection that matches the filter or
+     * throw `PrismaKnownClientError` with `P2025` code if no matches were found.
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * @param {FinancialProjectionFindFirstOrThrowArgs} args - Arguments to find a FinancialProjection
+     * @example
+     * // Get one FinancialProjection
+     * const financialProjection = await prisma.financialProjection.findFirstOrThrow({
+     *   where: {
+     *     // ... provide filter here
+     *   }
+     * })
+     */
+    findFirstOrThrow<T extends FinancialProjectionFindFirstOrThrowArgs>(args?: SelectSubset<T, FinancialProjectionFindFirstOrThrowArgs<ExtArgs>>): Prisma__FinancialProjectionClient<$Result.GetResult<Prisma.$FinancialProjectionPayload<ExtArgs>, T, "findFirstOrThrow", GlobalOmitOptions>, never, ExtArgs, GlobalOmitOptions>
+
+    /**
+     * Find zero or more FinancialProjections that matches the filter.
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * @param {FinancialProjectionFindManyArgs} args - Arguments to filter and select certain fields only.
+     * @example
+     * // Get all FinancialProjections
+     * const financialProjections = await prisma.financialProjection.findMany()
+     * 
+     * // Get first 10 FinancialProjections
+     * const financialProjections = await prisma.financialProjection.findMany({ take: 10 })
+     * 
+     * // Only select the `id`
+     * const financialProjectionWithIdOnly = await prisma.financialProjection.findMany({ select: { id: true } })
+     * 
+     */
+    findMany<T extends FinancialProjectionFindManyArgs>(args?: SelectSubset<T, FinancialProjectionFindManyArgs<ExtArgs>>): Prisma.PrismaPromise<$Result.GetResult<Prisma.$FinancialProjectionPayload<ExtArgs>, T, "findMany", GlobalOmitOptions>>
+
+    /**
+     * Create a FinancialProjection.
+     * @param {FinancialProjectionCreateArgs} args - Arguments to create a FinancialProjection.
+     * @example
+     * // Create one FinancialProjection
+     * const FinancialProjection = await prisma.financialProjection.create({
+     *   data: {
+     *     // ... data to create a FinancialProjection
+     *   }
+     * })
+     * 
+     */
+    create<T extends FinancialProjectionCreateArgs>(args: SelectSubset<T, FinancialProjectionCreateArgs<ExtArgs>>): Prisma__FinancialProjectionClient<$Result.GetResult<Prisma.$FinancialProjectionPayload<ExtArgs>, T, "create", GlobalOmitOptions>, never, ExtArgs, GlobalOmitOptions>
+
+    /**
+     * Create many FinancialProjections.
+     * @param {FinancialProjectionCreateManyArgs} args - Arguments to create many FinancialProjections.
+     * @example
+     * // Create many FinancialProjections
+     * const financialProjection = await prisma.financialProjection.createMany({
+     *   data: [
+     *     // ... provide data here
+     *   ]
+     * })
+     *     
+     */
+    createMany<T extends FinancialProjectionCreateManyArgs>(args?: SelectSubset<T, FinancialProjectionCreateManyArgs<ExtArgs>>): Prisma.PrismaPromise<BatchPayload>
+
+    /**
+     * Create many FinancialProjections and returns the data saved in the database.
+     * @param {FinancialProjectionCreateManyAndReturnArgs} args - Arguments to create many FinancialProjections.
+     * @example
+     * // Create many FinancialProjections
+     * const financialProjection = await prisma.financialProjection.createManyAndReturn({
+     *   data: [
+     *     // ... provide data here
+     *   ]
+     * })
+     * 
+     * // Create many FinancialProjections and only return the `id`
+     * const financialProjectionWithIdOnly = await prisma.financialProjection.createManyAndReturn({
+     *   select: { id: true },
+     *   data: [
+     *     // ... provide data here
+     *   ]
+     * })
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * 
+     */
+    createManyAndReturn<T extends FinancialProjectionCreateManyAndReturnArgs>(args?: SelectSubset<T, FinancialProjectionCreateManyAndReturnArgs<ExtArgs>>): Prisma.PrismaPromise<$Result.GetResult<Prisma.$FinancialProjectionPayload<ExtArgs>, T, "createManyAndReturn", GlobalOmitOptions>>
+
+    /**
+     * Delete a FinancialProjection.
+     * @param {FinancialProjectionDeleteArgs} args - Arguments to delete one FinancialProjection.
+     * @example
+     * // Delete one FinancialProjection
+     * const FinancialProjection = await prisma.financialProjection.delete({
+     *   where: {
+     *     // ... filter to delete one FinancialProjection
+     *   }
+     * })
+     * 
+     */
+    delete<T extends FinancialProjectionDeleteArgs>(args: SelectSubset<T, FinancialProjectionDeleteArgs<ExtArgs>>): Prisma__FinancialProjectionClient<$Result.GetResult<Prisma.$FinancialProjectionPayload<ExtArgs>, T, "delete", GlobalOmitOptions>, never, ExtArgs, GlobalOmitOptions>
+
+    /**
+     * Update one FinancialProjection.
+     * @param {FinancialProjectionUpdateArgs} args - Arguments to update one FinancialProjection.
+     * @example
+     * // Update one FinancialProjection
+     * const financialProjection = await prisma.financialProjection.update({
+     *   where: {
+     *     // ... provide filter here
+     *   },
+     *   data: {
+     *     // ... provide data here
+     *   }
+     * })
+     * 
+     */
+    update<T extends FinancialProjectionUpdateArgs>(args: SelectSubset<T, FinancialProjectionUpdateArgs<ExtArgs>>): Prisma__FinancialProjectionClient<$Result.GetResult<Prisma.$FinancialProjectionPayload<ExtArgs>, T, "update", GlobalOmitOptions>, never, ExtArgs, GlobalOmitOptions>
+
+    /**
+     * Delete zero or more FinancialProjections.
+     * @param {FinancialProjectionDeleteManyArgs} args - Arguments to filter FinancialProjections to delete.
+     * @example
+     * // Delete a few FinancialProjections
+     * const { count } = await prisma.financialProjection.deleteMany({
+     *   where: {
+     *     // ... provide filter here
+     *   }
+     * })
+     * 
+     */
+    deleteMany<T extends FinancialProjectionDeleteManyArgs>(args?: SelectSubset<T, FinancialProjectionDeleteManyArgs<ExtArgs>>): Prisma.PrismaPromise<BatchPayload>
+
+    /**
+     * Update zero or more FinancialProjections.
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * @param {FinancialProjectionUpdateManyArgs} args - Arguments to update one or more rows.
+     * @example
+     * // Update many FinancialProjections
+     * const financialProjection = await prisma.financialProjection.updateMany({
+     *   where: {
+     *     // ... provide filter here
+     *   },
+     *   data: {
+     *     // ... provide data here
+     *   }
+     * })
+     * 
+     */
+    updateMany<T extends FinancialProjectionUpdateManyArgs>(args: SelectSubset<T, FinancialProjectionUpdateManyArgs<ExtArgs>>): Prisma.PrismaPromise<BatchPayload>
+
+    /**
+     * Update zero or more FinancialProjections and returns the data updated in the database.
+     * @param {FinancialProjectionUpdateManyAndReturnArgs} args - Arguments to update many FinancialProjections.
+     * @example
+     * // Update many FinancialProjections
+     * const financialProjection = await prisma.financialProjection.updateManyAndReturn({
+     *   where: {
+     *     // ... provide filter here
+     *   },
+     *   data: [
+     *     // ... provide data here
+     *   ]
+     * })
+     * 
+     * // Update zero or more FinancialProjections and only return the `id`
+     * const financialProjectionWithIdOnly = await prisma.financialProjection.updateManyAndReturn({
+     *   select: { id: true },
+     *   where: {
+     *     // ... provide filter here
+     *   },
+     *   data: [
+     *     // ... provide data here
+     *   ]
+     * })
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * 
+     */
+    updateManyAndReturn<T extends FinancialProjectionUpdateManyAndReturnArgs>(args: SelectSubset<T, FinancialProjectionUpdateManyAndReturnArgs<ExtArgs>>): Prisma.PrismaPromise<$Result.GetResult<Prisma.$FinancialProjectionPayload<ExtArgs>, T, "updateManyAndReturn", GlobalOmitOptions>>
+
+    /**
+     * Create or update one FinancialProjection.
+     * @param {FinancialProjectionUpsertArgs} args - Arguments to update or create a FinancialProjection.
+     * @example
+     * // Update or create a FinancialProjection
+     * const financialProjection = await prisma.financialProjection.upsert({
+     *   create: {
+     *     // ... data to create a FinancialProjection
+     *   },
+     *   update: {
+     *     // ... in case it already exists, update
+     *   },
+     *   where: {
+     *     // ... the filter for the FinancialProjection we want to update
+     *   }
+     * })
+     */
+    upsert<T extends FinancialProjectionUpsertArgs>(args: SelectSubset<T, FinancialProjectionUpsertArgs<ExtArgs>>): Prisma__FinancialProjectionClient<$Result.GetResult<Prisma.$FinancialProjectionPayload<ExtArgs>, T, "upsert", GlobalOmitOptions>, never, ExtArgs, GlobalOmitOptions>
+
+
+    /**
+     * Count the number of FinancialProjections.
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * @param {FinancialProjectionCountArgs} args - Arguments to filter FinancialProjections to count.
+     * @example
+     * // Count the number of FinancialProjections
+     * const count = await prisma.financialProjection.count({
+     *   where: {
+     *     // ... the filter for the FinancialProjections we want to count
+     *   }
+     * })
+    **/
+    count<T extends FinancialProjectionCountArgs>(
+      args?: Subset<T, FinancialProjectionCountArgs>,
+    ): Prisma.PrismaPromise<
+      T extends $Utils.Record<'select', any>
+        ? T['select'] extends true
+          ? number
+          : GetScalarType<T['select'], FinancialProjectionCountAggregateOutputType>
+        : number
+    >
+
+    /**
+     * Allows you to perform aggregations operations on a FinancialProjection.
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * @param {FinancialProjectionAggregateArgs} args - Select which aggregations you would like to apply and on what fields.
+     * @example
+     * // Ordered by age ascending
+     * // Where email contains prisma.io
+     * // Limited to the 10 users
+     * const aggregations = await prisma.user.aggregate({
+     *   _avg: {
+     *     age: true,
+     *   },
+     *   where: {
+     *     email: {
+     *       contains: "prisma.io",
+     *     },
+     *   },
+     *   orderBy: {
+     *     age: "asc",
+     *   },
+     *   take: 10,
+     * })
+    **/
+    aggregate<T extends FinancialProjectionAggregateArgs>(args: Subset<T, FinancialProjectionAggregateArgs>): Prisma.PrismaPromise<GetFinancialProjectionAggregateType<T>>
+
+    /**
+     * Group by FinancialProjection.
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * @param {FinancialProjectionGroupByArgs} args - Group by arguments.
+     * @example
+     * // Group by city, order by createdAt, get count
+     * const result = await prisma.user.groupBy({
+     *   by: ['city', 'createdAt'],
+     *   orderBy: {
+     *     createdAt: true
+     *   },
+     *   _count: {
+     *     _all: true
+     *   },
+     * })
+     * 
+    **/
+    groupBy<
+      T extends FinancialProjectionGroupByArgs,
+      HasSelectOrTake extends Or<
+        Extends<'skip', Keys<T>>,
+        Extends<'take', Keys<T>>
+      >,
+      OrderByArg extends True extends HasSelectOrTake
+        ? { orderBy: FinancialProjectionGroupByArgs['orderBy'] }
+        : { orderBy?: FinancialProjectionGroupByArgs['orderBy'] },
+      OrderFields extends ExcludeUnderscoreKeys<Keys<MaybeTupleToUnion<T['orderBy']>>>,
+      ByFields extends MaybeTupleToUnion<T['by']>,
+      ByValid extends Has<ByFields, OrderFields>,
+      HavingFields extends GetHavingFields<T['having']>,
+      HavingValid extends Has<ByFields, HavingFields>,
+      ByEmpty extends T['by'] extends never[] ? True : False,
+      InputErrors extends ByEmpty extends True
+      ? `Error: "by" must not be empty.`
+      : HavingValid extends False
+      ? {
+          [P in HavingFields]: P extends ByFields
+            ? never
+            : P extends string
+            ? `Error: Field "${P}" used in "having" needs to be provided in "by".`
+            : [
+                Error,
+                'Field ',
+                P,
+                ` in "having" needs to be provided in "by"`,
+              ]
+        }[HavingFields]
+      : 'take' extends Keys<T>
+      ? 'orderBy' extends Keys<T>
+        ? ByValid extends True
+          ? {}
+          : {
+              [P in OrderFields]: P extends ByFields
+                ? never
+                : `Error: Field "${P}" in "orderBy" needs to be provided in "by"`
+            }[OrderFields]
+        : 'Error: If you provide "take", you also need to provide "orderBy"'
+      : 'skip' extends Keys<T>
+      ? 'orderBy' extends Keys<T>
+        ? ByValid extends True
+          ? {}
+          : {
+              [P in OrderFields]: P extends ByFields
+                ? never
+                : `Error: Field "${P}" in "orderBy" needs to be provided in "by"`
+            }[OrderFields]
+        : 'Error: If you provide "skip", you also need to provide "orderBy"'
+      : ByValid extends True
+      ? {}
+      : {
+          [P in OrderFields]: P extends ByFields
+            ? never
+            : `Error: Field "${P}" in "orderBy" needs to be provided in "by"`
+        }[OrderFields]
+    >(args: SubsetIntersection<T, FinancialProjectionGroupByArgs, OrderByArg> & InputErrors): {} extends InputErrors ? GetFinancialProjectionGroupByPayload<T> : Prisma.PrismaPromise<InputErrors>
+  /**
+   * Fields of the FinancialProjection model
+   */
+  readonly fields: FinancialProjectionFieldRefs;
+  }
+
+  /**
+   * The delegate class that acts as a "Promise-like" for FinancialProjection.
+   * Why is this prefixed with `Prisma__`?
+   * Because we want to prevent naming conflicts as mentioned in
+   * https://github.com/prisma/prisma-client-js/issues/707
+   */
+  export interface Prisma__FinancialProjectionClient<T, Null = never, ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs, GlobalOmitOptions = {}> extends Prisma.PrismaPromise<T> {
+    readonly [Symbol.toStringTag]: "PrismaPromise"
+    /**
+     * Attaches callbacks for the resolution and/or rejection of the Promise.
+     * @param onfulfilled The callback to execute when the Promise is resolved.
+     * @param onrejected The callback to execute when the Promise is rejected.
+     * @returns A Promise for the completion of which ever callback is executed.
+     */
+    then<TResult1 = T, TResult2 = never>(onfulfilled?: ((value: T) => TResult1 | PromiseLike<TResult1>) | undefined | null, onrejected?: ((reason: any) => TResult2 | PromiseLike<TResult2>) | undefined | null): $Utils.JsPromise<TResult1 | TResult2>
+    /**
+     * Attaches a callback for only the rejection of the Promise.
+     * @param onrejected The callback to execute when the Promise is rejected.
+     * @returns A Promise for the completion of the callback.
+     */
+    catch<TResult = never>(onrejected?: ((reason: any) => TResult | PromiseLike<TResult>) | undefined | null): $Utils.JsPromise<T | TResult>
+    /**
+     * Attaches a callback that is invoked when the Promise is settled (fulfilled or rejected). The
+     * resolved value cannot be modified from the callback.
+     * @param onfinally The callback to execute when the Promise is settled (fulfilled or rejected).
+     * @returns A Promise for the completion of the callback.
+     */
+    finally(onfinally?: (() => void) | undefined | null): $Utils.JsPromise<T>
+  }
+
+
+
+
+  /**
+   * Fields of the FinancialProjection model
+   */
+  interface FinancialProjectionFieldRefs {
+    readonly id: FieldRef<"FinancialProjection", 'Int'>
+    readonly period: FieldRef<"FinancialProjection", 'String'>
+    readonly year: FieldRef<"FinancialProjection", 'Int'>
+    readonly month: FieldRef<"FinancialProjection", 'Int'>
+    readonly dataType: FieldRef<"FinancialProjection", 'String'>
+    readonly scenario: FieldRef<"FinancialProjection", 'String'>
+    readonly revenue: FieldRef<"FinancialProjection", 'Decimal'>
+    readonly ebitda: FieldRef<"FinancialProjection", 'Decimal'>
+    readonly netIncome: FieldRef<"FinancialProjection", 'Decimal'>
+    readonly guests: FieldRef<"FinancialProjection", 'Int'>
+    readonly staffCost: FieldRef<"FinancialProjection", 'Decimal'>
+    readonly pnlLines: FieldRef<"FinancialProjection", 'Json'>
+    readonly appId: FieldRef<"FinancialProjection", 'String'>
+  }
+    
+
+  // Custom InputTypes
+  /**
+   * FinancialProjection findUnique
+   */
+  export type FinancialProjectionFindUniqueArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the FinancialProjection
+     */
+    select?: FinancialProjectionSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the FinancialProjection
+     */
+    omit?: FinancialProjectionOmit<ExtArgs> | null
+    /**
+     * Filter, which FinancialProjection to fetch.
+     */
+    where: FinancialProjectionWhereUniqueInput
+  }
+
+  /**
+   * FinancialProjection findUniqueOrThrow
+   */
+  export type FinancialProjectionFindUniqueOrThrowArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the FinancialProjection
+     */
+    select?: FinancialProjectionSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the FinancialProjection
+     */
+    omit?: FinancialProjectionOmit<ExtArgs> | null
+    /**
+     * Filter, which FinancialProjection to fetch.
+     */
+    where: FinancialProjectionWhereUniqueInput
+  }
+
+  /**
+   * FinancialProjection findFirst
+   */
+  export type FinancialProjectionFindFirstArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the FinancialProjection
+     */
+    select?: FinancialProjectionSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the FinancialProjection
+     */
+    omit?: FinancialProjectionOmit<ExtArgs> | null
+    /**
+     * Filter, which FinancialProjection to fetch.
+     */
+    where?: FinancialProjectionWhereInput
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/sorting Sorting Docs}
+     * 
+     * Determine the order of FinancialProjections to fetch.
+     */
+    orderBy?: FinancialProjectionOrderByWithRelationInput | FinancialProjectionOrderByWithRelationInput[]
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination#cursor-based-pagination Cursor Docs}
+     * 
+     * Sets the position for searching for FinancialProjections.
+     */
+    cursor?: FinancialProjectionWhereUniqueInput
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
+     * 
+     * Take `±n` FinancialProjections from the position of the cursor.
+     */
+    take?: number
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
+     * 
+     * Skip the first `n` FinancialProjections.
+     */
+    skip?: number
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/distinct Distinct Docs}
+     * 
+     * Filter by unique combinations of FinancialProjections.
+     */
+    distinct?: FinancialProjectionScalarFieldEnum | FinancialProjectionScalarFieldEnum[]
+  }
+
+  /**
+   * FinancialProjection findFirstOrThrow
+   */
+  export type FinancialProjectionFindFirstOrThrowArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the FinancialProjection
+     */
+    select?: FinancialProjectionSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the FinancialProjection
+     */
+    omit?: FinancialProjectionOmit<ExtArgs> | null
+    /**
+     * Filter, which FinancialProjection to fetch.
+     */
+    where?: FinancialProjectionWhereInput
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/sorting Sorting Docs}
+     * 
+     * Determine the order of FinancialProjections to fetch.
+     */
+    orderBy?: FinancialProjectionOrderByWithRelationInput | FinancialProjectionOrderByWithRelationInput[]
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination#cursor-based-pagination Cursor Docs}
+     * 
+     * Sets the position for searching for FinancialProjections.
+     */
+    cursor?: FinancialProjectionWhereUniqueInput
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
+     * 
+     * Take `±n` FinancialProjections from the position of the cursor.
+     */
+    take?: number
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
+     * 
+     * Skip the first `n` FinancialProjections.
+     */
+    skip?: number
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/distinct Distinct Docs}
+     * 
+     * Filter by unique combinations of FinancialProjections.
+     */
+    distinct?: FinancialProjectionScalarFieldEnum | FinancialProjectionScalarFieldEnum[]
+  }
+
+  /**
+   * FinancialProjection findMany
+   */
+  export type FinancialProjectionFindManyArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the FinancialProjection
+     */
+    select?: FinancialProjectionSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the FinancialProjection
+     */
+    omit?: FinancialProjectionOmit<ExtArgs> | null
+    /**
+     * Filter, which FinancialProjections to fetch.
+     */
+    where?: FinancialProjectionWhereInput
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/sorting Sorting Docs}
+     * 
+     * Determine the order of FinancialProjections to fetch.
+     */
+    orderBy?: FinancialProjectionOrderByWithRelationInput | FinancialProjectionOrderByWithRelationInput[]
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination#cursor-based-pagination Cursor Docs}
+     * 
+     * Sets the position for listing FinancialProjections.
+     */
+    cursor?: FinancialProjectionWhereUniqueInput
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
+     * 
+     * Take `±n` FinancialProjections from the position of the cursor.
+     */
+    take?: number
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
+     * 
+     * Skip the first `n` FinancialProjections.
+     */
+    skip?: number
+    distinct?: FinancialProjectionScalarFieldEnum | FinancialProjectionScalarFieldEnum[]
+  }
+
+  /**
+   * FinancialProjection create
+   */
+  export type FinancialProjectionCreateArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the FinancialProjection
+     */
+    select?: FinancialProjectionSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the FinancialProjection
+     */
+    omit?: FinancialProjectionOmit<ExtArgs> | null
+    /**
+     * The data needed to create a FinancialProjection.
+     */
+    data: XOR<FinancialProjectionCreateInput, FinancialProjectionUncheckedCreateInput>
+  }
+
+  /**
+   * FinancialProjection createMany
+   */
+  export type FinancialProjectionCreateManyArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * The data used to create many FinancialProjections.
+     */
+    data: FinancialProjectionCreateManyInput | FinancialProjectionCreateManyInput[]
+    skipDuplicates?: boolean
+  }
+
+  /**
+   * FinancialProjection createManyAndReturn
+   */
+  export type FinancialProjectionCreateManyAndReturnArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the FinancialProjection
+     */
+    select?: FinancialProjectionSelectCreateManyAndReturn<ExtArgs> | null
+    /**
+     * Omit specific fields from the FinancialProjection
+     */
+    omit?: FinancialProjectionOmit<ExtArgs> | null
+    /**
+     * The data used to create many FinancialProjections.
+     */
+    data: FinancialProjectionCreateManyInput | FinancialProjectionCreateManyInput[]
+    skipDuplicates?: boolean
+  }
+
+  /**
+   * FinancialProjection update
+   */
+  export type FinancialProjectionUpdateArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the FinancialProjection
+     */
+    select?: FinancialProjectionSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the FinancialProjection
+     */
+    omit?: FinancialProjectionOmit<ExtArgs> | null
+    /**
+     * The data needed to update a FinancialProjection.
+     */
+    data: XOR<FinancialProjectionUpdateInput, FinancialProjectionUncheckedUpdateInput>
+    /**
+     * Choose, which FinancialProjection to update.
+     */
+    where: FinancialProjectionWhereUniqueInput
+  }
+
+  /**
+   * FinancialProjection updateMany
+   */
+  export type FinancialProjectionUpdateManyArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * The data used to update FinancialProjections.
+     */
+    data: XOR<FinancialProjectionUpdateManyMutationInput, FinancialProjectionUncheckedUpdateManyInput>
+    /**
+     * Filter which FinancialProjections to update
+     */
+    where?: FinancialProjectionWhereInput
+    /**
+     * Limit how many FinancialProjections to update.
+     */
+    limit?: number
+  }
+
+  /**
+   * FinancialProjection updateManyAndReturn
+   */
+  export type FinancialProjectionUpdateManyAndReturnArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the FinancialProjection
+     */
+    select?: FinancialProjectionSelectUpdateManyAndReturn<ExtArgs> | null
+    /**
+     * Omit specific fields from the FinancialProjection
+     */
+    omit?: FinancialProjectionOmit<ExtArgs> | null
+    /**
+     * The data used to update FinancialProjections.
+     */
+    data: XOR<FinancialProjectionUpdateManyMutationInput, FinancialProjectionUncheckedUpdateManyInput>
+    /**
+     * Filter which FinancialProjections to update
+     */
+    where?: FinancialProjectionWhereInput
+    /**
+     * Limit how many FinancialProjections to update.
+     */
+    limit?: number
+  }
+
+  /**
+   * FinancialProjection upsert
+   */
+  export type FinancialProjectionUpsertArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the FinancialProjection
+     */
+    select?: FinancialProjectionSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the FinancialProjection
+     */
+    omit?: FinancialProjectionOmit<ExtArgs> | null
+    /**
+     * The filter to search for the FinancialProjection to update in case it exists.
+     */
+    where: FinancialProjectionWhereUniqueInput
+    /**
+     * In case the FinancialProjection found by the `where` argument doesn't exist, create a new FinancialProjection with this data.
+     */
+    create: XOR<FinancialProjectionCreateInput, FinancialProjectionUncheckedCreateInput>
+    /**
+     * In case the FinancialProjection was found with the provided `where` argument, update it with this data.
+     */
+    update: XOR<FinancialProjectionUpdateInput, FinancialProjectionUncheckedUpdateInput>
+  }
+
+  /**
+   * FinancialProjection delete
+   */
+  export type FinancialProjectionDeleteArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the FinancialProjection
+     */
+    select?: FinancialProjectionSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the FinancialProjection
+     */
+    omit?: FinancialProjectionOmit<ExtArgs> | null
+    /**
+     * Filter which FinancialProjection to delete.
+     */
+    where: FinancialProjectionWhereUniqueInput
+  }
+
+  /**
+   * FinancialProjection deleteMany
+   */
+  export type FinancialProjectionDeleteManyArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Filter which FinancialProjections to delete
+     */
+    where?: FinancialProjectionWhereInput
+    /**
+     * Limit how many FinancialProjections to delete.
+     */
+    limit?: number
+  }
+
+  /**
+   * FinancialProjection without action
+   */
+  export type FinancialProjectionDefaultArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the FinancialProjection
+     */
+    select?: FinancialProjectionSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the FinancialProjection
+     */
+    omit?: FinancialProjectionOmit<ExtArgs> | null
   }
 
 
@@ -52315,6 +53564,25 @@ export namespace Prisma {
   export type ConversationScalarFieldEnum = (typeof ConversationScalarFieldEnum)[keyof typeof ConversationScalarFieldEnum]
 
 
+  export const FinancialProjectionScalarFieldEnum: {
+    id: 'id',
+    period: 'period',
+    year: 'year',
+    month: 'month',
+    dataType: 'dataType',
+    scenario: 'scenario',
+    revenue: 'revenue',
+    ebitda: 'ebitda',
+    netIncome: 'netIncome',
+    guests: 'guests',
+    staffCost: 'staffCost',
+    pnlLines: 'pnlLines',
+    appId: 'appId'
+  };
+
+  export type FinancialProjectionScalarFieldEnum = (typeof FinancialProjectionScalarFieldEnum)[keyof typeof FinancialProjectionScalarFieldEnum]
+
+
   export const TenantScalarFieldEnum: {
     id: 'id',
     slug: 'slug',
@@ -53032,6 +54300,20 @@ export namespace Prisma {
    * Reference to a field of type 'TaskStatus[]'
    */
   export type ListEnumTaskStatusFieldRefInput<$PrismaModel> = FieldRefInputType<$PrismaModel, 'TaskStatus[]'>
+    
+
+
+  /**
+   * Reference to a field of type 'Decimal'
+   */
+  export type DecimalFieldRefInput<$PrismaModel> = FieldRefInputType<$PrismaModel, 'Decimal'>
+    
+
+
+  /**
+   * Reference to a field of type 'Decimal[]'
+   */
+  export type ListDecimalFieldRefInput<$PrismaModel> = FieldRefInputType<$PrismaModel, 'Decimal[]'>
     
 
 
@@ -54066,6 +55348,101 @@ export namespace Prisma {
     archived?: BoolWithAggregatesFilter<"Conversation"> | boolean
     createdAt?: DateTimeWithAggregatesFilter<"Conversation"> | Date | string
     updatedAt?: DateTimeWithAggregatesFilter<"Conversation"> | Date | string
+  }
+
+  export type FinancialProjectionWhereInput = {
+    AND?: FinancialProjectionWhereInput | FinancialProjectionWhereInput[]
+    OR?: FinancialProjectionWhereInput[]
+    NOT?: FinancialProjectionWhereInput | FinancialProjectionWhereInput[]
+    id?: IntFilter<"FinancialProjection"> | number
+    period?: StringFilter<"FinancialProjection"> | string
+    year?: IntFilter<"FinancialProjection"> | number
+    month?: IntFilter<"FinancialProjection"> | number
+    dataType?: StringFilter<"FinancialProjection"> | string
+    scenario?: StringFilter<"FinancialProjection"> | string
+    revenue?: DecimalFilter<"FinancialProjection"> | Decimal | DecimalJsLike | number | string
+    ebitda?: DecimalFilter<"FinancialProjection"> | Decimal | DecimalJsLike | number | string
+    netIncome?: DecimalFilter<"FinancialProjection"> | Decimal | DecimalJsLike | number | string
+    guests?: IntFilter<"FinancialProjection"> | number
+    staffCost?: DecimalFilter<"FinancialProjection"> | Decimal | DecimalJsLike | number | string
+    pnlLines?: JsonNullableFilter<"FinancialProjection">
+    appId?: StringFilter<"FinancialProjection"> | string
+  }
+
+  export type FinancialProjectionOrderByWithRelationInput = {
+    id?: SortOrder
+    period?: SortOrder
+    year?: SortOrder
+    month?: SortOrder
+    dataType?: SortOrder
+    scenario?: SortOrder
+    revenue?: SortOrder
+    ebitda?: SortOrder
+    netIncome?: SortOrder
+    guests?: SortOrder
+    staffCost?: SortOrder
+    pnlLines?: SortOrderInput | SortOrder
+    appId?: SortOrder
+  }
+
+  export type FinancialProjectionWhereUniqueInput = Prisma.AtLeast<{
+    id?: number
+    period_dataType_scenario_appId?: FinancialProjectionPeriodDataTypeScenarioAppIdCompoundUniqueInput
+    AND?: FinancialProjectionWhereInput | FinancialProjectionWhereInput[]
+    OR?: FinancialProjectionWhereInput[]
+    NOT?: FinancialProjectionWhereInput | FinancialProjectionWhereInput[]
+    period?: StringFilter<"FinancialProjection"> | string
+    year?: IntFilter<"FinancialProjection"> | number
+    month?: IntFilter<"FinancialProjection"> | number
+    dataType?: StringFilter<"FinancialProjection"> | string
+    scenario?: StringFilter<"FinancialProjection"> | string
+    revenue?: DecimalFilter<"FinancialProjection"> | Decimal | DecimalJsLike | number | string
+    ebitda?: DecimalFilter<"FinancialProjection"> | Decimal | DecimalJsLike | number | string
+    netIncome?: DecimalFilter<"FinancialProjection"> | Decimal | DecimalJsLike | number | string
+    guests?: IntFilter<"FinancialProjection"> | number
+    staffCost?: DecimalFilter<"FinancialProjection"> | Decimal | DecimalJsLike | number | string
+    pnlLines?: JsonNullableFilter<"FinancialProjection">
+    appId?: StringFilter<"FinancialProjection"> | string
+  }, "id" | "period_dataType_scenario_appId">
+
+  export type FinancialProjectionOrderByWithAggregationInput = {
+    id?: SortOrder
+    period?: SortOrder
+    year?: SortOrder
+    month?: SortOrder
+    dataType?: SortOrder
+    scenario?: SortOrder
+    revenue?: SortOrder
+    ebitda?: SortOrder
+    netIncome?: SortOrder
+    guests?: SortOrder
+    staffCost?: SortOrder
+    pnlLines?: SortOrderInput | SortOrder
+    appId?: SortOrder
+    _count?: FinancialProjectionCountOrderByAggregateInput
+    _avg?: FinancialProjectionAvgOrderByAggregateInput
+    _max?: FinancialProjectionMaxOrderByAggregateInput
+    _min?: FinancialProjectionMinOrderByAggregateInput
+    _sum?: FinancialProjectionSumOrderByAggregateInput
+  }
+
+  export type FinancialProjectionScalarWhereWithAggregatesInput = {
+    AND?: FinancialProjectionScalarWhereWithAggregatesInput | FinancialProjectionScalarWhereWithAggregatesInput[]
+    OR?: FinancialProjectionScalarWhereWithAggregatesInput[]
+    NOT?: FinancialProjectionScalarWhereWithAggregatesInput | FinancialProjectionScalarWhereWithAggregatesInput[]
+    id?: IntWithAggregatesFilter<"FinancialProjection"> | number
+    period?: StringWithAggregatesFilter<"FinancialProjection"> | string
+    year?: IntWithAggregatesFilter<"FinancialProjection"> | number
+    month?: IntWithAggregatesFilter<"FinancialProjection"> | number
+    dataType?: StringWithAggregatesFilter<"FinancialProjection"> | string
+    scenario?: StringWithAggregatesFilter<"FinancialProjection"> | string
+    revenue?: DecimalWithAggregatesFilter<"FinancialProjection"> | Decimal | DecimalJsLike | number | string
+    ebitda?: DecimalWithAggregatesFilter<"FinancialProjection"> | Decimal | DecimalJsLike | number | string
+    netIncome?: DecimalWithAggregatesFilter<"FinancialProjection"> | Decimal | DecimalJsLike | number | string
+    guests?: IntWithAggregatesFilter<"FinancialProjection"> | number
+    staffCost?: DecimalWithAggregatesFilter<"FinancialProjection"> | Decimal | DecimalJsLike | number | string
+    pnlLines?: JsonNullableWithAggregatesFilter<"FinancialProjection">
+    appId?: StringWithAggregatesFilter<"FinancialProjection"> | string
   }
 
   export type TenantWhereInput = {
@@ -57865,6 +59242,115 @@ export namespace Prisma {
     archived?: BoolFieldUpdateOperationsInput | boolean
     createdAt?: DateTimeFieldUpdateOperationsInput | Date | string
     updatedAt?: DateTimeFieldUpdateOperationsInput | Date | string
+  }
+
+  export type FinancialProjectionCreateInput = {
+    period: string
+    year: number
+    month: number
+    dataType: string
+    scenario?: string
+    revenue?: Decimal | DecimalJsLike | number | string
+    ebitda?: Decimal | DecimalJsLike | number | string
+    netIncome?: Decimal | DecimalJsLike | number | string
+    guests?: number
+    staffCost?: Decimal | DecimalJsLike | number | string
+    pnlLines?: NullableJsonNullValueInput | InputJsonValue
+    appId?: string
+  }
+
+  export type FinancialProjectionUncheckedCreateInput = {
+    id?: number
+    period: string
+    year: number
+    month: number
+    dataType: string
+    scenario?: string
+    revenue?: Decimal | DecimalJsLike | number | string
+    ebitda?: Decimal | DecimalJsLike | number | string
+    netIncome?: Decimal | DecimalJsLike | number | string
+    guests?: number
+    staffCost?: Decimal | DecimalJsLike | number | string
+    pnlLines?: NullableJsonNullValueInput | InputJsonValue
+    appId?: string
+  }
+
+  export type FinancialProjectionUpdateInput = {
+    period?: StringFieldUpdateOperationsInput | string
+    year?: IntFieldUpdateOperationsInput | number
+    month?: IntFieldUpdateOperationsInput | number
+    dataType?: StringFieldUpdateOperationsInput | string
+    scenario?: StringFieldUpdateOperationsInput | string
+    revenue?: DecimalFieldUpdateOperationsInput | Decimal | DecimalJsLike | number | string
+    ebitda?: DecimalFieldUpdateOperationsInput | Decimal | DecimalJsLike | number | string
+    netIncome?: DecimalFieldUpdateOperationsInput | Decimal | DecimalJsLike | number | string
+    guests?: IntFieldUpdateOperationsInput | number
+    staffCost?: DecimalFieldUpdateOperationsInput | Decimal | DecimalJsLike | number | string
+    pnlLines?: NullableJsonNullValueInput | InputJsonValue
+    appId?: StringFieldUpdateOperationsInput | string
+  }
+
+  export type FinancialProjectionUncheckedUpdateInput = {
+    id?: IntFieldUpdateOperationsInput | number
+    period?: StringFieldUpdateOperationsInput | string
+    year?: IntFieldUpdateOperationsInput | number
+    month?: IntFieldUpdateOperationsInput | number
+    dataType?: StringFieldUpdateOperationsInput | string
+    scenario?: StringFieldUpdateOperationsInput | string
+    revenue?: DecimalFieldUpdateOperationsInput | Decimal | DecimalJsLike | number | string
+    ebitda?: DecimalFieldUpdateOperationsInput | Decimal | DecimalJsLike | number | string
+    netIncome?: DecimalFieldUpdateOperationsInput | Decimal | DecimalJsLike | number | string
+    guests?: IntFieldUpdateOperationsInput | number
+    staffCost?: DecimalFieldUpdateOperationsInput | Decimal | DecimalJsLike | number | string
+    pnlLines?: NullableJsonNullValueInput | InputJsonValue
+    appId?: StringFieldUpdateOperationsInput | string
+  }
+
+  export type FinancialProjectionCreateManyInput = {
+    id?: number
+    period: string
+    year: number
+    month: number
+    dataType: string
+    scenario?: string
+    revenue?: Decimal | DecimalJsLike | number | string
+    ebitda?: Decimal | DecimalJsLike | number | string
+    netIncome?: Decimal | DecimalJsLike | number | string
+    guests?: number
+    staffCost?: Decimal | DecimalJsLike | number | string
+    pnlLines?: NullableJsonNullValueInput | InputJsonValue
+    appId?: string
+  }
+
+  export type FinancialProjectionUpdateManyMutationInput = {
+    period?: StringFieldUpdateOperationsInput | string
+    year?: IntFieldUpdateOperationsInput | number
+    month?: IntFieldUpdateOperationsInput | number
+    dataType?: StringFieldUpdateOperationsInput | string
+    scenario?: StringFieldUpdateOperationsInput | string
+    revenue?: DecimalFieldUpdateOperationsInput | Decimal | DecimalJsLike | number | string
+    ebitda?: DecimalFieldUpdateOperationsInput | Decimal | DecimalJsLike | number | string
+    netIncome?: DecimalFieldUpdateOperationsInput | Decimal | DecimalJsLike | number | string
+    guests?: IntFieldUpdateOperationsInput | number
+    staffCost?: DecimalFieldUpdateOperationsInput | Decimal | DecimalJsLike | number | string
+    pnlLines?: NullableJsonNullValueInput | InputJsonValue
+    appId?: StringFieldUpdateOperationsInput | string
+  }
+
+  export type FinancialProjectionUncheckedUpdateManyInput = {
+    id?: IntFieldUpdateOperationsInput | number
+    period?: StringFieldUpdateOperationsInput | string
+    year?: IntFieldUpdateOperationsInput | number
+    month?: IntFieldUpdateOperationsInput | number
+    dataType?: StringFieldUpdateOperationsInput | string
+    scenario?: StringFieldUpdateOperationsInput | string
+    revenue?: DecimalFieldUpdateOperationsInput | Decimal | DecimalJsLike | number | string
+    ebitda?: DecimalFieldUpdateOperationsInput | Decimal | DecimalJsLike | number | string
+    netIncome?: DecimalFieldUpdateOperationsInput | Decimal | DecimalJsLike | number | string
+    guests?: IntFieldUpdateOperationsInput | number
+    staffCost?: DecimalFieldUpdateOperationsInput | Decimal | DecimalJsLike | number | string
+    pnlLines?: NullableJsonNullValueInput | InputJsonValue
+    appId?: StringFieldUpdateOperationsInput | string
   }
 
   export type TenantCreateInput = {
@@ -62017,6 +63503,157 @@ export namespace Prisma {
     messageCount?: SortOrder
   }
 
+  export type DecimalFilter<$PrismaModel = never> = {
+    equals?: Decimal | DecimalJsLike | number | string | DecimalFieldRefInput<$PrismaModel>
+    in?: Decimal[] | DecimalJsLike[] | number[] | string[] | ListDecimalFieldRefInput<$PrismaModel>
+    notIn?: Decimal[] | DecimalJsLike[] | number[] | string[] | ListDecimalFieldRefInput<$PrismaModel>
+    lt?: Decimal | DecimalJsLike | number | string | DecimalFieldRefInput<$PrismaModel>
+    lte?: Decimal | DecimalJsLike | number | string | DecimalFieldRefInput<$PrismaModel>
+    gt?: Decimal | DecimalJsLike | number | string | DecimalFieldRefInput<$PrismaModel>
+    gte?: Decimal | DecimalJsLike | number | string | DecimalFieldRefInput<$PrismaModel>
+    not?: NestedDecimalFilter<$PrismaModel> | Decimal | DecimalJsLike | number | string
+  }
+  export type JsonNullableFilter<$PrismaModel = never> =
+    | PatchUndefined<
+        Either<Required<JsonNullableFilterBase<$PrismaModel>>, Exclude<keyof Required<JsonNullableFilterBase<$PrismaModel>>, 'path'>>,
+        Required<JsonNullableFilterBase<$PrismaModel>>
+      >
+    | OptionalFlat<Omit<Required<JsonNullableFilterBase<$PrismaModel>>, 'path'>>
+
+  export type JsonNullableFilterBase<$PrismaModel = never> = {
+    equals?: InputJsonValue | JsonFieldRefInput<$PrismaModel> | JsonNullValueFilter
+    path?: string[]
+    mode?: QueryMode | EnumQueryModeFieldRefInput<$PrismaModel>
+    string_contains?: string | StringFieldRefInput<$PrismaModel>
+    string_starts_with?: string | StringFieldRefInput<$PrismaModel>
+    string_ends_with?: string | StringFieldRefInput<$PrismaModel>
+    array_starts_with?: InputJsonValue | JsonFieldRefInput<$PrismaModel> | null
+    array_ends_with?: InputJsonValue | JsonFieldRefInput<$PrismaModel> | null
+    array_contains?: InputJsonValue | JsonFieldRefInput<$PrismaModel> | null
+    lt?: InputJsonValue | JsonFieldRefInput<$PrismaModel>
+    lte?: InputJsonValue | JsonFieldRefInput<$PrismaModel>
+    gt?: InputJsonValue | JsonFieldRefInput<$PrismaModel>
+    gte?: InputJsonValue | JsonFieldRefInput<$PrismaModel>
+    not?: InputJsonValue | JsonFieldRefInput<$PrismaModel> | JsonNullValueFilter
+  }
+
+  export type FinancialProjectionPeriodDataTypeScenarioAppIdCompoundUniqueInput = {
+    period: string
+    dataType: string
+    scenario: string
+    appId: string
+  }
+
+  export type FinancialProjectionCountOrderByAggregateInput = {
+    id?: SortOrder
+    period?: SortOrder
+    year?: SortOrder
+    month?: SortOrder
+    dataType?: SortOrder
+    scenario?: SortOrder
+    revenue?: SortOrder
+    ebitda?: SortOrder
+    netIncome?: SortOrder
+    guests?: SortOrder
+    staffCost?: SortOrder
+    pnlLines?: SortOrder
+    appId?: SortOrder
+  }
+
+  export type FinancialProjectionAvgOrderByAggregateInput = {
+    id?: SortOrder
+    year?: SortOrder
+    month?: SortOrder
+    revenue?: SortOrder
+    ebitda?: SortOrder
+    netIncome?: SortOrder
+    guests?: SortOrder
+    staffCost?: SortOrder
+  }
+
+  export type FinancialProjectionMaxOrderByAggregateInput = {
+    id?: SortOrder
+    period?: SortOrder
+    year?: SortOrder
+    month?: SortOrder
+    dataType?: SortOrder
+    scenario?: SortOrder
+    revenue?: SortOrder
+    ebitda?: SortOrder
+    netIncome?: SortOrder
+    guests?: SortOrder
+    staffCost?: SortOrder
+    appId?: SortOrder
+  }
+
+  export type FinancialProjectionMinOrderByAggregateInput = {
+    id?: SortOrder
+    period?: SortOrder
+    year?: SortOrder
+    month?: SortOrder
+    dataType?: SortOrder
+    scenario?: SortOrder
+    revenue?: SortOrder
+    ebitda?: SortOrder
+    netIncome?: SortOrder
+    guests?: SortOrder
+    staffCost?: SortOrder
+    appId?: SortOrder
+  }
+
+  export type FinancialProjectionSumOrderByAggregateInput = {
+    id?: SortOrder
+    year?: SortOrder
+    month?: SortOrder
+    revenue?: SortOrder
+    ebitda?: SortOrder
+    netIncome?: SortOrder
+    guests?: SortOrder
+    staffCost?: SortOrder
+  }
+
+  export type DecimalWithAggregatesFilter<$PrismaModel = never> = {
+    equals?: Decimal | DecimalJsLike | number | string | DecimalFieldRefInput<$PrismaModel>
+    in?: Decimal[] | DecimalJsLike[] | number[] | string[] | ListDecimalFieldRefInput<$PrismaModel>
+    notIn?: Decimal[] | DecimalJsLike[] | number[] | string[] | ListDecimalFieldRefInput<$PrismaModel>
+    lt?: Decimal | DecimalJsLike | number | string | DecimalFieldRefInput<$PrismaModel>
+    lte?: Decimal | DecimalJsLike | number | string | DecimalFieldRefInput<$PrismaModel>
+    gt?: Decimal | DecimalJsLike | number | string | DecimalFieldRefInput<$PrismaModel>
+    gte?: Decimal | DecimalJsLike | number | string | DecimalFieldRefInput<$PrismaModel>
+    not?: NestedDecimalWithAggregatesFilter<$PrismaModel> | Decimal | DecimalJsLike | number | string
+    _count?: NestedIntFilter<$PrismaModel>
+    _avg?: NestedDecimalFilter<$PrismaModel>
+    _sum?: NestedDecimalFilter<$PrismaModel>
+    _min?: NestedDecimalFilter<$PrismaModel>
+    _max?: NestedDecimalFilter<$PrismaModel>
+  }
+  export type JsonNullableWithAggregatesFilter<$PrismaModel = never> =
+    | PatchUndefined<
+        Either<Required<JsonNullableWithAggregatesFilterBase<$PrismaModel>>, Exclude<keyof Required<JsonNullableWithAggregatesFilterBase<$PrismaModel>>, 'path'>>,
+        Required<JsonNullableWithAggregatesFilterBase<$PrismaModel>>
+      >
+    | OptionalFlat<Omit<Required<JsonNullableWithAggregatesFilterBase<$PrismaModel>>, 'path'>>
+
+  export type JsonNullableWithAggregatesFilterBase<$PrismaModel = never> = {
+    equals?: InputJsonValue | JsonFieldRefInput<$PrismaModel> | JsonNullValueFilter
+    path?: string[]
+    mode?: QueryMode | EnumQueryModeFieldRefInput<$PrismaModel>
+    string_contains?: string | StringFieldRefInput<$PrismaModel>
+    string_starts_with?: string | StringFieldRefInput<$PrismaModel>
+    string_ends_with?: string | StringFieldRefInput<$PrismaModel>
+    array_starts_with?: InputJsonValue | JsonFieldRefInput<$PrismaModel> | null
+    array_ends_with?: InputJsonValue | JsonFieldRefInput<$PrismaModel> | null
+    array_contains?: InputJsonValue | JsonFieldRefInput<$PrismaModel> | null
+    lt?: InputJsonValue | JsonFieldRefInput<$PrismaModel>
+    lte?: InputJsonValue | JsonFieldRefInput<$PrismaModel>
+    gt?: InputJsonValue | JsonFieldRefInput<$PrismaModel>
+    gte?: InputJsonValue | JsonFieldRefInput<$PrismaModel>
+    not?: InputJsonValue | JsonFieldRefInput<$PrismaModel> | JsonNullValueFilter
+    _count?: NestedIntNullableFilter<$PrismaModel>
+    _min?: NestedJsonNullableFilter<$PrismaModel>
+    _max?: NestedJsonNullableFilter<$PrismaModel>
+  }
+
   export type TenantCountOrderByAggregateInput = {
     id?: SortOrder
     slug?: SortOrder
@@ -62348,29 +63985,6 @@ export namespace Prisma {
     stockCount?: SortOrder
     sortOrder?: SortOrder
   }
-  export type JsonNullableFilter<$PrismaModel = never> =
-    | PatchUndefined<
-        Either<Required<JsonNullableFilterBase<$PrismaModel>>, Exclude<keyof Required<JsonNullableFilterBase<$PrismaModel>>, 'path'>>,
-        Required<JsonNullableFilterBase<$PrismaModel>>
-      >
-    | OptionalFlat<Omit<Required<JsonNullableFilterBase<$PrismaModel>>, 'path'>>
-
-  export type JsonNullableFilterBase<$PrismaModel = never> = {
-    equals?: InputJsonValue | JsonFieldRefInput<$PrismaModel> | JsonNullValueFilter
-    path?: string[]
-    mode?: QueryMode | EnumQueryModeFieldRefInput<$PrismaModel>
-    string_contains?: string | StringFieldRefInput<$PrismaModel>
-    string_starts_with?: string | StringFieldRefInput<$PrismaModel>
-    string_ends_with?: string | StringFieldRefInput<$PrismaModel>
-    array_starts_with?: InputJsonValue | JsonFieldRefInput<$PrismaModel> | null
-    array_ends_with?: InputJsonValue | JsonFieldRefInput<$PrismaModel> | null
-    array_contains?: InputJsonValue | JsonFieldRefInput<$PrismaModel> | null
-    lt?: InputJsonValue | JsonFieldRefInput<$PrismaModel>
-    lte?: InputJsonValue | JsonFieldRefInput<$PrismaModel>
-    gt?: InputJsonValue | JsonFieldRefInput<$PrismaModel>
-    gte?: InputJsonValue | JsonFieldRefInput<$PrismaModel>
-    not?: InputJsonValue | JsonFieldRefInput<$PrismaModel> | JsonNullValueFilter
-  }
 
   export type OrderCountOrderByAggregateInput = {
     id?: SortOrder
@@ -62456,32 +64070,6 @@ export namespace Prisma {
     shipping?: SortOrder
     discount?: SortOrder
     total?: SortOrder
-  }
-  export type JsonNullableWithAggregatesFilter<$PrismaModel = never> =
-    | PatchUndefined<
-        Either<Required<JsonNullableWithAggregatesFilterBase<$PrismaModel>>, Exclude<keyof Required<JsonNullableWithAggregatesFilterBase<$PrismaModel>>, 'path'>>,
-        Required<JsonNullableWithAggregatesFilterBase<$PrismaModel>>
-      >
-    | OptionalFlat<Omit<Required<JsonNullableWithAggregatesFilterBase<$PrismaModel>>, 'path'>>
-
-  export type JsonNullableWithAggregatesFilterBase<$PrismaModel = never> = {
-    equals?: InputJsonValue | JsonFieldRefInput<$PrismaModel> | JsonNullValueFilter
-    path?: string[]
-    mode?: QueryMode | EnumQueryModeFieldRefInput<$PrismaModel>
-    string_contains?: string | StringFieldRefInput<$PrismaModel>
-    string_starts_with?: string | StringFieldRefInput<$PrismaModel>
-    string_ends_with?: string | StringFieldRefInput<$PrismaModel>
-    array_starts_with?: InputJsonValue | JsonFieldRefInput<$PrismaModel> | null
-    array_ends_with?: InputJsonValue | JsonFieldRefInput<$PrismaModel> | null
-    array_contains?: InputJsonValue | JsonFieldRefInput<$PrismaModel> | null
-    lt?: InputJsonValue | JsonFieldRefInput<$PrismaModel>
-    lte?: InputJsonValue | JsonFieldRefInput<$PrismaModel>
-    gt?: InputJsonValue | JsonFieldRefInput<$PrismaModel>
-    gte?: InputJsonValue | JsonFieldRefInput<$PrismaModel>
-    not?: InputJsonValue | JsonFieldRefInput<$PrismaModel> | JsonNullValueFilter
-    _count?: NestedIntNullableFilter<$PrismaModel>
-    _min?: NestedJsonNullableFilter<$PrismaModel>
-    _max?: NestedJsonNullableFilter<$PrismaModel>
   }
 
   export type ProductScalarRelationFilter = {
@@ -64153,6 +65741,14 @@ export namespace Prisma {
     deleteMany?: NavigationItemScalarWhereInput | NavigationItemScalarWhereInput[]
   }
 
+  export type DecimalFieldUpdateOperationsInput = {
+    set?: Decimal | DecimalJsLike | number | string
+    increment?: Decimal | DecimalJsLike | number | string
+    decrement?: Decimal | DecimalJsLike | number | string
+    multiply?: Decimal | DecimalJsLike | number | string
+    divide?: Decimal | DecimalJsLike | number | string
+  }
+
   export type MediaAssetCreatetagsInput = {
     set: string[]
   }
@@ -64544,6 +66140,56 @@ export namespace Prisma {
     _max?: NestedEnumTaskStatusFilter<$PrismaModel>
   }
 
+  export type NestedDecimalFilter<$PrismaModel = never> = {
+    equals?: Decimal | DecimalJsLike | number | string | DecimalFieldRefInput<$PrismaModel>
+    in?: Decimal[] | DecimalJsLike[] | number[] | string[] | ListDecimalFieldRefInput<$PrismaModel>
+    notIn?: Decimal[] | DecimalJsLike[] | number[] | string[] | ListDecimalFieldRefInput<$PrismaModel>
+    lt?: Decimal | DecimalJsLike | number | string | DecimalFieldRefInput<$PrismaModel>
+    lte?: Decimal | DecimalJsLike | number | string | DecimalFieldRefInput<$PrismaModel>
+    gt?: Decimal | DecimalJsLike | number | string | DecimalFieldRefInput<$PrismaModel>
+    gte?: Decimal | DecimalJsLike | number | string | DecimalFieldRefInput<$PrismaModel>
+    not?: NestedDecimalFilter<$PrismaModel> | Decimal | DecimalJsLike | number | string
+  }
+
+  export type NestedDecimalWithAggregatesFilter<$PrismaModel = never> = {
+    equals?: Decimal | DecimalJsLike | number | string | DecimalFieldRefInput<$PrismaModel>
+    in?: Decimal[] | DecimalJsLike[] | number[] | string[] | ListDecimalFieldRefInput<$PrismaModel>
+    notIn?: Decimal[] | DecimalJsLike[] | number[] | string[] | ListDecimalFieldRefInput<$PrismaModel>
+    lt?: Decimal | DecimalJsLike | number | string | DecimalFieldRefInput<$PrismaModel>
+    lte?: Decimal | DecimalJsLike | number | string | DecimalFieldRefInput<$PrismaModel>
+    gt?: Decimal | DecimalJsLike | number | string | DecimalFieldRefInput<$PrismaModel>
+    gte?: Decimal | DecimalJsLike | number | string | DecimalFieldRefInput<$PrismaModel>
+    not?: NestedDecimalWithAggregatesFilter<$PrismaModel> | Decimal | DecimalJsLike | number | string
+    _count?: NestedIntFilter<$PrismaModel>
+    _avg?: NestedDecimalFilter<$PrismaModel>
+    _sum?: NestedDecimalFilter<$PrismaModel>
+    _min?: NestedDecimalFilter<$PrismaModel>
+    _max?: NestedDecimalFilter<$PrismaModel>
+  }
+  export type NestedJsonNullableFilter<$PrismaModel = never> =
+    | PatchUndefined<
+        Either<Required<NestedJsonNullableFilterBase<$PrismaModel>>, Exclude<keyof Required<NestedJsonNullableFilterBase<$PrismaModel>>, 'path'>>,
+        Required<NestedJsonNullableFilterBase<$PrismaModel>>
+      >
+    | OptionalFlat<Omit<Required<NestedJsonNullableFilterBase<$PrismaModel>>, 'path'>>
+
+  export type NestedJsonNullableFilterBase<$PrismaModel = never> = {
+    equals?: InputJsonValue | JsonFieldRefInput<$PrismaModel> | JsonNullValueFilter
+    path?: string[]
+    mode?: QueryMode | EnumQueryModeFieldRefInput<$PrismaModel>
+    string_contains?: string | StringFieldRefInput<$PrismaModel>
+    string_starts_with?: string | StringFieldRefInput<$PrismaModel>
+    string_ends_with?: string | StringFieldRefInput<$PrismaModel>
+    array_starts_with?: InputJsonValue | JsonFieldRefInput<$PrismaModel> | null
+    array_ends_with?: InputJsonValue | JsonFieldRefInput<$PrismaModel> | null
+    array_contains?: InputJsonValue | JsonFieldRefInput<$PrismaModel> | null
+    lt?: InputJsonValue | JsonFieldRefInput<$PrismaModel>
+    lte?: InputJsonValue | JsonFieldRefInput<$PrismaModel>
+    gt?: InputJsonValue | JsonFieldRefInput<$PrismaModel>
+    gte?: InputJsonValue | JsonFieldRefInput<$PrismaModel>
+    not?: InputJsonValue | JsonFieldRefInput<$PrismaModel> | JsonNullValueFilter
+  }
+
   export type NestedFloatNullableFilter<$PrismaModel = never> = {
     equals?: number | FloatFieldRefInput<$PrismaModel> | null
     in?: number[] | ListFloatFieldRefInput<$PrismaModel> | null
@@ -64585,29 +66231,6 @@ export namespace Prisma {
     _sum?: NestedFloatNullableFilter<$PrismaModel>
     _min?: NestedFloatNullableFilter<$PrismaModel>
     _max?: NestedFloatNullableFilter<$PrismaModel>
-  }
-  export type NestedJsonNullableFilter<$PrismaModel = never> =
-    | PatchUndefined<
-        Either<Required<NestedJsonNullableFilterBase<$PrismaModel>>, Exclude<keyof Required<NestedJsonNullableFilterBase<$PrismaModel>>, 'path'>>,
-        Required<NestedJsonNullableFilterBase<$PrismaModel>>
-      >
-    | OptionalFlat<Omit<Required<NestedJsonNullableFilterBase<$PrismaModel>>, 'path'>>
-
-  export type NestedJsonNullableFilterBase<$PrismaModel = never> = {
-    equals?: InputJsonValue | JsonFieldRefInput<$PrismaModel> | JsonNullValueFilter
-    path?: string[]
-    mode?: QueryMode | EnumQueryModeFieldRefInput<$PrismaModel>
-    string_contains?: string | StringFieldRefInput<$PrismaModel>
-    string_starts_with?: string | StringFieldRefInput<$PrismaModel>
-    string_ends_with?: string | StringFieldRefInput<$PrismaModel>
-    array_starts_with?: InputJsonValue | JsonFieldRefInput<$PrismaModel> | null
-    array_ends_with?: InputJsonValue | JsonFieldRefInput<$PrismaModel> | null
-    array_contains?: InputJsonValue | JsonFieldRefInput<$PrismaModel> | null
-    lt?: InputJsonValue | JsonFieldRefInput<$PrismaModel>
-    lte?: InputJsonValue | JsonFieldRefInput<$PrismaModel>
-    gt?: InputJsonValue | JsonFieldRefInput<$PrismaModel>
-    gte?: InputJsonValue | JsonFieldRefInput<$PrismaModel>
-    not?: InputJsonValue | JsonFieldRefInput<$PrismaModel> | JsonNullValueFilter
   }
 
   export type PageSectionCreateWithoutPageInput = {

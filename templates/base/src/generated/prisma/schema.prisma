@@ -294,7 +294,28 @@ model Conversation {
 }
 
 /// Financial projections — preserve data_type + scenario (tri-review requirement)
-/// Legacy — schema.sql only; ensure migration creates if missing (see website-db-migration ensureLegacyTables)
+model FinancialProjection {
+  id        Int     @id() @default(autoincrement())
+  period    String
+  year      Int
+  month     Int
+  dataType  String  @map("data_type")
+  scenario  String  @default("conservative")
+  revenue   Decimal @default(0) @db.Decimal(14, 2)
+  ebitda    Decimal @default(0) @db.Decimal(14, 2)
+  netIncome Decimal @default(0) @map("net_income") @db.Decimal(14, 2)
+  guests    Int     @default(0)
+  staffCost Decimal @default(0) @map("staff_cost") @db.Decimal(14, 2)
+  pnlLines  Json?   @map("pnl_lines")
+  /// Suite-mode app id — empty string means the tenant's own (single-app) copy.
+  appId     String  @default("") @map("app_id")
+
+  @@unique([period, dataType, scenario, appId])
+  @@index([period])
+  @@index([appId], map: "idx_financial_projections_app_id")
+  @@map("financial_projections")
+}
+
 /// A registered tenant application — created via the root config app wizard.
 model Tenant {
   id              String   @id() @default(cuid())

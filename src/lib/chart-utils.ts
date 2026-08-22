@@ -105,10 +105,34 @@ export function axisTickCallback(kpi: ChartKpi, val: number | string): string {
   return String(n);
 }
 
+export const MONTH_ABBREV = [
+  'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+  'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
+] as const;
+
+/** Inclusive year range of `Mon YYYY` labels (e.g. Jan 2026 … Dec 2027). */
+export function buildYearMonthLabels(startYear: number, endYear: number): string[] {
+  const labels: string[] = [];
+  for (let y = startYear; y <= endYear; y++) {
+    for (const mon of MONTH_ABBREV) {
+      labels.push(`${mon} ${y}`);
+    }
+  }
+  return labels;
+}
+
+/**
+ * Default chart window: previous calendar year through next year (36 months).
+ * Keeps the month dropdown usable even before projections are seeded.
+ */
+export function defaultChartMonthLabels(now = new Date()): string[] {
+  const y = now.getFullYear();
+  return buildYearMonthLabels(y - 1, y + 1);
+}
+
 export function findCurrentMonthIndex(labels: string[]): number {
   const now = new Date();
-  const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-  const needle = `${monthNames[now.getMonth()]} ${now.getFullYear()}`;
+  const needle = `${MONTH_ABBREV[now.getMonth()]} ${now.getFullYear()}`;
   return labels.findIndex((l) => l === needle);
 }
 
