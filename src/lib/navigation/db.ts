@@ -222,11 +222,11 @@ export async function reconcileNavigationDuplicates(
     }
   }
 
-  // ── 3. Same path under different parents — still within this app only ─
+  // ── 3. Same path under different parents — prefer nested over root ─────
   const pathDupes = await prisma.$queryRawUnsafe<{ path: string; keep_id: string; ids: string }[]>(
     `SELECT path,
-            (ARRAY_AGG(id ORDER BY is_dynamic ASC, created_at ASC NULLS LAST, id ASC))[1] AS keep_id,
-            ARRAY_TO_STRING(ARRAY_AGG(id ORDER BY is_dynamic ASC, created_at ASC NULLS LAST, id ASC), ',') AS ids
+            (ARRAY_AGG(id ORDER BY (parent_id IS NULL) ASC, is_dynamic ASC, created_at ASC NULLS LAST, id ASC))[1] AS keep_id,
+            ARRAY_TO_STRING(ARRAY_AGG(id ORDER BY (parent_id IS NULL) ASC, is_dynamic ASC, created_at ASC NULLS LAST, id ASC), ',') AS ids
      FROM navigation_items
      WHERE path <> '' AND path <> '/excel' AND path <> '/workbook'
        AND ${scopeFilter}

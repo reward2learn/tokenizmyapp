@@ -8,6 +8,7 @@
  * TokenizMyApp marketing homepage from this catalog.
  */
 import { isPlatformApp } from '@shared/lib/config/tenant';
+import { tierAllowsAccess } from '@/lib/auth/tier-access';
 
 export type AuthTier = 'public' | 'pin' | 'google';
 
