@@ -571,7 +571,18 @@ export async function resolveOrgForTenant(
     `SELECT id FROM tenants WHERE slug = $1 LIMIT 1;`,
     tenantSlug,
   )) as Record<string, unknown>[];
-  if (tenantRows.length === 0) return null;
+  if (tenantRows.length === 0) {
+    // Tenant-app databases have no `tenants` registry row — the slug is stamped
+    // on the deployment via NEXT_PUBLIC_TENANT_SLUG. Metering already falls
+    // back to the default org in this case; Settings and Billing need the same
+    // answer or every org-scoped surface reads as unassigned.
+    const deployedSlug = process.env.NEXT_PUBLIC_TENANT_SLUG?.trim();
+    if (deployedSlug && deployedSlug === tenantSlug && deployedSlug !== 'tokenizmyapp') {
+      const { orgId } = await backfillDefaultOrganization(db);
+      return getOrganization(db, orgId);
+    }
+    return null;
+  }
 
   const { orgId } = await backfillDefaultOrganization(db);
   return getOrganization(db, orgId);

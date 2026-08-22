@@ -20,8 +20,9 @@ import { getClientTenantConfig, isPlatformApp } from '@shared/lib/config/tenant'
  * Order: the organization bar's explicit choice wins, then the org that pays
  * for the tenant this app is served as, then the first org the caller can see.
  *
- * On a tenant deploy the local DB has no `tenants` registry row, so
- * `/api/admin/tenants/:slug/organization` 404s — skip that lookup off-platform.
+ * Tenant apps have no organization bar — the owning org is resolved from this
+ * deployment's slug via `/api/admin/tenants/:slug/organization` (which falls
+ * back to the default org when the local DB has no tenants registry row).
  */
 export function useBillingOrgId(): string | null {
   const selectedOrgId = useAppSelector((s) => s.ui.adminSelectedOrgId);
@@ -29,18 +30,15 @@ export function useBillingOrgId(): string | null {
   const onPlatform = isPlatformApp();
 
   const { data: tenantOrg } = useGetTenantOrganizationQuery(tenantSlug, {
-    skip: !tenantSlug || !onPlatform,
+    skip: !tenantSlug,
   });
   const { data: orgList } = useListOrganizationsQuery(undefined, { skip: !onPlatform });
 
+  const tenantOrgId = tenantOrg?.data?.organization.id ?? null;
+
   if (!onPlatform) {
-    return selectedOrgId ?? null;
+    return tenantOrgId;
   }
 
-  return (
-    selectedOrgId ??
-    tenantOrg?.data?.organization.id ??
-    orgList?.data?.organizations?.[0]?.id ??
-    null
-  );
+  return selectedOrgId ?? tenantOrgId ?? orgList?.data?.organizations?.[0]?.id ?? null;
 }

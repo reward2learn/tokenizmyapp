@@ -46,6 +46,7 @@ import { useGetBrandConfigQuery } from '@shared/store/apis/brand-config-api';
 import { useGetNavigationQuery } from '@/store/apis/navigation-api';
 import { NavIcon } from '@/components/shared/nav-icon';
 import { getClientTenantConfig } from '@shared/lib/config/tenant';
+import { useUserAvatarUrl } from '@/lib/auth/use-user-avatar-url';
 import { useThemeMode } from '@/theme/theme-registry';
 import type { ThemeMode } from '@/theme/design-tokens';
 
@@ -119,6 +120,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   const drawerOpen = useAppSelector((s) => s.ui.drawerOpen);
   const chatDrawerOpen = useAppSelector((s) => s.ui.chatDrawerOpen);
   const { tier, user, groups } = useAppSelector((s) => s.auth);
+  const avatarUrl = useUserAvatarUrl();
   const { themeMode, setThemeMode } = useThemeMode();
   const [themeMenuAnchor, setThemeMenuAnchor] = useState<HTMLElement | null>(null);
   const { refetch: refetchPages } = useListPagesQuery();
@@ -401,7 +403,7 @@ export function AppShell({ children }: { children: ReactNode }) {
       >
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, p: { xs: 2, md: 2.5 }, pb: { xs: 1.5, md: 2 } }}>
           <Avatar
-            src={user?.picture ?? undefined}
+            src={avatarUrl}
             sx={{ width: 36, height: 36, bgcolor: 'rgba(235, 61, 40, 0.15)', color: 'primary.main' }}
           >
             {user?.name?.[0] ?? 'R'}

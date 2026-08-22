@@ -26,6 +26,7 @@ import { ProfilePanel } from '@/components/settings/profile-panel';
 import { SecurityPanel } from '@/components/settings/security-panel';
 import { BillingPanel } from '@/components/billing/billing-panel';
 import { RADIUS } from '@/theme/design-tokens';
+import { isPlatformApp } from '@shared/lib/config/tenant';
 
 /**
  * Settings — organization-scoped on top, personal below.
@@ -185,12 +186,23 @@ function SectionGroup({
  * a blank pane, which reads as a load that failed.
  */
 export function NoOrganization({ what }: { what: string }) {
+  const onPlatform = isPlatformApp();
   return (
     <Stack spacing={1}>
       <Typography variant="h6">{what}</Typography>
       <Typography variant="body2" color="text.secondary">
-        No organization is selected. {what} belongs to the organization that pays for a
-        tenant, so pick one in the organization bar on the Admin page first.
+        {onPlatform ? (
+          <>
+            No organization is selected. {what} belongs to the organization that pays for a
+            tenant, so pick one in the organization bar on the Admin page first.
+          </>
+        ) : (
+          <>
+            Unable to load the organization for this tenant. {what} belongs to the
+            organization that pays for this app — contact your administrator if this
+            persists.
+          </>
+        )}
       </Typography>
     </Stack>
   );

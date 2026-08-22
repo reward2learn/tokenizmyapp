@@ -10,6 +10,7 @@ import { useState } from 'react';
 import { useAppSelector } from '@/store/hooks';
 import { useGetUserProfileQuery, useUpdateUserProfileMutation } from '@/store/apis/auth-api';
 import { AvatarUpload } from '@/components/settings/avatar-upload';
+import { useUserAvatarUrl } from '@/lib/auth/use-user-avatar-url';
 
 /**
  * Settings → Personal → Profile.
@@ -25,6 +26,7 @@ import { AvatarUpload } from '@/components/settings/avatar-upload';
  */
 export function ProfilePanel() {
   const { user, tier, roleCode, platformAdmin } = useAppSelector((s) => s.auth);
+  const avatarUrl = useUserAvatarUrl();
 
   if (!user) {
     return (
@@ -40,7 +42,7 @@ export function ProfilePanel() {
       <Typography variant="h6">Profile</Typography>
 
       <Stack direction="row" spacing={2} sx={{ alignItems: 'center' }}>
-        <Avatar sx={{ width: 64, height: 64 }}>
+        <Avatar src={avatarUrl} sx={{ width: 64, height: 64 }}>
           {(user.name ?? user.email ?? '?').charAt(0).toUpperCase()}
         </Avatar>
         <Stack spacing={0.5}>

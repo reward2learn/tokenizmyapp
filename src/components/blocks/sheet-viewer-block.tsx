@@ -70,6 +70,7 @@ import {
 } from '@/lib/workbook-mapping';
 import {
   setFormulaMode,
+  setPinnedColumns,
   selectSingleCell,
   toggleCell,
   shiftSelectRange,
@@ -78,7 +79,6 @@ import {
   dragMove,
   dragEnd,
   clearCellSelection,
-  togglePinnedColumn,
   toggleExtraStat,
   selectFormulaMode,
   selectDragActive,
@@ -727,6 +727,12 @@ export function SheetViewerBlock({ config }: { config: Record<string, unknown> }
   const [paginationModel, setPaginationModel] = useState({ page: 0, pageSize: PER_PAGE });
   const [sortModel, setSortModel] = useState<GridSortModel>([]);
   const [settingsAnchor, setSettingsAnchor] = useState<HTMLElement | null>(null);
+  /** Draft values in Table Settings — applied only when the user clicks Save. */
+  const [settingsDraft, setSettingsDraft] = useState<{
+    formulaMode: boolean;
+    rowHeight: number;
+    pinnedColumns: string[];
+  } | null>(null);
   const [rowSelectionModel, setRowSelectionModel] = useState<GridRowSelectionModel>({
     type: 'include' as const,
     ids: new Set<GridRowId>(),
@@ -888,16 +894,50 @@ export function SheetViewerBlock({ config }: { config: Record<string, unknown> }
   );
 
   const handleRowHeightChange = useCallback((_e: unknown, v: number | number[]) => {
-    setRowHeightLocal(Array.isArray(v) ? v[0] : v);
+    const h = Array.isArray(v) ? v[0] : v;
+    setSettingsDraft((prev) => (prev ? { ...prev, rowHeight: h } : prev));
   }, []);
-  const handleRowHeightCommit = useCallback(
-    (_e: unknown, v: number | number[]) => {
-      const h = Array.isArray(v) ? v[0] : v;
-      setRowHeightLocal(h);
-      if (sheet) void saveSheetViewerConfig({ sheet, rowHeight: h });
+
+  const handleSettingsClick = useCallback(
+    (event: React.MouseEvent<HTMLElement>) => {
+      setSettingsDraft({
+        formulaMode,
+        rowHeight,
+        pinnedColumns: [...pinnedColumns],
+      });
+      setSettingsAnchor(event.currentTarget);
     },
-    [sheet, saveSheetViewerConfig],
+    [formulaMode, rowHeight, pinnedColumns],
   );
+
+  const handleSettingsClose = useCallback(() => {
+    setSettingsAnchor(null);
+    setSettingsDraft(null);
+  }, []);
+
+  const handleSettingsSave = useCallback(async () => {
+    if (!settingsDraft || !sheet) return;
+    dispatch(setFormulaMode(settingsDraft.formulaMode));
+    dispatch(setPinnedColumns(settingsDraft.pinnedColumns));
+    setRowHeightLocal(settingsDraft.rowHeight);
+    try {
+      await saveSheetViewerConfig({ sheet, rowHeight: settingsDraft.rowHeight }).unwrap();
+      setSnackbarMessage('Table settings saved');
+      setSnackbarOpen(true);
+    } catch {
+      setSnackbarMessage('Could not save table settings');
+      setSnackbarOpen(true);
+    }
+    setSettingsAnchor(null);
+    setSettingsDraft(null);
+  }, [settingsDraft, sheet, dispatch, saveSheetViewerConfig]);
+
+  const settingsDirty =
+    settingsDraft !== null &&
+    (settingsDraft.formulaMode !== formulaMode ||
+      settingsDraft.rowHeight !== rowHeight ||
+      settingsDraft.pinnedColumns.length !== pinnedColumns.length ||
+      settingsDraft.pinnedColumns.some((col, i) => col !== pinnedColumns[i]));
 
   // ── Per-column header menu (three-dot) ──
   const [colMenuAnchor, setColMenuAnchor] = useState<HTMLElement | null>(null);
@@ -962,14 +1002,6 @@ export function SheetViewerBlock({ config }: { config: Record<string, unknown> }
     dispatch(clearCellSelection());
     console.log("[SheetViewerBlock] Sort model updated (external):", limitedModel);
   }, [dispatch]);
-
-  const handleSettingsClick = useCallback((event: React.MouseEvent<HTMLElement>) => {
-    setSettingsAnchor(event.currentTarget);
-  }, []);
-
-  const handleSettingsClose = useCallback(() => {
-    setSettingsAnchor(null);
-  }, []);
 
   const processRowUpdate = useCallback(
     async (newRow: GridRowModel, oldRow: GridRowModel): Promise<GridRowModel> => {
@@ -2510,6 +2542,9 @@ export function SheetViewerBlock({ config }: { config: Record<string, unknown> }
 
   const data = payload?.data;
   const openSettings = Boolean(settingsAnchor);
+  const draftFormulaMode = settingsDraft?.formulaMode ?? formulaMode;
+  const draftRowHeight = settingsDraft?.rowHeight ?? rowHeight;
+  const draftPinnedColumns = settingsDraft?.pinnedColumns ?? pinnedColumns;
 
   const getCellClassName = useCallback((params: GridCellParams) => {
     const key = getCellKey(params.id, params.field);
@@ -2783,8 +2818,12 @@ export function SheetViewerBlock({ config }: { config: Record<string, unknown> }
                 <FormControlLabel
                   control={
                     <Switch
-                      checked={formulaMode}
-                      onChange={(e) => dispatch(setFormulaMode(e.target.checked))}
+                      checked={draftFormulaMode}
+                      onChange={(e) =>
+                        setSettingsDraft((prev) =>
+                          prev ? { ...prev, formulaMode: e.target.checked } : prev,
+                        )
+                      }
                       size="small"
                     />
                   }
@@ -2826,15 +2865,14 @@ export function SheetViewerBlock({ config }: { config: Record<string, unknown> }
                   min={36}
                   max={96}
                   step={2}
-                  value={rowHeight}
+                  value={draftRowHeight}
                   onChange={handleRowHeightChange}
-                  onChangeCommitted={handleRowHeightCommit}
                   sx={{ mx: 2 }}
                 />
               </ListItem>
               <ListItem dense>
                 <Typography variant="caption" sx={{ px: 2, display: 'block', color: 'text.secondary' }}>
-                  {rowHeight} px — saved automatically per sheet
+                  {draftRowHeight} px — click Save to apply (stored per sheet)
                 </Typography>
               </ListItem>
               <Divider sx={{ mb: 1 }} />
@@ -2848,8 +2886,16 @@ export function SheetViewerBlock({ config }: { config: Record<string, unknown> }
                   <FormControlLabel
                     control={
                       <Checkbox
-                        checked={pinnedColumns.includes(col)}
-                        onChange={() => dispatch(togglePinnedColumn(col))}
+                        checked={draftPinnedColumns.includes(col)}
+                        onChange={() =>
+                          setSettingsDraft((prev) => {
+                            if (!prev) return prev;
+                            const next = prev.pinnedColumns.includes(col)
+                              ? prev.pinnedColumns.filter((f) => f !== col)
+                              : [...prev.pinnedColumns, col];
+                            return { ...prev, pinnedColumns: next };
+                          })
+                        }
                         size="small"
                       />
                     }
@@ -2923,6 +2969,20 @@ export function SheetViewerBlock({ config }: { config: Record<string, unknown> }
               <Typography variant="caption" sx={{ px: 3, pb: 1, display: 'block', color: 'text.secondary' }}>
                 Custom columns overlay the sheet — formulas and cell input keep their exact Excel positions.
               </Typography>
+              <Divider sx={{ my: 1 }} />
+              <ListItem sx={{ justifyContent: 'flex-end', gap: 1, pb: 2 }}>
+                <Button size="small" onClick={handleSettingsClose}>
+                  Cancel
+                </Button>
+                <Button
+                  size="small"
+                  variant="contained"
+                  disabled={!settingsDirty}
+                  onClick={() => void handleSettingsSave()}
+                >
+                  Save
+                </Button>
+              </ListItem>
             </List>
            </Popover>
 
