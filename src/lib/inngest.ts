@@ -5,6 +5,35 @@ export const inngest = new Inngest({
   name: 'TOKENIZMYAPP Orchestrator',
 });
 
+/** True when this deployment can emit events to Inngest Cloud. */
+export function inngestEventsEnabled(): boolean {
+  return Boolean(process.env.INNGEST_EVENT_KEY?.trim());
+}
+
+/**
+ * Send an Inngest event without failing the caller when Inngest is not configured
+ * (common on factory deployments that only use Vercel webhooks for audit).
+ */
+export async function safeInngestSend(
+  event: Parameters<typeof inngest.send>[0],
+): Promise<boolean> {
+  if (!inngestEventsEnabled()) {
+    const name = Array.isArray(event)
+      ? event.map((e) => e.name).join(', ')
+      : event.name;
+    console.warn(`[inngest] INNGEST_EVENT_KEY not set — skipped event ${name}`);
+    return false;
+  }
+  try {
+    await inngest.send(event);
+    return true;
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.error(`[inngest] send failed: ${message}`);
+    return false;
+  }
+}
+
 // Event types
 export interface TenantEvents {
   'tenant.created': {

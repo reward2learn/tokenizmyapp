@@ -24,6 +24,7 @@
  *
  * Auth: requireWriteAuth + platform admin. Billing is control-plane money.
  */
+import type Stripe from 'stripe';
 import { z } from 'zod';
 import { createRawClient } from '@/lib/db';
 import { requireWriteAuth } from '@/lib/auth/guards';
@@ -42,6 +43,15 @@ import {
 import { getSubscription } from '@/domain/billing/entitlement-service';
 import { getStripePublishableKey, listConfiguredPrices } from '@/lib/billing/stripe-client';
 import { isPlanId } from '@/lib/billing/plans';
+
+function formatStripeApiError(err: unknown): string {
+  if (err && typeof err === 'object' && 'type' in err) {
+    const stripeErr = err as Stripe.errors.StripeError;
+    const param = 'param' in stripeErr && stripeErr.param ? ` (param: ${stripeErr.param})` : '';
+    return `${stripeErr.message}${param}`;
+  }
+  return err instanceof Error ? err.message : String(err);
+}
 
 export const dynamic = 'force-dynamic';
 
@@ -233,6 +243,11 @@ export async function POST(
 
     return jsonOk({ mode: 'checkout', url: session.url, sessionId: session.sessionId });
   } catch (err) {
-    return jsonError('Checkout failed: ' + (err as Error).message, 500);
+    const detail = formatStripeApiError(err);
+    const status =
+      err && typeof err === 'object' && 'statusCode' in err && (err as Stripe.errors.StripeError).statusCode === 400
+        ? 400
+        : 500;
+    return jsonError(`Checkout failed: ${detail}`, status);
   }
 }

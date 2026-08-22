@@ -22,6 +22,7 @@ import {
   getPriceId as resolvePriceId,
   stripeConfigError,
   isLiveKey,
+  getStripeWebhookSecret,
   type StripeEnvConfig,
 } from '@/lib/billing/stripe-client';
 import type { PlanId, BillingInterval } from '@/lib/billing/plans';
@@ -459,7 +460,9 @@ export function stripeReadiness(override?: StripeEnvConfig): {
   // metadata.config.stripe) so tenant billing reflects the tenant's Stripe
   // account; every field falls back to this deployment's env.
   const hasSecretKey = Boolean(getStripeFor(override));
-  const hasWebhookSecret = Boolean((override?.webhookSecret ?? process.env.STRIPE_WEBHOOK_SECRET)?.trim());
+  const hasWebhookSecret = Boolean(
+    override?.webhookSecret?.trim()?.startsWith('whsec_') || getStripeWebhookSecret(),
+  );
   const hasPublishableKey = Boolean((override?.publishableKey ?? process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY)?.trim());
   const configuredPrices = listConfiguredPrices(override).length;
   const configError = stripeConfigError(override);

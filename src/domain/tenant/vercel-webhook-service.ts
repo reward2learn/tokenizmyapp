@@ -14,7 +14,7 @@
 
 import crypto from 'node:crypto';
 import { z } from 'zod';
-import { inngest } from '@/lib/inngest';
+import { inngest, safeInngestSend } from '@/lib/inngest';
 import { cleanupTenant } from './tenant-cleanup-service';
 import { createBaseClient } from '@/lib/db';
 
@@ -225,7 +225,7 @@ export async function handleVercelWebhook(
           tenantSlug,
           vercelProjectId: projectId || undefined,
         });
-        await inngest.send({
+        await safeInngestSend({
           name: 'vercel.project.removed',
           data: {
             tenantSlug,
@@ -239,7 +239,7 @@ export async function handleVercelWebhook(
 
       case 'deployment.succeeded': {
         action = 'deployment-success';
-        await inngest.send({
+        await safeInngestSend({
           name: 'vercel.deployment.succeeded',
           data: {
             tenantSlug,
@@ -253,7 +253,7 @@ export async function handleVercelWebhook(
 
       case 'deployment.error': {
         action = 'mark-error';
-        await inngest.send({
+        await safeInngestSend({
           name: 'vercel.deployment.error',
           data: {
             tenantSlug,
@@ -267,7 +267,7 @@ export async function handleVercelWebhook(
 
       case 'deployment.canceled': {
         action = 'deployment-canceled';
-        await inngest.send({
+        await safeInngestSend({
           name: 'vercel.deployment.canceled',
           data: {
             tenantSlug,
@@ -281,7 +281,7 @@ export async function handleVercelWebhook(
 
       case 'deployment.cleanup': {
         action = 'deployment-cleanup';
-        await inngest.send({
+        await safeInngestSend({
           name: 'vercel.deployment.cleanup',
           data: {
             tenantSlug,
@@ -296,7 +296,7 @@ export async function handleVercelWebhook(
       case 'project.domain.verified':
       case 'project.domain.unverified': {
         action = 'domain-event';
-        await inngest.send({
+        await safeInngestSend({
           name:
             type === 'project.domain.verified'
               ? 'vercel.project.domain.verified'
@@ -311,7 +311,7 @@ export async function handleVercelWebhook(
         action = 'unknown-event';
         resultStatus = 'ignored';
         console.log(`[vercel-webhook] Unhandled event type: ${type}`);
-        await inngest.send({
+        await safeInngestSend({
           name: 'vercel.webhook.unhandled',
           data: { type, payload, tenantSlug },
         });
@@ -341,7 +341,7 @@ export async function handleVercelWebhook(
     await recordWebhookEvent(type, payload, resultStatus, errorMsg, durationMs);
     console.error(`[vercel-webhook] Failed to process ${type}:`, err);
 
-    await inngest.send({
+    await safeInngestSend({
       name: 'vercel.webhook.error',
       data: { type, tenantSlug, error: errorMsg, projectId },
     });
