@@ -24,9 +24,21 @@ export const STRIPE_MARKETPLACE_ENV_KEYS = [
   'NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY',
 ] as const;
 
+/** Primary env key for Dashboard snapshot whsec_ (avoids Stripe Marketplace STRIPE_* collision). */
+export const TOKENIZ_SNAPSHOT_WHSEC_KEY = 'TOKENIZ_SNAPSHOT_WHSEC';
+
+/** Legacy + primary keys for snapshot destination signing secret. */
+export const SNAPSHOT_WEBHOOK_SECRET_ENV_KEYS = [
+  TOKENIZ_SNAPSHOT_WHSEC_KEY,
+  'STRIPE_SNAPSHOT_WEBHOOK_SECRET',
+] as const;
+
 /** Extra keys we may still push manually (not always Marketplace-provisioned). */
 export const STRIPE_MANUAL_ENV_KEYS = [
   'STRIPE_WEBHOOK_SECRET',
+  TOKENIZ_SNAPSHOT_WHSEC_KEY,
+  /** @deprecated use TOKENIZ_SNAPSHOT_WHSEC_KEY */
+  'STRIPE_SNAPSHOT_WEBHOOK_SECRET',
 ] as const;
 
 export type StripeMarketplaceStatus = {
@@ -93,8 +105,31 @@ export type WebhookSecretEnvDiagnostic = {
 function classifySecretPrefix(value: string): 'whsec' | 'eyJ' | 'other' {
   const v = value.trim();
   if (v.startsWith('whsec_')) return 'whsec';
+  if (isVercelEncryptedEnvEnvelope(v)) return 'whsec';
   if (v.startsWith('eyJ')) return 'eyJ';
   return 'other';
+}
+
+/**
+ * Vercel `type: encrypted` env values appear in the API as base64 `{"v":"v2","c":"…"}` blobs.
+ * Runtime decrypts them to the original whsec_ value — do not confuse with Marketplace JWTs.
+ */
+export function isVercelEncryptedEnvEnvelope(value: string): boolean {
+  const v = value.trim();
+  if (!v.startsWith('eyJ')) return false;
+  try {
+    const json = JSON.parse(Buffer.from(v, 'base64url').toString('utf8')) as { v?: string; c?: string };
+    return json.v === 'v2' && typeof json.c === 'string';
+  } catch {
+    return false;
+  }
+}
+
+/** Stripe Marketplace integration token on STRIPE_WEBHOOK_SECRET (JWT, not Vercel envelope). */
+export function isStripeMarketplaceIntegrationToken(value: string): boolean {
+  const v = value.trim();
+  if (!v.startsWith('eyJ') || isVercelEncryptedEnvEnvelope(v)) return false;
+  return v.split('.').length >= 2;
 }
 
 /**
@@ -107,6 +142,14 @@ function pickEnvValue(envs: EnvRow[], key: string): string | null {
 
   if (key === 'STRIPE_WEBHOOK_SECRET') {
     const whsecRows = matching.filter((e) => e.value!.trim().startsWith('whsec_'));
+    if (whsecRows.length > 0) {
+      const production = whsecRows.find((e) => e.target?.includes('production'));
+      return (production ?? whsecRows[0]).value!.trim();
+    }
+  }
+
+  if (SNAPSHOT_WEBHOOK_SECRET_ENV_KEYS.includes(key as typeof SNAPSHOT_WEBHOOK_SECRET_ENV_KEYS[number])) {
+    const whsecRows = matching.filter((e) => classifySecretPrefix(e.value!) === 'whsec');
     if (whsecRows.length > 0) {
       const production = whsecRows.find((e) => e.target?.includes('production'));
       return (production ?? whsecRows[0]).value!.trim();
@@ -155,7 +198,7 @@ export async function diagnoseWebhookSecretEnv(projectId: string): Promise<Webho
 /** Remove STRIPE_WEBHOOK_SECRET rows whose value is a Marketplace JWT (eyJ…). */
 export async function purgeMarketplaceWebhookSecrets(projectId: string): Promise<number> {
   const rows = await listProjectEnvRowsForKey(projectId, 'STRIPE_WEBHOOK_SECRET');
-  const junk = rows.filter((r) => r.value!.trim().startsWith('eyJ') && r.id);
+  const junk = rows.filter((r) => isStripeMarketplaceIntegrationToken(r.value!) && r.id);
   if (junk.length === 0) return 0;
 
   let removed = 0;
@@ -187,8 +230,11 @@ export async function deleteAllWebhookSecretEnvRows(projectId: string): Promise<
 }
 
 /**
- * Replace STRIPE_WEBHOOK_SECRET entirely — upsert alone does not overwrite
- * Marketplace JWT rows; delete all rows then create a fresh whsec_ entry.
+ * Replace webhook signing secret on a Vercel project.
+ *
+ * Marketplace integrations often own STRIPE_WEBHOOK_SECRET with an eyJ… JWT that
+ * cannot be overwritten. We always push whsec_ to TOKENIZ_SNAPSHOT_WHSEC
+ * (app runtime prefers it) and still attempt to purge/replace STRIPE_WEBHOOK_SECRET.
  */
 export async function replaceStripeWebhookSecretOnProject(
   projectId: string,
@@ -199,11 +245,22 @@ export async function replaceStripeWebhookSecretOnProject(
     throw new Error('STRIPE_WEBHOOK_SECRET must start with whsec_.');
   }
 
-  const deleted = await deleteAllWebhookSecretEnvRows(projectId);
+  let deleted = 0;
+  for (const key of SNAPSHOT_WEBHOOK_SECRET_ENV_KEYS) {
+    const snapshotRows = await listProjectEnvRowsForKey(projectId, key);
+    for (const row of snapshotRows) {
+      if (row.id && (await deleteProjectEnvRow(projectId, row.id))) deleted += 1;
+    }
+  }
+  try {
+    deleted += await purgeMarketplaceWebhookSecrets(projectId);
+  } catch (err) {
+    console.warn('[stripe-marketplace] purge eyJ STRIPE_WEBHOOK_SECRET failed:', err);
+  }
 
   const client = await getVercelClient();
   const requestBody = {
-    key: 'STRIPE_WEBHOOK_SECRET',
+    key: TOKENIZ_SNAPSHOT_WHSEC_KEY,
     value,
     type: 'encrypted' as const,
     target: ['production' as const, 'preview' as const, 'development' as const],
@@ -223,12 +280,55 @@ export async function replaceStripeWebhookSecretOnProject(
       const msg = err instanceof Error ? err.message : String(err);
       if (msg.includes('403') && teamId === TEAM_ID) continue;
       if (msg.includes('400') && teamId === TEAM_ID) continue;
-      console.warn(`[stripe-marketplace] createProjectEnv STRIPE_WEBHOOK_SECRET failed: ${msg}`);
+      console.warn(`[stripe-marketplace] createProjectEnv ${TOKENIZ_SNAPSHOT_WHSEC_KEY} failed: ${msg}`);
     }
   }
 
-  const verify = await diagnoseWebhookSecretEnv(projectId);
+  // Best-effort: replace STRIPE_WEBHOOK_SECRET when not integration-locked.
+  const legacyDeleted = await deleteAllWebhookSecretEnvRows(projectId);
+  deleted += legacyDeleted;
+  for (const teamId of [TEAM_ID, undefined]) {
+    try {
+      await client.projects.createProjectEnv({
+        idOrName: projectId,
+        teamId,
+        requestBody: {
+          key: 'STRIPE_WEBHOOK_SECRET',
+          value,
+          type: 'encrypted' as const,
+          target: ['production' as const, 'preview' as const, 'development' as const],
+        },
+      });
+      break;
+    } catch {
+      /* Marketplace may re-inject eyJ — TOKENIZ_SNAPSHOT_WHSEC is the runtime source. */
+    }
+  }
+
+  const verify = await diagnoseWebhookSigningSecretEnv(projectId);
   return { deleted, created, verifyPrefix: verify.selectedPrefix };
+}
+
+/** Prefer TOKENIZ_SNAPSHOT_WHSEC (whsec_) over Marketplace eyJ on STRIPE_WEBHOOK_SECRET. */
+export async function diagnoseWebhookSigningSecretEnv(
+  projectId: string,
+): Promise<WebhookSecretEnvDiagnostic> {
+  for (const key of SNAPSHOT_WEBHOOK_SECRET_ENV_KEYS) {
+    const snapshotRows = await listProjectEnvRowsForKey(projectId, key);
+    if (snapshotRows.length === 0) continue;
+    const kinds = snapshotRows.map((r) => classifySecretPrefix(r.value!));
+    const selected = pickEnvValue(snapshotRows, key);
+    if (selected && classifySecretPrefix(selected) === 'whsec') {
+      return {
+        entryCount: snapshotRows.length,
+        selectedPrefix: 'whsec',
+        duplicateKinds: [...new Set(kinds.filter((k) => k === 'whsec'))],
+        entryIds: snapshotRows.map((r) => r.id).filter(Boolean) as string[],
+      };
+    }
+  }
+
+  return diagnoseWebhookSecretEnv(projectId);
 }
 
 /** Read decrypted env values for specific keys (server-only — never expose to client logs). */
@@ -258,6 +358,27 @@ export async function getProjectEnvValues(
       out[key] = pickEnvValue(data.envs ?? [], key);
     }
   }
+
+  // Runtime prefers snapshot whsec when Marketplace owns STRIPE_WEBHOOK_SECRET.
+  if (want.has('STRIPE_WEBHOOK_SECRET') && !out.STRIPE_WEBHOOK_SECRET?.startsWith('whsec_')) {
+    for (const key of SNAPSHOT_WEBHOOK_SECRET_ENV_KEYS) {
+      const snapshot = pickEnvValue(data.envs ?? [], key);
+      if (snapshot?.startsWith('whsec_')) {
+        out.STRIPE_WEBHOOK_SECRET = snapshot;
+        break;
+      }
+    }
+  }
+
+  for (const key of SNAPSHOT_WEBHOOK_SECRET_ENV_KEYS) {
+    if (want.has(key)) {
+      const picked = pickEnvValue(data.envs ?? [], key);
+      if (picked?.startsWith('whsec_')) {
+        out[key] = picked;
+      }
+    }
+  }
+
   return out;
 }
 

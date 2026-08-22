@@ -94,7 +94,11 @@ export function stripeConfigError(config?: StripeEnvConfig): string | null {
     );
   }
 
-  const webhookSecret = config?.webhookSecret?.trim() || process.env.STRIPE_WEBHOOK_SECRET?.trim();
+  const webhookSecret =
+    config?.webhookSecret?.trim() ||
+    process.env.TOKENIZ_SNAPSHOT_WHSEC?.trim() ||
+    process.env.STRIPE_SNAPSHOT_WEBHOOK_SECRET?.trim() ||
+    process.env.STRIPE_WEBHOOK_SECRET?.trim();
   if (webhookSecret && !webhookSecret.startsWith('whsec_')) {
     return (
       'STRIPE_WEBHOOK_SECRET must be the webhook signing secret (it starts with "whsec_"), ' +
@@ -187,7 +191,13 @@ export function getStripePublishableKey(): string | null {
 }
 
 export function getStripeWebhookSecret(): string | null {
-  return process.env.STRIPE_WEBHOOK_SECRET?.trim() || null;
+  const tokeniz = process.env.TOKENIZ_SNAPSHOT_WHSEC?.trim();
+  if (tokeniz?.startsWith('whsec_')) return tokeniz;
+  const snapshot = process.env.STRIPE_SNAPSHOT_WEBHOOK_SECRET?.trim();
+  if (snapshot?.startsWith('whsec_')) return snapshot;
+  const primary = process.env.STRIPE_WEBHOOK_SECRET?.trim();
+  if (primary?.startsWith('whsec_')) return primary;
+  return null;
 }
 
 /**

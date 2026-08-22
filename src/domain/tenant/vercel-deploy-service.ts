@@ -420,13 +420,13 @@ export async function syncStripeEnvVars(
     const replaced = await replaceStripeWebhookSecretOnProject(projectId, webhook);
     if (replaced.verifyPrefix !== 'whsec') {
       throw new Error(
-        `STRIPE_WEBHOOK_SECRET push failed — Vercel still reports ${replaced.verifyPrefix} after ` +
-          `deleting ${replaced.deleted} row(s). Check Vercel → Integrations → Stripe does not re-inject eyJ…`,
+        `STRIPE webhook secret push failed — Vercel still reports ${replaced.verifyPrefix} after ` +
+          `deleting ${replaced.deleted} row(s). Check TOKENIZ_SNAPSHOT_WHSEC on the project.`,
       );
     }
     envCount += 1;
     console.log(
-      `[vercel-deploy] Replaced STRIPE_WEBHOOK_SECRET on ${projectId} (deleted ${replaced.deleted} row(s)).`,
+      `[vercel-deploy] Pushed ${TOKENIZ_SNAPSHOT_WHSEC_KEY} on ${projectId} (deleted ${replaced.deleted} legacy row(s)).`,
     );
   } else {
     try {

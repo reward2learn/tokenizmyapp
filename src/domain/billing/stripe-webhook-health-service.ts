@@ -18,8 +18,9 @@ import {
   type StripeWebhookTestStatus,
 } from '@/domain/billing/stripe-webhook-test-service';
 import {
-  diagnoseWebhookSecretEnv,
+  diagnoseWebhookSigningSecretEnv,
   getProjectEnvValues,
+  TOKENIZ_SNAPSHOT_WHSEC_KEY,
   replaceStripeWebhookSecretOnProject,
 } from '@/domain/tenant/vercel-stripe-marketplace-service';
 
@@ -130,17 +131,45 @@ async function checkVercelWebhookSecret(
   metadataWebhookSecret?: string | null,
 ): Promise<StripeWebhookHealthStep> {
   const label = 'Vercel STRIPE_WEBHOOK_SECRET';
-  let diagnostic: Awaited<ReturnType<typeof diagnoseWebhookSecretEnv>> | null = null;
+  let diagnostic: Awaited<ReturnType<typeof diagnoseWebhookSigningSecretEnv>> | null = null;
   try {
-    diagnostic = await diagnoseWebhookSecretEnv(projectId);
+    diagnostic = await diagnoseWebhookSigningSecretEnv(projectId);
   } catch {
     /* fall through — getProjectEnvValues may still work */
   }
 
-  const envValues = await getProjectEnvValues(projectId, ['STRIPE_WEBHOOK_SECRET']);
+  const envValues = await getProjectEnvValues(projectId, [
+    'STRIPE_WEBHOOK_SECRET',
+    TOKENIZ_SNAPSHOT_WHSEC_KEY,
+    'STRIPE_SNAPSHOT_WEBHOOK_SECRET',
+  ]);
   const raw = envValues.STRIPE_WEBHOOK_SECRET?.trim();
 
-  if (!raw) {
+  if (diagnostic?.selectedPrefix === 'whsec') {
+    const usesSnapshot =
+      Boolean(envValues[TOKENIZ_SNAPSHOT_WHSEC_KEY]?.trim()) ||
+      Boolean(envValues.STRIPE_SNAPSHOT_WEBHOOK_SECRET?.trim());
+    const marketplaceEyJ = raw?.startsWith('eyJ') && !raw?.startsWith('whsec_');
+    return {
+      id: 'vercel-webhook-secret',
+      label,
+      status: 'pass',
+      ok: true,
+      message:
+        `Production env has a snapshot webhook signing secret (${TOKENIZ_SNAPSHOT_WHSEC_KEY}).` +
+        (marketplaceEyJ
+          ? ' Marketplace eyJ on STRIPE_WEBHOOK_SECRET is ignored at runtime.'
+          : '') +
+        (usesSnapshot ? '' : ' (from tenant metadata — redeploy to load TOKENIZ_SNAPSHOT_WHSEC at runtime.)'),
+    };
+  }
+
+  const snapshot =
+    envValues[TOKENIZ_SNAPSHOT_WHSEC_KEY]?.trim() ||
+    envValues.STRIPE_SNAPSHOT_WEBHOOK_SECRET?.trim();
+  const effective = snapshot?.startsWith('whsec_') ? snapshot : raw;
+
+  if (!effective) {
     return {
       id: 'vercel-webhook-secret',
       label,
@@ -152,27 +181,31 @@ async function checkVercelWebhookSecret(
     };
   }
 
-  if (raw.startsWith('whsec_')) {
+  if (effective.startsWith('whsec_')) {
+    const source =
+      snapshot?.startsWith('whsec_') && raw?.startsWith('eyJ')
+        ? ' (STRIPE_SNAPSHOT_WEBHOOK_SECRET — Marketplace eyJ on STRIPE_WEBHOOK_SECRET ignored)'
+        : '';
     const dupNote =
       diagnostic && diagnostic.entryCount > 1
-        ? ` (${diagnostic.entryCount} env rows — selected whsec_. Remove any leftover eyJ… row in Vercel Settings → Environment Variables.)`
+        ? ` (${diagnostic.entryCount} env row(s) — selected whsec_.)`
         : '';
     return {
       id: 'vercel-webhook-secret',
       label,
       status: 'pass',
       ok: true,
-      message: `Production env uses a Stripe webhook signing secret (whsec_…).${dupNote}`,
+      message: `Production env uses a Stripe webhook signing secret (whsec_…).${source}${dupNote}`,
     };
   }
 
   const metaWhsec = metadataWebhookSecret?.trim().startsWith('whsec_') ?? false;
   const dupDetail =
     diagnostic && diagnostic.entryCount > 0
-      ? ` Vercel reports ${diagnostic.entryCount} STRIPE_WEBHOOK_SECRET row(s) (${diagnostic.duplicateKinds.join(' + ')}).`
+      ? ` Vercel reports ${diagnostic.entryCount} signing-secret row(s) (${diagnostic.duplicateKinds.join(' + ')}).`
       : '';
 
-  if (raw.startsWith('eyJ')) {
+  if (raw?.startsWith('eyJ')) {
     return {
       id: 'vercel-webhook-secret',
       label,
@@ -305,7 +338,7 @@ export async function runStripeWebhookHealthCheck(input: {
   const metaWhsec = input.metadataWebhookSecret?.trim();
   if (metaWhsec?.startsWith('whsec_') && input.autoRepair !== false) {
     try {
-      const before = await diagnoseWebhookSecretEnv(factoryProjectId);
+      const before = await diagnoseWebhookSigningSecretEnv(factoryProjectId);
       if (before.selectedPrefix === 'eyJ' || before.selectedPrefix === 'other') {
         const repaired = await replaceStripeWebhookSecretOnProject(factoryProjectId, metaWhsec);
         if (repaired.verifyPrefix === 'whsec') {
@@ -382,6 +415,7 @@ export async function runStripeWebhookHealthCheck(input: {
     projectNameHint: input.projectNameHint,
     billingTarget: input.billingTarget ?? true,
     allowFactoryFallback: input.allowFactoryFallback,
+    metadataWebhookSecret: input.metadataWebhookSecret,
   });
 
   steps.push({
