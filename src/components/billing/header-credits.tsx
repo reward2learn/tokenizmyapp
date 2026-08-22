@@ -10,6 +10,7 @@ import { useAppDispatch } from '@/store/hooks';
 import { openSettingsDialog } from '@/store/ui-slice';
 import { useGetOrganizationCreditsQuery } from '@/store/apis/organization-api';
 import { useBillingOrgId } from '@/components/billing/use-billing-org';
+import { isPlatformApp } from '@shared/lib/config/tenant';
 
 /**
  * AI credit balance and a top-up button, in the app header.
@@ -33,6 +34,7 @@ import { useBillingOrgId } from '@/components/billing/use-billing-org';
 export function HeaderCredits() {
   const dispatch = useAppDispatch();
   const orgId = useBillingOrgId();
+  const onPlatform = isPlatformApp();
   const { data } = useGetOrganizationCreditsQuery(orgId ?? '', { skip: !orgId });
   const balance = data?.data?.balance ?? null;
 
@@ -54,7 +56,9 @@ export function HeaderCredits() {
             ? `Blocked — owes ${balance.debt} credit(s). Add ${balance.debt}+ to settle.`
             : expiring
               ? `${balance.expiringSoon} credits expiring within 7 days`
-              : 'AI credits — open billing'
+              : onPlatform
+                ? 'AI credits — open billing'
+                : 'AI credits — view usage'
         }
       >
         <Chip
@@ -67,9 +71,9 @@ export function HeaderCredits() {
           sx={{ fontVariantNumeric: 'tabular-nums', cursor: 'pointer' }}
         />
       </Tooltip>
-      <Tooltip title="Add AI credits">
+      <Tooltip title={onPlatform ? 'Add AI credits' : 'Request more AI credits'}>
         <IconButton
-          aria-label="Add AI credits"
+          aria-label={onPlatform ? 'Add AI credits' : 'Request more AI credits'}
           onClick={open}
           sx={{ color: 'text.secondary' }}
         >

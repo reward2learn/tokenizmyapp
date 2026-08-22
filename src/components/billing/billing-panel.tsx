@@ -19,12 +19,21 @@ import TableCell from '@mui/material/TableCell';
 import TableHead from '@mui/material/TableHead';
 import TableRow from '@mui/material/TableRow';
 import Tabs from '@mui/material/Tabs';
+import TextField from '@mui/material/TextField';
 import ToggleButton from '@mui/material/ToggleButton';
 import ToggleButtonGroup from '@mui/material/ToggleButtonGroup';
 import Typography from '@mui/material/Typography';
 import BoltIcon from '@mui/icons-material/Bolt';
 import CheckIcon from '@mui/icons-material/Check';
+import ContentCopyIcon from '@mui/icons-material/ContentCopy';
 import OpenInNewIcon from '@mui/icons-material/OpenInNew';
+import Dialog from '@mui/material/Dialog';
+import DialogActions from '@mui/material/DialogActions';
+import DialogContent from '@mui/material/DialogContent';
+import DialogTitle from '@mui/material/DialogTitle';
+import IconButton from '@mui/material/IconButton';
+import InputAdornment from '@mui/material/InputAdornment';
+import Tooltip from '@mui/material/Tooltip';
 import { useAppDispatch, useAppSelector } from '@/store/hooks';
 import { setBillingTab, type BillingTab } from '@/store/ui-slice';
 import {
@@ -41,6 +50,7 @@ import { BillingDetailsTab } from '@/components/billing/billing-details-tab';
 import { CloudCreditsTab } from '@/components/billing/cloud-credits-tab';
 import { PaymentMethodsTab } from '@/components/billing/payment-methods-tab';
 import { StripeTopUpDialog } from '@/components/ops-admin/stripe-topup-dialog';
+import { TenantManagedOrgAlert } from '@/components/settings/tenant-managed-message';
 
 /**
  * Settings → Billing.
@@ -63,7 +73,7 @@ function formatMoney(cents: number, currency = 'usd'): string {
   }).format(cents / 100);
 }
 
-export function BillingPanel({ orgId }: { orgId: string }) {
+export function BillingPanel({ orgId, readOnly = false }: { orgId: string; readOnly?: boolean }) {
   const dispatch = useAppDispatch();
   const tab = useAppSelector((s) => s.ui.billingTab);
 
@@ -83,10 +93,16 @@ export function BillingPanel({ orgId }: { orgId: string }) {
   const reconcileNote = checkoutData?.data?.reconcileNote ?? null;
   const priceMismatches = checkoutData?.data?.priceMismatches ?? [];
 
+  const visibleTabs: BillingTab[] = readOnly
+    ? ['plan', 'ai-credits']
+    : ['plan', 'ai-credits', 'cloud-credits', 'billing-details', 'payment-methods', 'invoices'];
+
+  const activeTab = visibleTabs.includes(tab) ? tab : visibleTabs[0];
+
   return (
     <Paper elevation={0} sx={{ border: '1px solid', borderColor: 'divider' }}>
       <Tabs
-        value={tab}
+        value={activeTab}
         onChange={(_, next: BillingTab) => dispatch(setBillingTab(next))}
         variant="scrollable"
         scrollButtons="auto"
@@ -94,20 +110,26 @@ export function BillingPanel({ orgId }: { orgId: string }) {
       >
         <Tab label="Plan" value="plan" />
         <Tab label="AI Credits" value="ai-credits" />
-        <Tab label="Cloud Credits" value="cloud-credits" />
-        <Tab label="Billing Details" value="billing-details" />
-        <Tab label="Payment Methods" value="payment-methods" />
-        <Tab label="Invoices" value="invoices" />
+        {!readOnly && <Tab label="Cloud Credits" value="cloud-credits" />}
+        {!readOnly && <Tab label="Billing Details" value="billing-details" />}
+        {!readOnly && <Tab label="Payment Methods" value="payment-methods" />}
+        {!readOnly && <Tab label="Invoices" value="invoices" />}
       </Tabs>
 
       <Box sx={{ p: { xs: 2, md: 3 } }}>
-        {readiness?.configError && (
+        {readOnly && (
+          <Box sx={{ mb: 2 }}>
+            <TenantManagedOrgAlert />
+          </Box>
+        )}
+
+        {!readOnly && readiness?.configError && (
           <Alert severity="error" sx={{ mb: 2 }}>
             <AlertTitle>Stripe configuration problem</AlertTitle>
             {readiness.configError}
           </Alert>
         )}
-        {priceMismatches.length > 0 && (
+        {!readOnly && priceMismatches.length > 0 && (
           <Alert severity="error" sx={{ mb: 2 }}>
             <AlertTitle>Advertised price does not match Stripe</AlertTitle>
             {priceMismatches.map((message) => (
@@ -117,20 +139,20 @@ export function BillingPanel({ orgId }: { orgId: string }) {
             ))}
           </Alert>
         )}
-        {reconcileNote && (
+        {!readOnly && reconcileNote && (
           <Alert severity="warning" sx={{ mb: 2 }}>
             <AlertTitle>Plan could not be confirmed with Stripe</AlertTitle>
             {reconcileNote}
           </Alert>
         )}
-        {readiness?.liveMode && (
+        {!readOnly && readiness?.liveMode && (
           <Alert severity="warning" sx={{ mb: 2 }}>
             This deployment is connected to <strong>live</strong> Stripe. Actions here move real
             money.
           </Alert>
         )}
 
-        {tab === 'plan' && (
+        {activeTab === 'plan' && (
           <PlanTab
             orgId={orgId}
             currentPlanId={subscription?.planId ?? 'free'}
@@ -139,21 +161,23 @@ export function BillingPanel({ orgId }: { orgId: string }) {
             gracePeriodEndsAt={linkage?.gracePeriodEndsAt ?? null}
             purchasable={checkoutData?.data?.purchasable ?? []}
             paymentsReady={Boolean(readiness?.ready)}
+            readOnly={readOnly}
           />
         )}
-        {tab === 'ai-credits' && (
+        {activeTab === 'ai-credits' && (
           <AiCreditsTab
             orgId={orgId}
             balance={balance}
             grants={grants}
             ledger={ledger}
             readiness={readiness}
+            readOnly={readOnly}
           />
         )}
-        {tab === 'cloud-credits' && <CloudCreditsTab orgId={orgId} />}
-        {tab === 'billing-details' && <BillingDetailsTab orgId={orgId} />}
-        {tab === 'payment-methods' && <PaymentMethodsTab orgId={orgId} />}
-        {tab === 'invoices' && <InvoicesTab orgId={orgId} />}
+        {!readOnly && activeTab === 'cloud-credits' && <CloudCreditsTab orgId={orgId} />}
+        {!readOnly && activeTab === 'billing-details' && <BillingDetailsTab orgId={orgId} />}
+        {!readOnly && activeTab === 'payment-methods' && <PaymentMethodsTab orgId={orgId} />}
+        {!readOnly && activeTab === 'invoices' && <InvoicesTab orgId={orgId} />}
       </Box>
     </Paper>
   );
@@ -169,6 +193,7 @@ function PlanTab({
   gracePeriodEndsAt,
   purchasable,
   paymentsReady,
+  readOnly = false,
 }: {
   orgId: string;
   currentPlanId: PlanId;
@@ -177,6 +202,7 @@ function PlanTab({
   gracePeriodEndsAt: string | null;
   purchasable: Array<{ planId: string; interval: 'monthly' | 'yearly' }>;
   paymentsReady: boolean;
+  readOnly?: boolean;
 }) {
   const [interval, setInterval] = useState<'monthly' | 'yearly'>('monthly');
   const [startCheckout, { isLoading }] = useStartCheckoutMutation();
@@ -187,6 +213,7 @@ function PlanTab({
     purchasable.some((p) => p.planId === planId && p.interval === interval);
 
   const choose = async (planId: PlanId) => {
+    if (readOnly) return;
     setError(null);
     setNotice(null);
     try {
@@ -209,6 +236,84 @@ function PlanTab({
       setError('Could not start the plan change.');
     }
   };
+
+  const currentPlan = PLANS.find((plan) => plan.id === currentPlanId) ?? PLANS[0];
+
+  if (readOnly) {
+    const price = currentPlan.priceMonthly;
+    return (
+      <Stack spacing={2}>
+        <Typography variant="body2" color="text.secondary">
+          This is your organization&apos;s current plan. Upgrades and billing changes are handled
+          by your administrator.
+        </Typography>
+        <Card
+          variant="outlined"
+          sx={{
+            maxWidth: 360,
+            borderColor: 'primary.main',
+            borderWidth: 2,
+          }}
+        >
+          <CardContent>
+            <Stack direction="row" sx={{ alignItems: 'center', gap: 1, mb: 0.5 }}>
+              <Typography variant="subtitle1" sx={{ fontWeight: 600 }}>
+                {currentPlan.label}
+              </Typography>
+              <Chip label="Current" size="small" color="primary" />
+            </Stack>
+            <Typography variant="h5" sx={{ fontWeight: 600, mb: 0.5 }}>
+              {price === null ? 'Custom' : price === 0 ? 'Free' : formatMoney(price)}
+              {price !== null && price > 0 && (
+                <Typography component="span" variant="body2" color="text.secondary">
+                  {' '}
+                  /mo
+                </Typography>
+              )}
+            </Typography>
+            <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
+              {currentPlan.tagline}
+            </Typography>
+            <Divider sx={{ mb: 1.5 }} />
+            <Typography variant="body2">
+              {currentPlan.aiCreditsPerMonth > 0 ? (
+                <>
+                  <strong>{currentPlan.aiCreditsPerMonth}</strong> AI credits / month
+                </>
+              ) : (
+                'Negotiated AI credit allowance'
+              )}
+            </Typography>
+          </CardContent>
+        </Card>
+        <TextField
+          fullWidth
+          label="Organization ID"
+          value={orgId}
+          slotProps={{
+            input: {
+              readOnly: true,
+              sx: { fontFamily: 'monospace', fontSize: '0.85rem' },
+              endAdornment: (
+                <InputAdornment position="end">
+                  <Tooltip title="Copy organization ID">
+                    <IconButton
+                      size="small"
+                      aria-label="Copy organization ID"
+                      onClick={() => navigator.clipboard?.writeText(orgId)}
+                    >
+                      <ContentCopyIcon fontSize="small" />
+                    </IconButton>
+                  </Tooltip>
+                </InputAdornment>
+              ),
+            },
+          }}
+          helperText="Share this with your administrator when requesting plan or credit changes."
+        />
+      </Stack>
+    );
+  }
 
   return (
     <Stack spacing={2}>
@@ -358,18 +463,20 @@ function AiCreditsTab({
   grants,
   ledger,
   readiness,
+  readOnly = false,
 }: {
   orgId: string;
   balance: { available: number; expiringSoon: number; debt: number; net: number } | null;
   grants: React.ComponentProps<typeof CreditGrantsTable>['grants'];
   ledger: React.ComponentProps<typeof CreditUsageTable>['ledger'];
   readiness: { ready: boolean } | null;
+  readOnly?: boolean;
 }) {
-  // Which of the two histories is showing. Local, unlike the outer billing tab:
-  // it is a view toggle inside one tab rather than a place in the app, and
-  // nothing else needs to know about it.
   const [historyTab, setHistoryTab] = useState<'usage' | 'grants'>('usage');
   const [topUpPackId, setTopUpPackId] = useState<string | null>(null);
+  const [requestOpen, setRequestOpen] = useState(false);
+  const [requestCopied, setRequestCopied] = useState(false);
+  const { user } = useAppSelector((s) => s.auth);
 
   const byPlan = grants
     .filter((g) => g.source === 'plan')
@@ -379,9 +486,27 @@ function AiCreditsTab({
     .reduce((sum, g) => sum + g.remaining, 0);
   const byPromo = grants.filter((g) => g.source === 'promo').reduce((sum, g) => sum + g.remaining, 0);
 
+  const requestMessage = [
+    'Hi,',
+    '',
+    'I would like to request an increase to our AI credit limit.',
+    '',
+    `Organization ID: ${orgId}`,
+    `Current balance: ${balance?.available ?? 0} credits`,
+    user?.email ? `Requested by: ${user.email}` : null,
+    user?.id ? `Account ID: ${user.id}` : null,
+  ]
+    .filter(Boolean)
+    .join('\n');
+
+  const copyRequest = async () => {
+    await navigator.clipboard?.writeText(requestMessage);
+    setRequestCopied(true);
+  };
+
   return (
     <Stack spacing={3}>
-      {balance && balance.debt > 0 && (
+      {balance && balance.debt > 0 && !readOnly && (
         <Alert severity="error">
           <AlertTitle>Generation is blocked</AlertTitle>
           A previous generation ran past the available balance and this organization owes{' '}
@@ -392,7 +517,7 @@ function AiCreditsTab({
 
       <Box>
         <Typography variant="overline" color="text.secondary">
-          AI credit balance
+          {readOnly ? 'Organization AI credit balance' : 'AI credit balance'}
         </Typography>
         <Stack direction="row" sx={{ alignItems: 'baseline', gap: 1 }}>
           <Typography variant="h3" sx={{ fontWeight: 600, fontVariantNumeric: 'tabular-nums' }}>
@@ -452,25 +577,40 @@ function AiCreditsTab({
         </Box>
       </Stack>
 
-      <Box>
-        <Typography variant="subtitle2" sx={{ mb: 1 }}>
-          Add credits
-        </Typography>
-        <Stack direction="row" spacing={1} useFlexGap sx={{ flexWrap: 'wrap' }}>
-          {CREDIT_PACKS.map((pack) => (
-            <Button
-              key={pack.id}
-              variant="outlined"
-              startIcon={<BoltIcon />}
-              disabled={!readiness?.ready}
-              onClick={() => setTopUpPackId(pack.id)}
-            >
-              {pack.label} — {pack.baseCredits + pack.bonusCredits} credits
-            </Button>
-          ))}
-        </Stack>
-      </Box>
-      {!readiness?.ready && (
+      {readOnly ? (
+        <Box>
+          <Typography variant="subtitle2" sx={{ mb: 1 }}>
+            Need more credits?
+          </Typography>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
+            Your organization administrator manages AI credit purchases and limits. You can copy a
+            request message and send it to them.
+          </Typography>
+          <Button variant="outlined" startIcon={<BoltIcon />} onClick={() => setRequestOpen(true)}>
+            Request more AI credits
+          </Button>
+        </Box>
+      ) : (
+        <Box>
+          <Typography variant="subtitle2" sx={{ mb: 1 }}>
+            Add credits
+          </Typography>
+          <Stack direction="row" spacing={1} useFlexGap sx={{ flexWrap: 'wrap' }}>
+            {CREDIT_PACKS.map((pack) => (
+              <Button
+                key={pack.id}
+                variant="outlined"
+                startIcon={<BoltIcon />}
+                disabled={!readiness?.ready}
+                onClick={() => setTopUpPackId(pack.id)}
+              >
+                {pack.label} — {pack.baseCredits + pack.bonusCredits} credits
+              </Button>
+            ))}
+          </Stack>
+        </Box>
+      )}
+      {!readOnly && !readiness?.ready && (
         <Typography variant="caption" color="text.secondary">
           Payments are not configured, so credits can only be granted by a platform admin.
         </Typography>
@@ -497,7 +637,7 @@ function AiCreditsTab({
         )}
       </Box>
 
-      {topUpPackId && (
+      {topUpPackId && !readOnly && (
         <StripeTopUpDialog
           open
           orgId={orgId}
@@ -506,8 +646,38 @@ function AiCreditsTab({
         />
       )}
 
+      <Dialog open={requestOpen} onClose={() => setRequestOpen(false)} maxWidth="sm" fullWidth>
+        <DialogTitle>Request more AI credits</DialogTitle>
+        <DialogContent>
+          <Stack spacing={2} sx={{ pt: 1 }}>
+            <Typography variant="body2" color="text.secondary">
+              Copy this message and send it to your organization administrator. They can add
+              credits or upgrade the plan from the platform console.
+            </Typography>
+            <TextField
+              fullWidth
+              multiline
+              minRows={6}
+              value={requestMessage}
+              slotProps={{ input: { readOnly: true } }}
+            />
+            {requestCopied && <Alert severity="success">Request copied to clipboard.</Alert>}
+          </Stack>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setRequestOpen(false)}>Close</Button>
+          <Button
+            variant="contained"
+            startIcon={<ContentCopyIcon />}
+            onClick={() => void copyRequest()}
+          >
+            Copy request
+          </Button>
+        </DialogActions>
+      </Dialog>
+
       {/* Usage History */}
-      {balance && (
+      {!readOnly && balance && (
         <Box>
           <Typography variant="subtitle2" sx={{ mb: 1 }}>
             Usage History

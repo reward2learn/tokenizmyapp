@@ -15,6 +15,12 @@ vi.mock('@/components/billing/use-billing-org', () => ({
   useBillingOrgId: () => orgId,
 }));
 
+vi.mock('@shared/lib/config/tenant', () => ({
+  isPlatformApp: vi.fn(() => true),
+}));
+
+import { isPlatformApp } from '@shared/lib/config/tenant';
+
 vi.mock('@/store/apis/organization-api', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/store/apis/organization-api')>();
   return {
@@ -44,12 +50,23 @@ afterEach(cleanup);
 
 describe('HeaderCredits', () => {
   it('shows the balance and a top-up control in the header', () => {
+    vi.mocked(isPlatformApp).mockReturnValue(true);
     orgId = 'org_1';
     balance = { available: 42, expiringSoon: 0, debt: 0, net: 42 };
     renderHeader();
 
     expect(screen.getByText('42')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Add AI credits' })).toBeInTheDocument();
+  });
+
+  it('offers a request-credits entry point in tenant apps', () => {
+    vi.mocked(isPlatformApp).mockReturnValue(false);
+    orgId = 'org_1';
+    balance = { available: 42, expiringSoon: 0, debt: 0, net: 42 };
+    renderHeader();
+
+    expect(screen.getByRole('button', { name: 'Request more AI credits' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Add AI credits' })).toBeNull();
   });
 
   it('renders nothing rather than a zero when there is no balance to show', () => {
@@ -79,6 +96,7 @@ describe('HeaderCredits', () => {
   });
 
   it('opens Settings on Billing → AI Credits, in one dispatch', () => {
+    vi.mocked(isPlatformApp).mockReturnValue(true);
     orgId = 'org_1';
     balance = { available: 42, expiringSoon: 0, debt: 0, net: 42 };
     const { store } = renderHeader();

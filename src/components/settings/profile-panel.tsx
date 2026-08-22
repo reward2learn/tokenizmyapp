@@ -11,6 +11,7 @@ import { useAppSelector } from '@/store/hooks';
 import { useGetUserProfileQuery, useUpdateUserProfileMutation } from '@/store/apis/auth-api';
 import { AvatarUpload } from '@/components/settings/avatar-upload';
 import { useUserAvatarUrl } from '@/lib/auth/use-user-avatar-url';
+import { isPlatformApp } from '@shared/lib/config/tenant';
 
 /**
  * Settings → Personal → Profile.
@@ -27,6 +28,7 @@ import { useUserAvatarUrl } from '@/lib/auth/use-user-avatar-url';
 export function ProfilePanel() {
   const { user, tier, roleCode, platformAdmin } = useAppSelector((s) => s.auth);
   const avatarUrl = useUserAvatarUrl();
+  const onPlatform = isPlatformApp();
 
   if (!user) {
     return (
@@ -40,6 +42,13 @@ export function ProfilePanel() {
   return (
     <Stack spacing={3} sx={{ maxWidth: 720 }}>
       <Typography variant="h6">Profile</Typography>
+
+      {!onPlatform && (
+        <Alert severity="info">
+          You can update your avatar here. Your name, account ID, and role are assigned by your
+          organization administrator for this app.
+        </Alert>
+      )}
 
       <Stack direction="row" spacing={2} sx={{ alignItems: 'center' }}>
         <Avatar src={avatarUrl} sx={{ width: 64, height: 64 }}>
@@ -55,6 +64,18 @@ export function ProfilePanel() {
       </Stack>
 
       <AvatarUploadSection userEmail={user.email} />
+
+      <TextField
+        fullWidth
+        label="Display name"
+        value={user.name ?? '—'}
+        slotProps={{ input: { readOnly: true } }}
+        helperText={
+          onPlatform
+            ? 'Managed by your sign-in provider.'
+            : 'Assigned by your organization administrator for this app.'
+        }
+      />
 
       <TextField
         fullWidth
@@ -80,6 +101,11 @@ export function ProfilePanel() {
           label="Role"
           value={roleCode}
           slotProps={{ input: { readOnly: true } }}
+          helperText={
+            onPlatform
+              ? undefined
+              : 'Your role in this app is set by your organization administrator.'
+          }
         />
       )}
     </Stack>

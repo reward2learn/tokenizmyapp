@@ -7,10 +7,21 @@ import { organizationApi } from '@/store/apis/organization-api';
 import { authSlice } from '@/store/auth-slice';
 import { uiSlice } from '@/store/ui-slice';
 
+vi.mock('@shared/lib/config/tenant', () => ({
+  isPlatformApp: vi.fn(() => true),
+}));
+
+import { isPlatformApp } from '@shared/lib/config/tenant';
+
 // Billing pulls in Stripe Elements, which is irrelevant to the nav and
 // expensive to load in jsdom.
 vi.mock('@/components/billing/billing-panel', () => ({
-  BillingPanel: ({ orgId }: { orgId: string }) => <div>billing for {orgId}</div>,
+  BillingPanel: ({ orgId, readOnly }: { orgId: string; readOnly?: boolean }) => (
+    <div>
+      billing for {orgId}
+      {readOnly ? ' (read-only)' : ''}
+    </div>
+  ),
 }));
 
 function renderPanel(orgId: string | null) {
@@ -37,6 +48,7 @@ afterEach(cleanup);
 
 describe('SettingsPanel', () => {
   it('lists only sections that have something behind them', () => {
+    vi.mocked(isPlatformApp).mockReturnValue(true);
     // The rule this encodes: a nav entry that opens onto nothing reads as a
     // broken feature rather than an absent one. SSO, data residency, commerce
     // and chat integrations have no implementation, so they must not appear
@@ -49,6 +61,19 @@ describe('SettingsPanel', () => {
     for (const absent of ['SSO', 'Data residency', 'Commerce', 'Skills', 'Chat Integrations']) {
       expect(screen.queryByRole('button', { name: absent })).toBeNull();
     }
+  });
+
+  it('shows tenant-app usage and team sections without billing controls', () => {
+    vi.mocked(isPlatformApp).mockReturnValue(false);
+    renderPanel('org_1');
+
+    expect(screen.getByRole('button', { name: 'Usage' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Team' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Billing' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Branding' })).toBeNull();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Usage' }));
+    expect(screen.getByText(/billing for org_1 \(read-only\)/i)).toBeInTheDocument();
   });
 
   it('switches section through the store, not local state', () => {

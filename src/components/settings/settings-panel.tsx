@@ -17,6 +17,7 @@ import LockIcon from '@mui/icons-material/Lock';
 import PaletteIcon from '@mui/icons-material/Palette';
 import LogoutIcon from '@mui/icons-material/Logout';
 import PersonIcon from '@mui/icons-material/PersonOutlined';
+import InsightsIcon from '@mui/icons-material/Insights';
 import { useAppDispatch, useAppSelector } from '@/store/hooks';
 import { setSettingsSection, type SettingsSection } from '@/store/ui-slice';
 import { OrganizationGeneralPanel } from '@/components/settings/organization-general-panel';
@@ -51,11 +52,18 @@ interface SectionDef {
   icon: typeof HomeIcon;
 }
 
-const ORGANIZATION_SECTIONS: SectionDef[] = [
+const PLATFORM_ORGANIZATION_SECTIONS: SectionDef[] = [
   { id: 'general', label: 'General', icon: HomeIcon },
   { id: 'billing', label: 'Billing', icon: CreditCardIcon },
   { id: 'teammates', label: 'Teammates', icon: GroupIcon },
   { id: 'branding', label: 'Branding', icon: PaletteIcon },
+];
+
+/** Tenant apps: org identity, usage and team are read-only — only Profile is editable. */
+const TENANT_ORGANIZATION_SECTIONS: SectionDef[] = [
+  { id: 'general', label: 'General', icon: HomeIcon },
+  { id: 'billing', label: 'Usage', icon: InsightsIcon },
+  { id: 'teammates', label: 'Team', icon: GroupIcon },
 ];
 
 const PERSONAL_SECTIONS: SectionDef[] = [
@@ -66,6 +74,9 @@ const PERSONAL_SECTIONS: SectionDef[] = [
 export function SettingsPanel({ orgId }: { orgId: string | null }) {
   const dispatch = useAppDispatch();
   const section = useAppSelector((s) => s.ui.settingsSection);
+  const onPlatform = isPlatformApp();
+  const organizationSections = onPlatform ? PLATFORM_ORGANIZATION_SECTIONS : TENANT_ORGANIZATION_SECTIONS;
+  const organizationTitle = onPlatform ? 'Organization' : 'Your organization';
 
   return (
     <Paper
@@ -85,8 +96,8 @@ export function SettingsPanel({ orgId }: { orgId: string | null }) {
         }}
       >
         <SectionGroup
-          title="Organization"
-          sections={ORGANIZATION_SECTIONS}
+          title={organizationTitle}
+          sections={organizationSections}
           active={section}
           onSelect={(id) => dispatch(setSettingsSection(id))}
         />
@@ -128,11 +139,11 @@ export function SettingsPanel({ orgId }: { orgId: string | null }) {
           ))}
         {section === 'billing' &&
           (orgId ? (
-            <BillingPanel orgId={orgId} />
+            <BillingPanel orgId={orgId} readOnly={!onPlatform} />
           ) : (
-            <NoOrganization what="Billing" />
+            <NoOrganization what={onPlatform ? 'Billing' : 'Usage'} />
           ))}
-        {section === 'teammates' && <TeammatesPanel orgId={orgId} />}
+        {section === 'teammates' && <TeammatesPanel orgId={orgId} readOnly={!onPlatform} />}
         {section === 'profile' && <ProfilePanel />}
         {section === 'security' && <SecurityPanel />}
       </Box>

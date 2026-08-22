@@ -20,6 +20,7 @@ import {
   type OrgMemberRole,
 } from '@/store/apis/organization-api';
 import { NoOrganization } from '@/components/settings/settings-panel';
+import { TenantManagedOrgAlert } from '@/components/settings/tenant-managed-message';
 
 const ROLES: { id: OrgMemberRole; help: string }[] = [
   { id: 'owner', help: 'Full control, including billing and membership.' },
@@ -36,7 +37,13 @@ const ROLES: { id: OrgMemberRole; help: string }[] = [
  * the friendlier surface, but there is no mail transport in this platform and
  * an invite that never arrives is worse than an explicit id.
  */
-export function TeammatesPanel({ orgId }: { orgId: string | null }) {
+export function TeammatesPanel({
+  orgId,
+  readOnly = false,
+}: {
+  orgId: string | null;
+  readOnly?: boolean;
+}) {
   // Members ride along with the organization read rather than a query of their
   // own — one cache entry, so the list cannot disagree with the org it belongs
   // to after an invalidation lands on only one of them.
@@ -63,11 +70,14 @@ export function TeammatesPanel({ orgId }: { orgId: string | null }) {
 
   return (
     <Stack spacing={3} sx={{ maxWidth: 720 }}>
-      <Typography variant="h6">Teammates</Typography>
+      <Typography variant="h6">{readOnly ? 'Team' : 'Teammates'}</Typography>
       <Typography variant="body2" color="text.secondary">
-        Who can act on this organization. Membership reaches its plan and credit balance, so
-        adding someone here is a billing decision.
+        {readOnly
+          ? 'Who belongs to your organization. Membership and roles are managed by your administrator.'
+          : 'Who can act on this organization. Membership reaches its plan and credit balance, so adding someone here is a billing decision.'}
       </Typography>
+
+      {readOnly && <TenantManagedOrgAlert />}
 
       {isLoading ? (
         <Skeleton variant="rounded" height={160} />
@@ -108,39 +118,41 @@ export function TeammatesPanel({ orgId }: { orgId: string | null }) {
 
       {error && <Alert severity="error">{error}</Alert>}
 
-      <Stack direction="row" spacing={1} sx={{ alignItems: 'flex-start' }}>
-        <TextField
-          size="small"
-          label="Account id"
-          value={userId}
-          onChange={(e) => setUserId(e.target.value)}
-          sx={{ flexGrow: 1 }}
-          helperText="The account's sub, as it appears in the session."
-        />
-        <TextField
-          select
-          size="small"
-          label="Role"
-          value={role}
-          onChange={(e) => setRole(e.target.value as OrgMemberRole)}
-          sx={{ minWidth: 140 }}
-          helperText={ROLES.find((r) => r.id === role)?.help}
-        >
-          {ROLES.map((r) => (
-            <MenuItem key={r.id} value={r.id}>
-              {r.id}
-            </MenuItem>
-          ))}
-        </TextField>
-        <Button
-          variant="contained"
-          onClick={add}
-          disabled={isAdding || userId.trim() === ''}
-          sx={{ mt: 0.25 }}
-        >
-          {isAdding ? 'Adding…' : 'Add'}
-        </Button>
-      </Stack>
+      {!readOnly && (
+        <Stack direction="row" spacing={1} sx={{ alignItems: 'flex-start' }}>
+          <TextField
+            size="small"
+            label="Account id"
+            value={userId}
+            onChange={(e) => setUserId(e.target.value)}
+            sx={{ flexGrow: 1 }}
+            helperText="The account's sub, as it appears in the session."
+          />
+          <TextField
+            select
+            size="small"
+            label="Role"
+            value={role}
+            onChange={(e) => setRole(e.target.value as OrgMemberRole)}
+            sx={{ minWidth: 140 }}
+            helperText={ROLES.find((r) => r.id === role)?.help}
+          >
+            {ROLES.map((r) => (
+              <MenuItem key={r.id} value={r.id}>
+                {r.id}
+              </MenuItem>
+            ))}
+          </TextField>
+          <Button
+            variant="contained"
+            onClick={add}
+            disabled={isAdding || userId.trim() === ''}
+            sx={{ mt: 0.25 }}
+          >
+            {isAdding ? 'Adding…' : 'Add'}
+          </Button>
+        </Stack>
+      )}
     </Stack>
   );
 }
