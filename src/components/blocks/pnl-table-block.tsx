@@ -100,12 +100,28 @@ function PnlTableBlockInner({ config }: { config: Record<string, unknown> }) {
     const scenarios = pnlData?.data?.scenarios;
     if (!scenarios) return [];
 
-    const template =
-      scenarios.conservative?.lines?.length
-        ? scenarios.conservative.lines
-        : scenarios.actual?.lines ?? [];
-
     const cols = ['actual', 'conservative', 'realistic', 'aspirational'] as const;
+
+    /** Prefer the workbook-native line list with the most filled values (usually Actuals from PL/SUMPL). */
+    const scoreLines = (lines: PnlLine[]): number => {
+      let filled = 0;
+      for (const line of lines) {
+        if (!line.header && line.value != null) filled++;
+      }
+      return filled * 1000 + lines.length;
+    };
+
+    let template: PnlLine[] = [];
+    let bestScore = -1;
+    for (const col of cols) {
+      const lines = scenarios[col]?.lines ?? [];
+      const score = scoreLines(lines);
+      if (score > bestScore) {
+        bestScore = score;
+        template = lines;
+      }
+    }
+    if (!template.length) return [];
 
     return template.map((line) => {
       const values: Record<string, string> = {};

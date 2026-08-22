@@ -6,14 +6,16 @@
  *
  *  1. Legacy known layouts (RedRuby / 2027 / 2029 / 2030) keep their exact
  *     fixed-row behavior for backward compatibility with the original
- *     cashflow budget workbook.
+ *     cashflow budget workbook (including the fixed English P&L template).
  *  2. Any other sheet is parsed generically:
  *       - detect the label column (most matches against known P&L labels),
  *       - detect the period axis: month-name/date columns, 4-digit year
  *         columns, or a "Periode/Per/Month of <Month> <Year>" label for
  *         single-period actuals,
- *       - match rows by label (PNL_LINE_ITEMS + COA aliases such as
- *         "Total Income", "Total Salary And Wages", "PROFIT AND LOSS"),
+ *       - match KPI rows by label for revenue / staff / net / ebitda,
+ *       - emit `pnlLines` from the **workbook's own row structure** (COA
+ *         codes + descriptions) so the Monthly P&L Breakdown mirrors PL /
+ *         SUMPL instead of the legacy RedRuby checklist,
  *       - emit one projection per detected period.
  *  3. Sheets that yield nothing (GL, TB, BS, COS, daily logs, …) are
  *     skipped with a warning — never a hard error.
@@ -396,36 +398,168 @@ function num(cell: unknown): number | null {
   return n == null ? null : Math.round(n);
 }
 
-/** Build pnlLines for a generic sheet using the matched row map. */
-function genericPnlLines(
+/** Account-style codes used in accountant COA workbooks (e.g. 4-2100, 6-1199). */
+const ACCOUNT_CODE_RE = /^\d-\d{3,4}[A-Za-z]?$/;
+
+/**
+ * Map common sheet totals onto stable metric keys so KPIs / monthly-actuals
+ * sync keep working when the breakdown is workbook-native.
+ * More-specific patterns must come first.
+ */
+const LABEL_TO_METRIC_KEY: Array<{ pattern: string; key: string }> = [
+  { pattern: 'total income idr', key: 'total_income_idr' },
+  { pattern: 'total income', key: 'total_income_idr' },
+  { pattern: 'total revenue', key: 'total_income_idr' },
+  { pattern: 'total salary and wages', key: 'total_staff_cost' },
+  { pattern: 'total salary & wage costs', key: 'total_staff_cost' },
+  { pattern: 'total payroll', key: 'total_staff_cost' },
+  { pattern: 'net income pre tax/service', key: 'net_income_pre_tax' },
+  { pattern: 'profit and loss', key: 'net_income_pre_tax' },
+  { pattern: 'net income', key: 'net_income_pre_tax' },
+  { pattern: 'ebitda', key: 'ebitda' },
+  { pattern: 'total guests per month', key: 'total_guests_month' },
+];
+
+function metricKeyForLabel(label: string): string | null {
+  const key = norm(label);
+  for (const { pattern, key: metricKey } of LABEL_TO_METRIC_KEY) {
+    if (key === pattern || key.includes(pattern)) return metricKey;
+  }
+  return null;
+}
+
+function slugLineKey(label: string): string {
+  const slug = label
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '_')
+    .replace(/^_|_$/g, '')
+    .slice(0, 64);
+  return slug ? `line_${slug}` : 'line_row';
+}
+
+function isNoiseWorkbookLabel(label: string, rowIndex: number): boolean {
+  const n = norm(label);
+  if (
+    [
+      'description',
+      'amount',
+      'idr',
+      'qty',
+      'db',
+      'cr',
+      '%',
+      'previous month',
+      'current month',
+      'month on month',
+      'input data',
+    ].includes(n)
+  ) {
+    return true;
+  }
+  if (rowIndex < 6 && /^(periode|period|per |month of|as of|for )/.test(n)) return true;
+  if (rowIndex < 6 && /^pt\s+/.test(n)) return true;
+  // Title banner "PROFIT & LOSS" (no amount) — the bottom total row is kept via value.
+  if (rowIndex < 6 && /^profit\s*(&|and)?\s*loss$/.test(n)) return true;
+  return false;
+}
+
+function rowLabelParts(
   grid: unknown[][],
-  rowByLabel: Map<string, number>,
+  rowIndex: number,
+  labelCol: number,
+): { accountCode: string | null; label: string } {
+  const raw = grid[rowIndex]?.[labelCol];
+  const rawStr = raw == null ? '' : String(raw).trim();
+  let accountCode: string | null = null;
+  let label = rawStr;
+
+  if (ACCOUNT_CODE_RE.test(rawStr)) {
+    accountCode = rawStr.toUpperCase();
+    for (const c of [labelCol + 1, labelCol + 2, labelCol - 1]) {
+      const neighbor = grid[rowIndex]?.[c];
+      if (typeof neighbor === 'string' && neighbor.trim() && !ACCOUNT_CODE_RE.test(neighbor.trim())) {
+        label = neighbor.trim();
+        break;
+      }
+    }
+  } else {
+    for (const c of [labelCol - 1, labelCol - 2, labelCol + 1]) {
+      const neighbor = grid[rowIndex]?.[c];
+      if (typeof neighbor === 'string' && ACCOUNT_CODE_RE.test(neighbor.trim())) {
+        accountCode = neighbor.trim().toUpperCase();
+        break;
+      }
+    }
+  }
+
+  return { accountCode, label };
+}
+
+function isSectionHeader(
+  label: string,
+  accountCode: string | null,
+  value: number | null,
+): boolean {
+  // COA section roots (4-0000 INCOME, 5-0000 Cost Of Sales, …) — even when the
+  // amount cell is 0 rather than blank.
+  if (accountCode && /-\d?0{3}$/.test(accountCode)) return true;
+  if (value != null) return false;
+  const n = norm(label);
+  if (/^(income|expenses|cost of sales|assets|liabilities|equity)$/.test(n)) return true;
+  if (label === label.toUpperCase() && label.length > 2 && !/\d/.test(label)) return true;
+  return false;
+}
+
+/**
+ * Emit P&L breakdown lines from the sheet's own rows (COA / BEP / SUMPL),
+ * instead of forcing the legacy RedRuby English checklist.
+ */
+function workbookNativePnlLines(
+  grid: unknown[][],
   labelCol: number,
   valueCol: number,
 ): PnlLine[] {
   const lines: PnlLine[] = [];
-  for (const item of PNL_LINE_ITEMS) {
-    if (item.header) {
-      lines.push({ key: item.key, label: item.label, header: true, value: null });
-      continue;
+  const usedKeys = new Set<string>();
+
+  for (let r = 0; r < grid.length; r++) {
+    const cell = grid[r]?.[labelCol];
+    if (cell == null || typeof cell === 'number') continue;
+    const { accountCode, label } = rowLabelParts(grid, r, labelCol);
+    if (!label || isNoiseWorkbookLabel(label, r)) continue;
+
+    const value = num(grid[r]?.[valueCol]);
+    const header = isSectionHeader(label, accountCode, value);
+
+    // Keep section headers for structure; skip empty leaf rows (no amount).
+    if (!header && value == null) continue;
+
+    const metricKey = metricKeyForLabel(label);
+    let key = metricKey ?? (accountCode ? `acct_${accountCode}` : slugLineKey(label));
+    if (usedKeys.has(key)) {
+      let i = 2;
+      while (usedKeys.has(`${key}_${i}`)) i++;
+      key = `${key}_${i}`;
     }
-    let row: number | null = null;
-    const wanted = norm(item.label);
-    for (const [key, r] of rowByLabel) {
-      if (key === wanted || key.includes(wanted)) {
-        row = r;
-        break;
-      }
-    }
-    const cell = row != null ? grid[row]?.[valueCol] : null;
+    usedKeys.add(key);
+
+    const displayLabel = accountCode && !label.toUpperCase().includes(accountCode)
+      ? `${accountCode}  ${label}`
+      : label;
+
+    const looksPct =
+      /margin|%|percent/.test(norm(label)) && value != null && Math.abs(value) <= 2;
+
     lines.push({
-      key: item.key,
-      label: item.label,
-      value: cell != null ? num(cell) : null,
-      pct: !!item.pct,
-      sub: !!item.sub,
+      key,
+      label: displayLabel,
+      header: header || undefined,
+      value: header ? null : value,
+      pct: looksPct || undefined,
+      sub: accountCode && !metricKey && !/9{3,4}$/.test(accountCode) ? true : undefined,
     });
   }
+
   return lines;
 }
 
@@ -533,7 +667,7 @@ function parseGenericSheet(sheet: WorkSheet, sheetName: string): FinancialProjec
   ): FinancialProjectionRow => {
     const metrics = genericMetrics(grid, rowByLabel, valueCol);
     const pnlLines = enrichPnlLinesWithMetrics(
-      genericPnlLines(grid, rowByLabel, labelCol, valueCol) as CalcPnlLine[],
+      workbookNativePnlLines(grid, labelCol, valueCol) as CalcPnlLine[],
       metrics,
     ) as PnlLine[];
     return {
@@ -605,16 +739,28 @@ function parseGenericSheet(sheet: WorkSheet, sheetName: string): FinancialProjec
 
 // ── Workbook entry ─────────────────────────────────────────────────
 
-/** Count of populated metric + P&L values — used to prefer the most complete
- *  row when several sheets describe the same period/scenario. */
+/** Sheets that can look period-shaped but are not P&L statements. */
+const NON_PNL_SHEET_RE =
+  /^(gl|tb|bs|cos|sumbs|daily\b|general(\s|_)*ledger|trial(\s|_)*balance|balance(\s|_)*sheet|cost(\s|_)*of(\s|_)*sales)/i;
+
+function isNonPnlSheet(name: string): boolean {
+  return NON_PNL_SHEET_RE.test(name.trim());
+}
+
+/** Prefer real P&L metrics over raw line-count so TB/BS dumps cannot win dedupe. */
 function rowCompleteness(row: FinancialProjectionRow): number {
   let score = 0;
-  if (row.revenue !== 0) score++;
-  if (row.ebitda !== 0) score++;
-  if (row.netIncome !== 0) score++;
-  if (row.guests !== 0) score++;
-  if (row.staffCost !== 0) score++;
-  for (const line of row.pnlLines) if (line.value != null) score++;
+  if (row.revenue !== 0) score += 1000;
+  if (row.ebitda !== 0) score += 200;
+  if (row.netIncome !== 0) score += 200;
+  if (row.guests !== 0) score += 50;
+  if (row.staffCost !== 0) score += 200;
+  let filledLines = 0;
+  for (const line of row.pnlLines) {
+    if (!line.header && line.value != null) filledLines++;
+  }
+  // Cap line contribution — a 5k-row ledger must not outrank a proper P&L.
+  score += Math.min(filledLines, 150);
   return score;
 }
 
@@ -628,6 +774,11 @@ function parseWorkbook(wb: WorkBook): FinancialProjectionRow[] {
 
     if ((LEGACY_SHEET_NAMES as readonly string[]).includes(name)) {
       projections.push(...parseLegacySheet(wb, name));
+      continue;
+    }
+
+    if (isNonPnlSheet(name)) {
+      console.warn(`[financial-excel] Skipped sheet "${name}": not a P&L statement (ledger/balance/daily)`);
       continue;
     }
 

@@ -91,9 +91,20 @@ describe('financial-excel — sheet-agnostic parsing', () => {
       // EBITDA derived: net + interest + depreciation.
       ebitda: -104_182_314 + 54_484_524 + 123_737_864,
     });
-    // pnlLines includes the ordered line items (best effort).
-    const ebitdaLine = projections[0].pnlLines.find((l) => l.key === 'ebitda');
-    expect(ebitdaLine).toBeDefined();
+    // Workbook-native lines mirror the COA (not the legacy RedRuby checklist).
+    const labels = projections[0].pnlLines.map((l) => l.label);
+    expect(labels.some((l) => /Total Income/i.test(l))).toBe(true);
+    expect(labels.some((l) => /INCOME/i.test(l))).toBe(true);
+    expect(projections[0].pnlLines.find((l) => l.key === 'total_income_idr')?.value).toBe(
+      1_975_304_568,
+    );
+    expect(projections[0].pnlLines.find((l) => l.key === 'net_income_pre_tax')?.value).toBe(
+      -104_182_314,
+    );
+    // Derived EBITDA is appended when the sheet has no EBITDA row.
+    expect(projections[0].pnlLines.find((l) => l.key === 'ebitda')?.value).toBe(
+      -104_182_314 + 54_484_524 + 123_737_864,
+    );
   });
 
   it('parses generic month-column sheets (BEP-style)', () => {

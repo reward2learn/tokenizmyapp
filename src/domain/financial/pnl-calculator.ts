@@ -390,10 +390,9 @@ export function parsePnlLines(val: unknown): PnlLine[] {
 }
 
 /**
- * Accountant / SUMPL workbooks often populate row-level KPI columns
- * (revenue, ebitda, …) while `pnl_lines` stay null — label text does not match
- * the legacy English P&L template. Stamp the known metric keys so Breakdown /
- * P&L tables are not empty when the projection row itself has values.
+ * Prefer stamping onto existing workbook-native / template lines. When the
+ * projection only has KPI columns (no line list yet), fall back to the legacy
+ * RedRuby checklist so the UI still has a structure to render.
  */
 export function enrichPnlLinesWithMetrics(
   lines: PnlLine[],
@@ -413,6 +412,14 @@ export function enrichPnlLinesWithMetrics(
     total_staff_cost: metrics.staffCost,
   };
 
+  const stampLabels: Record<string, string> = {
+    total_income_idr: 'Total Income IDR',
+    ebitda: 'EBITDA',
+    net_income_pre_tax: 'Net Income pre Tax/Service',
+    total_guests_month: 'Total Guests per month',
+    total_staff_cost: 'Total Salary & Wage Costs',
+  };
+
   const base =
     lines.length > 0
       ? lines
@@ -428,7 +435,7 @@ export function enrichPnlLinesWithMetrics(
               },
         );
 
-  return base.map((line) => {
+  const result = base.map((line) => {
     if (line.header) return line;
     if (line.value != null) return line;
     const stamped = stamps[line.key];
@@ -438,6 +445,23 @@ export function enrichPnlLinesWithMetrics(
     if (stamped == null || stamped === 0) return line;
     return { ...line, value: stamped };
   });
+
+  // Workbook-native lists may omit derived metrics (e.g. EBITDA). Append
+  // missing stamped KPI rows so overview sync still has stable keys — without
+  // rebuilding the entire RedRuby checklist.
+  if (lines.length > 0) {
+    for (const [key, stamped] of Object.entries(stamps)) {
+      if (stamped == null || stamped === 0) continue;
+      if (result.some((l) => l.key === key)) continue;
+      result.push({
+        key,
+        label: stampLabels[key] ?? key,
+        value: stamped,
+      });
+    }
+  }
+
+  return result;
 }
 
 export function computedPreview(values: Record<string, number | null>): Record<string, number | null> {
