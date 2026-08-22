@@ -542,6 +542,7 @@ export function EditTenantModal({ open, tenant, onClose, onSnackbar }: EditTenan
   const [stripePreferMarketplace, setStripePreferMarketplace] = useState(true);
   const [showStripeSecrets, setShowStripeSecrets] = useState(false);
   const [pushStripeEnv, { isLoading: pushingStripeEnv }] = usePushStripeEnvVarsMutation();
+  const [syncingSubscriptionPrices, setSyncingSubscriptionPrices] = useState(false);
   const [fetchMarketplaceStatus] = useLazyGetStripeMarketplaceStatusQuery();
 
   const applySuiteChanges = useCallback(async () => {
@@ -1032,6 +1033,107 @@ export function EditTenantModal({ open, tenant, onClose, onSnackbar }: EditTenan
       setSaving(false);
     }
   }, [tenant, displayName, editTemplate, editPrimaryColor, editSecondaryColor, license, googleOAuth, dbConfig, envPairs, deployHookUrl, vercelProjectId, adminEmail, pinSignInEnabled, updateTenant, onSnackbar, orgId, currentOrg, organizations, assignTenantOrg, stripeKeys, pushStripeEnv]);
+
+  const handleApplyCatalogDefaultsAndSync = useCallback(async () => {
+    if (!tenant) return;
+    setSyncingSubscriptionPrices(true);
+    try {
+      const defaults = defaultSubscriptionAmounts();
+      const mergedStripe = { ...stripeKeys, priceAmounts: defaults };
+      setStripeKeys(mergedStripe);
+
+      const result = await updateTenant({
+        slug: tenant.slug,
+        displayName,
+        template: editTemplate,
+        primaryColor: editPrimaryColor,
+        secondaryColor: editSecondaryColor,
+        vercelProjectId: vercelProjectId || undefined,
+        metadata: {
+          config: buildConfigFields({
+            tenant,
+            license,
+            googleOAuth,
+            dbConfig,
+            envPairs,
+            deployHookUrl,
+            vercelProjectId,
+            adminEmail,
+            pinSignInEnabled,
+            stripe: mergedStripe,
+          }),
+        },
+      }).unwrap();
+
+      if (!result.success) {
+        throw new Error(result.error || 'Failed to save subscription pricing');
+      }
+
+      const stripeRes = await pushStripeEnv({ slug: tenant.slug }).unwrap();
+      const freshResult = await getTenant(tenant.slug).unwrap();
+      if (freshResult.success && freshResult.data?.tenant) {
+        const freshTenant = freshResult.data.tenant;
+        const cfg = (freshTenant.metadata?.config ?? {}) as Record<string, unknown>;
+        const stripeMeta = (cfg.stripe ?? {}) as Record<string, unknown>;
+        const subscriptionPricing = (stripeMeta.subscriptionPricing ?? {}) as Record<string, unknown>;
+        const pricesMeta = (stripeMeta.prices ?? {}) as Record<string, unknown>;
+        setStripeKeys((s) => ({
+          ...s,
+          priceAmounts: {
+            PRO_MONTHLY: Number(subscriptionPricing.PRO_MONTHLY) || defaults.PRO_MONTHLY,
+            PRO_YEARLY: Number(subscriptionPricing.PRO_YEARLY) || defaults.PRO_YEARLY,
+            BUSINESS_MONTHLY: Number(subscriptionPricing.BUSINESS_MONTHLY) || defaults.BUSINESS_MONTHLY,
+            BUSINESS_YEARLY: Number(subscriptionPricing.BUSINESS_YEARLY) || defaults.BUSINESS_YEARLY,
+          },
+          prices: {
+            PRO_MONTHLY: String(pricesMeta.PRO_MONTHLY ?? s.prices?.PRO_MONTHLY ?? ''),
+            PRO_YEARLY: String(pricesMeta.PRO_YEARLY ?? s.prices?.PRO_YEARLY ?? ''),
+            BUSINESS_MONTHLY: String(pricesMeta.BUSINESS_MONTHLY ?? s.prices?.BUSINESS_MONTHLY ?? ''),
+            BUSINESS_YEARLY: String(pricesMeta.BUSINESS_YEARLY ?? s.prices?.BUSINESS_YEARLY ?? ''),
+          },
+        }));
+      }
+
+      let message = '✅ Catalog defaults applied — STRIPE_PRICE_* synced to Stripe and Vercel';
+      if (stripeRes.data?.priceSync) {
+        message += stripeRes.data.priceSync.ok
+          ? ` (${stripeRes.data.priceSync.message})`
+          : ` — ⚠️ ${stripeRes.data.priceSync.message}`;
+      } else {
+        message += ` (${stripeRes.data?.envCount ?? 0} env var(s) pushed)`;
+      }
+      onSnackbar({ message, severity: 'success' });
+    } catch (err) {
+      const msg =
+        err && typeof err === 'object' && 'data' in err
+          ? String((err as { data?: { error?: string } }).data?.error || 'Subscription price sync failed')
+          : err instanceof Error
+            ? err.message
+            : 'Subscription price sync failed';
+      onSnackbar({ message: `❌ ${msg}`, severity: 'error' });
+    } finally {
+      setSyncingSubscriptionPrices(false);
+    }
+  }, [
+    tenant,
+    stripeKeys,
+    displayName,
+    editTemplate,
+    editPrimaryColor,
+    editSecondaryColor,
+    vercelProjectId,
+    license,
+    googleOAuth,
+    dbConfig,
+    envPairs,
+    deployHookUrl,
+    adminEmail,
+    pinSignInEnabled,
+    updateTenant,
+    pushStripeEnv,
+    getTenant,
+    onSnackbar,
+  ]);
 
   // ── Flight Check run ───────────────────────────────────────
   const runFlightCheck = useCallback(async () => {
@@ -2248,6 +2350,8 @@ export function EditTenantModal({ open, tenant, onClose, onSnackbar }: EditTenan
             prices: next.prices,
           }))
         }
+        onApplyCatalogDefaultsAndSync={handleApplyCatalogDefaultsAndSync}
+        syncing={syncingSubscriptionPrices || pushingStripeEnv}
       />
     </Stack>
   );

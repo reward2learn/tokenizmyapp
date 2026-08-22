@@ -2,7 +2,9 @@
 
 import Alert from '@mui/material/Alert';
 import Box from '@mui/material/Box';
+import Button from '@mui/material/Button';
 import Chip from '@mui/material/Chip';
+import CircularProgress from '@mui/material/CircularProgress';
 import Paper from '@mui/material/Paper';
 import Stack from '@mui/material/Stack';
 import Table from '@mui/material/Table';
@@ -12,14 +14,17 @@ import TableHead from '@mui/material/TableHead';
 import TableRow from '@mui/material/TableRow';
 import TextField from '@mui/material/TextField';
 import Typography from '@mui/material/Typography';
+import AutoFixHighIcon from '@mui/icons-material/AutoFixHigh';
 import type { PlanId } from '@/lib/billing/plans';
 import { PLANS } from '@/lib/billing/plans';
 import {
+  defaultSubscriptionAmounts,
   formatUsdAnnualFromMonthlyRate,
   formatUsdPerMonth,
   priceEnvVarName,
   PURCHASABLE_PLAN_IDS,
   shortKeyFor,
+  SUBSCRIPTION_PRICE_SHORT_KEYS,
   type SubscriptionPriceShortKey,
 } from '@/lib/billing/subscription-pricing';
 
@@ -36,6 +41,9 @@ export type SubscriptionTierPricingState = {
 type Props = {
   value: SubscriptionTierPricingState;
   onChange: (next: SubscriptionTierPricingState) => void;
+  /** Save catalog defaults, create Stripe Prices, push STRIPE_PRICE_* to Vercel. */
+  onApplyCatalogDefaultsAndSync?: () => Promise<void>;
+  syncing?: boolean;
 };
 
 function centsToDollarInput(cents: number): string {
@@ -49,7 +57,21 @@ function dollarsToCents(input: string): number {
   return Math.round(n * 100);
 }
 
-export function SubscriptionTierPricingSection({ value, onChange }: Props) {
+export function SubscriptionTierPricingSection({
+  value,
+  onChange,
+  onApplyCatalogDefaultsAndSync,
+  syncing = false,
+}: Props) {
+  const catalogDefaults = defaultSubscriptionAmounts();
+
+  const applyDefaultsToForm = () => {
+    onChange({
+      ...value,
+      amounts: { ...catalogDefaults },
+    });
+  };
+
   const patchAmount = (key: SubscriptionPriceShortKey, dollars: string) => {
     onChange({
       ...value,
@@ -69,12 +91,33 @@ export function SubscriptionTierPricingSection({ value, onChange }: Props) {
       <Typography variant="subtitle2" sx={{ fontWeight: 600, mb: 0.5 }}>
         Subscription plan prices
       </Typography>
-      <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-        Set the monthly rate for each tier. Yearly billing uses the discounted $/month rate
-        (15% off × 12 billed once per year). On <strong>Save Changes</strong>, Stripe Price
-        objects are created and <code>STRIPE_PRICE_*</code> env vars are pushed to every linked
-        Vercel project.
-      </Typography>
+      <Stack
+        direction={{ xs: 'column', sm: 'row' }}
+        spacing={1}
+        sx={{ alignItems: { sm: 'center' }, justifyContent: 'space-between', mb: 2 }}
+      >
+        <Typography variant="body2" color="text.secondary" sx={{ flex: 1 }}>
+          Set the monthly rate for each tier. Yearly billing uses the discounted $/month rate
+          (15% off × 12 billed once per year). Use the button to load catalog defaults and push{' '}
+          {SUBSCRIPTION_PRICE_SHORT_KEYS.map((k) => priceEnvVarName(k)).join(', ')} to Vercel.
+        </Typography>
+        <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} sx={{ flexShrink: 0 }}>
+          <Button size="small" variant="outlined" onClick={applyDefaultsToForm} disabled={syncing}>
+            Reset to catalog defaults
+          </Button>
+          <Button
+            size="small"
+            variant="contained"
+            startIcon={
+              syncing ? <CircularProgress size={14} color="inherit" /> : <AutoFixHighIcon />
+            }
+            onClick={() => void onApplyCatalogDefaultsAndSync?.()}
+            disabled={syncing || !onApplyCatalogDefaultsAndSync}
+          >
+            Apply defaults &amp; sync to Stripe
+          </Button>
+        </Stack>
+      </Stack>
 
       <Table size="small" sx={{ mb: 2 }}>
         <TableHead>
@@ -150,8 +193,10 @@ export function SubscriptionTierPricingSection({ value, onChange }: Props) {
       </Table>
 
       <Alert severity="info" sx={{ fontSize: '0.85rem' }}>
-        Display amounts ({formatUsdPerMonth(value.amounts.PRO_MONTHLY)} Pro monthly, etc.) appear on
-        Choose Plan after sync. You can paste existing Stripe price IDs below to skip auto-creation.
+        Catalog defaults: Pro {formatUsdPerMonth(catalogDefaults.PRO_MONTHLY)} monthly,{' '}
+        {formatUsdPerMonth(catalogDefaults.PRO_YEARLY)} yearly ({formatUsdAnnualFromMonthlyRate(catalogDefaults.PRO_YEARLY)}); Business{' '}
+        {formatUsdPerMonth(catalogDefaults.BUSINESS_MONTHLY)} / {formatUsdPerMonth(catalogDefaults.BUSINESS_YEARLY)}.
+        Choose Plan uses the synced price IDs after a successful sync.
       </Alert>
 
       <Box sx={{ mt: 2 }}>
