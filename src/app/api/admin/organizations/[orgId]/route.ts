@@ -8,6 +8,7 @@ import { NextResponse } from 'next/server';
 import { createRawClient } from '@/lib/db';
 import { requireWriteAuth } from '@/lib/auth/guards';
 import { jsonError, jsonOk } from '@/lib/api/response';
+import { isPlatformApp } from '@shared/lib/config/tenant';
 import {
   getOrganization,
   listOrgMembers,
@@ -95,6 +96,15 @@ export async function PATCH(
   try {
     const existing = await getOrganization(db, orgId);
     if (!existing) return jsonError('Organization not found', 404);
+
+    const identityFields = ['displayName', 'slug', 'logoUrl'] as const;
+    const hasIdentityChange = identityFields.some((field) => body[field] !== undefined);
+    if (!isPlatformApp() && hasIdentityChange) {
+      return jsonError(
+        'Organization name, slug, and logo can only be changed from the platform console.',
+        403,
+      );
+    }
 
     const organization = await updateOrganization(db, orgId, {
       displayName: typeof body.displayName === 'string' ? body.displayName : undefined,

@@ -19,14 +19,21 @@ import {
 } from '@/store/apis/organization-api';
 import { NoOrganization } from '@/components/settings/settings-panel';
 import { RADIUS } from '@/theme/design-tokens';
+import { isPlatformApp } from '@shared/lib/config/tenant';
+
+const READONLY_IDENTITY_HELPER =
+  'Set when this tenant was configured. Contact your administrator to change it.';
 
 /**
  * Settings → Organization → General.
  *
- * Name, slug and logo are the three fields `updateOrganization` accepts; there
- * is deliberately nothing here it cannot persist.
+ * Name, slug and logo are the three identity fields `updateOrganization`
+ * accepts. They are editable only on the platform console — a tenant app runs
+ * under an organization that was already provisioned, so changing identity
+ * here would fight tenant configuration and URL routing.
  */
 export function OrganizationGeneralPanel({ orgId }: { orgId: string | null }) {
+  const canEditIdentity = isPlatformApp();
   const { data, isLoading } = useGetOrganizationQuery(orgId ?? '', { skip: !orgId });
   const [update, { isLoading: isSaving }] = useUpdateOrganizationMutation();
 
@@ -44,16 +51,20 @@ export function OrganizationGeneralPanel({ orgId }: { orgId: string | null }) {
   if (!orgId) return <NoOrganization what="General settings" />;
   if (isLoading || !organization) return <Skeleton variant="rounded" height={360} />;
 
-  const name = nameDraft ?? organization.displayName;
-  const slug = slugDraft ?? organization.slug;
-  const logoUrl = logoDraft ?? organization.logoUrl ?? '';
+  const name = canEditIdentity ? (nameDraft ?? organization.displayName) : organization.displayName;
+  const slug = canEditIdentity ? (slugDraft ?? organization.slug) : organization.slug;
+  const logoUrl = canEditIdentity
+    ? (logoDraft ?? organization.logoUrl ?? '')
+    : (organization.logoUrl ?? '');
 
   const dirty =
-    name !== organization.displayName ||
-    slug !== organization.slug ||
-    logoUrl !== (organization.logoUrl ?? '');
+    canEditIdentity &&
+    (name !== organization.displayName ||
+      slug !== organization.slug ||
+      logoUrl !== (organization.logoUrl ?? ''));
 
   const save = async () => {
+    if (!canEditIdentity) return;
     setError(null);
     setSaved(false);
     try {
@@ -79,6 +90,13 @@ export function OrganizationGeneralPanel({ orgId }: { orgId: string | null }) {
     <Stack spacing={3} sx={{ maxWidth: 720 }}>
       <Typography variant="h6">General Settings</Typography>
 
+      {!canEditIdentity && (
+        <Alert severity="info">
+          Organization name, slug, and logo are part of tenant configuration and cannot be changed
+          from this app.
+        </Alert>
+      )}
+
       <Stack direction="row" spacing={2} sx={{ alignItems: 'center' }}>
         <Avatar
           src={logoUrl || undefined}
@@ -102,8 +120,13 @@ export function OrganizationGeneralPanel({ orgId }: { orgId: string | null }) {
             size="small"
             placeholder="https://example.com/logo.png"
             value={logoUrl}
-            onChange={(e) => setLogoDraft(e.target.value)}
-            helperText="Public image URL"
+            onChange={canEditIdentity ? (e) => setLogoDraft(e.target.value) : undefined}
+            slotProps={{
+              input: {
+                readOnly: !canEditIdentity,
+              },
+            }}
+            helperText={canEditIdentity ? 'Public image URL' : READONLY_IDENTITY_HELPER}
           />
         </Box>
       </Stack>
@@ -112,29 +135,46 @@ export function OrganizationGeneralPanel({ orgId }: { orgId: string | null }) {
         fullWidth
         label="Organization Name"
         value={name}
-        onChange={(e) => setNameDraft(e.target.value)}
+        onChange={canEditIdentity ? (e) => setNameDraft(e.target.value) : undefined}
+        slotProps={{
+          input: {
+            readOnly: !canEditIdentity,
+          },
+        }}
+        helperText={canEditIdentity ? undefined : READONLY_IDENTITY_HELPER}
       />
 
       <TextField
         fullWidth
         label="Organization slug"
         value={slug}
-        onChange={(e) => setSlugDraft(e.target.value)}
-        helperText="Lowercase and URL-safe. The server normalises what you type."
+        onChange={canEditIdentity ? (e) => setSlugDraft(e.target.value) : undefined}
+        slotProps={{
+          input: {
+            readOnly: !canEditIdentity,
+          },
+        }}
+        helperText={
+          canEditIdentity
+            ? 'Lowercase and URL-safe. The server normalises what you type.'
+            : READONLY_IDENTITY_HELPER
+        }
       />
 
-      {error && <Alert severity="error">{error}</Alert>}
-      {saved && !dirty && <Alert severity="success">Saved.</Alert>}
+      {canEditIdentity && error && <Alert severity="error">{error}</Alert>}
+      {canEditIdentity && saved && !dirty && <Alert severity="success">Saved.</Alert>}
 
-      <Box sx={{ display: 'flex', justifyContent: 'flex-end' }}>
-        <Button
-          variant="contained"
-          onClick={save}
-          disabled={!dirty || isSaving || name.trim() === '' || slug.trim() === ''}
-        >
-          {isSaving ? 'Saving…' : 'Save Changes'}
-        </Button>
-      </Box>
+      {canEditIdentity && (
+        <Box sx={{ display: 'flex', justifyContent: 'flex-end' }}>
+          <Button
+            variant="contained"
+            onClick={save}
+            disabled={!dirty || isSaving || name.trim() === '' || slug.trim() === ''}
+          >
+            {isSaving ? 'Saving…' : 'Save Changes'}
+          </Button>
+        </Box>
+      )}
 
       <TextField
         fullWidth
