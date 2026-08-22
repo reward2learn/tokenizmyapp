@@ -287,6 +287,7 @@ export async function closeProgressStep(
 export async function populateProjectionsStep(
   comprehension: WorkbookComprehension,
   dbUrl: string,
+  appId = '',
 ): Promise<number> {
   'use step';
 
@@ -311,7 +312,7 @@ export async function populateProjectionsStep(
       await executeOne(
         db,
         `INSERT INTO financial_projections (period, year, month, data_type, scenario, app_id, revenue, ebitda, net_income, guests, staff_cost, pnl_lines)
-         VALUES ($1, $2, $3, $4, $5, '', $6, $7, $8, $9, $10, $11::jsonb)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12::jsonb)
          ON CONFLICT (period, data_type, scenario, app_id)
          DO UPDATE SET
            revenue = EXCLUDED.revenue,
@@ -320,7 +321,20 @@ export async function populateProjectionsStep(
            guests = EXCLUDED.guests,
            staff_cost = EXCLUDED.staff_cost,
            pnl_lines = EXCLUDED.pnl_lines;`,
-        [metric.period, year, month, metric.dataType, metric.scenario, revenue, ebitda, netIncome, guests, staffCost, pnlLines],
+        [
+          metric.period,
+          year,
+          month,
+          metric.dataType,
+          metric.scenario,
+          appId,
+          revenue,
+          ebitda,
+          netIncome,
+          guests,
+          staffCost,
+          pnlLines,
+        ],
       );
       count++;
     }
@@ -524,6 +538,7 @@ export async function saveSnippetsStep(
   comprehension: WorkbookComprehension,
   model: string,
   dbUrl: string,
+  appId = '',
 ): Promise<number> {
   'use step';
 
@@ -533,11 +548,12 @@ export async function saveSnippetsStep(
     await executeOne(
       db,
       `INSERT INTO knowledge_snippets (id, key, category, content, app_id)
-       VALUES (gen_random_uuid()::TEXT, $1, 'document', $2, '')
+       VALUES (gen_random_uuid()::TEXT, $1, 'document', $2, $3)
        ON CONFLICT (key, app_id) DO UPDATE SET content = EXCLUDED.content;`,
       [
         'workbook_comprehension',
         JSON.stringify({ model, comprehendedAt: new Date().toISOString(), comprehension }),
+        appId,
       ],
     );
     count++;
@@ -557,9 +573,9 @@ export async function saveSnippetsStep(
       await executeOne(
         db,
         `INSERT INTO knowledge_snippets (id, key, category, content, app_id)
-         VALUES (gen_random_uuid()::TEXT, $1, 'sheet', $2, '')
+         VALUES (gen_random_uuid()::TEXT, $1, 'sheet', $2, $3)
          ON CONFLICT (key, app_id) DO UPDATE SET content = EXCLUDED.content;`,
-        [key, markdown],
+        [key, markdown, appId],
       );
       count++;
     }

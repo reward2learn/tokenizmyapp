@@ -8,6 +8,7 @@ import {
   type Prisma,
   type TaskStatus,
 } from '@/generated/prisma';
+import { getCurrentAppId } from '@shared/lib/config/tenant';
 import { getFullCatalog, REVIEW_PART_CATALOG } from '@/lib/page-catalog';
 import type { DbClient } from '@/lib/db';
 import { FUNCTIONAL_ROLES } from '@/domain/security/functional-roles';
@@ -660,13 +661,18 @@ export async function seedTaskTracking(prisma: DbClient): Promise<void> {
     roleIdByCode.set(created.code, created.id);
   }
 
-  const existingTasks = await prisma.task.findMany({ take: 1 });
+  const existingTasks = await prisma.task.findMany({
+    where: { appId: getCurrentAppId() },
+    take: 1,
+  });
   if (existingTasks.length > 0) {
     // Tasks already exist — backfill any missing descriptions from the playbook
     // without disturbing status/progress. Then ensure assignments are intact.
     const builtAll = buildTasks();
     for (const built of builtAll) {
-      const existing = await prisma.task.findFirst({ where: { title: built.title } });
+      const existing = await prisma.task.findFirst({
+        where: { title: built.title, appId: getCurrentAppId() },
+      });
       if (existing && !existing.description?.trim() && built.description) {
         await prisma.task.update({
           where: { id: existing.id },
@@ -677,8 +683,11 @@ export async function seedTaskTracking(prisma: DbClient): Promise<void> {
     return;
   }
 
-  await prisma.taskAssignment.deleteMany();
-  await prisma.task.deleteMany();
+  const appId = getCurrentAppId();
+  await prisma.taskAssignment.deleteMany({
+    where: { task: { appId } },
+  });
+  await prisma.task.deleteMany({ where: { appId } });
 
   let taskOrder = 0;
   const now = Date.now();
@@ -692,6 +701,7 @@ export async function seedTaskTracking(prisma: DbClient): Promise<void> {
         status: 'pending',
         dueDate,
         sortOrder: taskOrder++,
+        appId,
       },
     });
     const ownerCodes = built.ownerCodes.length > 0 ? built.ownerCodes : [];
@@ -706,11 +716,12 @@ export async function seedTaskTracking(prisma: DbClient): Promise<void> {
 async function upsertFinancialProjectionRaw(
   prisma: PrismaClient,
   row: FinancialProjectionRow,
+  appId: string,
 ): Promise<void> {
   const pnlJson = JSON.stringify(row.pnlLines);
   await prisma.$executeRaw`
     INSERT INTO financial_projections (period, year, month, data_type, scenario, revenue, ebitda, net_income, guests, staff_cost, pnl_lines, app_id)
-    VALUES (${row.period}, ${row.year}, ${row.month}, ${row.dataType}, ${row.scenario}, ${row.revenue}, ${row.ebitda}, ${row.netIncome}, ${row.guests}, ${row.staffCost}, ${pnlJson}::jsonb, '')
+    VALUES (${row.period}, ${row.year}, ${row.month}, ${row.dataType}, ${row.scenario}, ${row.revenue}, ${row.ebitda}, ${row.netIncome}, ${row.guests}, ${row.staffCost}, ${pnlJson}::jsonb, ${appId})
     ON CONFLICT (period, data_type, scenario, app_id)
     DO UPDATE SET
       year = EXCLUDED.year,
@@ -858,8 +869,11 @@ export async function seedTasksFromAi(
     return 0;
   }
 
-  await prisma.taskAssignment.deleteMany();
-  await prisma.task.deleteMany();
+  const appId = getCurrentAppId();
+  await prisma.taskAssignment.deleteMany({
+    where: { task: { appId } },
+  });
+  await prisma.task.deleteMany({ where: { appId } });
 
   let taskOrder = 0;
   const now = Date.now();
@@ -874,6 +888,7 @@ export async function seedTasksFromAi(
         status: 'pending',
         dueDate,
         sortOrder: taskOrder++,
+        appId,
       },
     });
 
@@ -1106,6 +1121,9 @@ export async function seedFromSources(options: SeedOptions = {}): Promise<SeedRe
   }
 
   const prisma = new PrismaClient({ datasources: { db: { url: connStr } } });
+  // Suite deployments (e.g. tokenizmyapp-finance) set NEXT_PUBLIC_APP_ID —
+  // seed must write the same app_id that seed-details / chart APIs filter on.
+  const appId = getCurrentAppId();
 
   try {
     await ensureLegacyTables(prisma);
@@ -1113,7 +1131,7 @@ export async function seedFromSources(options: SeedOptions = {}): Promise<SeedRe
 
     if (projections && !options.skipFinancialProjections) {
       for (const row of projections) {
-        await upsertFinancialProjectionRaw(prisma, row);
+        await upsertFinancialProjectionRaw(prisma, row, appId);
       }
     } else if (options.skipFinancialProjections) {
       console.log('[seed] skipFinancialProjections=true — financial projections left to the AI workbook pipeline');
@@ -1123,7 +1141,7 @@ export async function seedFromSources(options: SeedOptions = {}): Promise<SeedRe
       const catalog = REVIEW_PART_CATALOG[part.slug];
       const authTier = (catalog?.authTier ?? 'google') as AuthTier;
       await prisma.businessReviewPart.upsert({
-        where: { slug_appId: { slug: part.slug, appId: '' } },
+        where: { slug_appId: { slug: part.slug, appId } },
         create: {
           partKey: part.partKey,
           slug: part.slug,
@@ -1131,6 +1149,7 @@ export async function seedFromSources(options: SeedOptions = {}): Promise<SeedRe
           sortOrder: part.sortOrder,
           authTier,
           markdown: part.markdown,
+          appId,
         },
         update: {
           partKey: part.partKey,
@@ -1150,12 +1169,13 @@ export async function seedFromSources(options: SeedOptions = {}): Promise<SeedRe
         ...lever.actions.map((a) => `- ${a}`),
       ].join('\n');
       await prisma.lever.upsert({
-        where: { num_appId: { num: lever.num, appId: '' } },
+        where: { num_appId: { num: lever.num, appId } },
         create: {
           num: lever.num,
           name: lever.name,
           impact: lever.impact,
           description,
+          appId,
         },
         update: {
           name: lever.name,
@@ -1165,14 +1185,14 @@ export async function seedFromSources(options: SeedOptions = {}): Promise<SeedRe
       });
     }
 
-    await prisma.actionItem.deleteMany();
+    await prisma.actionItem.deleteMany({ where: { appId } });
     await prisma.actionItem.createMany({
       data: actionItems.map((item) => ({
         priority: item.priority,
         label: item.label,
         sortOrder: item.sortOrder,
         completed: false,
-        appId: '',
+        appId,
       })),
     });
 
@@ -1195,8 +1215,8 @@ export async function seedFromSources(options: SeedOptions = {}): Promise<SeedRe
     }
 
     // Recreate tasks from the current priority actions (idempotent by title+sortOrder).
-    await prisma.taskAssignment.deleteMany();
-    await prisma.task.deleteMany();
+    await prisma.taskAssignment.deleteMany({ where: { task: { appId } } });
+    await prisma.task.deleteMany({ where: { appId } });
 
     let taskOrder = 0;
     const now = Date.now();
@@ -1210,6 +1230,7 @@ export async function seedFromSources(options: SeedOptions = {}): Promise<SeedRe
           status: 'pending' as TaskStatus,
           dueDate,
           sortOrder: taskOrder++,
+          appId,
         },
       });
       const ownerCodes = built.ownerCodes.length > 0 ? built.ownerCodes : [];
@@ -1224,7 +1245,7 @@ export async function seedFromSources(options: SeedOptions = {}): Promise<SeedRe
 
     for (const target of MONTHLY_TARGETS) {
       await prisma.monthlyTarget.upsert({
-        where: { month_appId: { month: target.month, appId: '' } },
+        where: { month_appId: { month: target.month, appId } },
         create: {
           month: target.month,
           targetRevenue: target.revenue,
@@ -1232,6 +1253,7 @@ export async function seedFromSources(options: SeedOptions = {}): Promise<SeedRe
           targetGuests: target.guests,
           targetAvgSpend: target.spend,
           targetStaffCostPct: target.staffPct,
+          appId,
         },
         update: {
           targetRevenue: target.revenue,
@@ -1245,8 +1267,8 @@ export async function seedFromSources(options: SeedOptions = {}): Promise<SeedRe
 
     for (const snippet of knowledgeSnippets) {
       await prisma.knowledgeSnippet.upsert({
-        where: { key_appId: { key: snippet.key, appId: '' } },
-        create: snippet,
+        where: { key_appId: { key: snippet.key, appId } },
+        create: { ...snippet, appId },
         update: { category: snippet.category, content: snippet.content },
       });
     }

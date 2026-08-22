@@ -34,6 +34,11 @@ export interface WorkbookIngestInput {
   /** OpenAI API key — resolved by the route from DB secrets (Config > OpenAI Key) or left undefined for env fallback. */
   openaiApiKey?: string | null;
   tenantSlug?: string;
+  /**
+   * Suite-mode app id (NEXT_PUBLIC_APP_ID). Must match getCurrentAppId() used by
+   * seed-details / chart APIs, or projections land under app_id='' and look "missing".
+   */
+  appId?: string;
   /** Database connection string for the target tenant (resolved by the route from tenants.db_url or root POSTGRES_URL). */
   dbUrl: string;
 }

@@ -138,6 +138,7 @@ export async function POST(request: Request): Promise<NextResponse> {
         model: model ?? 'gpt-4o',
         skipContentGeneration: false,
         tenantSlug: process.env.NEXT_PUBLIC_TENANT_SLUG || undefined,
+        appId: process.env.NEXT_PUBLIC_APP_ID?.trim() || '',
         dbUrl: process.env.POSTGRES_URL || '',
         openaiApiKey: (await resolveOpenAiKey()) || process.env.OPENAI_API_KEY || null,
       };
@@ -151,6 +152,7 @@ export async function POST(request: Request): Promise<NextResponse> {
         counts: baseSeed.counts,
         filesUsed: baseSeed.filesUsed,
         uploaded,
+        appId: process.env.NEXT_PUBLIC_APP_ID?.trim() || '',
         warnings: [] as string[],
       };
 

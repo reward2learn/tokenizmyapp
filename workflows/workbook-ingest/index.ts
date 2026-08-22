@@ -129,7 +129,12 @@ export async function handleWorkbookIngest(
   });
 
   // ── 5. POPULATE PROJECTIONS ────────────────────────────────────
-  const projectionsCount = await populateProjectionsStep(comprehension.comprehension, dbUrl);
+  const appId = input.appId ?? '';
+  const projectionsCount = await populateProjectionsStep(
+    comprehension.comprehension,
+    dbUrl,
+    appId,
+  );
 
   // ── 6. UPSERT SHEET PAGES (with §7.1 orphan fix) ───────────────
   const pagesCreated = await upsertSheetPagesStep(
@@ -143,7 +148,12 @@ export async function handleWorkbookIngest(
   const pagesRegistered = await registerDynamicPagesStep(comprehension.comprehension);
 
   // ── 8. SAVE KNOWLEDGE SNIPPETS ─────────────────────────────────
-  const snippetsCount = await saveSnippetsStep(comprehension.comprehension, model, dbUrl);
+  const snippetsCount = await saveSnippetsStep(
+    comprehension.comprehension,
+    model,
+    dbUrl,
+    appId,
+  );
 
   // ── 9. GENERATE content (AI → BR / ES / Dashboard) ────────
   const apiKey = input.openaiApiKey || process.env.OPENAI_API_KEY;
