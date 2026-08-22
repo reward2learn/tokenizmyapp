@@ -144,8 +144,11 @@ export function interpretStripeWebhookHttpStatus(httpStatus: number, body: strin
       status: 'fail',
       ok: false,
       message:
-        'HTTP 400 — signature verification failed. STRIPE_WEBHOOK_SECRET on Vercel ' +
-        'does not match the Stripe snapshot destination whsec_ for this URL.',
+        'HTTP 400 — signature verification failed. The STRIPE_WEBHOOK_SECRET on the ' +
+        'deployment does not match the signing secret (whsec_…) for the Stripe snapshot ' +
+        'destination registered at this URL. Copy the destination signing secret from ' +
+        'Stripe → Developers → Webhooks and update Vercel STRIPE_WEBHOOK_SECRET, then Save ' +
+        'in Organization & Billing if you push keys from the tenant wizard.',
     };
   }
   if (httpStatus === 503) {
@@ -178,6 +181,11 @@ export async function testStripeWebhookForProject(input: {
   projectNameHint?: string | null;
   /** When true, test factory billing URL if app URL returns 404. */
   allowFactoryFallback?: boolean;
+  /**
+   * When true, skip the app URL and test factory billing directly
+   * (https://tokenizmyapp.vercel.app/api/webhooks/stripe).
+   */
+  billingTarget?: boolean;
 }): Promise<StripeWebhookTestResult> {
   const eventId = `evt_flightcheck_${Date.now().toString(36)}`;
   let projectId = input.projectId?.trim() || null;
@@ -252,15 +260,52 @@ export async function testStripeWebhookForProject(input: {
   }
 
   const webhookSecret = envValues.STRIPE_WEBHOOK_SECRET!.trim();
-  const primaryUrl = projectName ? webhookUrlForProjectName(projectName) : FACTORY_WEBHOOK_URL;
+  if (!webhookSecret.startsWith('whsec_')) {
+    return {
+      status: 'fail',
+      ok: false,
+      message:
+        'STRIPE_WEBHOOK_SECRET on Vercel is not a webhook signing secret (expected whsec_ prefix). ' +
+        'Use the Signing secret from your Stripe snapshot destination, not an API key.',
+      webhookUrl: projectName ? webhookUrlForProjectName(projectName) : FACTORY_WEBHOOK_URL,
+      httpStatus: null,
+      eventType: TEST_EVENT_TYPE,
+      eventId,
+      secretsProjectId: projectId,
+      usedFactoryFallback: false,
+      env: envBlock,
+    };
+  }
+
+  const useBillingTarget =
+    input.billingTarget === true
+    || projectName === 'tokenizmyapp'
+    || projectId === FACTORY_VERCEL_PROJECT_ID;
+
+  const primaryUrl = useBillingTarget
+    ? FACTORY_WEBHOOK_URL
+    : projectName
+      ? webhookUrlForProjectName(projectName)
+      : FACTORY_WEBHOOK_URL;
+
+  const signingProjectId = useBillingTarget ? FACTORY_VERCEL_PROJECT_ID : projectId;
+  let signingSecret = webhookSecret;
+
+  if (useBillingTarget && projectId !== FACTORY_VERCEL_PROJECT_ID) {
+    const factoryEnv = await getProjectEnvValues(FACTORY_VERCEL_PROJECT_ID, ['STRIPE_WEBHOOK_SECRET']);
+    const factorySecret = factoryEnv.STRIPE_WEBHOOK_SECRET?.trim();
+    if (factorySecret) {
+      signingSecret = factorySecret;
+    }
+  }
 
   let webhookUrl = primaryUrl;
-  let secretsProjectId = projectId;
-  let usedFactoryFallback = false;
+  let secretsProjectId = signingProjectId;
+  let usedFactoryFallback = useBillingTarget && projectId !== FACTORY_VERCEL_PROJECT_ID;
 
   let attempt = await postSignedTestEvent({
     webhookUrl: primaryUrl,
-    webhookSecret,
+    webhookSecret: signingSecret,
     eventId,
   });
 

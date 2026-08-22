@@ -1115,6 +1115,7 @@ export function EditTenantModal({ open, tenant, onClose, onSnackbar }: EditTenan
         const testRes = await testStripeWebhook({
           slug,
           projectNameHint: slug,
+          billingTarget: true,
         }).unwrap();
         const t = testRes.data;
         if (t?.ok) {

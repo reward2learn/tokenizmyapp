@@ -82,6 +82,13 @@ async function vercelGet<T>(path: string): Promise<T> {
 
 type EnvRow = { key: string; id?: string; type?: string; target?: string[]; value?: string };
 
+function pickEnvValue(envs: EnvRow[], key: string): string | null {
+  const matching = envs.filter((e) => e.key === key && e.value?.trim());
+  if (matching.length === 0) return null;
+  const production = matching.find((e) => e.target?.includes('production'));
+  return (production ?? matching[0]).value!.trim();
+}
+
 /** Read decrypted env values for specific keys (server-only — never expose to client logs). */
 export async function getProjectEnvValues(
   projectId: string,
@@ -104,9 +111,9 @@ export async function getProjectEnvValues(
     throw new Error(`Vercel env read failed: ${res.status} ${text.slice(0, 200)}`);
   }
   const data = (await res.json()) as { envs?: EnvRow[] };
-  for (const env of data.envs ?? []) {
-    if (env.key && want.has(env.key) && env.value?.trim()) {
-      out[env.key] = env.value.trim();
+  for (const key of keyNames) {
+    if (want.has(key)) {
+      out[key] = pickEnvValue(data.envs ?? [], key);
     }
   }
   return out;

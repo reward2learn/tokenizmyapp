@@ -435,7 +435,7 @@ export const tenantApi = createApi({
         };
         responseSnippet?: string;
       }>,
-      { slug: string; appId?: string; projectNameHint?: string; allowFactoryFallback?: boolean }
+      { slug: string; appId?: string; projectNameHint?: string; allowFactoryFallback?: boolean; billingTarget?: boolean }
     >({
       query: ({ slug, ...body }) => ({
         url: `admin/tenants/${slug}/stripe-webhook-test`,

@@ -24,6 +24,8 @@ const bodySchema = z.object({
   appId: z.string().trim().optional(),
   projectNameHint: z.string().trim().optional(),
   allowFactoryFallback: z.boolean().optional(),
+  /** Test factory billing URL (tokenizmyapp.vercel.app) — default for tenant flight check. */
+  billingTarget: z.boolean().optional(),
 });
 
 function getAppPack(tenant: Record<string, unknown>): AppPackConfig | null {
@@ -88,6 +90,7 @@ export async function POST(
       projectId,
       projectNameHint,
       allowFactoryFallback: body.allowFactoryFallback,
+      billingTarget: body.billingTarget,
     });
 
     return jsonOk(result);
