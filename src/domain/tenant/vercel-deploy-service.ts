@@ -386,6 +386,8 @@ export async function syncStripeEnvVars(
     webhookSecret?: string;
     publishableKey?: string;
     selfServeBillingEnabled?: boolean;
+    /** Short keys (`PRO_MONTHLY`) → Stripe price id — pushed as STRIPE_PRICE_* env vars. */
+    prices?: Record<string, string>;
   },
 ): Promise<number> {
   const webhook = stripe.webhookSecret?.trim();
@@ -404,6 +406,13 @@ export async function syncStripeEnvVars(
   const entries: [string, string][] = [];
   if (stripe.secretKey?.trim()) entries.push(['STRIPE_SECRET_KEY', stripe.secretKey.trim()]);
   if (stripe.publishableKey?.trim()) entries.push(['NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY', stripe.publishableKey.trim()]);
+  if (stripe.prices) {
+    for (const [shortKey, priceId] of Object.entries(stripe.prices)) {
+      const trimmed = priceId?.trim();
+      if (!trimmed) continue;
+      entries.push([`STRIPE_PRICE_${shortKey}`, trimmed]);
+    }
+  }
 
   let envCount = 0;
 

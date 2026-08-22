@@ -62,6 +62,14 @@ export async function POST(
     const selfServe = (stripe.selfServeBilling ?? {}) as Record<string, unknown>;
     const selfServeBillingEnabled = selfServe.enabled === true;
 
+    const { readSubscriptionCatalogFromStripeMeta } = await import(
+      '@/domain/billing/subscription-catalog-service'
+    );
+    const { amounts: subscriptionAmounts, prices: catalogPrices } =
+      readSubscriptionCatalogFromStripeMeta(stripe);
+    const hasSubscriptionAmounts = Object.values(subscriptionAmounts).some((c) => c > 0);
+    const hasCatalogPriceIds = Object.values(catalogPrices).some((id) => id.trim());
+
     const tenantProjectId = String(tenant.vercel_project_id ?? '');
     if (tenantProjectId && (!secretKey || !publishableKey)) {
       try {
@@ -79,9 +87,17 @@ export async function POST(
       }
     }
 
-    if (!secretKey && !webhookSecret && !publishableKey && !agenticEnabled && !selfServeBillingEnabled) {
+    if (
+      !secretKey &&
+      !webhookSecret &&
+      !publishableKey &&
+      !agenticEnabled &&
+      !selfServeBillingEnabled &&
+      !hasSubscriptionAmounts &&
+      !hasCatalogPriceIds
+    ) {
       return jsonError(
-        'Nothing to push — connect Vercel Marketplace Install Stripe and/or paste STRIPE_WEBHOOK_SECRET in Organization & Billing.',
+        'Nothing to push — connect Vercel Marketplace Install Stripe, configure subscription prices, and/or paste STRIPE_WEBHOOK_SECRET in Organization & Billing.',
         400,
       );
     }
@@ -98,6 +114,41 @@ export async function POST(
     }
 
     const { syncStripeEnvVars } = await import('@/domain/tenant/vercel-deploy-service');
+
+    let priceSync: { ok: boolean; message: string } | null = null;
+    let pricesToPush = { ...catalogPrices };
+
+    if (secretKey && hasSubscriptionAmounts) {
+      try {
+        const { syncTenantSubscriptionCatalogFromMetadata } = await import(
+          '@/domain/billing/subscription-catalog-service'
+        );
+        const { resolveTenantStripeConfig } = await import('@/domain/billing/organization-service');
+        const orgRows = (await db.$queryRawUnsafe(
+          `SELECT organization_id FROM tenants WHERE slug = $1 LIMIT 1;`,
+          slug,
+        )) as Record<string, unknown>[];
+        const orgId = String(orgRows[0]?.organization_id ?? '').trim();
+        const stripeConfig = orgId
+          ? await resolveTenantStripeConfig(orgId, db)
+          : { secretKey, webhookSecret, publishableKey, prices: catalogPrices };
+
+        const syncResult = await syncTenantSubscriptionCatalogFromMetadata(
+          slug,
+          db,
+          stripeConfig ?? { secretKey, webhookSecret, publishableKey, prices: catalogPrices },
+        );
+        if (syncResult) {
+          pricesToPush = syncResult.prices;
+          priceSync = { ok: true, message: syncResult.message };
+        }
+      } catch (err) {
+        priceSync = {
+          ok: false,
+          message: err instanceof Error ? err.message : 'Subscription price sync failed',
+        };
+      }
+    }
 
     // Collect every Vercel project this tenant owns: its own project plus
     // each suite app's project.
@@ -133,6 +184,7 @@ export async function POST(
         webhookSecret,
         publishableKey,
         selfServeBillingEnabled,
+        prices: pricesToPush,
       });
       envCount += count;
       if (count > 0) pushed.push(project.name);
@@ -171,6 +223,7 @@ export async function POST(
         ? 'Keys pushed, but no deploy hook is set — redeploy the app so NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY reaches the client bundle.'
         : undefined,
       catalogSync,
+      priceSync,
     });
   } catch (err) {
     return jsonError('Failed to push Stripe env vars: ' + (err as Error).message, 500);

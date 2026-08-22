@@ -253,7 +253,7 @@ export async function createEmbeddedSubscriptionCheckoutSession(
   const customerId = await ensureStripeCustomer(input.orgId, db, stripe);
 
   const session = await stripe.checkout.sessions.create({
-    ui_mode: 'embedded',
+    ui_mode: 'embedded_page',
     redirect_on_completion: 'never',
     mode: 'subscription',
     customer: customerId,
@@ -296,7 +296,7 @@ export async function probeEmbeddedCheckoutHealth(
 
   try {
     const session = await stripe.checkout.sessions.create({
-      ui_mode: 'embedded',
+      ui_mode: 'embedded_page',
       redirect_on_completion: 'never',
       mode: 'payment',
       line_items: [

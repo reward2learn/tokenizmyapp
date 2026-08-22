@@ -83,6 +83,11 @@ import {
   StripeIntegrationStep,
   type StripeWizardValues,
 } from '@/components/ops-admin/stripe-integration-step';
+import {
+  SubscriptionTierPricingSection,
+  type SubscriptionTierPricingState,
+} from '@/components/ops-admin/subscription-tier-pricing-section';
+import { defaultSubscriptionAmounts } from '@/lib/billing/subscription-pricing';
 import type { AppPackConfig, SuiteAppInstance } from '@/store/apis/tenant-api';
 import { useAppDispatch } from '@/store/hooks';
 import { setThemeColors } from '@/store/ui-slice';
@@ -298,6 +303,7 @@ interface ConfigFieldsInput {
     secretKey: string;
     webhookSecret: string;
     publishableKey: string;
+    priceAmounts: SubscriptionTierPricingState['amounts'];
     prices: { PRO_MONTHLY?: string; PRO_YEARLY?: string; BUSINESS_MONTHLY?: string; BUSINESS_YEARLY?: string };
     agenticCommerce?: {
       enabled: boolean;
@@ -365,6 +371,12 @@ function buildConfigFields(input: ConfigFieldsInput) {
         PRO_YEARLY: stripe.prices?.PRO_YEARLY,
         BUSINESS_MONTHLY: stripe.prices?.BUSINESS_MONTHLY,
         BUSINESS_YEARLY: stripe.prices?.BUSINESS_YEARLY,
+      },
+      subscriptionPricing: {
+        PRO_MONTHLY: stripe.priceAmounts.PRO_MONTHLY,
+        PRO_YEARLY: stripe.priceAmounts.PRO_YEARLY,
+        BUSINESS_MONTHLY: stripe.priceAmounts.BUSINESS_MONTHLY,
+        BUSINESS_YEARLY: stripe.priceAmounts.BUSINESS_YEARLY,
       },
       agenticCommerce: {
         ...existingAgentic,
@@ -495,10 +507,18 @@ export function EditTenantModal({ open, tenant, onClose, onSnackbar }: EditTenan
     const agentic = (stripe.agenticCommerce ?? {}) as Record<string, unknown>;
     const connectPlatform = (agentic.connectPlatform ?? {}) as Record<string, unknown>;
     const selfServe = (stripe.selfServeBilling ?? {}) as Record<string, unknown>;
+    const subscriptionPricing = (stripe.subscriptionPricing ?? {}) as Record<string, unknown>;
+    const defaultAmounts = defaultSubscriptionAmounts();
     return {
       secretKey: String(stripe.secretKey ?? ''),
       webhookSecret: String(stripe.webhookSecret ?? ''),
       publishableKey: String(stripe.publishableKey ?? ''),
+      priceAmounts: {
+        PRO_MONTHLY: Number(subscriptionPricing.PRO_MONTHLY) || defaultAmounts.PRO_MONTHLY,
+        PRO_YEARLY: Number(subscriptionPricing.PRO_YEARLY) || defaultAmounts.PRO_YEARLY,
+        BUSINESS_MONTHLY: Number(subscriptionPricing.BUSINESS_MONTHLY) || defaultAmounts.BUSINESS_MONTHLY,
+        BUSINESS_YEARLY: Number(subscriptionPricing.BUSINESS_YEARLY) || defaultAmounts.BUSINESS_YEARLY,
+      },
       prices: {
         PRO_MONTHLY: (stripe.prices as Record<string, unknown> | undefined)?.PRO_MONTHLY as string | undefined
           ?? stripe.PRO_MONTHLY as string | undefined,
@@ -974,16 +994,23 @@ export function EditTenantModal({ open, tenant, onClose, onSnackbar }: EditTenan
         stripeKeys.webhookSecret.trim() ||
         stripeKeys.publishableKey.trim() ||
         stripeKeys.agenticCommerce.enabled ||
-        stripeKeys.selfServeBilling.enabled;
+        stripeKeys.selfServeBilling.enabled ||
+        Object.values(stripeKeys.priceAmounts).some((c) => c > 0) ||
+        Object.values(stripeKeys.prices ?? {}).some((p) => String(p ?? '').trim());
       if (shouldPushStripeEnv) {
         try {
           const stripeRes = await pushStripeEnv({ slug: tenant.slug }).unwrap();
           const envCount = stripeRes.data?.envCount ?? 0;
-          message += ` — Stripe keys pushed to Vercel (${envCount} env var${envCount === 1 ? '' : 's'})`;
+          message += ` — Stripe env pushed to Vercel (${envCount} env var${envCount === 1 ? '' : 's'})`;
           if (stripeRes.data?.redeployTriggered?.length) {
             message += `, redeploy triggered`;
           } else if (stripeRes.data?.note) {
             message += ` — ${stripeRes.data.note}`;
+          }
+          if (stripeRes.data?.priceSync) {
+            message += stripeRes.data.priceSync.ok
+              ? ` — ${stripeRes.data.priceSync.message}`
+              : ` — ⚠️ subscription prices: ${stripeRes.data.priceSync.message}`;
           }
           if (stripeRes.data?.catalogSync) {
             message += stripeRes.data.catalogSync.ok
@@ -2154,12 +2181,7 @@ export function EditTenantModal({ open, tenant, onClose, onSnackbar }: EditTenan
 
       <Paper variant="outlined" sx={{ p: 2 }}>
         <Typography variant="subtitle2" sx={{ fontWeight: 600, mb: 1 }}>
-          Subscription catalog & billing toggles
-        </Typography>
-        <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-          Vercel Marketplace does not create subscription prices or business toggles — save these
-          on <strong>Save Changes</strong> (price IDs stay in tenant metadata; webhook and toggles
-          push to Vercel env).
+          Billing toggles
         </Typography>
         <Stack spacing={2}>
           <FormControlLabel
@@ -2213,45 +2235,20 @@ export function EditTenantModal({ open, tenant, onClose, onSnackbar }: EditTenan
             When enabled, signed-in users on this tenant&apos;s deployed app can buy AI credit packs
             (not plan changes). Pushed as SELF_SERVE_BILLING_ENABLED on Save — requires Pro+ plan and Stripe keys.
           </Typography>
-
-          <Typography variant="caption" color="text.secondary" sx={{ mb: 1, fontSize: '0.7rem' }}>
-            Tenant price IDs (required for Choose Plan — create in Stripe Dashboard)
-          </Typography>
-          <TextField
-            label="STRIPE_PRICE_PRO_MONTHLY"
-            value={stripeKeys.prices?.PRO_MONTHLY}
-            onChange={(e) => setStripeKeys((s) => ({ ...s, prices: { ...s.prices, PRO_MONTHLY: e.target.value } }))}
-            fullWidth
-            placeholder="price_1U..."
-            helperText="Pro monthly price ID."
-          />
-          <TextField
-            label="STRIPE_PRICE_PRO_YEARLY"
-            value={stripeKeys.prices?.PRO_YEARLY}
-            onChange={(e) => setStripeKeys((s) => ({ ...s, prices: { ...s.prices, PRO_YEARLY: e.target.value } }))}
-            fullWidth
-            placeholder="price_1U..."
-            helperText="Pro yearly price ID."
-          />
-          <TextField
-            label="STRIPE_PRICE_BUSINESS_MONTHLY"
-            value={stripeKeys.prices?.BUSINESS_MONTHLY}
-            onChange={(e) => setStripeKeys((s) => ({ ...s, prices: { ...s.prices, BUSINESS_MONTHLY: e.target.value } }))}
-            fullWidth
-            placeholder="price_1U..."
-            helperText="Business monthly price ID."
-          />
-          <TextField
-            label="STRIPE_PRICE_BUSINESS_YEARLY"
-            value={stripeKeys.prices?.BUSINESS_YEARLY}
-            onChange={(e) => setStripeKeys((s) => ({ ...s, prices: { ...s.prices, BUSINESS_YEARLY: e.target.value } }))}
-            fullWidth
-            placeholder="price_1U..."
-            helperText="Business yearly price ID."
-          />
           {pushingStripeEnv && <LinearProgress />}
         </Stack>
       </Paper>
+
+      <SubscriptionTierPricingSection
+        value={{ amounts: stripeKeys.priceAmounts, prices: stripeKeys.prices ?? {} }}
+        onChange={(next) =>
+          setStripeKeys((s) => ({
+            ...s,
+            priceAmounts: next.amounts,
+            prices: next.prices,
+          }))
+        }
+      />
     </Stack>
   );
 

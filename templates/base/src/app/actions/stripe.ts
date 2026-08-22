@@ -113,7 +113,7 @@ export async function startCheckoutSession(productId: string): Promise<string | 
       };
 
   const session = await stripe.checkout.sessions.create({
-    ui_mode: 'embedded',
+    ui_mode: 'embedded_page',
     redirect_on_completion: 'never',
     line_items: [lineItem],
     mode: 'payment',

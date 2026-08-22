@@ -36,7 +36,7 @@ describe('probeEmbeddedCheckoutHealth', () => {
     expect(result.sessionId).toBe('cs_probe_1');
     expect(checkoutSessionsCreate).toHaveBeenCalledWith(
       expect.objectContaining({
-        ui_mode: 'embedded',
+        ui_mode: 'embedded_page',
         mode: 'payment',
         redirect_on_completion: 'never',
       }),
