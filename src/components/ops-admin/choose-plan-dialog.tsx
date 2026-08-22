@@ -41,6 +41,28 @@ function formatMoney(cents: number, currency = 'usd'): string {
 
 type CheckoutTarget = EmbeddedPlanCheckoutTarget;
 
+function stripeReadinessMessage(readiness: {
+  hasSecretKey: boolean;
+  hasWebhookSecret: boolean;
+  hasPublishableKey: boolean;
+  configuredPrices: number;
+  configError: string | null;
+} | null): string {
+  if (!readiness) return 'Could not load Stripe readiness.';
+  if (readiness.configError) return readiness.configError;
+  const missing: string[] = [];
+  if (!readiness.hasSecretKey) missing.push('STRIPE_SECRET_KEY');
+  if (!readiness.hasWebhookSecret) missing.push('STRIPE_WEBHOOK_SECRET');
+  if (!readiness.hasPublishableKey) missing.push('publishable key (pk_…)');
+  if (readiness.configuredPrices === 0) {
+    missing.push('at least one STRIPE_PRICE_* (Pro/Business monthly or yearly)');
+  }
+  if (missing.length === 0) {
+    return 'Stripe readiness check failed — run Flight Check in Edit Tenant.';
+  }
+  return `Missing: ${missing.join(', ')}. Add them in Edit Tenant → Organization & Billing, Save Changes, then re-run Flight Check.`;
+}
+
 export interface ChoosePlanDialogProps {
   open: boolean;
   onClose: () => void;
@@ -185,9 +207,8 @@ export function ChoosePlanDialog({
 
               {!paymentsReady && (
                 <Alert severity="info">
-                  Stripe is not fully configured for this tenant (keys, webhook secret, and at least one
-                  STRIPE_PRICE_* in Organization &amp; Billing). Plans are shown for reference only until
-                  Flight Check passes.
+                  <AlertTitle>Stripe not ready for plan checkout</AlertTitle>
+                  {stripeReadinessMessage(readiness)}
                 </Alert>
               )}
 

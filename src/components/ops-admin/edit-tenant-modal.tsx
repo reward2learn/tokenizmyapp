@@ -495,10 +495,14 @@ export function EditTenantModal({ open, tenant, onClose, onSnackbar }: EditTenan
       webhookSecret: String(stripe.webhookSecret ?? ''),
       publishableKey: String(stripe.publishableKey ?? ''),
       prices: {
-        PRO_MONTHLY: stripe.PRO_MONTHLY as string | undefined,
-        PRO_YEARLY: stripe.PRO_YEARLY as string | undefined,
-        BUSINESS_MONTHLY: stripe.BUSINESS_MONTHLY as string | undefined,
-        BUSINESS_YEARLY: stripe.BUSINESS_YEARLY as string | undefined,
+        PRO_MONTHLY: (stripe.prices as Record<string, unknown> | undefined)?.PRO_MONTHLY as string | undefined
+          ?? stripe.PRO_MONTHLY as string | undefined,
+        PRO_YEARLY: (stripe.prices as Record<string, unknown> | undefined)?.PRO_YEARLY as string | undefined
+          ?? stripe.PRO_YEARLY as string | undefined,
+        BUSINESS_MONTHLY: (stripe.prices as Record<string, unknown> | undefined)?.BUSINESS_MONTHLY as string | undefined
+          ?? stripe.BUSINESS_MONTHLY as string | undefined,
+        BUSINESS_YEARLY: (stripe.prices as Record<string, unknown> | undefined)?.BUSINESS_YEARLY as string | undefined
+          ?? stripe.BUSINESS_YEARLY as string | undefined,
       },
       agenticCommerce: {
         enabled: agentic.enabled === true,
