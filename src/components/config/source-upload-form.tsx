@@ -28,11 +28,17 @@ import {
   RESEED_SYNC_STEPS,
   RESEED_WORKFLOW_STEPS,
 } from '@/components/config/process-step-timeline';
+import { SheetSeedProgressList } from '@/components/config/sheet-seed-progress-list';
+import {
+  mergeSheetStatuses,
+  sheetStatusesFromNames,
+  type SheetSeedStatus,
+} from '@/lib/sheet-seed-progress';
 import {
   CONFIG_UPLOAD_FIELD_NAMES,
   hasAnyUpload,
   validateExcelUpload,
-validateMarkdownUpload,
+  validateMarkdownUpload,
 } from '@/lib/config/upload-validation';
 import { useReseedFromSourcesMutation, useReprocessFromCacheMutation, useGetSeedDetailsQuery, useLazyGetReseedWorkflowStatusQuery } from '@/store/apis/config-api';
 import type { WorkflowAcceptedResponse } from '@/store/apis/config-api';
@@ -110,7 +116,13 @@ export function SourceUploadForm({ showSummaryOnly }: { showSummaryOnly?: boolea
     executiveSummary: null,
   });
   const [workflowRunId, setWorkflowRunId] = useState<string | null>(null);
-  const [workflowProgress, setWorkflowProgress] = useState<{ step: string; message: string; pct: number; detail?: { tabNames?: string[]; sheets?: number } } | null>(null);
+  const [workflowProgress, setWorkflowProgress] = useState<{
+    step: string;
+    message: string;
+    pct: number;
+    detail?: { tabNames?: string[]; sheets?: number; sheetStatuses?: SheetSeedStatus[] };
+  } | null>(null);
+  const [sheetStatuses, setSheetStatuses] = useState<SheetSeedStatus[]>([]);
   const [workflowComplete, setWorkflowComplete] = useState(false);
   /** Local phases before/without durable workflow SSE (upload submit + reprocess). */
   const [syncStep, setSyncStep] = useState<string | null>(null);
@@ -170,6 +182,7 @@ export function SourceUploadForm({ showSummaryOnly }: { showSummaryOnly?: boolea
     resetMutation();
     setWorkflowRunId(null);
     setWorkflowProgress(null);
+    setSheetStatuses([]);
     setWorkflowComplete(false);
     setSyncStep('uploading');
     setSyncError(false);
@@ -224,8 +237,20 @@ export function SourceUploadForm({ showSummaryOnly }: { showSummaryOnly?: boolea
 
     es.onmessage = (event) => {
       try {
-        const chunk = JSON.parse(event.data);
+        const chunk = JSON.parse(event.data) as {
+          step: string;
+          message: string;
+          pct: number;
+          detail?: { tabNames?: string[]; sheets?: number; sheetStatuses?: SheetSeedStatus[] };
+        };
         setWorkflowProgress(chunk);
+        const incoming = chunk.detail?.sheetStatuses;
+        const names = chunk.detail?.tabNames;
+        setSheetStatuses((prev) => {
+          const seeded =
+            !prev.length && names?.length ? sheetStatusesFromNames(names) : prev;
+          return mergeSheetStatuses(seeded, incoming);
+        });
         if (chunk.pct === 100) {
           es.close();
           setWorkflowComplete(true);
@@ -452,10 +477,8 @@ export function SourceUploadForm({ showSummaryOnly }: { showSummaryOnly?: boolea
             <LinearProgress variant="determinate" value={workflowProgress?.pct ?? 0} />
             <Typography variant="body2" color="text.secondary">
               {workflowProgress?.message ?? 'Starting workflow…'}
-              {Array.isArray((workflowProgress as { detail?: { tabNames?: string[] } } | null)?.detail?.tabNames)
-                ? ` — sheets: ${((workflowProgress as unknown as { detail: { tabNames: string[] } }).detail.tabNames).join(', ')}`
-                : ''}
             </Typography>
+            <SheetSeedProgressList sheets={sheetStatuses} />
             <ProcessStepTimeline
               steps={RESEED_WORKFLOW_STEPS}
               currentStep={workflowProgress?.step ?? 'started'}

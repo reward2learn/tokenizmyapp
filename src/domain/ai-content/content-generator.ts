@@ -82,6 +82,8 @@ export interface SavedResult {
   executiveSummarySaved: boolean;
   /** sheet-* pages upserted for Populate Sheet Pages (empty if workbook unavailable). */
   sheetPages?: { slug: string; title: string }[];
+  /** Per seeded template page — what this run delivered. */
+  pages?: import('@/domain/ai-content/ensure-template-pages').PageContentStatus[];
 }
 
 // ── AI Call ─────────────────────────────────────────────
@@ -504,7 +506,7 @@ export async function generateAndSave(
     // clock to the slowest single call instead of the sum of all three.
     onProgress?.({
       step: 'openai',
-      message: `Generating Business Review, Executive Summary, and Dashboard data concurrently via ${ai.provider.label}...`,
+      message: `Generating content (Review, Summary, Dashboard) concurrently via ${ai.provider.label}…`,
       pct: 40,
     });
 
@@ -606,7 +608,7 @@ export async function generateAndSave(
     onProgress?.({
       step: 'saving',
       message: 'Creating dynamic sheet pages from workbook for navigation...',
-      pct: 97,
+      pct: 88,
     });
 
     let sheetPages: { slug: string; title: string }[] = [];
@@ -622,29 +624,12 @@ export async function generateAndSave(
       );
     }
 
-    // ── 7c. Home landing sections (exec summary + review on `/`) ──
-    onProgress?.({
-      step: 'saving_home',
-      message: 'Updating Home page sections (hero, KPIs, narrative)…',
-      pct: 92,
-    });
-    try {
-      const { ensureTenantHomeSections } = await import(
-        '@/domain/ai-content/ensure-landing-pages'
-      );
-      await ensureTenantHomeSections(db, dashboardData?.homeHero ?? null);
-    } catch (err) {
-      console.warn(
-        '[content-generator] Home section upsert failed (non-fatal):',
-        err instanceof Error ? err.message : err,
-      );
-    }
-
-    // ── 7d. Seed Tasks page from AI tasks (fallback to playbook) ──
+    // ── 7c–7d. Seed Tasks, then deliver content onto EVERY seeded page ──
+    let tasksSeeded = false;
     onProgress?.({
       step: 'seeding_tasks',
       message: 'Seeding Tasks page from AI task list…',
-      pct: 96,
+      pct: 90,
     });
     try {
       const { ensureTaskTables, seedTaskTracking, seedTasksFromAi } = await import(
@@ -663,10 +648,11 @@ export async function generateAndSave(
             description: t.description,
           })),
         );
+        tasksSeeded = n > 0;
         onProgress?.({
           step: 'seeding_tasks',
           message: `Seeded ${n} AI-generated task(s) onto /tasks`,
-          pct: 97,
+          pct: 91,
         });
       } else {
         await seedTaskTracking(db as Parameters<typeof seedTaskTracking>[0]);
@@ -678,7 +664,36 @@ export async function generateAndSave(
       );
     }
 
+    onProgress?.({
+      step: 'saving_home',
+      message: 'Delivering generated content to all seeded template pages…',
+      pct: 92,
+    });
+
+    let pageStatuses: import('@/domain/ai-content/ensure-template-pages').PageContentStatus[] = [];
+    try {
+      const { deliverContentToSeededPages } = await import(
+        '@/domain/ai-content/ensure-template-pages'
+      );
+      pageStatuses = await deliverContentToSeededPages(db, {
+        onProgress,
+        source,
+        homeHero: dashboardData?.homeHero ?? null,
+        executiveSummarySaved: execSummarySaved,
+        reviewPartCount: savedParts.length,
+        dashboardSaved: Boolean(dashboardData),
+        tasksSeeded,
+        sheetPages,
+      });
+    } catch (err) {
+      console.warn(
+        '[content-generator] Template page delivery failed (non-fatal):',
+        err instanceof Error ? err.message : err,
+      );
+    }
+
     // ── 8. Complete ─────────────────────────────────────
+    const updatedPages = pageStatuses.filter((p) => p.status === 'updated' || p.status === 'ready');
     const result: GenerationResult & { saved?: SavedResult; prompt?: string } = {
       success: true,
       prompt,
@@ -687,17 +702,19 @@ export async function generateAndSave(
         businessReviewParts: savedParts,
         executiveSummarySaved: execSummarySaved,
         sheetPages,
+        pages: pageStatuses,
       },
     };
 
     onProgress?.({
       step: 'complete',
-      message: `✅ Generation complete via ${content.providerLabel} — ${savedParts.length} review parts + executive summary${sheetPages.length ? ` + ${sheetPages.length} sheet pages` : ''} saved`,
+      message: `✅ Generation complete via ${content.providerLabel} — ${savedParts.length} review parts + exec summary + ${updatedPages.length}/${pageStatuses.length || updatedPages.length} template page(s)`,
       pct: 100,
       detail: {
         businessReviewParts: savedParts,
         executiveSummarySaved: execSummarySaved,
         sheetPages,
+        pages: pageStatuses,
         contentLengths: {
           businessReview: content.businessReview.length,
           executiveSummary: content.executiveSummary.length,

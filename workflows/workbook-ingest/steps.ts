@@ -16,7 +16,12 @@ import {
   type WorkbookComprehension,
 } from '../../src/domain/ai-workbook/comprehend';
 import { writeProgressChunk, closeProgressStream } from './progress';
-import type { WorkbookFileInput } from './types';
+import type { ProgressChunk, WorkbookFileInput } from './types';
+import {
+  sheetStatusesFromNames,
+  patchSheetStatus,
+  type SheetSeedStatus,
+} from '../../src/lib/sheet-seed-progress';
 import { withPgClient, executeOne, queryRows } from './db';
 import type { Client } from 'pg';
 import { read } from 'xlsx';
@@ -71,11 +76,16 @@ export async function loadWorkbookStep(files: WorkbookFileInput[]): Promise<Uint
   });
 }
 
-/** EXTRACT: serialize every sheet to text + structural stats. */
-export async function extractSheetsStep(buffers: Uint8Array[]): Promise<ExtractedSheet[]> {
+/** EXTRACT: serialize every sheet to text + structural stats; emits per-sheet progress when writable is provided. */
+export async function extractSheetsStep(
+  buffers: Uint8Array[],
+  writable?: WritableStream<ProgressChunk | string>,
+): Promise<ExtractedSheet[]> {
   'use step';
 
   const all: ExtractedSheet[] = [];
+  let sheetStatuses: SheetSeedStatus[] = [];
+
   for (const buf of buffers) {
     let extracted: ExtractedSheet[];
     try {
@@ -85,12 +95,71 @@ export async function extractSheetsStep(buffers: Uint8Array[]): Promise<Extracte
         `Workbook is not a readable .xlsx file: ${err instanceof Error ? err.message : String(err)}`,
       );
     }
+
+    // Seed the checklist once we know tab names (first buffer).
+    if (sheetStatuses.length === 0 && extracted.length > 0) {
+      sheetStatuses = sheetStatusesFromNames(extracted.map((s) => s.tabName));
+    } else {
+      for (const s of extracted) {
+        if (!sheetStatuses.some((x) => x.name === s.tabName)) {
+          sheetStatuses.push({ name: s.tabName, status: 'pending', phase: 'queued' });
+        }
+      }
+    }
+
+    for (let i = 0; i < extracted.length; i++) {
+      const sheet = extracted[i]!;
+      sheetStatuses = patchSheetStatus(sheetStatuses, sheet.tabName, {
+        status: 'active',
+        phase: 'extracting',
+        detail: `${sheet.stats.rowCount} rows × ${sheet.stats.colCount} cols`,
+      });
+      if (writable) {
+        const done = all.length + i + 1;
+        const total = Math.max(sheetStatuses.length, done);
+        await writeProgressChunk(writable, {
+          step: 'extracting',
+          message: `Extracting sheet ${done}/${total}: ${sheet.tabName}`,
+          pct: Math.min(44, 16 + Math.round((done / total) * 28)),
+          detail: {
+            sheets: total,
+            tabNames: sheetStatuses.map((s) => s.name),
+            currentSheet: sheet.tabName,
+            sheetStatuses,
+          },
+        });
+      }
+      sheetStatuses = patchSheetStatus(sheetStatuses, sheet.tabName, {
+        status: 'completed',
+        phase: 'extracting',
+        detail: `${sheet.stats.rowCount} rows × ${sheet.stats.colCount} cols`,
+      });
+    }
+
     all.push(...extracted);
   }
 
   if (all.length === 0) {
     throw new FatalError('Workbook contains no readable sheets.');
   }
+
+  if (writable) {
+    await writeProgressChunk(writable, {
+      step: 'extracting',
+      message: `Extracted ${all.length} sheet(s).`,
+      pct: 45,
+      detail: {
+        sheets: all.length,
+        tabNames: all.map((s) => s.tabName),
+        sheetStatuses: sheetStatuses.map((s) =>
+          s.status === 'completed'
+            ? s
+            : { ...s, status: 'completed' as const, phase: 'extracting' as const },
+        ),
+      },
+    });
+  }
+
   return all;
 }
 
@@ -309,16 +378,39 @@ export async function upsertSheetPagesStep(
   comprehension: WorkbookComprehension,
   dbUrl: string,
   tenantSlug?: string,
+  writable?: WritableStream<ProgressChunk | string>,
 ): Promise<Array<{ slug: string; title: string }>> {
   'use step';
 
   const created: Array<{ slug: string; title: string }> = [];
   let sortOrder = 100;
+  let sheetStatuses: SheetSeedStatus[] = sheetStatusesFromNames(
+    comprehension.sheets.map((s) => s.tabName),
+  );
 
   await withPgClient(dbUrl, async (db) => {
-    for (const sheet of comprehension.sheets) {
+    for (let si = 0; si < comprehension.sheets.length; si++) {
+      const sheet = comprehension.sheets[si]!;
       const slug = `sheet-${normalizeSlug(sheet.tabName)}`;
       const blocks = SHEET_CATEGORY_BLOCKS[sheet.category] ?? SHEET_CATEGORY_BLOCKS.other;
+
+      sheetStatuses = patchSheetStatus(sheetStatuses, sheet.tabName, {
+        status: 'active',
+        phase: 'pages',
+        detail: sheet.category,
+      });
+      if (writable) {
+        await writeProgressChunk(writable, {
+          step: 'populating',
+          message: `Creating page for sheet ${si + 1}/${comprehension.sheets.length}: ${sheet.tabName}`,
+          pct: Math.min(94, 92 + Math.round(((si + 1) / Math.max(comprehension.sheets.length, 1)) * 2)),
+          detail: {
+            currentSheet: sheet.tabName,
+            sheetStatuses,
+            pagesCreated: created.length,
+          },
+        });
+      }
 
       // §7.1 fix: RETURNING id gives us the real page ID on insert OR conflict.
       const pageRows = await queryRows<{ id: string }>(
@@ -336,7 +428,14 @@ export async function upsertSheetPagesStep(
         [slug, sheet.title, sortOrder++, sheet.title, tenantSlug ?? null],
       );
       const pageId = pageRows[0]?.id;
-      if (!pageId) continue;
+      if (!pageId) {
+        sheetStatuses = patchSheetStatus(sheetStatuses, sheet.tabName, {
+          status: 'error',
+          phase: 'error',
+          detail: 'Failed to upsert page',
+        });
+        continue;
+      }
 
       // Replace sections for this page (idempotent on retry).
       await executeOne(db, `DELETE FROM page_sections WHERE page_id = $1;`, [pageId]);
@@ -369,6 +468,11 @@ export async function upsertSheetPagesStep(
         );
       }
       created.push({ slug, title: sheet.title });
+      sheetStatuses = patchSheetStatus(sheetStatuses, sheet.tabName, {
+        status: 'completed',
+        phase: 'pages',
+        detail: `Page /${slug}`,
+      });
     }
 
     // Auto-populate navigation_items: add each sheet page as a child of the "Excel" folder.

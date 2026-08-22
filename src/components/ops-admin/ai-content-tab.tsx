@@ -50,6 +50,14 @@ interface AiContentStatus {
   existingContent: {
     executiveSummary: string | null;
     reviewParts: number;
+    dashboardData?: boolean;
+    pages?: {
+      slug: string;
+      title: string;
+      kind: string;
+      hasContent: boolean;
+      detail?: string;
+    }[];
   } | null;
   excelPeriod: string;
   excelCompany: string;
@@ -83,6 +91,14 @@ interface GenerateResult {
   saved?: {
     businessReviewParts: { slug: string; title: string }[];
     executiveSummarySaved: boolean;
+    sheetPages?: { slug: string; title: string }[];
+    pages?: {
+      slug: string;
+      title: string;
+      kind: string;
+      status: string;
+      detail?: string;
+    }[];
   };
   model?: string;
   providerId?: string;
@@ -99,10 +115,10 @@ const STEPS: { key: ProgressEvent['step']; label: string }[] = [
   { key: 'prompt', label: 'Building AI prompt' },
   { key: 'openai', label: 'Calling AI provider' },
   { key: 'parsing', label: 'Parsing AI response' },
-  { key: 'saving', label: 'Saving Business Review' },
+  { key: 'saving', label: 'Saving content' },
   { key: 'saving_exec', label: 'Saving Executive Summary' },
-  { key: 'saving_home', label: 'Updating Home page' },
   { key: 'seeding_tasks', label: 'Seeding Tasks page' },
+  { key: 'saving_home', label: 'Updating all template pages' },
 ];
 
 /** Map step → 0-based index for timeline ordering */
@@ -238,8 +254,10 @@ export function AiContentTab() {
       const data = response.data as {
         promptLength?: number;
         contentLengths?: { businessReview: number; executiveSummary: number };
-        saved?: { businessReviewParts: { slug: string; title: string }[]; executiveSummarySaved: boolean };
+        saved?: GenerateResult['saved'];
         model?: string;
+        providerId?: string;
+        providerLabel?: string;
       };
 
       setProgress({ step: 'complete', message: 'Generation complete.', pct: 100, detail: data });
@@ -247,6 +265,8 @@ export function AiContentTab() {
         saved: data.saved ?? { businessReviewParts: [], executiveSummarySaved: false },
         contentLengths: data.contentLengths ?? { businessReview: 0, executiveSummary: 0 },
         model: data.model,
+        providerId: data.providerId,
+        providerLabel: data.providerLabel,
       });
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -335,10 +355,11 @@ export function AiContentTab() {
           AI Content Generation
         </Typography>
         <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-          Automatically generate the Business Review and Executive Summary from
-          the June 2026 Excel workbook. The system reads the workbook, builds a
-          comprehensive data prompt, calls the configured AI provider, and saves the generated
-          Markdown to the database. No manual file uploads needed.
+          Generate content for all seeded template pages (Home, Dashboard, Summary,
+          Review, Tasks, Ops Tracking, sheet pages, and more) from the workbook.
+          The system reads the workbook, builds a comprehensive data prompt, calls the
+          configured AI provider, and delivers content onto every page — not only
+          Business Review and Executive Summary.
         </Typography>
 
         {status ? (
@@ -375,7 +396,10 @@ export function AiContentTab() {
           <Typography variant="subtitle2" sx={{ fontWeight: 700, mb: 1 }}>
             Currently Saved Content
           </Typography>
-          <Stack direction="row" spacing={2} sx={{ flexWrap: 'wrap' }}>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
+            Content status for every seeded template page — not only Business Review and Executive Summary.
+          </Typography>
+          <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap', gap: 1, mb: 1 }}>
             <Chip
               icon={
                 status.existingContent.reviewParts > 0 ? (
@@ -389,6 +413,7 @@ export function AiContentTab() {
                 status.existingContent.reviewParts > 0 ? 'success' : 'warning'
               }
               variant="outlined"
+              size="small"
             />
             <Chip
               icon={
@@ -407,13 +432,56 @@ export function AiContentTab() {
                 status.existingContent.executiveSummary ? 'success' : 'warning'
               }
               variant="outlined"
+              size="small"
+            />
+            <Chip
+              icon={
+                status.existingContent.dashboardData ? (
+                  <CheckCircleIcon color="success" />
+                ) : (
+                  <WarningAmberIcon color="warning" />
+                )
+              }
+              label={
+                status.existingContent.dashboardData
+                  ? 'Dashboard data saved'
+                  : 'No Dashboard data'
+              }
+              color={status.existingContent.dashboardData ? 'success' : 'warning'}
+              variant="outlined"
+              size="small"
             />
           </Stack>
+          {status.existingContent.pages && status.existingContent.pages.length > 0 ? (
+            <Stack spacing={0.75} sx={{ mt: 1.5 }}>
+              <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 600 }}>
+                Template pages ({status.existingContent.pages.length})
+              </Typography>
+              <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap', gap: 1 }}>
+                {status.existingContent.pages.map((page) => (
+                  <Chip
+                    key={page.slug}
+                    size="small"
+                    icon={
+                      page.hasContent ? (
+                        <CheckCircleIcon color="success" />
+                      ) : (
+                        <WarningAmberIcon color="warning" />
+                      )
+                    }
+                    label={`${page.title}${page.detail ? ` — ${page.detail}` : ''}`}
+                    color={page.hasContent ? 'success' : 'warning'}
+                    variant="outlined"
+                  />
+                ))}
+              </Stack>
+            </Stack>
+          ) : null}
           {status.existingContent.executiveSummary ? (
             <Typography
               variant="body2"
               color="text.secondary"
-              sx={{ mt: 1, fontStyle: 'italic' }}
+              sx={{ mt: 1.5, fontStyle: 'italic' }}
             >
               Preview: {status.existingContent.executiveSummary}
             </Typography>
@@ -603,7 +671,7 @@ export function AiContentTab() {
               {result.saved ? (
                 <Box sx={{ mt: 1 }}>
                   <Typography variant="body2" color="success.main" sx={{ fontWeight: 600 }}>
-                    Saved to Database:
+                    Saved / delivered to template pages:
                   </Typography>
                   <ul style={{ margin: 0, paddingLeft: 20 }}>
                     {result.saved.businessReviewParts.map((part) => (
@@ -618,6 +686,15 @@ export function AiContentTab() {
                         </Typography>
                       </li>
                     ) : null}
+                    {result.saved.pages?.map((page) => (
+                      <li key={`page-${page.slug}`}>
+                        <Typography variant="body2">
+                          /{page.slug} — {page.title}
+                          {page.detail ? ` (${page.detail})` : ''}
+                          {page.status === 'updated' ? ' ✓' : page.status === 'skipped' ? ' · skipped' : ''}
+                        </Typography>
+                      </li>
+                    ))}
                   </ul>
                 </Box>
               ) : null}
@@ -813,7 +890,7 @@ export function AiContentTab() {
         >
           {generating
             ? 'Generating...'
-            : 'Generate Business Review & Executive Summary'}
+            : 'Generate content'}
         </Button>
         <Button
           variant="outlined"
@@ -967,7 +1044,7 @@ export function AiContentTab() {
       <Dialog open={generateConfirmOpen} onClose={() => setGenerateConfirmOpen(false)} maxWidth="sm" fullWidth>
         <DialogTitle sx={{ fontWeight: 700, display: 'flex', alignItems: 'center', gap: 1 }}>
           <AutoFixHighIcon color="primary" />
-          Generate Business Review, Executive Summary &amp; Dashboard
+          Generate content
         </DialogTitle>
         <DialogContent dividers>
           <Stack spacing={2}>
@@ -982,17 +1059,17 @@ export function AiContentTab() {
               </Alert>
             )}
             <Typography variant="body2" color="text.secondary">
-              This will generate the Business Review, Executive Summary, and Dashboard content
+              This will generate content for all seeded template pages
               {additionalContext ? ' incorporating your selected AI Findings.' : '.'}
             </Typography>
             <Box sx={{ pl: 1 }}>
               <Typography variant="body2" component="div" sx={{ '& li': { mb: 0.5 } }}>
                 <ol style={{ margin: 0, paddingLeft: '1.2rem' }}>
-                  <li>Read the June 2026 Excel workbook data seeded</li>
+                  <li>Read the Excel workbook data already seeded</li>
                   {additionalContext ? <li>Add the AI findings to the data to generate response</li> : null}
                   <li>Build a comprehensive AI prompt from the data and instructions</li>
-                  <li>Call the configured AI provider to generate all documents</li>
-                  <li>Save to the database: Executive Summary, Detailed Review, and Dashboard content (overwriting existing content)</li>
+                  <li>Call the configured AI provider (Business Review, Executive Summary, Dashboard)</li>
+                  <li>Deliver content onto Home, Dashboard, Summary, Review, Tasks, Ops Tracking, and sheet pages</li>
                 </ol>
               </Typography>
             </Box>
@@ -1002,7 +1079,7 @@ export function AiContentTab() {
               </Alert>
             ) : null}
             <Typography variant="body2" color="text.secondary" sx={{ fontWeight: 600 }}>
-              Existing content will be overwritten. This cannot be undone.
+              Existing narrative content will be overwritten. This cannot be undone.
             </Typography>
           </Stack>
         </DialogContent>
@@ -1014,7 +1091,7 @@ export function AiContentTab() {
             startIcon={<AutoFixHighIcon />}
             disabled={!activeProvider?.configured || !activeModel}
           >
-            Generate
+            Generate content
           </Button>
         </DialogActions>
       </Dialog>

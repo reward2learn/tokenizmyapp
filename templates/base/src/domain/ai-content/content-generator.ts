@@ -5,9 +5,12 @@
  *   1. Read the Excel workbook
  *   2. Extract structured data
  *   3. Build the generation prompt
- *   4. Call OpenAI to generate Business Review + Executive Summary
+ *   4. Call the configured AI provider (Config > AI Provider — OpenAI, Vercel
+ *      AI Gateway, or OpenCode Zen) to generate Business Review + Executive Summary
  *   5. Parse the AI response
  *   6. Save results to the database (knowledge_snippets + business_review_parts)
+ *   7. Upsert sheet-* AppPages from workbook analysis so Populate Sheet Pages
+ *      can attach them to navigation
  *
  * Reports progress at each stage via an optional callback so callers can
  * surface real-time status (SSE, progress bars, notifications).
@@ -17,10 +20,13 @@
 
 import { extractExcelData, extractExcelDataFromBuffers } from '@/domain/excel/excel-extractor';
 import { buildGenerationPrompt, buildDashboardPrompt } from '@/domain/ai-content/prompt-builder';
-import { resolveOpenAiKey } from '@/lib/openai';
+import { resolveActiveAiConfig, type ActiveAiConfig } from '@/lib/ai-providers';
 import type { DbClient } from '@/lib/db';
+import { withTimeout } from '@/lib/with-timeout';
+import { getCurrentAppId } from '@shared/lib/config/tenant';
 import { parseReviewParts } from '@/domain/ai-content/parse-review-parts';
 import type { ReviewPart } from '@/domain/ai-content/parse-review-parts';
+import { meterAiUsage, requireCreditsForTenant, CREDIT_FLOORS } from '@/domain/billing/credit-service';
 
 // ── Progress reporting ──────────────────────────────────
 
@@ -31,6 +37,8 @@ export type ProgressStep =
   | 'parsing'
   | 'saving'
   | 'saving_exec'
+  | 'saving_home'
+  | 'seeding_tasks'
   | 'complete'
   | 'error';
 
@@ -55,6 +63,12 @@ export interface AiGeneratedContent {
   promptLength: number;
   responseLength: number;
   model: string;
+  /** Which configured provider actually generated this (see Config > AI
+   *  Provider / Edit App / Edit Tenant) — surfaced in the UI so the status
+   *  and progress display never implies OpenAI when a different provider
+   *  is active. */
+  providerId: string;
+  providerLabel: string;
 }
 
 export interface GenerationResult {
@@ -66,37 +80,81 @@ export interface GenerationResult {
 export interface SavedResult {
   businessReviewParts: { slug: string; title: string }[];
   executiveSummarySaved: boolean;
+  /** sheet-* pages upserted for Populate Sheet Pages (empty if workbook unavailable). */
+  sheetPages?: { slug: string; title: string }[];
+  /** Per seeded template page — what this run delivered. */
+  pages?: import('@/domain/ai-content/ensure-template-pages').PageContentStatus[];
 }
 
 // ── AI Call ─────────────────────────────────────────────
 
+// ── AI provider error classification ─────────────────────────────
+
+/** Marker embedded in quota-exhausted error messages so callers can map them to HTTP 402. */
+export const OPENAI_QUOTA_MARKER = '[openai-no-credits]';
+
 /**
- * Call OpenAI to generate a single document (business review OR executive summary).
- * Keeps each response within the model's 16384 output-token limit.
+ * Build an error for a failed AI provider call. Quota exhaustion gets an
+ * actionable message with the masked key, so the UI can tell the operator
+ * to add credits or switch providers. Different providers signal this
+ * differently: OpenAI uses 429 + insufficient_quota/credit_balance_exhausted;
+ * Vercel AI Gateway and OpenCode Zen return 402 directly when a hard billing
+ * limit is hit.
  */
-async function callOpenAiForDocument(
+function buildAiProviderError(status: number, errBody: string, apiKey: string, provider: ActiveAiConfig['provider']): Error {
+  let code = '';
+  let type = '';
+  try {
+    const parsed = JSON.parse(errBody) as { error?: { code?: string; type?: string } };
+    code = parsed.error?.code ?? '';
+    type = parsed.error?.type ?? '';
+  } catch {
+    // non-JSON body — keep the raw message
+  }
+  const isQuota =
+    status === 402 ||
+    (status === 429 &&
+      (code === 'insufficient_quota' || type === 'insufficient_quota' || errBody.includes('credit_balance_exhausted')));
+  if (isQuota) {
+    const maskedKey = apiKey ? `${apiKey.slice(0, 7)}…${apiKey.slice(-4)}` : 'unknown';
+    return new Error(
+      `${OPENAI_QUOTA_MARKER} ${provider.label} account has no credits remaining (API key ${maskedKey}). ` +
+      `Add credits at ${provider.docsUrl}, or switch providers/keys in Config > AI Provider.`,
+    );
+  }
+  return new Error(`${provider.label} API error (${status}): ${errBody}`);
+}
+
+/**
+ * Call the active AI provider to generate a single document (business
+ * review OR executive summary). Keeps each response within the model's
+ * 16384 output-token limit. All three supported providers (OpenAI, Vercel
+ * AI Gateway, OpenCode Zen) expose an OpenAI-compatible Chat Completions
+ * endpoint, so this request shape works unchanged across them.
+ */
+async function callAiProviderForDocument(
   prompt: string,
-  apiKey: string,
+  ai: ActiveAiConfig,
   documentType: 'businessReview' | 'executiveSummary' | 'dashboardData',
-  model = 'gpt-4o',
+  tenantSlug: string,
   onProgress?: ProgressCallback,
 ): Promise<string> {
   const docLabel = documentType === 'businessReview' ? 'Business Review' : documentType === 'executiveSummary' ? 'Executive Summary' : 'Dashboard Data';
 
   onProgress?.({
     step: 'openai',
-    message: `Calling OpenAI — generating ${docLabel} (${model})...`,
+    message: `Calling ${ai.provider.label} — generating ${docLabel} (${ai.model})...`,
     pct: documentType === 'businessReview' ? 40 : 55,
   });
 
-  const response = await fetch('https://api.openai.com/v1/chat/completions', {
+  const response = await fetch(ai.provider.chatCompletionsUrl, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      Authorization: `Bearer ${apiKey}`,
+      Authorization: `Bearer ${ai.apiKey}`,
     },
     body: JSON.stringify({
-      model,
+      model: ai.model,
       messages: [
         {
           role: 'system',
@@ -116,11 +174,31 @@ async function callOpenAiForDocument(
 
   if (!response.ok) {
     const errBody = await response.text().catch(() => 'Unknown error');
-    throw new Error(`OpenAI API error (${response.status}): ${errBody}`);
+    throw buildAiProviderError(response.status, errBody, ai.apiKey, ai.provider);
   }
 
   const result = await response.json();
   const reply = result.choices?.[0]?.message?.content ?? '';
+
+  // Meter platform-key usage (BYOK is never charged — the tenant pays the
+  // provider directly). Non-blocking: metering must never break generation;
+  // the pre-flight gate in generateAndSave() is the enforcement point.
+  if (ai.keySource === 'env') {
+    const usage = result.usage as { prompt_tokens?: number; completion_tokens?: number } | undefined;
+    try {
+      await meterAiUsage({
+        tenantSlug,
+        model: ai.model,
+        promptTokens: usage?.prompt_tokens ?? 0,
+        completionTokens: usage?.completion_tokens ?? 0,
+        keySource: ai.keySource,
+        refType: 'content_generation',
+        refId: documentType,
+      });
+    } catch (err) {
+      console.warn('[content-generator] Metering failed (non-blocking):', err instanceof Error ? err.message : err);
+    }
+  }
 
   let parsed: Record<string, string>;
   try {
@@ -139,6 +217,106 @@ async function callOpenAiForDocument(
   return parsed[documentType] ?? '';
 }
 
+export interface HomeHeroPayload {
+  badge?: string;
+  headline?: string;
+  subtitle?: string;
+  accent?: string;
+}
+
+export interface AiTaskPayload {
+  title: string;
+  priority?: string;
+  ownerCodes?: string[];
+  dueOffsetDays?: number;
+  description?: string | null;
+}
+
+interface DashboardData {
+  actionPhases: unknown;
+  targetRows: unknown;
+  levers: unknown;
+  homeHero?: HomeHeroPayload | null;
+  tasks?: AiTaskPayload[] | null;
+}
+
+/**
+ * Generate structured dashboard JSON (action plan, targets, levers) — kept
+ * separate from callAiProviderForDocument because this returns raw JSON,
+ * not a markdown document keyed by documentType. Called concurrently with
+ * the business review / executive summary calls in generateAndSave(), not
+ * sequentially after them, to keep total wall-clock time bounded by the
+ * slowest single call.
+ */
+async function generateDashboardData(
+  data: import('@/domain/excel/excel-extractor').ExcelData,
+  additionalContext: string | undefined,
+  ai: ActiveAiConfig,
+  tenantSlug: string,
+): Promise<DashboardData | null> {
+  const dashboardPrompt = buildDashboardPrompt(data, additionalContext);
+
+  const response = await fetch(ai.provider.chatCompletionsUrl, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${ai.apiKey}`,
+    },
+    body: JSON.stringify({
+      model: ai.model,
+      messages: [
+        {
+          role: 'system',
+          content: 'You are a precise financial analyst. You ALWAYS return only valid JSON with exactly the keys requested. Return ONLY a JSON object with keys "actionPhases", "targetRows", "levers", "homeHero", and "tasks".',
+        },
+        {
+          role: 'user',
+          content: dashboardPrompt,
+        },
+      ],
+      temperature: 0.3,
+      max_tokens: 16384,
+      response_format: { type: 'json_object' },
+    }),
+  });
+
+  if (!response.ok) return null;
+
+  const result = await response.json();
+  const reply = result.choices?.[0]?.message?.content ?? '';
+  if (!reply) return null;
+
+  // Meter platform-key usage (BYOK is never charged). Non-blocking — the
+  // dashboard call is already best-effort (returns null on failure), and
+  // metering must never break generation.
+  if (ai.keySource === 'env') {
+    const usage = result.usage as { prompt_tokens?: number; completion_tokens?: number } | undefined;
+    try {
+      await meterAiUsage({
+        tenantSlug,
+        model: ai.model,
+        promptTokens: usage?.prompt_tokens ?? 0,
+        completionTokens: usage?.completion_tokens ?? 0,
+        keySource: ai.keySource,
+        refType: 'content_generation',
+        refId: 'dashboardData',
+      });
+    } catch (err) {
+      console.warn('[content-generator] Dashboard metering failed (non-blocking):', err instanceof Error ? err.message : err);
+    }
+  }
+
+  const parsed = JSON.parse(reply);
+  if (!parsed.actionPhases || !parsed.targetRows || !parsed.levers) return null;
+  return {
+    actionPhases: parsed.actionPhases,
+    targetRows: parsed.targetRows,
+    levers: parsed.levers,
+    homeHero: parsed.homeHero ?? null,
+    tasks: Array.isArray(parsed.tasks) ? parsed.tasks : null,
+  } as DashboardData;
+}
+
 // ── Content parsing helpers ─────────────────────────────
 // (parseReviewParts imported from parse-review-parts.ts)
 // ── DB save helpers ─────────────────────────────────────
@@ -149,11 +327,12 @@ async function saveExecutiveSummary(
 ): Promise<boolean> {
   try {
     await db.knowledgeSnippet.upsert({
-      where: { key: 'executive_summary' },
+      where: { key_appId: { key: 'executive_summary', appId: getCurrentAppId() } },
       create: {
         key: 'executive_summary',
         category: 'document',
         content: markdown,
+        appId: getCurrentAppId(),
       },
       update: {
         content: markdown,
@@ -178,7 +357,7 @@ async function saveBusinessReviewParts(
     const part = parts[i];
     try {
       await db.businessReviewPart.upsert({
-        where: { slug: part.slug },
+        where: { slug_appId: { slug: part.slug, appId: getCurrentAppId() } },
         create: {
           slug: part.slug,
           partKey: part.partKey,
@@ -186,6 +365,7 @@ async function saveBusinessReviewParts(
           sortOrder: part.sortOrder,
           authTier: 'google',
           markdown: part.markdown,
+          appId: getCurrentAppId(),
         },
         update: {
           title: part.title,
@@ -224,7 +404,10 @@ async function saveBusinessReviewParts(
  *                    The caller can forward these to an SSE stream or progress bar.
  * @param source     Optional explicit file path (string) OR in-memory workbook Buffer.
  *                   When omitted auto-detects the file on disk or falls back to DB cache.
- * @param model      Optional OpenAI model name (default gpt-4o)
+ * @param model      Optional model override — defaults to the model configured for the active AI provider
+ * @param tenantSlug Optional tenant slug for credit metering/gating. Defaults to
+ *                   NEXT_PUBLIC_TENANT_SLUG (the root config app is itself a
+ *                   tenant in the registry) or 'tokenizmyapp' when unset.
  */
 export async function generateAndSave(
   db: DbClient,
@@ -233,7 +416,9 @@ export async function generateAndSave(
   model?: string,
   additionalContext?: string,
   overridePrompt?: string,
+  tenantSlug?: string,
 ): Promise<GenerationResult & { saved?: SavedResult; prompt?: string }> {
+  const tenant = tenantSlug ?? process.env.NEXT_PUBLIC_TENANT_SLUG ?? 'tokenizmyapp';
   try {
     // ── 1. Extract Excel data ───────────────────────────
     onProgress?.({
@@ -264,127 +449,105 @@ export async function generateAndSave(
 
     onProgress?.({
       step: 'prompt',
-      message: `AI prompt built — ${promptKb}K characters of structured financial data ready for OpenAI`,
+      message: `AI prompt built — ${promptKb}K characters of structured financial data ready for the AI provider`,
       pct: 30,
     });
 
-    // ── 3. Resolve API key ──────────────────────────────
+    // ── 3. Resolve active AI provider + API key ─────────
     onProgress?.({
       step: 'openai',
-      message: 'Resolving OpenAI API key...',
+      message: 'Resolving AI provider...',
       pct: 35,
     });
 
-    const apiKey = await resolveOpenAiKey();
-    if (!apiKey) {
+    // Timeout-guarded — this does up to 3 sequential DB lookups (active
+    // provider, its key, its model), and a stuck Postgres connection here
+    // wouldn't show as an "External API" in Vercel's request trace (it's
+    // not HTTP), making a real hang here indistinguishable from any other
+    // cause without this. Fails fast instead of eating the function budget.
+    const ai = await withTimeout(resolveActiveAiConfig(model), 15000, 'Resolving active AI provider');
+    if (!ai) {
       const errorMsg =
-        'OpenAI API key not configured. Set it in Config > OpenAI Key or via OPENAI_API_KEY env var.';
+        'No AI provider configured. Set one up in Config > AI Provider (OpenAI, Vercel AI Gateway, or OpenCode Zen).';
       onProgress?.({
         step: 'error',
         message: errorMsg,
         pct: 0,
-        detail: { hint: 'Set your key in: Admin > Config > OpenAI Key, or add OPENAI_API_KEY to .env.local' },
+        detail: { hint: 'Set your provider and API key in: Admin > Config > AI Provider' },
       });
       return { success: false, error: errorMsg, prompt };
     }
 
-    // ── 4. Call AI in two phases ─────────────────────────
-    // Phase 1: Generate Business Review
+    // ── 3.5 Pre-flight credit gate (platform key only) ──
+    // BYOK tenants (keySource === 'db') pay their provider directly and are
+    // never gated. Platform-key usage is the enforcement point: an empty
+    // balance throws with OPENAI_QUOTA_MARKER so the route maps it to the
+    // existing 402 / ai_provider_no_credits SSE code path.
+    if (ai.keySource === 'env') {
+      const gate = await requireCreditsForTenant(
+        tenant,
+        undefined,
+        undefined,
+        CREDIT_FLOORS.contentGeneration,
+      );
+      if (!gate.ok) {
+        throw new Error(
+          `${OPENAI_QUOTA_MARKER} This organization has no AI credits remaining. Upgrade your plan or add credits in the Organization bar.`,
+        );
+      }
+    }
+
+    // ── 4. Call AI for all three documents CONCURRENTLY ──
+    // These three prompts are fully independent (none depends on another's
+    // output), so running them sequentially inside one serverless function
+    // just sums three ~30-90s calls — comfortably enough to blow past the
+    // route's 120s maxDuration on a live deploy (seen in production as a
+    // Vercel FUNCTION_INVOCATION_TIMEOUT). Firing them together bounds wall
+    // clock to the slowest single call instead of the sum of all three.
     onProgress?.({
       step: 'openai',
-      message: 'Generating Business Review from financial data (phase 1 of 2)...',
+      message: `Generating content (Review, Summary, Dashboard) concurrently via ${ai.provider.label}…`,
       pct: 40,
     });
 
-    const businessReview = await callOpenAiForDocument(
-      prompt, apiKey, 'businessReview', model, onProgress,
-    );
+    const dashboardPromise = generateDashboardData(data, additionalContext, ai, tenant)
+      .catch((err) => {
+        // Non-critical — dashboard just shows hardcoded fallbacks if this fails.
+        console.error('[content-generator] Dashboard data generation failed:', err);
+        return null;
+      });
 
-    // Phase 2: Generate Executive Summary
-    onProgress?.({
-      step: 'openai',
-      message: 'Generating Executive Summary from financial data (phase 2 of 2)...',
-      pct: 55,
-    });
-
-    const executiveSummary = await callOpenAiForDocument(
-      prompt, apiKey, 'executiveSummary', model, onProgress,
-    );
+    const [businessReview, executiveSummary] = await Promise.all([
+      callAiProviderForDocument(prompt, ai, 'businessReview', tenant, onProgress),
+      callAiProviderForDocument(prompt, ai, 'executiveSummary', tenant, onProgress),
+    ]);
 
     const content: AiGeneratedContent = {
       businessReview,
       executiveSummary,
       promptLength: prompt.length,
       responseLength: businessReview.length + executiveSummary.length,
-      model: model ?? 'gpt-4o',
+      model: ai.model,
+      providerId: ai.provider.id,
+      providerLabel: ai.provider.label,
     };
 
-    // Phase 3: Generate Dashboard Data (action plan, targets, levers)
-    onProgress?.({
-      step: 'openai',
-      message: 'Generating Dashboard data from financial analysis (phase 3 of 3)...',
-      pct: 65,
-    });
-
-    let dashboardData: Record<string, unknown> | null = null;
-    try {
-      const dashboardPrompt = buildDashboardPrompt(data, additionalContext);
-
-      // Call OpenAI directly (not through callOpenAiForDocument) because dashboard
-      // data returns structured JSON, not a markdown string.
-      const dashResponse = await fetch('https://api.openai.com/v1/chat/completions', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${apiKey}`,
+    const dashboardData = await dashboardPromise;
+    if (dashboardData) {
+      // Save to knowledge_snippets so the dashboard blocks can read it
+      await db.knowledgeSnippet.upsert({
+        where: { key_appId: { key: 'dashboard_data', appId: getCurrentAppId() } },
+        create: {
+          key: 'dashboard_data',
+          category: 'document',
+          content: JSON.stringify(dashboardData),
+          appId: getCurrentAppId(),
         },
-        body: JSON.stringify({
-          model: model ?? 'gpt-4o',
-          messages: [
-            {
-              role: 'system',
-              content: 'You are a precise financial analyst. You ALWAYS return only valid JSON with exactly the keys requested. Return ONLY a JSON object with keys "actionPhases", "targetRows", and "levers".',
-            },
-            {
-              role: 'user',
-              content: dashboardPrompt,
-            },
-          ],
-          temperature: 0.3,
-          max_tokens: 16384,
-          response_format: { type: 'json_object' },
-        }),
+        update: {
+          content: JSON.stringify(dashboardData),
+          category: 'document',
+        },
       });
-
-      if (dashResponse.ok) {
-        const dashResult = await dashResponse.json();
-        const dashReply = dashResult.choices?.[0]?.message?.content ?? '';
-        if (dashReply) {
-          try {
-            const parsed = JSON.parse(dashReply);
-            if (parsed.actionPhases && parsed.targetRows && parsed.levers) {
-              dashboardData = parsed;
-              // Save to knowledge_snippets so the dashboard blocks can read it
-              await db.knowledgeSnippet.upsert({
-                where: { key: 'dashboard_data' },
-                create: {
-                  key: 'dashboard_data',
-                  category: 'document',
-                  content: JSON.stringify(parsed),
-                },
-                update: {
-                  content: JSON.stringify(parsed),
-                  category: 'document',
-                },
-              });
-            }
-          } catch {
-            // non-critical — dashboard just shows hardcoded fallbacks
-          }
-        }
-      }
-    } catch {
-      // non-critical
     }
 
     onProgress?.({
@@ -439,7 +602,98 @@ export async function generateAndSave(
       content.executiveSummary,
     );
 
+    // ── 7b. Persist sheet-* pages so Populate Sheet Pages can attach nav ──
+    // Deterministic analyzer path (same as seed) — not a second AI call.
+    // Failures are non-fatal: BR/ES already saved.
+    onProgress?.({
+      step: 'saving',
+      message: 'Creating dynamic sheet pages from workbook for navigation...',
+      pct: 88,
+    });
+
+    let sheetPages: { slug: string; title: string }[] = [];
+    try {
+      const { ensureSheetPagesFromWorkbook } = await import(
+        '@/domain/ai-content/ensure-sheet-pages'
+      );
+      sheetPages = await ensureSheetPagesFromWorkbook(db, source);
+    } catch (err) {
+      console.warn(
+        '[content-generator] Sheet page creation failed (non-fatal):',
+        err instanceof Error ? err.message : err,
+      );
+    }
+
+    // ── 7c–7d. Seed Tasks, then deliver content onto EVERY seeded page ──
+    let tasksSeeded = false;
+    onProgress?.({
+      step: 'seeding_tasks',
+      message: 'Seeding Tasks page from AI task list…',
+      pct: 90,
+    });
+    try {
+      const { ensureTaskTables, seedTaskTracking, seedTasksFromAi } = await import(
+        '@/domain/seed/seed-runner'
+      );
+      await ensureTaskTables(db);
+      const aiTasks = dashboardData?.tasks ?? null;
+      if (aiTasks && aiTasks.length > 0) {
+        const n = await seedTasksFromAi(
+          db as Parameters<typeof seedTasksFromAi>[0],
+          aiTasks.map((t) => ({
+            title: t.title,
+            priority: t.priority,
+            ownerCodes: t.ownerCodes,
+            dueOffsetDays: t.dueOffsetDays,
+            description: t.description,
+          })),
+        );
+        tasksSeeded = n > 0;
+        onProgress?.({
+          step: 'seeding_tasks',
+          message: `Seeded ${n} AI-generated task(s) onto /tasks`,
+          pct: 91,
+        });
+      } else {
+        await seedTaskTracking(db as Parameters<typeof seedTaskTracking>[0]);
+      }
+    } catch (err) {
+      console.warn(
+        '[content-generator] Task bootstrap failed (non-fatal):',
+        err instanceof Error ? err.message : err,
+      );
+    }
+
+    onProgress?.({
+      step: 'saving_home',
+      message: 'Delivering generated content to all seeded template pages…',
+      pct: 92,
+    });
+
+    let pageStatuses: import('@/domain/ai-content/ensure-template-pages').PageContentStatus[] = [];
+    try {
+      const { deliverContentToSeededPages } = await import(
+        '@/domain/ai-content/ensure-template-pages'
+      );
+      pageStatuses = await deliverContentToSeededPages(db, {
+        onProgress,
+        source,
+        homeHero: dashboardData?.homeHero ?? null,
+        executiveSummarySaved: execSummarySaved,
+        reviewPartCount: savedParts.length,
+        dashboardSaved: Boolean(dashboardData),
+        tasksSeeded,
+        sheetPages,
+      });
+    } catch (err) {
+      console.warn(
+        '[content-generator] Template page delivery failed (non-fatal):',
+        err instanceof Error ? err.message : err,
+      );
+    }
+
     // ── 8. Complete ─────────────────────────────────────
+    const updatedPages = pageStatuses.filter((p) => p.status === 'updated' || p.status === 'ready');
     const result: GenerationResult & { saved?: SavedResult; prompt?: string } = {
       success: true,
       prompt,
@@ -447,21 +701,27 @@ export async function generateAndSave(
       saved: {
         businessReviewParts: savedParts,
         executiveSummarySaved: execSummarySaved,
+        sheetPages,
+        pages: pageStatuses,
       },
     };
 
     onProgress?.({
       step: 'complete',
-      message: `✅ Generation complete — ${savedParts.length} review parts + executive summary saved to database`,
+      message: `✅ Generation complete via ${content.providerLabel} — ${savedParts.length} review parts + exec summary + ${updatedPages.length}/${pageStatuses.length || updatedPages.length} template page(s)`,
       pct: 100,
       detail: {
         businessReviewParts: savedParts,
         executiveSummarySaved: execSummarySaved,
+        sheetPages,
+        pages: pageStatuses,
         contentLengths: {
           businessReview: content.businessReview.length,
           executiveSummary: content.executiveSummary.length,
         },
         model: content.model,
+        providerId: content.providerId,
+        providerLabel: content.providerLabel,
       },
     });
 

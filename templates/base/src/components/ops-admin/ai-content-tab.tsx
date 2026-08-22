@@ -1,7 +1,8 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { useGetAiContentQuery, useGenerateAiContentMutation, useClearSeedMutation } from '@/store/apis/admin-api';
+import { useGetAiContentQuery, useGenerateAiContentMutation, useClearSeedMutation, useGetNavigationQuery, usePopulateSheetPagesMutation } from '@/store/apis/admin-api';
+import { useGetAiProviderStatusQuery } from '@/store/apis/config-api';
 import Accordion from '@mui/material/Accordion';
 import AccordionDetails from '@mui/material/AccordionDetails';
 import AccordionSummary from '@mui/material/AccordionSummary';
@@ -26,6 +27,12 @@ import RadioButtonUncheckedIcon from '@mui/icons-material/RadioButtonUnchecked';
 import DeleteSweepIcon from '@mui/icons-material/DeleteSweep';
 import TextField from '@mui/material/TextField';
 import Divider from '@mui/material/Divider';
+import MenuItem from '@mui/material/MenuItem';
+import Select from '@mui/material/Select';
+import FormControl from '@mui/material/FormControl';
+import InputLabel from '@mui/material/InputLabel';
+import FolderOpenIcon from '@mui/icons-material/FolderOpen';
+import AutoAwesomeMosaicIcon from '@mui/icons-material/AutoAwesomeMosaic';
 import Dialog from '@mui/material/Dialog';
 import DialogActions from '@mui/material/DialogActions';
 import DialogContent from '@mui/material/DialogContent';
@@ -43,6 +50,14 @@ interface AiContentStatus {
   existingContent: {
     executiveSummary: string | null;
     reviewParts: number;
+    dashboardData?: boolean;
+    pages?: {
+      slug: string;
+      title: string;
+      kind: string;
+      hasContent: boolean;
+      detail?: string;
+    }[];
   } | null;
   excelPeriod: string;
   excelCompany: string;
@@ -58,6 +73,8 @@ interface ProgressEvent {
     | 'parsing'
     | 'saving'
     | 'saving_exec'
+    | 'saving_home'
+    | 'seeding_tasks'
     | 'complete'
     | 'error';
   message: string;
@@ -74,18 +91,34 @@ interface GenerateResult {
   saved?: {
     businessReviewParts: { slug: string; title: string }[];
     executiveSummarySaved: boolean;
+    sheetPages?: { slug: string; title: string }[];
+    pages?: {
+      slug: string;
+      title: string;
+      kind: string;
+      status: string;
+      detail?: string;
+    }[];
   };
   model?: string;
+  providerId?: string;
+  providerLabel?: string;
 }
 
-/** Ordered list of steps for the timeline visualiser */
+/** Ordered list of steps for the timeline visualiser. Step labels are
+ *  deliberately provider-neutral — the active provider/model varies by
+ *  Config > AI Provider, so hardcoding "OpenAI" here would lie whenever a
+ *  different provider is configured. The live progress.message (rendered
+ *  alongside each active step) carries the actual provider/model name. */
 const STEPS: { key: ProgressEvent['step']; label: string }[] = [
   { key: 'extracting', label: 'Reading Excel workbook' },
   { key: 'prompt', label: 'Building AI prompt' },
-  { key: 'openai', label: 'Calling OpenAI' },
+  { key: 'openai', label: 'Calling AI provider' },
   { key: 'parsing', label: 'Parsing AI response' },
-  { key: 'saving', label: 'Saving to database' },
+  { key: 'saving', label: 'Saving content' },
   { key: 'saving_exec', label: 'Saving Executive Summary' },
+  { key: 'seeding_tasks', label: 'Seeding Tasks page' },
+  { key: 'saving_home', label: 'Updating all template pages' },
 ];
 
 /** Map step → 0-based index for timeline ordering */
@@ -129,8 +162,25 @@ export function AiContentTab() {
   // RTK Query: POST /api/admin/ai-content — blocking JSON mode (non-SSE)
   const [generateContent, { isLoading: generating }] = useGenerateAiContentMutation();
 
+  // Which AI provider/model will actually be used — read from the same
+  // database resolveActiveAiConfig() reads at generation time (Config > AI
+  // Provider), so this is never stale relative to what Generate will do.
+  const { data: aiProviderData } = useGetAiProviderStatusQuery();
+  const activeProvider = aiProviderData?.data?.providers.find((p) => p.id === aiProviderData.data?.activeProviderId);
+  const activeModel = aiProviderData?.data?.activeModel;
+
   // RTK Query: POST /api/admin/clear-seed
   const [clearSeed, { isLoading: clearing }] = useClearSeedMutation();
+
+  // RTK Query: POST /api/admin/populate-sheet-pages
+  const [populateSheets, { isLoading: populatingSheets }] = usePopulateSheetPagesMutation();
+
+  // Navigation folder list for parent selector
+  const { data: navData } = useGetNavigationQuery();
+  const navFolders = useMemo(() => {
+    const items = (navData?.data as { items?: Array<{ id: string; title: string; parentId: string | null; path: string }> })?.items ?? [];
+    return items.filter((i) => !i.parentId || i.parentId === null);
+  }, [navData]);
 
   // Derive a human-readable fetch error message
   const fetchErrorMsg = useMemo(() => {
@@ -157,6 +207,10 @@ export function AiContentTab() {
   const [clearConfirmOpen, setClearConfirmOpen] = useState(false);
   const [clearConfirmText, setClearConfirmText] = useState('');
   const [clearError, setClearError] = useState<string | null>(null);
+  const [sheetParentNavId, setSheetParentNavId] = useState<string>('');
+  const [sheetParentTitle, setSheetParentTitle] = useState<string>('Excel');
+  const [sheetPopulateResult, setSheetPopulateResult] = useState<{ created: number; parentId: string; totalSheets: number } | null>(null);
+  const [sheetPopulateError, setSheetPopulateError] = useState<string | null>(null);
   const [clearResult, setClearResult] = useState<Record<string, number> | null>(null);
 
   // ── Additional context from AI Findings ───────────────
@@ -200,8 +254,10 @@ export function AiContentTab() {
       const data = response.data as {
         promptLength?: number;
         contentLengths?: { businessReview: number; executiveSummary: number };
-        saved?: { businessReviewParts: { slug: string; title: string }[]; executiveSummarySaved: boolean };
+        saved?: GenerateResult['saved'];
         model?: string;
+        providerId?: string;
+        providerLabel?: string;
       };
 
       setProgress({ step: 'complete', message: 'Generation complete.', pct: 100, detail: data });
@@ -209,6 +265,8 @@ export function AiContentTab() {
         saved: data.saved ?? { businessReviewParts: [], executiveSummarySaved: false },
         contentLengths: data.contentLengths ?? { businessReview: 0, executiveSummary: 0 },
         model: data.model,
+        providerId: data.providerId,
+        providerLabel: data.providerLabel,
       });
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -297,10 +355,11 @@ export function AiContentTab() {
           AI Content Generation
         </Typography>
         <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-          Automatically generate the Business Review and Executive Summary from
-          the June 2026 Excel workbook. The system reads the workbook, builds a
-          comprehensive data prompt, calls OpenAI, and saves the generated
-          Markdown to the database. No manual file uploads needed.
+          Generate content for all seeded template pages (Home, Dashboard, Summary,
+          Review, Tasks, Ops Tracking, sheet pages, and more) from the workbook.
+          The system reads the workbook, builds a comprehensive data prompt, calls the
+          configured AI provider, and delivers content onto every page — not only
+          Business Review and Executive Summary.
         </Typography>
 
         {status ? (
@@ -337,7 +396,10 @@ export function AiContentTab() {
           <Typography variant="subtitle2" sx={{ fontWeight: 700, mb: 1 }}>
             Currently Saved Content
           </Typography>
-          <Stack direction="row" spacing={2} sx={{ flexWrap: 'wrap' }}>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
+            Content status for every seeded template page — not only Business Review and Executive Summary.
+          </Typography>
+          <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap', gap: 1, mb: 1 }}>
             <Chip
               icon={
                 status.existingContent.reviewParts > 0 ? (
@@ -351,6 +413,7 @@ export function AiContentTab() {
                 status.existingContent.reviewParts > 0 ? 'success' : 'warning'
               }
               variant="outlined"
+              size="small"
             />
             <Chip
               icon={
@@ -369,13 +432,56 @@ export function AiContentTab() {
                 status.existingContent.executiveSummary ? 'success' : 'warning'
               }
               variant="outlined"
+              size="small"
+            />
+            <Chip
+              icon={
+                status.existingContent.dashboardData ? (
+                  <CheckCircleIcon color="success" />
+                ) : (
+                  <WarningAmberIcon color="warning" />
+                )
+              }
+              label={
+                status.existingContent.dashboardData
+                  ? 'Dashboard data saved'
+                  : 'No Dashboard data'
+              }
+              color={status.existingContent.dashboardData ? 'success' : 'warning'}
+              variant="outlined"
+              size="small"
             />
           </Stack>
+          {status.existingContent.pages && status.existingContent.pages.length > 0 ? (
+            <Stack spacing={0.75} sx={{ mt: 1.5 }}>
+              <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 600 }}>
+                Template pages ({status.existingContent.pages.length})
+              </Typography>
+              <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap', gap: 1 }}>
+                {status.existingContent.pages.map((page) => (
+                  <Chip
+                    key={page.slug}
+                    size="small"
+                    icon={
+                      page.hasContent ? (
+                        <CheckCircleIcon color="success" />
+                      ) : (
+                        <WarningAmberIcon color="warning" />
+                      )
+                    }
+                    label={`${page.title}${page.detail ? ` — ${page.detail}` : ''}`}
+                    color={page.hasContent ? 'success' : 'warning'}
+                    variant="outlined"
+                  />
+                ))}
+              </Stack>
+            </Stack>
+          ) : null}
           {status.existingContent.executiveSummary ? (
             <Typography
               variant="body2"
               color="text.secondary"
-              sx={{ mt: 1, fontStyle: 'italic' }}
+              sx={{ mt: 1.5, fontStyle: 'italic' }}
             >
               Preview: {status.existingContent.executiveSummary}
             </Typography>
@@ -545,6 +651,15 @@ export function AiContentTab() {
                   label={`Executive Summary: ${((result.contentLengths?.executiveSummary ?? 0) / 1000).toFixed(0)}K chars`}
                   size="small"
                 />
+                {result.providerLabel ? (
+                  <Chip
+                    icon={<AutoFixHighIcon />}
+                    label={`Provider: ${result.providerLabel}`}
+                    size="small"
+                    color="primary"
+                    variant="outlined"
+                  />
+                ) : null}
                 {result.model ? (
                   <Chip
                     label={`Model: ${result.model}`}
@@ -556,7 +671,7 @@ export function AiContentTab() {
               {result.saved ? (
                 <Box sx={{ mt: 1 }}>
                   <Typography variant="body2" color="success.main" sx={{ fontWeight: 600 }}>
-                    Saved to Database:
+                    Saved / delivered to template pages:
                   </Typography>
                   <ul style={{ margin: 0, paddingLeft: 20 }}>
                     {result.saved.businessReviewParts.map((part) => (
@@ -571,6 +686,15 @@ export function AiContentTab() {
                         </Typography>
                       </li>
                     ) : null}
+                    {result.saved.pages?.map((page) => (
+                      <li key={`page-${page.slug}`}>
+                        <Typography variant="body2">
+                          /{page.slug} — {page.title}
+                          {page.detail ? ` (${page.detail})` : ''}
+                          {page.status === 'updated' ? ' ✓' : page.status === 'skipped' ? ' · skipped' : ''}
+                        </Typography>
+                      </li>
+                    ))}
                   </ul>
                 </Box>
               ) : null}
@@ -766,7 +890,7 @@ export function AiContentTab() {
         >
           {generating
             ? 'Generating...'
-            : 'Generate Business Review & Executive Summary'}
+            : 'Generate content'}
         </Button>
         <Button
           variant="outlined"
@@ -777,6 +901,80 @@ export function AiContentTab() {
           Refresh Data Status
         </Button>
       </Stack>
+
+      {/* ── Populate Sheet Pages in Navigation ────────── */}
+      <Paper variant="outlined" sx={{ p: 3 }}>
+        <Stack direction="row" spacing={1.5} sx={{ alignItems: 'center', mb: 2 }}>
+          <AutoAwesomeMosaicIcon color="primary" />
+          <Typography variant="subtitle2" sx={{ fontWeight: 700 }}>
+            Populate Sheet Pages in Navigation
+          </Typography>
+        </Stack>
+        <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+          Add all dynamic sheet pages (created when you run AI Content Generation or
+          Reseed with an Excel workbook) to the navigation menu. Choose a parent
+          folder to group them under.
+        </Typography>
+
+        <Stack spacing={2} direction={{ xs: 'column', sm: 'row' }} sx={{ alignItems: 'flex-start' }}>
+          <FormControl size="small" sx={{ minWidth: 220 }}>
+            <InputLabel>Parent Folder</InputLabel>
+            <Select
+              value={sheetParentNavId}
+              label="Parent Folder"
+              onChange={(e) => {
+                const id = e.target.value as string;
+                setSheetParentNavId(id);
+                const folder = navFolders.find((f) => f.id === id);
+                if (folder) setSheetParentTitle(folder.title);
+              }}
+              disabled={populatingSheets}
+            >
+              <MenuItem value="">— New &quot;Excel&quot; folder —</MenuItem>
+              {navFolders.map((f) => (
+                <MenuItem key={f.id} value={f.id}>
+                  <FolderOpenIcon sx={{ mr: 1, fontSize: 18 }} />
+                  {f.title} {f.path ? `(${f.path})` : ''}
+                </MenuItem>
+              ))}
+            </Select>
+          </FormControl>
+
+          <Button
+            variant="contained"
+            size="small"
+            onClick={async () => {
+              setSheetPopulateResult(null);
+              setSheetPopulateError(null);
+              try {
+                const res = await populateSheets({
+                  parentId: sheetParentNavId || undefined,
+                  parentTitle: sheetParentNavId ? undefined : sheetParentTitle || 'Excel',
+                }).unwrap();
+                setSheetPopulateResult(res.data as { created: number; parentId: string; totalSheets: number });
+              } catch (err) {
+                setSheetPopulateError(err instanceof Error ? err.message : String(err));
+              }
+            }}
+            disabled={populatingSheets}
+            startIcon={populatingSheets ? <CircularProgress size={18} color="inherit" /> : <AutoAwesomeMosaicIcon />}
+          >
+            {populatingSheets ? 'Populating...' : 'Populate Sheet Pages'}
+          </Button>
+        </Stack>
+
+        {sheetPopulateResult ? (
+          <Alert severity="success" icon={<CheckCircleIcon />} sx={{ mt: 2 }}>
+            <Typography variant="body2">
+              Created {sheetPopulateResult.created} navigation items for {sheetPopulateResult.totalSheets} sheet pages under the selected folder.
+            </Typography>
+          </Alert>
+        ) : null}
+
+        {sheetPopulateError ? (
+          <Alert severity="error" sx={{ mt: 2 }}>{sheetPopulateError}</Alert>
+        ) : null}
+      </Paper>
 
       {/* ── Danger Zone: Clear All Seeded Data ──────────── */}
       <Divider sx={{ my: 1 }} />
@@ -846,22 +1044,32 @@ export function AiContentTab() {
       <Dialog open={generateConfirmOpen} onClose={() => setGenerateConfirmOpen(false)} maxWidth="sm" fullWidth>
         <DialogTitle sx={{ fontWeight: 700, display: 'flex', alignItems: 'center', gap: 1 }}>
           <AutoFixHighIcon color="primary" />
-          Generate Business Review, Executive Summary &amp; Dashboard
+          Generate content
         </DialogTitle>
         <DialogContent dividers>
           <Stack spacing={2}>
+            {activeProvider?.configured && activeModel ? (
+              <Alert severity="info" icon={<AutoFixHighIcon />}>
+                Will use <strong>{activeProvider.label}</strong> — model <strong>{activeModel}</strong>.
+                Change this in Config &gt; AI Provider.
+              </Alert>
+            ) : (
+              <Alert severity="warning">
+                No AI provider is configured yet — set one up in Config &gt; AI Provider before generating.
+              </Alert>
+            )}
             <Typography variant="body2" color="text.secondary">
-              This will generate the Business Review, Executive Summary, and Dashboard content
+              This will generate content for all seeded template pages
               {additionalContext ? ' incorporating your selected AI Findings.' : '.'}
             </Typography>
             <Box sx={{ pl: 1 }}>
               <Typography variant="body2" component="div" sx={{ '& li': { mb: 0.5 } }}>
                 <ol style={{ margin: 0, paddingLeft: '1.2rem' }}>
-                  <li>Read the June 2026 Excel workbook data seeded</li>
+                  <li>Read the Excel workbook data already seeded</li>
                   {additionalContext ? <li>Add the AI findings to the data to generate response</li> : null}
                   <li>Build a comprehensive AI prompt from the data and instructions</li>
-                  <li>Call OpenAI to generate all documents</li>
-                  <li>Save to the database: Executive Summary, Detailed Review, and Dashboard content (overwriting existing content)</li>
+                  <li>Call the configured AI provider (Business Review, Executive Summary, Dashboard)</li>
+                  <li>Deliver content onto Home, Dashboard, Summary, Review, Tasks, Ops Tracking, and sheet pages</li>
                 </ol>
               </Typography>
             </Box>
@@ -871,14 +1079,19 @@ export function AiContentTab() {
               </Alert>
             ) : null}
             <Typography variant="body2" color="text.secondary" sx={{ fontWeight: 600 }}>
-              Existing content will be overwritten. This cannot be undone.
+              Existing narrative content will be overwritten. This cannot be undone.
             </Typography>
           </Stack>
         </DialogContent>
         <DialogActions sx={{ px: 3, py: 2 }}>
           <Button onClick={() => setGenerateConfirmOpen(false)} color="inherit">Cancel</Button>
-          <Button variant="contained" onClick={runGeneration} startIcon={<AutoFixHighIcon />}>
-            Generate
+          <Button
+            variant="contained"
+            onClick={runGeneration}
+            startIcon={<AutoFixHighIcon />}
+            disabled={!activeProvider?.configured || !activeModel}
+          >
+            Generate content
           </Button>
         </DialogActions>
       </Dialog>

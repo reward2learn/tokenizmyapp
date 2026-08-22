@@ -57,7 +57,7 @@ export async function handleWorkbookIngest(
   });
 
   // ── 2. EXTRACT ─────────────────────────────────────────────
-  const sheets = await extractSheetsStep(buffers);
+  const sheets = await extractSheetsStep(buffers, writable);
 
   await emitProgressStep(writable, {
     step: 'extracting',
@@ -66,6 +66,11 @@ export async function handleWorkbookIngest(
     detail: {
       sheets: sheets.length,
       tabNames: sheets.map((s) => s.tabName),
+      sheetStatuses: sheets.map((s) => ({
+        name: s.tabName,
+        status: 'completed' as const,
+        phase: 'done' as const,
+      })),
     },
   });
 
@@ -127,7 +132,12 @@ export async function handleWorkbookIngest(
   const projectionsCount = await populateProjectionsStep(comprehension.comprehension, dbUrl);
 
   // ── 6. UPSERT SHEET PAGES (with §7.1 orphan fix) ───────────────
-  const pagesCreated = await upsertSheetPagesStep(comprehension.comprehension, dbUrl, input.tenantSlug);
+  const pagesCreated = await upsertSheetPagesStep(
+    comprehension.comprehension,
+    dbUrl,
+    input.tenantSlug,
+    writable,
+  );
 
   // ── 7. REGISTER DYNAMIC PAGES (best-effort runtime catalog) ────
   const pagesRegistered = await registerDynamicPagesStep(comprehension.comprehension);
@@ -144,7 +154,7 @@ export async function handleWorkbookIngest(
   if (apiKey && !input.skipContentGeneration) {
     await emitProgressStep(writable, {
       step: 'generating',
-      message: 'Generating AI content (Business Review → Executive Summary → Dashboard Data)...',
+      message: 'Generating content for all seeded template pages…',
       pct: 95,
     });
 

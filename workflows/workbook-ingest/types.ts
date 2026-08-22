@@ -8,6 +8,13 @@
 import type { AnalysisHints, SheetHints } from '../../src/domain/ai-workbook/sheet-analysis';
 import type { RenderedSheet } from '../../src/domain/ai-workbook/extract-sheets';
 import type { WorkbookComprehension } from '../../src/domain/ai-workbook/comprehend';
+import type {
+  SheetSeedPhase,
+  SheetSeedState,
+  SheetSeedStatus,
+} from '../../src/lib/sheet-seed-progress';
+
+export type { SheetSeedPhase, SheetSeedState, SheetSeedStatus };
 
 /** One uploaded workbook file, as received by the API route. */
 export interface WorkbookFileInput {
@@ -36,7 +43,26 @@ export interface ProgressChunk {
   step: string;
   message: string;
   pct: number;
-  detail?: Record<string, unknown>;
+  detail?: ProgressDetail;
+}
+
+export interface ProgressDetail {
+  sheets?: number;
+  tabNames?: string[];
+  /** Live per-sheet checklist — UI merges by `name`. */
+  sheetStatuses?: SheetSeedStatus[];
+  /** Currently active sheet tab name (highlight). */
+  currentSheet?: string;
+  formulaCount?: number;
+  projectionsCount?: number;
+  pagesCreated?: number;
+  totalRows?: number;
+  overallNumericRatio?: number;
+  currencyGuess?: string | null;
+  periodGuess?: string | null;
+  projections?: number;
+  template?: string | null;
+  [key: string]: unknown;
 }
 
 /**
