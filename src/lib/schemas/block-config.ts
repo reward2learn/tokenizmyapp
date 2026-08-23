@@ -1,16 +1,10 @@
 import { z } from 'zod';
 import type { BlockType } from '@/lib/page-catalog';
+import { heroConfigSchema } from '@/lib/hero-config';
 
 const minTierSchema = z.enum(['public', 'pin', 'google']).optional();
 
-export const heroConfigSchema = z.object({
-  headline: z.string().optional(),
-  /** Second headline line, shown in the brand colour. Omit for a single line. */
-  accent: z.string().optional(),
-  subtitle: z.string().optional(),
-  badge: z.string().optional(),
-  minTier: minTierSchema,
-});
+export { heroConfigSchema };
 
 export const metricGridConfigSchema = z.object({
   scenarios: z

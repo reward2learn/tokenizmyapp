@@ -10,6 +10,7 @@ import TextField from '@mui/material/TextField';
 import FormControlLabel from '@mui/material/FormControlLabel';
 import Checkbox from '@mui/material/Checkbox';
 import Typography from '@mui/material/Typography';
+import { HeroConfigEditor } from '@/components/cms/hero-config-editor';
 import { useGetCmsSourcesQuery } from '@/store/apis/admin-api';
 
 function str(config: Record<string, unknown>, key: string): string {
@@ -87,22 +88,22 @@ export function SectionConfigEditor({
   onChange,
   readOnly = false,
 }: SectionConfigEditorProps) {
+  if (blockType === 'hero') {
+    return (
+      <HeroConfigEditor config={config} onChange={onChange} readOnly={readOnly} />
+    );
+  }
+
   if (
     blockType === 'marketing_hero' ||
-    blockType === 'hero' ||
     blockType === 'cta_banner' ||
     blockType === 'pricing_table' ||
     blockType === 'customer_proof' ||
     blockType === 'testimonials' ||
     blockType === 'capability_marquee'
   ) {
-    const headlineKey = blockType === 'marketing_hero' || blockType === 'hero' ? 'headline' : 'heading';
-    const subKey =
-      blockType === 'marketing_hero'
-        ? 'subheadline'
-        : blockType === 'hero'
-          ? 'subtitle'
-          : 'subheading';
+    const headlineKey = blockType === 'marketing_hero' ? 'headline' : 'heading';
+    const subKey = blockType === 'marketing_hero' ? 'subheadline' : 'subheading';
 
     return (
       <Box component="fieldset" disabled={readOnly} sx={{ border: 0, m: 0, p: 0, minWidth: 0 }}>

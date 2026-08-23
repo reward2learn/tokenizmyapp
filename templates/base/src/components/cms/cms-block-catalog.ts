@@ -21,9 +21,17 @@ export const CMS_ADDABLE_BLOCKS = [
 
 export type CmsAddableBlock = (typeof CMS_ADDABLE_BLOCKS)[number];
 
+import { DEFAULT_HERO_FALLBACK_ACCENT, DEFAULT_HERO_NAV_BUTTONS, getHeroFallbackTitle } from '@/lib/hero-config';
+
 /** Default config when creating a new section of the given block type. */
 export function defaultConfigForBlock(blockType: string): Record<string, unknown> {
   switch (blockType) {
+    case 'hero':
+      return {
+        headline: getHeroFallbackTitle(),
+        accent: DEFAULT_HERO_FALLBACK_ACCENT,
+        navButtons: DEFAULT_HERO_NAV_BUTTONS,
+      };
     case 'faq':
       return { heading: 'Frequently asked questions', items: [] };
     case 'cta_banner':
