@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Alert from '@mui/material/Alert';
 import Box from '@mui/material/Box';
@@ -12,6 +12,7 @@ import Typography from '@mui/material/Typography';
 import CloseIcon from '@mui/icons-material/Close';
 import SaveIcon from '@mui/icons-material/Save';
 import { CmsAiTextField } from '@/components/cms/cms-ai-text-field';
+import { CmsEditorProvider } from '@/components/cms/cms-editor-context';
 import { MarkdownBody } from '@/components/blocks/markdown-body';
 import { reviewPartEditSlug } from '@/lib/page-route-slug';
 import { useAppDispatch } from '@/store/hooks';
@@ -38,6 +39,7 @@ export function ReviewPartInlineEditor({
   const [updateReviewPart, { isLoading: saving }] = useUpdateReviewPartMutation();
 
   const editSlug = reviewPartEditSlug(partSlug);
+  const cmsConfig = useMemo(() => ({ title, markdown }), [title, markdown]);
 
   const exitEditMode = useCallback(() => {
     dispatch(setPageEditMode({ enabled: false, slug: null }));
@@ -67,6 +69,14 @@ export function ReviewPartInlineEditor({
   }, [markdown, partSlug, router, title, updateReviewPart]);
 
   return (
+    <CmsEditorProvider
+      value={{
+        pageSlug: editSlug,
+        pageTitle: title,
+        blockType: 'review_part',
+        config: cmsConfig,
+      }}
+    >
     <Box component="main" sx={{ flex: 1, minWidth: 0 }}>
       <Paper
         elevation={0}
@@ -190,5 +200,6 @@ export function ReviewPartInlineEditor({
         </Paper>
       </Box>
     </Box>
+    </CmsEditorProvider>
   );
 }

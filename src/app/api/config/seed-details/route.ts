@@ -22,8 +22,10 @@
  */
 
 import { NextResponse } from 'next/server';
+import type { Prisma } from '@/generated/prisma';
 import { PrismaClient } from '@/generated/prisma';
-import { getCurrentAppId } from '@shared/lib/config/tenant';
+import { getCurrentAppId, getTenantConfig } from '@shared/lib/config/tenant';
+import { toRoutePageSlug } from '@shared/lib/page-slug';
 
 export const dynamic = 'force-dynamic';
 
@@ -33,19 +35,33 @@ function getClient() {
   return new PrismaClient({ datasources: { db: { url } } });
 }
 
+/** Scope app_pages to this deployment's suite app (matches navigation + clear-seed). */
+function appPageScopeWhere(appId: string, tenantSlug: string): Prisma.AppPageWhereInput {
+  return {
+    AND: [
+      appId
+        ? { appId }
+        : { OR: [{ appId: '' }, { appId: null }] },
+      { OR: [{ tenantSlug: null }, { tenantSlug }] },
+    ],
+  };
+}
+
 export async function GET(): Promise<NextResponse> {
   const prisma = getClient();
   const appId = getCurrentAppId();
+  const tenantSlug = getTenantConfig().slug;
 
   try {
     // ── App pages (with sections) ────────────────────────
     const appPages = await prisma.appPage.findMany({
+      where: appPageScopeWhere(appId, tenantSlug),
       orderBy: { sortOrder: 'asc' },
       include: { sections: { orderBy: { sortOrder: 'asc' } } },
     });
 
     const pageDetails = appPages.map((p) => ({
-      slug: p.slug,
+      slug: toRoutePageSlug(p.slug, appId),
       title: p.title,
       authTier: p.authTier,
       sectionCount: p.sections.length,

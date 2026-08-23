@@ -37,6 +37,8 @@ export const BLOCK_USE_CASES: Record<string, string> = {
   feature_grid: 'Grid of product capability cards — heading and subheading (card copy is template defaults unless extended).',
   doc_markdown:
     'Markdown document section — title, optional inline markdown override, or content source key.',
+  review_part:
+    'Single section of the multi-part business review — title and full Markdown body stored in business_review_parts.',
   chat_panel: 'AI chat empty-state prompt and up to five suggested starter prompts.',
   chart_financial: 'Financial chart block — scenario and dashboard/ops variant.',
   kpi_cards: 'KPI cards — period label and dashboard/ops variant.',
@@ -115,6 +117,10 @@ export const BLOCK_FIELD_SPECS: Record<string, Record<string, CmsFieldSpec>> = {
     source: { label: 'source', ...COMMON_STRING, description: 'Knowledge snippet key or alias.' },
     title: { label: 'title', ...COMMON_STRING, description: 'Document section title.' },
     markdown: { label: 'markdown', type: 'markdown', description: 'Full Markdown body for this section.' },
+  },
+  review_part: {
+    title: { label: 'title', ...COMMON_STRING, description: 'Review part section title.' },
+    markdown: { label: 'markdown', type: 'markdown', description: 'Full Markdown body for this review part.' },
   },
   chat_panel: {
     emptyStatePrompt: { label: 'emptyStatePrompt', type: 'multiline', description: 'Chat empty-state greeting question.' },
