@@ -870,6 +870,8 @@ export function ChatPanel({ variant = 'page' }: { variant?: 'page' | 'drawer' } 
 
             <ActiveToolBadge activeTool={activeTool} onClear={() => dispatch(setActiveTool(null))} />
 
+            <ComposerModelPicker />
+
             <TextField
               label="Message"
               placeholder={
@@ -1036,7 +1038,6 @@ export function ChatPanel({ variant = 'page' }: { variant?: 'page' | 'drawer' } 
                 onChange={(tool) => dispatch(setActiveTool(tool))}
                 iconButtonSx={ICON_BUTTON_SX}
               />
-              <ComposerModelPicker />
               <VoiceProfileMenu voice={ttsVoice} onVoiceChange={setTtsVoice} />
               <Tooltip title={assistantMuted ? 'Unmute assistant voice' : 'Mute assistant voice'}>
                 <IconButton

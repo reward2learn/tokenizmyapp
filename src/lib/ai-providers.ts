@@ -5,7 +5,7 @@
  */
 import { getSecretPlaintext, setSecret, deleteSecret } from '@/lib/secrets';
 import type { DbClient } from '@/lib/db';
-import { getAiProvider, type AiProviderDef, type AiProviderId } from '@/lib/ai-providers-catalog';
+import { getAiProvider, type AiProviderDef, type AiProviderId, type AiModelOption, listProviderModels } from '@/lib/ai-providers-catalog';
 
 export {
   AI_PROVIDERS,
@@ -15,6 +15,20 @@ export {
   type AiProviderId,
   type AiModelOption,
 } from '@/lib/ai-providers-catalog';
+
+export type AiProviderHealthStatus = 'healthy' | 'unhealthy' | 'unconfigured';
+
+export interface AiProviderHealth {
+  status: AiProviderHealthStatus;
+  message?: string;
+}
+
+export type AiModelHealthStatus = 'healthy' | 'unhealthy';
+
+export interface AiModelHealth {
+  status: AiModelHealthStatus;
+  message?: string;
+}
 
 /** Secret keyName the active provider selection is stored under — not a
  *  real secret, just reusing the existing encrypted key-value store so this
@@ -82,6 +96,50 @@ async function resolveProviderKeyWithSource(
 /** Resolve an API key for a provider: DB secret first, then its env var. */
 export async function resolveProviderKey(provider: AiProviderDef, db?: DbClient): Promise<string | null> {
   return (await resolveProviderKeyWithSource(provider, db)).key;
+}
+
+/**
+ * Lightweight init-time probe: verifies the provider has a resolvable key and
+ * can list models (which exercises auth for key-gated catalogs).
+ */
+export async function checkProviderHealth(
+  provider: AiProviderDef,
+  db?: DbClient,
+): Promise<AiProviderHealth> {
+  const apiKey = await resolveProviderKey(provider, db);
+  if (!apiKey) {
+    return { status: 'unconfigured', message: 'No API key configured' };
+  }
+
+  try {
+    await listProviderModels(provider, apiKey);
+    return { status: 'healthy' };
+  } catch (err) {
+    return {
+      status: 'unhealthy',
+      message: err instanceof Error ? err.message : 'Provider health check failed',
+    };
+  }
+}
+
+export function checkModelHealth(
+  modelId: string | null | undefined,
+  models: AiModelOption[],
+  providerHealth: AiProviderHealth,
+): AiModelHealth {
+  if (providerHealth.status === 'unconfigured') {
+    return { status: 'unhealthy', message: providerHealth.message ?? 'Provider is not configured' };
+  }
+  if (providerHealth.status === 'unhealthy') {
+    return { status: 'unhealthy', message: providerHealth.message ?? 'Provider is not healthy' };
+  }
+  if (!modelId) {
+    return { status: 'unhealthy', message: 'No model selected' };
+  }
+  if (!models.some((m) => m.id === modelId)) {
+    return { status: 'unhealthy', message: `Model "${modelId}" is not available for this provider` };
+  }
+  return { status: 'healthy' };
 }
 
 export interface ActiveAiConfig {

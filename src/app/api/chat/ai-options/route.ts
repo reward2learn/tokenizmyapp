@@ -16,7 +16,10 @@ import {
   getActiveModel,
   resolveProviderKey,
   listProviderModels,
+  checkProviderHealth,
+  checkModelHealth,
   type AiProviderId,
+  type AiProviderHealth,
 } from '@/lib/ai-providers';
 
 export const maxDuration = 30;
@@ -29,6 +32,7 @@ export async function GET(request: Request): Promise<Response> {
 
   const { searchParams } = new URL(request.url);
   const requested = searchParams.get('providerId');
+  const requestedModel = searchParams.get('model');
 
   const providers = await Promise.all(
     AI_PROVIDERS.map(async (p) => {
@@ -38,12 +42,18 @@ export async function GET(request: Request): Promise<Response> {
         : process.env[p.keyEnvVar]
           ? 'env'
           : null;
+      const configured = source !== null;
+      const health: AiProviderHealth = configured
+        ? await checkProviderHealth(p)
+        : { status: 'unconfigured', message: 'No API key configured' };
+
       return {
         id: p.id,
         label: p.label,
-        configured: source !== null,
+        configured,
         source,
         defaultModel: p.defaultModel ?? null,
+        health,
       };
     }),
   );
@@ -59,15 +69,26 @@ export async function GET(request: Request): Promise<Response> {
   const provider = getAiProvider(providerId);
   if (!provider) return jsonError('Unknown provider', 400);
 
+  const providerHealth =
+    providers.find((p) => p.id === providerId)?.health
+    ?? await checkProviderHealth(provider);
+
   let models: { id: string; label: string; description?: string }[] = [];
-  try {
-    const apiKey = await resolveProviderKey(provider);
-    if (apiKey || !provider.modelsRequireAuth) {
-      models = await listProviderModels(provider, apiKey);
+  if (providerHealth.status === 'healthy') {
+    try {
+      const apiKey = await resolveProviderKey(provider);
+      if (apiKey || !provider.modelsRequireAuth) {
+        models = await listProviderModels(provider, apiKey);
+      }
+    } catch (err) {
+      console.warn(`[chat/ai-options] model list failed for ${provider.id}:`, err);
+      providerHealth.status = 'unhealthy';
+      providerHealth.message = err instanceof Error ? err.message : 'Failed to list models';
     }
-  } catch (err) {
-    console.warn(`[chat/ai-options] model list failed for ${provider.id}:`, err);
   }
+
+  const modelForHealth = requestedModel ?? activeModel;
+  const modelHealth = checkModelHealth(modelForHealth, models, providerHealth);
 
   return jsonOk({
     providers,
@@ -75,5 +96,7 @@ export async function GET(request: Request): Promise<Response> {
     activeModel,
     providerId,
     models,
+    providerHealth,
+    modelHealth,
   });
 }
