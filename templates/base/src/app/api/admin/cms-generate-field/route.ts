@@ -51,12 +51,12 @@ export async function POST(request: Request) {
   if (ai.keySource === 'env') {
     const gate = await requireCreditsForTenant(
       tenantSlug,
-      db,
       undefined,
+      auth.session.email,
       CREDIT_FLOORS.contentGeneration,
     );
     if (!gate.ok) {
-      return gate.response;
+      return jsonError(gate.reason ?? 'AI generation failed', 500);
     }
   }
 
