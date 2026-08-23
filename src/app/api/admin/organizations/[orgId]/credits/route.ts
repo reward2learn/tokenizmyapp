@@ -15,7 +15,7 @@
  * Auth: platform admin, or self-serve tenant users (read balance only).
  */
 import { z } from 'zod';
-import { createRawClient } from '@/lib/db';
+import { createRawClient, createBillingRawClient } from '@/lib/db';
 import { requireWriteAuth } from '@/lib/auth/guards';
 import { requireOrgCreditsRead } from '@/lib/auth/billing-guards';
 import { sessionIsPlatformAdmin } from '@/lib/auth/jwt';
@@ -67,7 +67,7 @@ export async function GET(
   const guard = await requireOrgCreditsRead(request, orgId);
   if (!guard.ok) return guard.response;
 
-  const db = createRawClient();
+  const db = createBillingRawClient();
 
   try {
     const organization = await getOrganization(db, orgId);
@@ -127,7 +127,7 @@ export async function POST(
     );
   }
 
-  const db = createRawClient();
+  const db = createBillingRawClient();
   try {
     const organization = await getOrganization(db, orgId);
     if (!organization) return jsonError('Organization not found', 404);

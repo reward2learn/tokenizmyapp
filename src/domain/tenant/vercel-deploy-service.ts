@@ -12,6 +12,7 @@ import {
 } from './vercel-stripe-marketplace-service';
 import { DEFAULT_RELAY_REDIRECT_URI } from '@/lib/auth/google-relay';
 import { buildWeb3EnvVars } from '@/lib/web3/reown';
+import { billingIdentityEnvVars } from '@/lib/billing/organization-env';
 import { resolveTemplate } from '@/domain/tenant/custom-template-service';
 import { resolveAssistantProfile } from '@/domain/tenant/template-assistant-profiles';
 import { TEMPLATE_PROFILE_ENV_KEY } from '@shared/lib/config/template-profile';
@@ -220,7 +221,8 @@ export async function ensureVercelProject(input: { slug: string; projectId?: str
 }
 
 /** Upsert a single env var — tries all available tokens/teamId combos until one works. */
-async function upsertEnvVar(
+export async function upsertProjectEnvVar(
+
   projectId: string,
   key: string,
   value: string,
@@ -374,6 +376,15 @@ export async function buildEnvVarsForProject(input: DeployTenantInput): Promise<
     if (value) envVars[key] = value;
   }
 
+
+  // Billing identity: suite apps cannot resolve the payer by deployment slug.
+  // Stamp ORGANIZATION_ID (+ PLATFORM_POSTGRES_URL) when the factory knows it.
+  const orgIdMeta = input.metadata?.organizationId;
+  const orgId = typeof orgIdMeta === 'string' ? orgIdMeta.trim() : '';
+  if (orgId) {
+    Object.assign(envVars, billingIdentityEnvVars(orgId));
+  }
+
   return envVars;
 }
 
@@ -445,7 +456,7 @@ export async function syncStripeEnvVars(
 
   for (const [key, value] of entries) {
     try {
-      const ok = await upsertEnvVar(projectId, key, value);
+      const ok = await upsertProjectEnvVar(projectId, key, value);
       if (ok) envCount++;
     } catch (err) {
       console.error(`[vercel-deploy] Failed to set env ${key}:`, err);
@@ -455,7 +466,7 @@ export async function syncStripeEnvVars(
   const selfServeValue = stripe.selfServeBillingEnabled ? 'true' : 'false';
   for (const key of ['SELF_SERVE_BILLING_ENABLED', 'NEXT_PUBLIC_SELF_SERVE_BILLING'] as const) {
     try {
-      const ok = await upsertEnvVar(projectId, key, selfServeValue);
+      const ok = await upsertProjectEnvVar(projectId, key, selfServeValue);
       if (ok) envCount++;
     } catch (err) {
       console.error(`[vercel-deploy] Failed to set env ${key}:`, err);
@@ -475,7 +486,7 @@ export async function syncEnvVars(
   let envCount = 0;
   for (const [key, value] of Object.entries(envVars)) {
     try {
-      const ok = await upsertEnvVar(projectId, key, value);
+      const ok = await upsertProjectEnvVar(projectId, key, value);
       if (ok) envCount++;
     } catch (err) {
       console.error(`[vercel-deploy] Failed to set env ${key}:`, err);

@@ -536,7 +536,31 @@ export function TenantDashboard() {
         console.warn(`[bulk-${action}] ${app.appId} error:`, err);
       }
     }
-    setSnackbar({ message: `✅ ${actionLabel} complete for ${appPack.apps.length} apps`, severity: 'success' });
+
+    if (action === 'seed') {
+      try {
+        const res = await fetch(`/api/admin/tenants/${tenantSlug}/propagate-billing-identity`, {
+          method: 'POST',
+          credentials: 'include',
+        });
+        const body = await res.json().catch(() => null);
+        if (res.ok && body?.data?.orgId) {
+          setSnackbar({
+            message: `✅ ${actionLabel} complete — billing org ${body.data.orgId} pushed to ${body.data.appsTouched ?? 0} app project(s)`,
+            severity: 'success',
+          });
+        } else {
+          setSnackbar({
+            message: `✅ ${actionLabel} complete for ${appPack.apps.length} apps (billing identity: ${body?.error ?? 'not pushed'})`,
+            severity: 'success',
+          });
+        }
+      } catch {
+        setSnackbar({ message: `✅ ${actionLabel} complete for ${appPack.apps.length} apps`, severity: 'success' });
+      }
+    } else {
+      setSnackbar({ message: `✅ ${actionLabel} complete for ${appPack.apps.length} apps`, severity: 'success' });
+    }
     refetch();
   };
 

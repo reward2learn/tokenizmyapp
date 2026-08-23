@@ -163,6 +163,28 @@ export async function POST(
 
     console.log(`[app-seed] Seeded "${appId}" for tenant "${slug}" (${dbTarget} DB): ${result.pages} pages attempted / ${verifiedPages} verified, ${result.navItems} nav items attempted / ${verifiedNavItems} verified`);
 
+
+    // Stamp the tenant's billing organization onto this app's Vercel project so
+    // Settings → Billing / top-up resolve the Pro org (control-plane), not a
+    // local Free default.
+    try {
+      const { readTenantOrganizationId, pushBillingIdentityToProject } = await import(
+        '@/domain/billing/propagate-billing-identity'
+      );
+      const orgId = await readTenantOrganizationId(slug, db);
+      const projectId = String(app.vercelProjectId ?? '').trim();
+      if (orgId && projectId) {
+        const push = await pushBillingIdentityToProject(projectId, orgId);
+        console.log(
+          `[app-seed] Billing identity for "${appId}": org=${orgId}, pushed ${push.pushed}/${push.keys.length} env vars`,
+        );
+      } else if (orgId && !projectId) {
+        console.warn(`[app-seed] App "${appId}" has no vercelProjectId — skip billing identity push`);
+      }
+    } catch (err) {
+      console.warn('[app-seed] Billing identity push failed:', (err as Error).message);
+    }
+
     return jsonOk({
       seeded: true,
       appId,
@@ -232,7 +254,12 @@ export async function PUT(
     const tenantCfg = (tenantMeta.config ?? {}) as Record<string, unknown>;
     const appCfg = (app.config ?? {}) as Record<string, unknown>;
 
-    const result = await deployTenant({
+        const orgRows = await db.$queryRawUnsafe(
+      `SELECT organization_id FROM tenants WHERE slug = $1 LIMIT 1;`, slug,
+    ) as Record<string, unknown>[];
+    const organizationId = String(orgRows[0]?.organization_id ?? '').trim() || null;
+
+const result = await deployTenant({
       slug: appSlug,
       displayName: app.name,
       template: app.templateId,
@@ -240,6 +267,7 @@ export async function PUT(
       secondaryColor: tpl.defaultColors.secondary,
       dbUrl: tenantDbUrl ? { pooled: tenantDbUrl } : null,
       metadata: {
+        ...(organizationId ? { organizationId } : {}),
         parentSlug: slug,
         appId,
         department: app.department,

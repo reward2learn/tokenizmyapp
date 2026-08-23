@@ -9,7 +9,7 @@
  * re-derive it from the plan id.
  */
 import { NextResponse } from 'next/server';
-import { createRawClient } from '@/lib/db';
+import { createRawClient, createBillingRawClient } from '@/lib/db';
 import { requireWriteAuth } from '@/lib/auth/guards';
 import { jsonError, jsonOk } from '@/lib/api/response';
 import {
@@ -30,7 +30,7 @@ export async function GET(
   if (!guard.ok) return guard.response;
 
   const { slug } = await params;
-  const db = createRawClient();
+  const db = createBillingRawClient();
 
   try {
     const organization = await resolveOrgForTenant(slug, db);
@@ -75,7 +75,7 @@ export async function PUT(
   const orgId = typeof body.orgId === 'string' ? body.orgId : '';
   if (!orgId) return jsonError('orgId is required', 400);
 
-  const db = createRawClient();
+  const db = createBillingRawClient();
   try {
     const organization = await getOrganization(db, orgId);
     if (!organization) return jsonError('Organization not found', 404);

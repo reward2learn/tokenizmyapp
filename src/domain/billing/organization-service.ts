@@ -14,7 +14,8 @@
  * Follows the established no-migration-files pattern: idempotent DDL applied at
  * runtime, same as ensureTenantsTable() / ensureSecurityTables().
  */
-import { createRawClient } from '@/lib/db';
+import { createRawClient, createBillingRawClient } from '@/lib/db';
+import { getOrganizationIdFromEnv } from '@/lib/billing/organization-env';
 import type { StripeEnvConfig } from '@/lib/billing/stripe-client';
 import { ensureTenantsTable } from '@/domain/tenant/tenant-service';
 
@@ -552,9 +553,18 @@ export async function backfillDefaultOrganization(
  */
 export async function resolveOrgForTenant(
   tenantSlug: string,
-  db: RawDb = createRawClient(),
+  db: RawDb = createBillingRawClient(),
 ): Promise<Organization | null> {
   await ensureOrganizationTables(db);
+
+  // Suite apps deploy as `${tenantSlug}-${appId}` and cannot look up the
+  // tenants registry by their deployment slug. ORGANIZATION_ID is stamped at
+  // Seed All Apps / env push so Billing resolves the paying org (e.g. Pro).
+  const stampedOrgId = getOrganizationIdFromEnv();
+  if (stampedOrgId) {
+    const stamped = await getOrganization(db, stampedOrgId);
+    if (stamped) return stamped;
+  }
 
   const rows = (await db.$queryRawUnsafe(
     `SELECT o.* FROM tenants t
@@ -573,9 +583,9 @@ export async function resolveOrgForTenant(
   )) as Record<string, unknown>[];
   if (tenantRows.length === 0) {
     // Tenant-app databases have no `tenants` registry row — the slug is stamped
-    // on the deployment via NEXT_PUBLIC_TENANT_SLUG. Metering already falls
-    // back to the default org in this case; Settings and Billing need the same
-    // answer or every org-scoped surface reads as unassigned.
+    // on the deployment via NEXT_PUBLIC_TENANT_SLUG. Prefer ORGANIZATION_ID
+    // (handled above); only then fall back to the default org so Billing is not
+    // left unassigned.
     const deployedSlug = process.env.NEXT_PUBLIC_TENANT_SLUG?.trim();
     if (deployedSlug && deployedSlug === tenantSlug && deployedSlug !== 'tokenizmyapp') {
       const { orgId } = await backfillDefaultOrganization(db);

@@ -9,7 +9,10 @@ import { createRawClient } from '@/lib/db';
 import { requireOrgCreditPurchase } from '@/lib/auth/billing-guards';
 import { jsonError, jsonOk } from '@/lib/api/response';
 import { getOrganization, resolveTenantStripeConfig } from '@/domain/billing/organization-service';
-import { stripeReadiness } from '@/domain/billing/stripe-service';
+import {
+  reconcileSubscriptionFromStripe,
+  stripeReadiness,
+} from '@/domain/billing/stripe-service';
 import { CREDIT_PACKS, canPurchaseCreditPacks } from '@/lib/billing/plans';
 import { getSubscription } from '@/domain/billing/entitlement-service';
 import {
@@ -44,9 +47,28 @@ export async function POST(
     );
   }
 
+  try {
+    const reconcile = await reconcileSubscriptionFromStripe(
+      orgId,
+      db,
+      stripeConfig ?? undefined,
+    );
+    if (reconcile.changed) {
+      console.log(`[billing] agentic-topup reconcile ${orgId}: ${reconcile.reason}`);
+    }
+  } catch (err) {
+    console.warn(
+      `[billing] agentic-topup reconcile failed for ${orgId}:`,
+      (err as Error).message,
+    );
+  }
+
   const subscription = await getSubscription(orgId, db);
   if (!canPurchaseCreditPacks(subscription.planId)) {
-    return jsonError('Credit pack purchases require a Pro plan or higher.', 403);
+    return jsonError(
+      `Credit pack purchases require a Pro plan or higher. This organization (${orgId}) is on the ${subscription.planId} plan.`,
+      403,
+    );
   }
 
   const agentic = await resolveTenantAgenticCommerce(orgId, db);

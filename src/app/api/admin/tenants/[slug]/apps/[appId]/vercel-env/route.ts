@@ -76,7 +76,12 @@ export async function POST(
       config: { ...tenantCfg, ...appCfg },
     };
 
-    const input = {
+        const orgRows = await db.$queryRawUnsafe(
+      `SELECT organization_id FROM tenants WHERE slug = $1 LIMIT 1;`, slug,
+    ) as Record<string, unknown>[];
+    const organizationId = String(orgRows[0]?.organization_id ?? '').trim() || null;
+
+const input = {
       slug: `${slug}-${appId}`,
       displayName: app.name,
       template: app.templateId,
@@ -86,7 +91,7 @@ export async function POST(
       // Full merged metadata (tenant config + this app's overrides) so the
       // env map includes Google OAuth creds, DB, PINs, custom env — with this
       // app's own values winning.
-      metadata: { ...mergedMeta, appId },
+      metadata: { ...mergedMeta, appId, ...(organizationId ? { organizationId } : {}) },
     };
 
     const envVars = await buildEnvVarsForProject(input);

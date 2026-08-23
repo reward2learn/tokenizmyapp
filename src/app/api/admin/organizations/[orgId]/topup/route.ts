@@ -15,11 +15,15 @@
  * customer whose card is declined never gets credits at all.
  */
 import { z } from 'zod';
-import { createRawClient } from '@/lib/db';
+import { createRawClient, createBillingRawClient } from '@/lib/db';
 import { requireOrgCreditPurchase } from '@/lib/auth/billing-guards';
 import { jsonError, jsonOk } from '@/lib/api/response';
 import { getOrganization, resolveTenantStripeConfig } from '@/domain/billing/organization-service';
-import { createTopUpIntent, stripeReadiness } from '@/domain/billing/stripe-service';
+import {
+  createTopUpIntent,
+  reconcileSubscriptionFromStripe,
+  stripeReadiness,
+} from '@/domain/billing/stripe-service';
 import { getStripePublishableKey, requireStripeFor } from '@/lib/billing/stripe-client';
 import { CREDIT_PACKS, canPurchaseCreditPacks } from '@/lib/billing/plans';
 import { getSubscription } from '@/domain/billing/entitlement-service';
@@ -38,7 +42,7 @@ export async function POST(
   const guard = await requireOrgCreditPurchase(request, orgId);
   if (!guard.ok) return guard.response;
 
-  const db = createRawClient();
+  const db = createBillingRawClient();
   const stripeConfig = await resolveTenantStripeConfig(orgId, db);
   const stripe = stripeConfig ? requireStripeFor(stripeConfig) : undefined;
 
@@ -80,9 +84,28 @@ export async function POST(
     const organization = await getOrganization(db, orgId);
     if (!organization) return jsonError('Organization not found', 404);
 
+    // Same self-heal as GET …/checkout: a paid Pro whose webhook never landed
+    // still shows Free in the DB. Reconcile before the Pro gate so top-up does
+    // not 403 after a successful plan purchase on this org.
+    try {
+      const reconcile = await reconcileSubscriptionFromStripe(
+        orgId,
+        db,
+        stripeConfig ?? undefined,
+      );
+      if (reconcile.changed) {
+        console.log(`[billing] topup reconcile ${orgId}: ${reconcile.reason}`);
+      }
+    } catch (err) {
+      console.warn(`[billing] topup reconcile failed for ${orgId}:`, (err as Error).message);
+    }
+
     const subscription = await getSubscription(orgId, db);
     if (!canPurchaseCreditPacks(subscription.planId)) {
-      return jsonError('Credit pack purchases require a Pro plan or higher.', 403);
+      return jsonError(
+        `Credit pack purchases require a Pro plan or higher. This organization (${orgId}) is on the ${subscription.planId} plan.`,
+        403,
+      );
     }
 
     const intent = await createTopUpIntent(orgId, pack.id, db, stripe);

@@ -26,7 +26,7 @@
  */
 import type Stripe from 'stripe';
 import { z } from 'zod';
-import { createRawClient } from '@/lib/db';
+import { createRawClient, createBillingRawClient } from '@/lib/db';
 import { requireWriteAuth } from '@/lib/auth/guards';
 import { sessionIsPlatformAdmin } from '@/lib/auth/jwt';
 import { jsonError, jsonOk } from '@/lib/api/response';
@@ -82,7 +82,7 @@ export async function GET(
   if (!sessionIsPlatformAdmin(guard.session)) return jsonError('Platform admin only', 403);
 
   const { orgId } = await params;
-  const db = createRawClient();
+  const db = createBillingRawClient();
   try {
     const organization = await getOrganization(db, orgId);
     if (!organization) return jsonError('Organization not found', 404);
@@ -155,7 +155,7 @@ export async function POST(
 
   const { orgId } = await params;
 
-  const db = createRawClient();
+  const db = createBillingRawClient();
   const stripeConfig = await resolveTenantStripeConfig(orgId, db);
 
   if (!stripeReadiness(stripeConfig ?? undefined).ready) {

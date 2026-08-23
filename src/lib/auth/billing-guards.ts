@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { createRawClient } from '@/lib/db';
+import { createRawClient, createBillingRawClient } from '@/lib/db';
 import { getTenantConfig, isPlatformApp } from '@shared/lib/config/tenant';
 import { resolveOrgForTenant } from '@/domain/billing/organization-service';
 import { resolveTenantSelfServeBilling } from '@/domain/billing/self-serve-billing-service';
@@ -18,7 +18,7 @@ async function assertSelfServeOrgAccess(orgId: string): Promise<GuardResult | { 
     return forbidden('Self-serve billing is only available on deployed tenant apps.');
   }
 
-  const db = createRawClient();
+  const db = createBillingRawClient();
   const { enabled, tenantSlug } = await resolveTenantSelfServeBilling(orgId, db);
   if (!enabled) {
     return forbidden('Self-serve billing is not enabled for this tenant.');

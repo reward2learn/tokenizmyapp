@@ -36,8 +36,8 @@ type RawDb = ReturnType<typeof createRawClient>;
  */
 async function getDb(db?: RawDb): Promise<RawDb> {
   if (db) return db;
-  const { createRawClient } = await import('@/lib/db');
-  return createRawClient();
+  const { createBillingRawClient } = await import('@/lib/db');
+  return createBillingRawClient();
 }
 
 export type SubscriptionStatus = 'active' | 'past_due' | 'canceled' | 'trialing';

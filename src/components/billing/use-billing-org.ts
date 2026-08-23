@@ -6,6 +6,7 @@ import {
   useListOrganizationsQuery,
 } from '@/store/apis/organization-api';
 import { getClientTenantConfig, isPlatformApp } from '@shared/lib/config/tenant';
+import { getPublicOrganizationIdFromEnv } from '@/lib/billing/organization-env';
 
 /**
  * Which organization the billing surfaces are about.
@@ -37,7 +38,8 @@ export function useBillingOrgId(): string | null {
   const tenantOrgId = tenantOrg?.data?.organization.id ?? null;
 
   if (!onPlatform) {
-    return tenantOrgId;
+    // Stamped at Seed All Apps / env push — wins over a stale local default org.
+    return getPublicOrganizationIdFromEnv() ?? tenantOrgId;
   }
 
   return selectedOrgId ?? tenantOrgId ?? orgList?.data?.organizations?.[0]?.id ?? null;

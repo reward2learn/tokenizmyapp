@@ -44,7 +44,13 @@ import {
   useStartCheckoutMutation,
   organizationApi,
 } from '@/store/apis/organization-api';
-import { PLANS, CREDIT_PACKS, YEARLY_DISCOUNT, type PlanId } from '@/lib/billing/plans';
+import {
+  PLANS,
+  CREDIT_PACKS,
+  YEARLY_DISCOUNT,
+  canPurchaseCreditPacks,
+  type PlanId,
+} from '@/lib/billing/plans';
 import {
   EmbeddedPlanCheckoutDialog,
   type EmbeddedPlanCheckoutTarget,
@@ -194,12 +200,14 @@ export function BillingPanel({
         {activeTab === 'ai-credits' && (
           <AiCreditsTab
             orgId={orgId}
+            planId={(subscription?.planId ?? 'free') as PlanId}
             balance={balance}
             grants={grants}
             ledger={ledger}
             readiness={effectiveReadiness}
             readOnly={readOnly}
             selfServeTopUp={selfServeBilling}
+            onOpenPlanTab={() => dispatch(setBillingTab('plan'))}
           />
         )}
         {!readOnly && activeTab === 'cloud-credits' && <CloudCreditsTab orgId={orgId} />}
@@ -529,20 +537,24 @@ function PlanTab({
 
 function AiCreditsTab({
   orgId,
+  planId,
   balance,
   grants,
   ledger,
   readiness,
   readOnly = false,
   selfServeTopUp = false,
+  onOpenPlanTab,
 }: {
   orgId: string;
+  planId: PlanId;
   balance: { available: number; expiringSoon: number; debt: number; net: number } | null;
   grants: React.ComponentProps<typeof CreditGrantsTable>['grants'];
   ledger: React.ComponentProps<typeof CreditUsageTable>['ledger'];
   readiness: { ready: boolean } | null;
   readOnly?: boolean;
   selfServeTopUp?: boolean;
+  onOpenPlanTab?: () => void;
 }) {
   const [historyTab, setHistoryTab] = useState<'usage' | 'grants'>('usage');
   const [topUpPackId, setTopUpPackId] = useState<string | null>(null);
@@ -558,7 +570,9 @@ function AiCreditsTab({
     .reduce((sum, g) => sum + g.remaining, 0);
   const byPromo = grants.filter((g) => g.source === 'promo').reduce((sum, g) => sum + g.remaining, 0);
 
-  const canTopUp = !readOnly || selfServeTopUp;
+  const mayPurchase = !readOnly || selfServeTopUp;
+  const planAllowsTopUp = canPurchaseCreditPacks(planId);
+  const canTopUp = mayPurchase && planAllowsTopUp;
 
   const requestMessage = [
     'Hi,',
@@ -669,6 +683,26 @@ function AiCreditsTab({
               </Button>
             ))}
           </Stack>
+        </Box>
+      ) : mayPurchase && !planAllowsTopUp ? (
+        <Box>
+          <Alert severity="info" sx={{ mb: 1.5 }}>
+            Credit packs require a Pro plan or higher. This organization is on the{' '}
+            <strong>{planId}</strong> plan
+            {orgId ? (
+              <>
+                {' '}
+                (<Typography component="span" variant="caption" sx={{ fontFamily: 'monospace' }}>
+                  {orgId}
+                </Typography>
+                )
+              </>
+            ) : null}
+            .
+          </Alert>
+          <Button variant="contained" onClick={() => onOpenPlanTab?.()}>
+            Upgrade plan
+          </Button>
         </Box>
       ) : (
         <Box>

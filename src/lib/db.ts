@@ -92,6 +92,42 @@ export function createRawClient() {
 }
 
 /**
+ * Billing / organization control-plane client.
+ *
+ * Organization, subscription and credit tables live on the **platform root DB**
+ * (see organization-service placement rule). Tenant app deployments get their
+ * own POSTGRES_URL for the data plane, plus PLATFORM_POSTGRES_URL pointing at
+ * the factory DB so Billing can still read the Pro plan / balance that Stripe
+ * webhooks wrote on the control plane.
+ *
+ * On the factory itself PLATFORM_POSTGRES_URL is unset and this equals
+ * createRawClient().
+ */
+export function createBillingRawClient() {
+  const platformUrl = process.env.PLATFORM_POSTGRES_URL?.trim();
+  if (!platformUrl) return getBasePrisma();
+
+  const globalBilling = globalThis as typeof globalThis & {
+    __redrubyBillingPrisma?: PrismaClient;
+    __redrubyBillingPrismaUrl?: string;
+  };
+  if (
+    !globalBilling.__redrubyBillingPrisma
+    || globalBilling.__redrubyBillingPrismaUrl !== platformUrl
+  ) {
+    const sep = platformUrl.includes('?') ? '&' : '?';
+    const url = platformUrl.includes('pgbouncer=')
+      ? platformUrl
+      : `${platformUrl}${sep}pgbouncer=true&connection_limit=${connectionLimit()}`;
+    globalBilling.__redrubyBillingPrisma = new PrismaClient({
+      datasources: { db: { url } },
+    });
+    globalBilling.__redrubyBillingPrismaUrl = platformUrl;
+  }
+  return globalBilling.__redrubyBillingPrisma;
+}
+
+/**
  * Same shape as createClient(), but connects to an explicit URL instead of the
  * process-global root DB — for tenants that have their own dedicated database
  * (tenants.db_url). Returns a fresh, non-singleton connection; callers MUST
