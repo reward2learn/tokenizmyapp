@@ -3,7 +3,9 @@
  * Uses the same idempotent pattern as app-settings-service.
  */
 import { PrismaClient } from '@/generated/prisma';
-import { FUNCTIONAL_ROLES, DEFAULT_PLATFORM_ADMIN_EMAIL } from '@/domain/security/functional-roles';
+import { DEFAULT_PLATFORM_ADMIN_EMAIL } from '@/domain/security/functional-roles';
+import { getTemplate } from '@/domain/tenant/template-catalog';
+import { resolveTemplateRoles } from '@/domain/tenant/template-default-roles';
 
 const TENANTS_DDL = `
 CREATE TABLE IF NOT EXISTS tenants (
@@ -58,6 +60,7 @@ export async function seedTenantAdminDefaults(
   tenantDbUrl: string | undefined,
   slug: string,
   adminEmail: string = DEFAULT_PLATFORM_ADMIN_EMAIL,
+  templateId: string = 'default',
 ): Promise<{ success: boolean; adminEmail?: string; error?: string }> {
   if (!tenantDbUrl) {
     return { success: false, error: 'no-database-url' };
@@ -78,7 +81,7 @@ export async function seedTenantAdminDefaults(
       );
     `);
 
-    for (const fr of FUNCTIONAL_ROLES) {
+    for (const fr of resolveTemplateRoles(getTemplate(templateId))) {
       await tenantPrisma.$executeRawUnsafe(
         `INSERT INTO roles (id, code, name, is_platform_admin)
          VALUES (gen_random_uuid()::TEXT, $1, $2, $3)

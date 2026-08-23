@@ -39,7 +39,7 @@ import {
   useListRoleConfigsQuery,
 } from '@/store/apis/admin-api';
 import type { AdminUserView } from '@/app/api/admin/users/route';
-import { FUNCTIONAL_ROLES, DEFAULT_PLATFORM_ADMIN_EMAIL } from '@/domain/security/functional-roles';
+import { DEFAULT_PLATFORM_ADMIN_EMAIL, roleOptionsFromApi } from '@/domain/security/functional-roles';
 
 interface Props {
   tenantSlug: string;
@@ -63,7 +63,8 @@ export function TenantInlineUserManager({ tenantSlug, tenantName, appId }: Props
   const [deleteUser, { isLoading: isDeleting }] = useDeleteAdminUserMutation();
   const [createUsers, { isLoading: isCreating }] = useCreateAdminUsersMutation();
   const { data: groupsData } = useListAdminGroupsQuery();
-  const { data: roleConfigData } = useListRoleConfigsQuery();
+  const { data: roleConfigData } = useListRoleConfigsQuery({ tenantSlug, appId: appId ?? undefined });
+  const roleOptions = roleOptionsFromApi(roleConfigData?.data?.roles);
 
   const [editing, setEditing] = useState<string | null>(null);
   const [editForm, setEditForm] = useState({
@@ -201,7 +202,7 @@ export function TenantInlineUserManager({ tenantSlug, tenantName, appId }: Props
                       {!u.isActive && <Chip label="disabled" size="small" color="error" variant="outlined" sx={{ ml: 1 }} />}
                       {protectedAdmin && <Chip label="protected" size="small" color="info" variant="outlined" sx={{ ml: 1 }} />}
                     </TableCell>
-                    <TableCell>{FUNCTIONAL_ROLES.find((r) => r.code === u.roleCode)?.name || u.roleCode || '—'}</TableCell>
+                    <TableCell>{roleOptions.find((r) => r.code === u.roleCode)?.name || u.roleCode || '—'}</TableCell>
                     <TableCell>{u.email || '—'}</TableCell>
                     <TableCell>
                       <Chip label={hasPin ? 'configured' : 'not set'} size="small" color={hasPin ? 'success' : 'warning'} variant="outlined" />
@@ -248,7 +249,7 @@ export function TenantInlineUserManager({ tenantSlug, tenantName, appId }: Props
                 onChange={(e) => setEditForm((f) => ({ ...f, roleCode: e.target.value }))}
               >
                 <MenuItem value="">— none —</MenuItem>
-                {FUNCTIONAL_ROLES.map((r) => (
+                {roleOptions.map((r) => (
                   <MenuItem key={r.code} value={r.code}>{r.name}</MenuItem>
                 ))}
               </Select>
@@ -289,7 +290,7 @@ export function TenantInlineUserManager({ tenantSlug, tenantName, appId }: Props
               <InputLabel>Functional role</InputLabel>
               <Select value={addForm.roleCode} label="Functional role" onChange={(e) => setAddForm((f) => ({ ...f, roleCode: e.target.value }))}>
                 <MenuItem value="">— none —</MenuItem>
-                {FUNCTIONAL_ROLES.map((r) => (
+                {roleOptions.map((r) => (
                   <MenuItem key={r.code} value={r.code}>{r.name}</MenuItem>
                 ))}
               </Select>

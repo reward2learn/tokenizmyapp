@@ -64,7 +64,12 @@ export const opsAdminTabsConfigSchema = z.object({});
 export const zReportFormConfigSchema = z.object({});
 export const costsFormConfigSchema = z.object({});
 export const calendarImportConfigSchema = z.object({});
-export const chatPanelConfigSchema = z.object({});
+export const chatPanelConfigSchema = z.object({
+  /** Overrides the template-stamped chat starter when set on the page section. */
+  emptyStatePrompt: z.string().max(300).optional(),
+  suggestedPrompts: z.array(z.string().max(200)).max(5).optional(),
+  minTier: minTierSchema,
+});
 export const reviewBlocksConfigSchema = z.object({});
 export const reportsRollupConfigSchema = z.object({
   minTier: minTierSchema,

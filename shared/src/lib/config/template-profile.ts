@@ -34,6 +34,9 @@
 /** Environment variable carrying the serialized assistant profile. */
 export const TEMPLATE_PROFILE_ENV_KEY = 'TEMPLATE_PROFILE';
 
+/** Client-readable chat empty-state prompt stamped at deploy time. */
+export const CHAT_STARTER_PROMPT_ENV_KEY = 'NEXT_PUBLIC_CHAT_STARTER_PROMPT';
+
 export interface AssistantProfile {
   role: string;
   domain: string;
@@ -41,6 +44,8 @@ export interface AssistantProfile {
   keyMetrics: string[];
   capabilities: string[];
   answerStyle: string[];
+  starterPrompt?: string;
+  suggestedPrompts?: string[];
 }
 
 export interface TemplateIdentity {
@@ -111,6 +116,8 @@ export function parseAssistantProfile(raw: string | undefined | null): Assistant
   }
 
   const source = parsed as Record<string, unknown>;
+  const starterPrompt = readString(source.starterPrompt);
+  const suggestedRaw = readStringArray(source.suggestedPrompts);
   return {
     role: readString(source.role) ?? NEUTRAL_ASSISTANT_PROFILE.role,
     domain: readString(source.domain) ?? NEUTRAL_ASSISTANT_PROFILE.domain,
@@ -118,6 +125,8 @@ export function parseAssistantProfile(raw: string | undefined | null): Assistant
     keyMetrics: readStringArray(source.keyMetrics) ?? NEUTRAL_ASSISTANT_PROFILE.keyMetrics,
     capabilities: readStringArray(source.capabilities) ?? NEUTRAL_ASSISTANT_PROFILE.capabilities,
     answerStyle: readStringArray(source.answerStyle) ?? NEUTRAL_ASSISTANT_PROFILE.answerStyle,
+    ...(starterPrompt ? { starterPrompt } : {}),
+    ...(suggestedRaw ? { suggestedPrompts: suggestedRaw } : {}),
   };
 }
 
@@ -132,4 +141,16 @@ export function getTemplateIdentity(): TemplateIdentity {
 /** This deployment's assistant persona. Server-side only — reads TEMPLATE_PROFILE. */
 export function getAssistantProfile(): AssistantProfile {
   return parseAssistantProfile(process.env[TEMPLATE_PROFILE_ENV_KEY]);
+}
+
+/** Chat empty-state prompt for this deployment (client-readable). */
+export function getChatStarterPrompt(): string {
+  const fromEnv = process.env[CHAT_STARTER_PROMPT_ENV_KEY]?.trim();
+  if (fromEnv) return fromEnv;
+  const profile = getAssistantProfile();
+  if (profile.starterPrompt?.trim()) return profile.starterPrompt.trim();
+  const tenantName = process.env.NEXT_PUBLIC_TENANT_DISPLAY_NAME?.trim() || 'your business';
+  const firstMetric = profile.keyMetrics[0];
+  if (firstMetric) return `How are we tracking on ${firstMetric}?`;
+  return `What can ${tenantName} AI help you with today?`;
 }

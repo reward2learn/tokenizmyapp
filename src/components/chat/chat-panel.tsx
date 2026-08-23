@@ -63,6 +63,7 @@ import { StripeTopUpDialog } from '@/components/ops-admin/stripe-topup-dialog';
 import { useBillingOrgId } from '@/components/billing/use-billing-org';
 import type { CreditTopUpAction } from '@/lib/chat/session-tools';
 import { getClientTenantConfig } from '@shared/lib/config/tenant';
+import { getChatStarterPrompt } from '@shared/lib/config/template-profile';
 import { selectActiveSheetArg, selectSelectedCells } from '@/store/sheet-viewer-slice';
 import { sheetDataApi } from '@/store/apis/sheet-data-api';
 import { buildCellsPrompt, buildPagePrompt, type PromptRow } from '@/lib/sheet-prompt';
@@ -107,7 +108,13 @@ function formatTranscript(messages: ChatStreamMessage[]): string {
   return lines.join('\n');
 }
 
-export function ChatPanel({ variant = 'page' }: { variant?: 'page' | 'drawer' } = {}) {
+export function ChatPanel({
+  variant = 'page',
+  blockConfig,
+}: {
+  variant?: 'page' | 'drawer';
+  blockConfig?: { emptyStatePrompt?: string; suggestedPrompts?: string[] };
+} = {}) {
   const isDrawer = variant === 'drawer';
   const dispatch = useAppDispatch();
   const searchParams = useSearchParams();
@@ -139,6 +146,12 @@ export function ChatPanel({ variant = 'page' }: { variant?: 'page' | 'drawer' } 
   const billingOrgId = useBillingOrgId();
   const pendingCreditTopUp = useAppSelector((s) => s.chatStream.pendingCreditTopUp);
   const [topUpDialog, setTopUpDialog] = useState<{ orgId: string; packId: string } | null>(null);
+
+  const emptyStateMessage = useMemo(() => {
+    const fromBlock = blockConfig?.emptyStatePrompt?.trim();
+    if (fromBlock) return fromBlock;
+    return getChatStarterPrompt();
+  }, [blockConfig?.emptyStatePrompt]);
 
   const openCreditTopUp = useCallback((action: CreditTopUpAction) => {
     if (action.checkoutUrl && action.agentic) {
@@ -711,7 +724,7 @@ export function ChatPanel({ variant = 'page' }: { variant?: 'page' | 'drawer' } 
                 </Box>
               )) : (
                 <Typography variant="body2" color="text.secondary" sx={{ py: 8, textAlign: 'center' }}>
-                  Start with “How are we tracking against the June 2027 plan?”
+                  {emptyStateMessage}
                 </Typography>
               )}
             </Box>

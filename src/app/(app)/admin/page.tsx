@@ -1,6 +1,6 @@
 'use client';
 
-import { useRef, useState } from 'react';
+import { useRef, useState, useMemo } from 'react';
 import Alert from '@mui/material/Alert';
 import Box from '@mui/material/Box';
 import Button from '@mui/material/Button';
@@ -33,10 +33,11 @@ import Typography from '@mui/material/Typography';
 import useMediaQuery from '@mui/material/useMediaQuery';
 import { useTheme } from '@mui/material/styles';
 import InfoOutlinedIcon from '@mui/icons-material/InfoOutlined';
-import { PlatformAdminGate } from '@/components/auth/platform-admin-gate';
+import { AdminAccessGate } from '@/components/auth/admin-access-gate';
 import { SignInPanelGate } from '@/components/auth/sign-in-panel';
 import { BrandConfigTab } from '@/components/ops-admin/brand-config-tab';
 import { NavigationManager } from '@/components/ops-admin/navigation-manager';
+import { PageSectionsManager } from '@/components/ops-admin/page-sections-manager';
 import { TenantInfoTab } from '@/components/ops-admin/tenant-info-tab';
 import { TenantAdminPanel } from '@/components/ops-admin/tenant-admin-panel';
 import { AppPackTab } from '@/components/ops-admin/app-pack-tab';
@@ -62,6 +63,7 @@ import {
 } from '@/store/apis/tasks-api';
 import { FUNCTIONAL_ROLES } from '@/domain/security/functional-roles';
 import { CAPABILITY_AREAS, capability } from '@/domain/security/capabilities';
+import { useAppSelector } from '@/store/hooks';
 
 /** Roles that persist regardless of seeded data state. */
 const PERSISTENT_ROLES: { code: string; name: string; isPlatformAdmin: boolean }[] = [
@@ -1025,16 +1027,32 @@ export default function AdminPage() {
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down('md'));
   const isTokenizmyapp = getClientTenantConfig().slug === 'tokenizmyapp';
-  // Unified App Bundle (app-pack generator) is a platform-administrator capability only —
-  // it derives and materializes department sections into ONE tenant deployment (distinct
-  // from Suite Mode's separately-deployed apps, see app-pack-tab.tsx). It must NOT appear
-  // in a tenant application's own admin surface.
-  const adminTabs = isTokenizmyapp
-    ? ['Tenants', 'Tenant Info', 'Navigation', 'Brand Config', 'Security Groups', 'Accounts', 'Roles', 'AI Chat', 'Unified App Bundle']
-    : ['Tenant Info', 'Navigation', 'Brand Config', 'Security Groups', 'Accounts', 'Roles', 'AI Chat'];
+  const { platformAdmin, groups } = useAppSelector((s) => s.auth);
+  const isFactoryPlatformAdmin = Boolean(platformAdmin) || (groups ?? []).includes('platform-admin');
+
+  const adminTabs = useMemo(() => {
+    const core = [
+      'Tenant Info',
+      'Navigation',
+      'Page Content',
+      'Brand Config',
+      'Security Groups',
+      'Accounts',
+      'Roles',
+      'AI Chat',
+    ];
+    if (isTokenizmyapp) {
+      return isFactoryPlatformAdmin
+        ? ['Tenants', ...core, 'Unified App Bundle']
+        : core;
+    }
+    return core;
+  }, [isTokenizmyapp, isFactoryPlatformAdmin]);
+
+  const activeTab = adminTabs[Math.min(tab, adminTabs.length - 1)] ?? adminTabs[0];
 
   return (
-    <PlatformAdminGate
+    <AdminAccessGate
       fallback={<SignInPanelGate requiredTier="pin" />}
     >
       <Box sx={{   mx: 'auto', px: 3, py: 3 }}>
@@ -1072,17 +1090,18 @@ export default function AdminPage() {
               ))}
             </Tabs>
           )}
-          {isTokenizmyapp && tab === 0 ? <TenantAdminPanel /> : null}
-          {tab === (isTokenizmyapp ? 1 : 0) ? <TenantInfoTab /> : null}
-          {tab === (isTokenizmyapp ? 2 : 1) ? <NavigationManager /> : null}
-          {tab === (isTokenizmyapp ? 3 : 2) ? <BrandConfigTab /> : null}
-          {tab === (isTokenizmyapp ? 4 : 3) ? <GroupManager /> : null}
-          {tab === (isTokenizmyapp ? 5 : 4) ? <UserManager /> : null}
-          {tab === (isTokenizmyapp ? 6 : 5) ? <RoleManager /> : null}
-          {tab === (isTokenizmyapp ? 7 : 6) ? <ConversationManager /> : null}
-          {isTokenizmyapp && tab === 8 ? <AppPackTab /> : null}
+          {activeTab === 'Tenants' ? <TenantAdminPanel /> : null}
+          {activeTab === 'Tenant Info' ? <TenantInfoTab /> : null}
+          {activeTab === 'Navigation' ? <NavigationManager /> : null}
+          {activeTab === 'Page Content' ? <PageSectionsManager /> : null}
+          {activeTab === 'Brand Config' ? <BrandConfigTab /> : null}
+          {activeTab === 'Security Groups' ? <GroupManager /> : null}
+          {activeTab === 'Accounts' ? <UserManager /> : null}
+          {activeTab === 'Roles' ? <RoleManager /> : null}
+          {activeTab === 'AI Chat' ? <ConversationManager /> : null}
+          {activeTab === 'Unified App Bundle' ? <AppPackTab /> : null}
         </Stack>
       </Box>
-    </PlatformAdminGate>
+    </AdminAccessGate>
   );
 }

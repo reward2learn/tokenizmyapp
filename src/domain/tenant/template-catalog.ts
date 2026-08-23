@@ -1,3 +1,5 @@
+import { dashboardPageWithChat } from '@/domain/tenant/template-chat-section-configs';
+
 /**
  * Template Catalog — defines available app templates with default configurations.
  *
@@ -120,6 +122,20 @@ export interface TemplateAssistantProfile {
   capabilities: string[];
   /** Replaces the old hardcoded "How You Answer" block. */
   answerStyle: string[];
+  /**
+   * Empty-state / starter message shown in the chat panel before the first message.
+   * Stamped onto the deployment as NEXT_PUBLIC_CHAT_STARTER_PROMPT at deploy time.
+   */
+  starterPrompt?: string;
+  /** Optional quick prompts the chat UI may surface (future use). */
+  suggestedPrompts?: string[];
+}
+
+/** A functional role seeded for apps built from a template. */
+export interface TemplateRole {
+  code: string;
+  name: string;
+  isPlatformAdmin?: boolean;
 }
 
 export interface TemplateDefinition {
@@ -141,6 +157,8 @@ export interface TemplateDefinition {
    * one from `label`/`description`/`schemaOrgType` when it is absent.
    */
   assistant?: TemplateAssistantProfile;
+  /** Roles seeded into the tenant DB at provisioning (replaces global hardcoded lists). */
+  defaultRoles?: TemplateRole[];
   defaultColors: { primary: string; secondary: string };
   defaultPages: {
     slug: string;
@@ -217,7 +235,7 @@ export const TEMPLATE_CATALOG: Record<string, TemplateDefinition> = {
     defaultColors: { primary: '#eb3d28', secondary: '#0af9fe' },
     defaultPages: [
       HOME_PAGE,
-      DASHBOARD_PAGE(['hero', 'kpi_cards', 'chart_financial']),
+      dashboardPageWithChat('financial-analytics'),
       SUMMARY_PAGE,
       { slug: 'review', title: 'Business Review', navLabel: 'Review', authTier: 'google', blockTypes: ['review_blocks'] },
       TASKS_PAGE,
@@ -247,7 +265,7 @@ export const TEMPLATE_CATALOG: Record<string, TemplateDefinition> = {
     defaultColors: { primary: '#2e7d32', secondary: '#ff8f00' },
     defaultPages: [
       HOME_PAGE,
-      DASHBOARD_PAGE(['hero', 'kpi_cards', 'chart_financial']),
+      dashboardPageWithChat('restaurant'),
       { slug: 'menu', title: 'Menu', navLabel: 'Menu', authTier: 'public', blockTypes: ['dynamic_form'] },
       { slug: 'reservations', title: 'Reservations', navLabel: 'Reservations', authTier: 'public', blockTypes: ['dynamic_form'] },
       SUMMARY_PAGE,
@@ -276,7 +294,7 @@ export const TEMPLATE_CATALOG: Record<string, TemplateDefinition> = {
     defaultColors: { primary: '#1565c0', secondary: '#ff8f00' },
     defaultPages: [
       HOME_PAGE,
-      DASHBOARD_PAGE(['hero', 'kpi_cards', 'chart_financial']),
+      dashboardPageWithChat('hotel'),
       { slug: 'rooms', title: 'Rooms', navLabel: 'Rooms', authTier: 'public', blockTypes: ['dynamic_form'] },
       { slug: 'bookings', title: 'Bookings', navLabel: 'Bookings', authTier: 'public', blockTypes: ['dynamic_form'] },
       SUMMARY_PAGE,
@@ -305,7 +323,7 @@ export const TEMPLATE_CATALOG: Record<string, TemplateDefinition> = {
     defaultColors: { primary: '#7b1fa2', secondary: '#00bcd4' },
     defaultPages: [
       HOME_PAGE,
-      DASHBOARD_PAGE(['hero', 'kpi_cards', 'chart_financial']),
+      dashboardPageWithChat('ecommerce-retail'),
       { slug: 'products', title: 'Products', navLabel: 'Products', authTier: 'public', blockTypes: ['dynamic_form'] },
       { slug: 'orders', title: 'Orders', navLabel: 'Orders', authTier: 'pin', blockTypes: ['dynamic_form'] },
       SUMMARY_PAGE,
@@ -334,7 +352,7 @@ export const TEMPLATE_CATALOG: Record<string, TemplateDefinition> = {
     defaultColors: { primary: '#0097a7', secondary: '#ff6f00' },
     defaultPages: [
       HOME_PAGE,
-      DASHBOARD_PAGE(['hero', 'kpi_cards', 'chart_financial']),
+      dashboardPageWithChat('healthcare'),
       { slug: 'patients', title: 'Patients', navLabel: 'Patients', authTier: 'pin', blockTypes: ['dynamic_form'] },
       { slug: 'claims', title: 'Insurance Claims', navLabel: 'Claims', authTier: 'pin', blockTypes: ['dynamic_form'] },
       SUMMARY_PAGE,
@@ -363,7 +381,7 @@ export const TEMPLATE_CATALOG: Record<string, TemplateDefinition> = {
     defaultColors: { primary: '#37474f', secondary: '#ff9800' },
     defaultPages: [
       HOME_PAGE,
-      DASHBOARD_PAGE(['hero', 'kpi_cards', 'chart_financial']),
+      dashboardPageWithChat('supply-chain'),
       { slug: 'shipments', title: 'Shipments', navLabel: 'Shipments', authTier: 'pin', blockTypes: ['dynamic_form'] },
       { slug: 'warehouse', title: 'Warehouse', navLabel: 'Warehouse', authTier: 'pin', blockTypes: ['dynamic_form'] },
       SUMMARY_PAGE,
@@ -392,7 +410,7 @@ export const TEMPLATE_CATALOG: Record<string, TemplateDefinition> = {
     defaultColors: { primary: '#1b5e20', secondary: '#f57c00' },
     defaultPages: [
       HOME_PAGE,
-      DASHBOARD_PAGE(['hero', 'kpi_cards', 'chart_financial']),
+      dashboardPageWithChat('real-estate'),
       { slug: 'properties', title: 'Properties', navLabel: 'Properties', authTier: 'public', blockTypes: ['dynamic_form'] },
       { slug: 'leases', title: 'Leases', navLabel: 'Leases', authTier: 'pin', blockTypes: ['dynamic_form'] },
       SUMMARY_PAGE,
@@ -421,7 +439,7 @@ export const TEMPLATE_CATALOG: Record<string, TemplateDefinition> = {
     defaultColors: { primary: '#0d47a1', secondary: '#ffc107' },
     defaultPages: [
       HOME_PAGE,
-      DASHBOARD_PAGE(['hero', 'kpi_cards', 'chart_financial']),
+      dashboardPageWithChat('education'),
       { slug: 'courses', title: 'Courses', navLabel: 'Courses', authTier: 'public', blockTypes: ['dynamic_form'] },
       { slug: 'enrollments', title: 'Enrollments', navLabel: 'Enrollments', authTier: 'pin', blockTypes: ['dynamic_form'] },
       SUMMARY_PAGE,
@@ -450,7 +468,7 @@ export const TEMPLATE_CATALOG: Record<string, TemplateDefinition> = {
     defaultColors: { primary: '#263238', secondary: '#00bcd4' },
     defaultPages: [
       HOME_PAGE,
-      DASHBOARD_PAGE(['hero', 'kpi_cards', 'chart_financial']),
+      dashboardPageWithChat('professional-services'),
       { slug: 'projects', title: 'Projects', navLabel: 'Projects', authTier: 'pin', blockTypes: ['dynamic_form'] },
       { slug: 'invoices', title: 'Invoices', navLabel: 'Invoices', authTier: 'pin', blockTypes: ['dynamic_form'] },
       SUMMARY_PAGE,
@@ -479,7 +497,7 @@ export const TEMPLATE_CATALOG: Record<string, TemplateDefinition> = {
     defaultColors: { primary: '#bf360c', secondary: '#ffab00' },
     defaultPages: [
       HOME_PAGE,
-      DASHBOARD_PAGE(['hero', 'kpi_cards', 'chart_financial']),
+      dashboardPageWithChat('manufacturing'),
       { slug: 'production', title: 'Production Orders', navLabel: 'Production', authTier: 'pin', blockTypes: ['dynamic_form'] },
       { slug: 'quality', title: 'Quality Control', navLabel: 'Quality', authTier: 'pin', blockTypes: ['dynamic_form'] },
       SUMMARY_PAGE,
@@ -508,7 +526,7 @@ export const TEMPLATE_CATALOG: Record<string, TemplateDefinition> = {
     defaultColors: { primary: '#6a1b9a', secondary: '#e040fb' },
     defaultPages: [
       HOME_PAGE,
-      DASHBOARD_PAGE(['hero', 'kpi_cards', 'chart_financial']),
+      dashboardPageWithChat('spas-and-wellness'),
       { slug: 'appointments', title: 'Appointments', navLabel: 'Appointments', authTier: 'public', blockTypes: ['dynamic_form'] },
       { slug: 'clients', title: 'Clients', navLabel: 'Clients', authTier: 'pin', blockTypes: ['dynamic_form'] },
       SUMMARY_PAGE,
@@ -537,7 +555,7 @@ export const TEMPLATE_CATALOG: Record<string, TemplateDefinition> = {
     defaultColors: { primary: '#1a237e', secondary: '#00bcd4' },
     defaultPages: [
       HOME_PAGE,
-      DASHBOARD_PAGE(['hero', 'kpi_cards', 'metric_grid']),
+      dashboardPageWithChat('platform-admin', ['hero', 'kpi_cards', 'metric_grid']),
       { slug: 'ops-admin', title: 'System Admin', navLabel: 'Ops Admin', authTier: 'pin', blockTypes: ['ops_admin_tabs', 'z_report_form', 'costs_form'] },
       SUMMARY_PAGE,
       TASKS_PAGE,
@@ -565,7 +583,7 @@ export const TEMPLATE_CATALOG: Record<string, TemplateDefinition> = {
     defaultColors: { primary: '#eb3d28', secondary: '#0af9fe' },
     defaultPages: [
       HOME_PAGE,
-      DASHBOARD_PAGE(['hero', 'kpi_cards', 'chart_financial', 'chat_panel']),
+      dashboardPageWithChat('default'),
       SUMMARY_PAGE,
       TASKS_PAGE,
     ],

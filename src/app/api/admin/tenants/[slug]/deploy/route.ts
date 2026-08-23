@@ -208,6 +208,7 @@ export async function POST(
       (metadata.adminEmail as string) ||
         (guard.session.email as string) ||
         DEFAULT_PLATFORM_ADMIN_EMAIL,
+      body.template || (tenant.template as string) || 'default',
     );
 
     // Step 3: Update tenant status to deploying immediately

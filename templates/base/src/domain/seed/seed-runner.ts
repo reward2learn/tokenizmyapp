@@ -374,7 +374,6 @@ const KNOWN_ROLES: { code: string; name: string; isPlatformAdmin?: boolean }[] =
     isPlatformAdmin: fr.isPlatformAdmin ?? false,
   }));
 
-/** Resolve a known role by email (case-insensitive). Used by Google sign-in. */
 /**
  * Resolve a known role by email from the roles DB table.
  * Replaces the old PERSONS-registry lookup with a live DB query.
@@ -451,7 +450,41 @@ export function listKnownAccounts(): { sub: string; name: string; tier: string; 
   }));
 }
 
-/** Parse "Ama: do the thing" → { ownerCodes: ['Ama'], title: 'do the thing' }. */
+/**
+ * Legacy label aliases → functional role codes (older task labels used person names).
+ */
+const OWNER_CODE_ALIASES: Record<string, string> = {
+  finance: 'finance',
+  ceo: 'ceo',
+  manager: 'manager',
+  operations: 'operations',
+  compliance: 'compliance',
+  entertainment: 'entertainment',
+  'platform-admin': 'platform-admin',
+  ama: 'finance',
+  graham: 'ceo',
+  james: 'entertainment',
+  lukas: 'operations',
+  lucas: 'operations',
+  made: 'compliance',
+};
+
+function normalizeOwnerCode(raw: string): string | null {
+  const token = raw.trim();
+  if (!token) return null;
+  const lower = token.toLowerCase();
+
+  const direct = KNOWN_ROLES.find((r) => r.code.toLowerCase() === lower);
+  if (direct) return direct.code;
+
+  const aliased = OWNER_CODE_ALIASES[lower];
+  if (!aliased) return null;
+
+  const role = KNOWN_ROLES.find((r) => r.code.toLowerCase() === aliased.toLowerCase());
+  return role?.code ?? null;
+}
+
+/** Parse "finance: do the thing" → { ownerCodes: ['finance'], title: 'do the thing' }. */
 function parseTaskLabel(label: string): { ownerCodes: string[]; title: string } {
   const match = label.match(/^([A-Za-z][A-Za-z+& ]*?):\s*(.+)$/);
   if (!match) {
@@ -459,11 +492,13 @@ function parseTaskLabel(label: string): { ownerCodes: string[]; title: string } 
   }
   const ownerPart = match[1].trim();
   const title = match[2].trim();
-  // Split on + & , / to support "Lukas + Made", "Ama & Graham", etc.
+  if (ownerPart.toLowerCase() === 'all') {
+    return { ownerCodes: [], title };
+  }
   const ownerCodes = ownerPart
     .split(/[+&,/]/)
-    .map((s) => s.trim())
-    .filter((s) => KNOWN_ROLES.some((r) => r.code.toLowerCase() === s.toLowerCase()));
+    .map((s) => normalizeOwnerCode(s))
+    .filter((c): c is string => Boolean(c));
   return { ownerCodes, title };
 }
 

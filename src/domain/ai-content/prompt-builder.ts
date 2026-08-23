@@ -1,16 +1,15 @@
 /**
  * Prompt Builder
  *
- * Takes extracted Excel data and builds a comprehensive system prompt
- * that instructs the AI to generate:
- *   1. Business Review (Markdown) — multi-part exit-viability review with data tables
- *   2. Executive Summary (Markdown) — exit diagnostics assessment
- *
- * The prompt includes ALL financial data inline so the AI has full context.
+ * Takes extracted Excel data and builds a template-aware system prompt
+ * that instructs the AI to generate business review and executive summary content.
  */
 
 import type { ExcelData, PlLine, BepMonthlyRow, MonthOnMonthLine } from '@/domain/excel/excel-extractor';
 import { getTenantConfig } from '@shared/lib/config/tenant';
+import { getAssistantProfile, getTemplateIdentity } from '@shared/lib/config/template-profile';
+import { resolveTemplateRoles } from '@/domain/tenant/template-default-roles';
+import { getTemplate } from '@/domain/tenant/template-catalog';
 
 // ── Formatting helpers ──────────────────────────────────
 
@@ -158,88 +157,129 @@ ${rows.join('\n')}`,
   ].join('\n');
 }
 
+// ── Template-aware instruction blocks ───────────────────
+
+function roleCodesForPrompt(): string {
+  const { id } = getTemplateIdentity();
+  const roles = resolveTemplateRoles(getTemplate(id || 'default'));
+  return roles
+    .filter((r) => !r.isPlatformAdmin)
+    .map((r) => r.code)
+    .join(', ');
+}
+
+function buildGenerationInstructions(businessName: string): string[] {
+  const profile = getAssistantProfile();
+  const { id } = getTemplateIdentity();
+  const roleCodes = roleCodesForPrompt();
+  const currency = profile.currency;
+
+  if (id === 'financial-analytics') {
+    return [
+      `You are a ${profile.role} for ${businessName} covering ${profile.domain}.`,
+      `Your task is to generate TWO documents based EXCLUSIVELY on the financial data provided below.`,
+      ``,
+      `Frame the analysis around business performance, risks, and actionable recommendations for management.`,
+      ``,
+      `## CRITICAL OUTPUT INSTRUCTIONS`,
+      ``,
+      `You MUST respond with a valid JSON object. The primary document keys are "businessReview" and "executiveSummary".`,
+      `A companion dashboard generation step ALSO requests "homeHero" and "tasks" — do not omit operational deliverables.`,
+      `Do NOT include any text outside the JSON object. The JSON must be parseable.`,
+      ``,
+      `### Output Format`,
+      `\`\`\`json`,
+      `{`,
+      `  "businessReview": "# ${businessName} — Business Review\\n\\n## Part A: Current Situation...",`,
+      `  "executiveSummary": "# ${businessName} — Executive Summary\\n\\n## Overview...",`,
+      `  "homeHero": { "badge": "Overview", "headline": "...", "subtitle": "...", "accent": "..." },`,
+      `  "tasks": [`,
+      `    { "title": "...", "priority": "P0", "ownerCodes": ["finance"], "dueOffsetDays": 7, "description": "..." }`,
+      `  ]`,
+      `}`,
+      `\`\`\``,
+      ``,
+      `### Home page (homeHero)`,
+      `Provide a concise management hero grounded in the data.`,
+      ``,
+      `### Tasks page (tasks)`,
+      `Provide 8–15 concrete tasks. Each task: title, priority (P0|P1|P2), ownerCodes (role codes: ${roleCodes}), dueOffsetDays, description.`,
+      ``,
+      `### Business Review Requirements`,
+      `Multi-part Markdown review: current situation, performance trajectory, revenue & pricing, cost management, risk register, immediate actions.`,
+      `Use ${currency} for monetary amounts unless the source data specifies another currency.`,
+      ``,
+      `### Executive Summary Requirements`,
+      `Management summary: diagnosis, key risks, stakeholder actions by role (${roleCodes}), and ranked next steps. Analytical tone.`,
+    ];
+  }
+
+  return [
+    `You are a ${profile.role} for ${businessName} covering ${profile.domain}.`,
+    `Generate TWO documents from the data below: a business review and an executive summary.`,
+    ``,
+    `## CRITICAL OUTPUT INSTRUCTIONS`,
+    ``,
+    `Respond with valid JSON: "businessReview", "executiveSummary", "homeHero", and "tasks".`,
+    `Do NOT include any text outside the JSON object.`,
+    ``,
+    `### tasks`,
+    `8–15 tasks with title, priority (P0|P1|P2), ownerCodes (role codes: ${roleCodes}), dueOffsetDays, description.`,
+    ``,
+    `### businessReview`,
+    `Multi-part Markdown review grounded in the data: current situation, key metrics (${profile.keyMetrics.join(', ')}), risks, and immediate actions.`,
+    `Quote amounts in ${currency} unless the data states otherwise.`,
+    ``,
+    `### executiveSummary`,
+    `Concise management summary: headline findings, risks, and next steps by role (${roleCodes}).`,
+  ];
+}
+
+function buildDashboardInstructions(businessName: string): string[] {
+  const profile = getAssistantProfile();
+  const roleCodes = roleCodesForPrompt();
+  const currency = profile.currency;
+  const metrics = profile.keyMetrics.length > 0
+    ? profile.keyMetrics.join(', ')
+    : 'revenue, costs, margin, volume';
+
+  return [
+    `# ${businessName} Dashboard Data Generation`,
+    ``,
+    `You are a ${profile.role} for ${businessName}. Based on the financial data below, generate structured JSON for the dashboard.`,
+    ``,
+    `Return ONLY a JSON object with: "actionPhases", "targetRows", "levers", "homeHero", and "tasks".`,
+    ``,
+    `### homeHero`,
+    `Fields: badge, headline, accent (optional), subtitle — grounded in the data.`,
+    ``,
+    `### tasks`,
+    `8–15 objects: title, priority ("P0"|"P1"|"P2"), ownerCodes (role codes: ${roleCodes}), dueOffsetDays, description.`,
+    ``,
+    `### actionPhases`,
+    `3 phases with id, title, period, impact, actions (string array). Themes: stabilise, grow, scale.`,
+    ``,
+    `### targetRows`,
+    `5 rows using domain metrics: ${metrics}. Fields: metric, may, conservative, realistic, aspirational, bold (optional).`,
+    ``,
+    `### levers`,
+    `5 strategic levers for ${profile.domain}: num, title, summary, details (5–8 items each).`,
+    `Quote monetary figures in ${currency} unless the source data specifies otherwise.`,
+    ``,
+    `## SOURCE DATA`,
+    ``,
+  ];
+}
+
 // ── Main prompt builder ─────────────────────────────────
 
 export function buildGenerationPrompt(data: ExcelData, additionalContext?: string): string {
   const tenant = getTenantConfig();
   const businessName = data.company || tenant.displayName;
   const sections: string[] = [
-    `# ${businessName} Financial Analysis — AI Content Generation Prompt`,
+    `# ${businessName} — AI Content Generation Prompt`,
     ``,
-    `You are a financial analyst and business writer for ${businessName}.`,
-    `Your task is to generate TWO documents based EXCLUSIVELY on the financial data provided below.`,
-    ``,
-    `This is NOT a growth review. This is an EXIT VIABILITY ASSESSMENT. The shareholder wants to sell their stake in the business. Everything you generate must be framed around two questions:`,
-    ``,
-    `1. Why is ${businessName} in trouble?`,
-    `2. What value can the shareholder extract, and through what pathway, given the current condition?`,
-    ``,
-    `## CRITICAL OUTPUT INSTRUCTIONS`,
-    ``,
-    `You MUST respond with a valid JSON object. The primary document keys are "businessReview" and "executiveSummary".`,
-    `A companion dashboard generation step ALSO requests "homeHero" and "tasks" so the Home page and Tasks page are populated — do not omit operational deliverables from the overall content pipeline.`,
-    `Do NOT include any text outside the JSON object. The JSON must be parseable.`,
-    ``,
-    `### Output Format`,
-    `\`\`\`json`,
-    `{`,
-    `  "businessReview": "# ${businessName} — Business Review\\n\\n## Part A: Current Situation...",`,
-    `  "executiveSummary": "# ${businessName} — Executive Summary (Exit Viability)\\n\\n## The Appointment...",`,
-    `  "homeHero": { "badge": "CEO Overview", "headline": "...", "subtitle": "...", "accent": "..." },`,
-    `  "tasks": [`,
-    `    { "title": "...", "priority": "P0", "ownerCodes": ["finance"], "dueOffsetDays": 7, "description": "..." }`,
-    `  ]`,
-    `}`,
-    `\`\`\``,
-    ``,
-    `### Home page (homeHero) — required for Home/\``,
-    `Provide a concise CEO-facing hero: badge, headline, optional accent line, and subtitle grounded in the exit-viability diagnosis (not generic growth marketing).`,
-    ``,
-    `### Tasks page (tasks) — required for /tasks`,
-    `Provide 8–15 concrete tasks derived from Part IV stakeholder actions and Part H immediate actions.`,
-    `Each task: title, priority (P0|P1|P2), ownerCodes (role codes like Ama, Made, Lukas, James, Graham), dueOffsetDays, description.`,
-    ``,
-    `### Business Review Requirements`,
-    `Generate a comprehensive multi-part business review in Markdown with the following structure:`,
-    ``,
-    `- **Part A: Current Situation — The Numbers** — Revenue streams, monthly revenue table (Jan-Jun 2026 from BEP data), cost structure, seasonal challenge analysis`,
-    `- **Part B: The 10-Year Growth Model** — Revenue growth trajectory table (2026-2035), profitability progression (EBITDA margin improving from 8.6% to 29.5%)`,
-    `- **Part C: Revenue Optimization Strategy** — Detailed revenue optimization including: **pricing strategy** (tiered ticket pricing, VIP table minimums, dynamic pricing for peak vs low season), **channel mix** (direct vs promoter vs walk-in yield per guest), **Terrace 24h monetization** (daytime food program, late-night premium offering), **Sky Lounge premium positioning** (2029 launch strategy, estimated yield per guest), and **cross-sell opportunities** (merchandise, bottle service upsells, membership upgrades)`,
-    `- **Part D: Marketing & Guest Acquisition Strategy** — Comprehensive marketing analysis covering: **promoter ROI optimization** (cost-per-guest by channel, top performer analysis), **digital marketing** (social media, influencer partnerships, email CRM), **hotel concierge partnerships** (Petitenget/Seminyak referral network), **event calendar strategy** (weekly themed nights, holiday programming, low-season activation), **StarWORLD membership as a growth engine** (tier progression mechanics, member acquisition cost vs lifetime value), and **brand positioning** (differentiation from competitors, 24h Terrace advantage)`,
-    `- **Part E: Cost Management** — Staff optimization (80->73 FTE), beverage cost control, entertainment cost reduction (14.5% -> 8% of revenue), supplier negotiation strategy, inventory management`,
-    `- **Part F: Risk Register** — Table of 6-8 risks with likelihood, impact, and mitigation strategies`,
-    `- **Part G: StarWORLD Membership Program** — 5 tiers (Blue/Green/Gold/Platinum/Black), 10,000 members, IDR 183.6B total program value`,
-    `- **Part H: Immediate Actions (Next 30 Days)** — Priority table (P0/P1/P2) with actions, owner, impact, and measurable KPIs`,
-    ``,
-    `Each part should include data tables formatted in Markdown. Use IDR formatting (e.g., "IDR 1.98B"). Include percentage calculations where relevant.`,
-    `Write in a professional, analytical tone. Base all numbers on the data provided. For revenue and marketing sections, provide specific, actionable recommendations with estimated impact where possible.`,
-    ``,
-    `### Executive Summary Requirements`,
-    `Generate the Executive Summary as a formal exit-viability assessment document in Markdown with the following structure:`,
-    ``,
-    `- **The Appointment — Restated Mandate** — Graham Bristow's commission: the business is under financial pressure, revenues dropping, margins eroding, supplier debt increasing, guests choosing other venues. This is an exit viability assessment.`,
-    ``,
-    `- **Part I — What's Wrong (The Diagnostic)** — Cover each of these subsections:`,
-    `  - D.1 Revenue Trend — Confirmed decline using monthly revenue table from BEP data`,
-    `  - D.2 Gross Margin Erosion — Monthly gross margin table showing 51-62% range vs industry norm of 65-72%`,
-    `  - D.3 Supplier Debt — Accumulating liability, risk of supplier leverage collapse`,
-    `  - D.4 "Money Leaking" — Unquantified loss vectors: staff shrinkage, ghost promoters, inventory variance, inter-company charges`,
-    `  - D.5 Competitive Leakage — Guest density decline, Terrace 24h advantage being neutralized`,
-    ``,
-    `- **Part II — What It Costs to Wait** — Monthly cash burn during low season (Feb-Mar losses of ~IDR 300M), supplier debt accrual rate estimate`,
-    ``,
-    `- **Part III — Valuation Implications for the Share Sale** — What Graham brings to market (licenses, assets, team), valuation approaches (asset-based, license transfer, recovery sale), the "Clean-Up Window" (60-90 days), recommended exit pathway ranked by priority (1-4)`,
-    ``,
-    `- **Part IV — Critical Actions by Stakeholder** — Action tables for each stakeholder with numbered actions, owner, deadline:`,
-    `  - A. Ama (Financial) — supplier aging, cash reconciliation, liquidity model, sell-side books`,
-    `  - B. Made (Compliance & Legal) — PT ownership, license transferability, inter-company transactions, severance liability`,
-    `  - C. Lukas (Operational & Promoters) — ghost promoter audit, cost freeze, supplier negotiation, asset inventory`,
-    `  - D. James (Music & DJs) — entitlement review, in-house talent pipeline, lineup cost analysis`,
-    `  - E. Graham Bristow (Shareholder) — floor price determination, buyer identification, broker engagement`,
-    ``,
-    `- **Part V — The Pathway Summary** — ASCII diagram or flow chart showing current state -> 60-90 day window -> clean-up financials -> target buyer list -> close sale at floor price -> expected IDR 8-15B outcome`,
-    ``,
-    `Keep the executive summary comprehensive (2-4 pages when rendered). Use clear section headers and data tables. The tone must be diagnostic and valuation-focused, not promotional.`,
+    ...buildGenerationInstructions(businessName),
     ``,
     `## SOURCE DATA — USE THIS DATA ONLY`,
     ``,
@@ -323,42 +363,7 @@ export function buildDashboardPrompt(data: ExcelData, additionalContext?: string
   const tenant = getTenantConfig();
   const businessName = data.company || tenant.displayName;
   const sections: string[] = [
-    `# ${businessName} Dashboard Data Generation`,
-    ``,
-    `You are a financial analyst for ${businessName}. Based on the financial data below, generate structured JSON data for the dashboard.`,
-    ``,
-    `Return ONLY a JSON object with these keys: "actionPhases", "targetRows", "levers", "homeHero", and "tasks".`,
-    ``,
-    `### homeHero — Object for the Home page hero block`,
-    `Fields: badge (short chip), headline (CEO overview title), accent (optional second headline line), subtitle (1–2 sentences on exit viability / current condition).`,
-    `Ground every phrase in the financial data — this is what visitors see on Home (\`/\`).`,
-    ``,
-    `### tasks — Array for the Tasks page (/tasks)`,
-    `8–15 objects with: title, priority ("P0"|"P1"|"P2"), ownerCodes (string array of functional role codes: finance, ceo, entertainment, operations, compliance), dueOffsetDays (number), description (string).`,
-    `Derive tasks from the diagnostic and stakeholder actions (supplier aging, cash reconciliation, ghost promoter audit, license transferability, floor price, etc.).`,
-    ``,
-    `### actionPhases — Array of objects with: id, title, period, impact, actions (string array)`,
-    `Create 3 action phases with specific, actionable steps based on the financial data:`,
-    `- Phase 1: Stabilize — immediate cost control, cash preservation, BEP coverage improvement`,
-    `- Phase 2: Grow — revenue optimization, marketing activation, membership growth`,
-    `- Phase 3: Scale — strategic partnerships, new revenue streams, premium positioning`,
-    `Each phase should have 5-7 concrete actions with measurable outcomes.`,
-    ``,
-    `### targetRows — Array of objects with: metric, may, conservative, realistic, aspirational, bold (optional boolean)`,
-    `Create 5 target rows: Monthly Revenue, Monthly EBITDA, EBITDA Margin, Guests/Month, Avg Spend/Guest.`,
-    `Use actual data from the BEP/P&L for "may" values and realistic projections for the other columns.`,
-    ``,
-    `### levers — Array of 5 interconnected strategic levers. Each lever has: num, title, summary, details (string array of 5-8 actionable items).`,
-    `The 5 levers should cover:`,
-    `1. **Financial Management & Cash Flow** — BEP coverage optimization, cash reserve strategy, supplier debt management, cost structure redesign, seasonal budgeting`,
-    `2. **Revenue Growth & Pricing** — Ticket tiering strategy, VIP table program, Terrace 24h monetization, dynamic seasonal pricing, cross-sell and upsell programs`,
-    `3. **Marketing & Guest Acquisition** — Promoter ROI optimization, digital marketing strategy, hotel concierge partnerships, event calendar programming, membership-driven acquisition`,
-    `4. **Operations & Cost Efficiency** — Staff optimization (FTE per revenue dollar), entertainment cost restructuring, inventory management, supplier negotiation, process automation`,
-    `5. **Strategic Growth & Partnerships** — StarWORLD membership ecosystem, hotel and venue partnerships, Sky Lounge development, brand positioning, competitive differentiation`,
-    `Each lever must include specific, data-backed action items with measurable targets where possible.`,
-    ``,
-    `## SOURCE DATA`,
-    ``,
+    ...buildDashboardInstructions(businessName),
     buildCompanyInfoSection(data),
     buildProfitAndLossSection(data.profitAndLoss),
     buildBepSection(data.bepMonthly),

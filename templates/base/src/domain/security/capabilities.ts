@@ -29,6 +29,7 @@ export const CAPABILITY_AREAS: CapabilityArea[] = [
   { area: 'tasks', label: 'Task Tracking', accesses: ['read', 'write'] },
   { area: 'pos', label: 'POS / Receipt Parsing', accesses: ['use'] },
   { area: 'conversations', label: 'Chat Conversations', accesses: ['read', 'write'] },
+  { area: 'pages', label: 'Page Content CMS', accesses: ['read', 'write'] },
   { area: 'settings', label: 'App Settings (web search, etc.)', accesses: ['write'] },
   { area: 'config', label: 'Config & Secrets (OpenAI key, reseed)', accesses: ['write'] },
   { area: 'users', label: 'User Accounts Admin', accesses: ['write'] },

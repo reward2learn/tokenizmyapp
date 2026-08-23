@@ -394,28 +394,26 @@ const KNOWN_ROLES: { code: string; name: string; isPlatformAdmin?: boolean }[] =
 
 /**
  * Legacy person / label aliases → functional role codes.
- * Custom AI prompts and older PRIORITY_ACTIONS labels still emit "Ama",
- * "Made", "Lukas", "Finance", etc. Map those onto FUNCTIONAL_ROLES codes
- * so task assignments land on real roles instead of being dropped.
+ * Older PRIORITY_ACTIONS labels may use person names or display labels.
+ * Map those onto role codes so task assignments land on real roles.
  */
 const OWNER_CODE_ALIASES: Record<string, string> = {
-  // Person names (PERSONS / legacy task prefixes)
+  // Functional role codes and display labels (case variants)
+  finance: 'finance',
+  ceo: 'ceo',
+  manager: 'manager',
+  operations: 'operations',
+  compliance: 'compliance',
+  entertainment: 'entertainment',
+  'platform-admin': 'platform-admin',
+  'platform admin': 'platform-admin',
+  // Legacy person-name prefixes in older seeded task labels
   ama: 'finance',
   graham: 'ceo',
   james: 'entertainment',
   lukas: 'operations',
   lucas: 'operations',
   made: 'compliance',
-  alex: 'platform-admin',
-  admin: 'platform-admin',
-  // Display / playbook labels
-  finance: 'finance',
-  ceo: 'ceo',
-  entertainment: 'entertainment',
-  operations: 'operations',
-  compliance: 'compliance',
-  'platform-admin': 'platform-admin',
-  'platform admin': 'platform-admin',
 };
 
 /**

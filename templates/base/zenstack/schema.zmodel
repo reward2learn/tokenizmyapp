@@ -92,12 +92,64 @@ model PageSection {
   @@map("page_sections")
 }
 
-// ── Task tracking (role-based exit-viability action tracking) ──
+model BusinessReviewPart {
+  id        String   @id @default(cuid())
+  partKey   String   @unique @map("part_key")
+  slug      String   @unique
+  title     String
+  sortOrder Int      @map("sort_order")
+  authTier  AuthTier @default(google) @map("auth_tier")
+  markdown  String   @db.Text
 
-/// A role/owner of tasks — Ama, Made, Lukas, James, Graham (platform-admin managed).
+  @@allow('read', true)
+  @@allow('create,update,delete', auth().tier == pin || auth().tier == google)
+  @@map("business_review_parts")
+}
+
+model Lever {
+  id          String @id @default(cuid())
+  num         Int    @unique
+  name        String
+  impact      String
+  description String @db.Text
+
+  @@allow('read', true)
+  @@allow('create,update,delete', auth().tier == pin || auth().tier == google)
+  @@map("levers")
+}
+
+model ActionItem {
+  id        String         @id @default(cuid())
+  priority  ActionPriority
+  label     String
+  completed Boolean        @default(false)
+  sortOrder Int            @default(0) @map("sort_order")
+
+  @@allow('read', true)
+  @@allow('create,update,delete', auth().tier == pin || auth().tier == google)
+  @@map("action_items")
+}
+
+model MonthlyTarget {
+  id                 Int     @id @default(autoincrement())
+  month              String  @unique
+  targetRevenue      Decimal @map("target_revenue") @db.Decimal(12, 2)
+  targetEbitda       Decimal @map("target_ebitda") @db.Decimal(12, 2)
+  targetGuests       Int     @map("target_guests")
+  targetAvgSpend     Decimal @map("target_avg_spend") @db.Decimal(10, 2)
+  targetStaffCostPct Decimal @map("target_staff_cost_pct") @db.Decimal(5, 2)
+
+  @@allow('read', true)
+  @@allow('create,update,delete', auth().tier == pin || auth().tier == google)
+  @@map("monthly_targets")
+}
+
+// ── Task tracking (role-based action tracking) ──
+
+/// Functional role catalog for task assignment (code + display name).
 model Role {
   id          String           @id @default(cuid())
-  /// Short code used to match task labels, e.g. "Ama", "Made", "Lukas", "James", "Graham".
+  /// Short code used to match task owner labels, e.g. "finance", "manager", "therapist".
   code        String           @unique @map("code")
   name        String
   /// Google email used to auto-assign the signed-in user to this role.
@@ -289,7 +341,7 @@ model AppSetting {
   webSearchEnabled    Boolean  @default(false) @map("web_search_enabled")
   /// Tenant subdomain slug (e.g. "redrubybali" — used for URL derivation)
   tenantSlug          String   @default("tokenizmyapp") @map("tenant_slug")
-  /// Human-readable business name (e.g. "Red Ruby Bali")
+  /// Human-readable business name (e.g. tenant display name from env)
   tenantDisplayName   String   @default("") @map("tenant_display_name")
   /// Template category identifier (e.g. "nightclub-bar", "restaurant", "hotel")
   tenantTemplate      String   @default("default") @map("tenant_template")
@@ -373,7 +425,7 @@ model Tenant {
   id              String   @id @default(cuid())
   /// Subdomain slug — unique identifier (e.g. "redrubybali")
   slug            String   @unique
-  /// Human-readable business name (e.g. "Red Ruby Bali")
+  /// Human-readable business name (e.g. tenant display name from env)
   displayName     String   @map("display_name")
   /// Template category (e.g. "nightclub-bar", "restaurant", "hotel")
   template        String   @default("default")

@@ -136,6 +136,42 @@ exports.Prisma.PageSectionScalarFieldEnum = {
   config: 'config'
 };
 
+exports.Prisma.BusinessReviewPartScalarFieldEnum = {
+  id: 'id',
+  partKey: 'partKey',
+  slug: 'slug',
+  title: 'title',
+  sortOrder: 'sortOrder',
+  authTier: 'authTier',
+  markdown: 'markdown'
+};
+
+exports.Prisma.LeverScalarFieldEnum = {
+  id: 'id',
+  num: 'num',
+  name: 'name',
+  impact: 'impact',
+  description: 'description'
+};
+
+exports.Prisma.ActionItemScalarFieldEnum = {
+  id: 'id',
+  priority: 'priority',
+  label: 'label',
+  completed: 'completed',
+  sortOrder: 'sortOrder'
+};
+
+exports.Prisma.MonthlyTargetScalarFieldEnum = {
+  id: 'id',
+  month: 'month',
+  targetRevenue: 'targetRevenue',
+  targetEbitda: 'targetEbitda',
+  targetGuests: 'targetGuests',
+  targetAvgSpend: 'targetAvgSpend',
+  targetStaffCostPct: 'targetStaffCostPct'
+};
+
 exports.Prisma.RoleScalarFieldEnum = {
   id: 'id',
   code: 'code',
@@ -820,6 +856,10 @@ exports.TaskStatus = exports.$Enums.TaskStatus = {
 exports.Prisma.ModelName = {
   AppPage: 'AppPage',
   PageSection: 'PageSection',
+  BusinessReviewPart: 'BusinessReviewPart',
+  Lever: 'Lever',
+  ActionItem: 'ActionItem',
+  MonthlyTarget: 'MonthlyTarget',
   Role: 'Role',
   UserAccount: 'UserAccount',
   SecurityGroup: 'SecurityGroup',

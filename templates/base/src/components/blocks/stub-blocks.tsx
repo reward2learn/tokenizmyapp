@@ -35,8 +35,8 @@ export function CalendarImportBlock({ config }: { config: Record<string, unknown
 }
 
 export function ChatPanelBlock({ config }: { config: Record<string, unknown> }) {
-  parseBlockConfig('chat_panel', config);
-  return <ChatPanel />;
+  const parsed = parseBlockConfig('chat_panel', config);
+  return <ChatPanel blockConfig={parsed} />;
 }
 
 export function ReviewBlocksBlock({ config }: { config: Record<string, unknown> }) {

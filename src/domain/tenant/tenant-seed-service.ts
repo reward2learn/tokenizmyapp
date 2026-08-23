@@ -556,7 +556,8 @@ export async function seedTemplateSecurityGroups(
       description: 'Operations & cost management.',
       isSystem: false,
       permissions: ['metrics:read', 'metrics:write', 'tasks:read', 'tasks:write',
-        'pos:use', 'conversations:read', 'conversations:write', 'settings:write'],
+        'pos:use', 'conversations:read', 'conversations:write',
+        'pages:read', 'pages:write', 'settings:write'],
     },
     {
       code: 'finance',
@@ -570,7 +571,7 @@ export async function seedTemplateSecurityGroups(
       name: 'Viewer',
       description: 'Read-only access.',
       isSystem: false,
-      permissions: ['metrics:read', 'financials:read', 'tasks:read', 'conversations:read'],
+      permissions: ['metrics:read', 'financials:read', 'tasks:read', 'conversations:read', 'pages:read'],
     },
   ];
 

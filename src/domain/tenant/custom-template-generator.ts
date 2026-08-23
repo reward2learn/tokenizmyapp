@@ -133,6 +133,8 @@ const assistantProfileSchema = z.object({
   keyMetrics: z.array(z.string().min(1).max(60)).max(8),
   capabilities: z.array(z.string().min(1).max(160)).max(6),
   answerStyle: z.array(z.string().min(1).max(200)).max(6),
+  starterPrompt: z.string().min(1).max(200).optional(),
+  suggestedPrompts: z.array(z.string().min(1).max(200)).max(5).optional(),
 });
 
 const templateGenerationSchema = z.object({

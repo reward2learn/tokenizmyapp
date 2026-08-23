@@ -6,19 +6,19 @@ const TEST_KEY = 'a'.repeat(64);
 // In-memory fake DB shaped to the subset of the Prisma client the route uses.
 function makeDb(overrides: Record<string, unknown> = {}) {
   const roles = [
-    { id: 'r-ama', code: 'ama', name: 'Ama', isPlatformAdmin: false },
-    { id: 'r-admin', code: 'admin', name: 'Platform Admin', isPlatformAdmin: true },
+    { id: 'r-finance', code: 'finance', name: 'Finance', isPlatformAdmin: false },
+    { id: 'r-admin', code: 'platform-admin', name: 'Platform Admin', isPlatformAdmin: true },
   ];
   const tasks = [
     {
       id: 't-1',
-      title: 'Set floor price with Ama',
-      description: 'Establish the minimum acceptable sale price.',
+      title: 'Reconcile cash position',
+      description: 'Establish the minimum acceptable cash reserve.',
       priority: 'P0',
       status: 'pending',
       dueDate: null,
       sortOrder: 0,
-      assignments: [{ assigned: true, role: { code: 'ama', name: 'Ama' } }],
+      assignments: [{ assigned: true, role: { code: 'finance', name: 'Finance' } }],
     },
   ];
   return {
@@ -79,9 +79,9 @@ function session(overrides: Record<string, unknown> = {}) {
   return {
     sub: 'u-1',
     tier: 'google',
-    email: 'ama@redruby.com',
-    name: 'Ama',
-    roleCode: 'ama',
+    email: 'finance@example.com',
+    name: 'Finance User',
+    roleCode: 'finance',
     platformAdmin: false,
     ...overrides,
   };
@@ -120,12 +120,12 @@ describe('/api/tasks', () => {
     const res = await GET(authedRequest('http://localhost/api/tasks'));
     expect(res.status).toBe(200);
     const json = (await res.json()) as { data: { tasks: Record<string, unknown>[]; viewerRole: string; isPlatformAdmin: boolean; roles: { code: string; name: string }[] } };
-    expect(json.data.viewerRole).toBe('ama');
+    expect(json.data.viewerRole).toBe('finance');
     expect(json.data.isPlatformAdmin).toBe(false);
     expect(json.data.tasks).toHaveLength(1);
-    expect(json.data.tasks[0].title).toContain('Ama');
+    expect(json.data.tasks[0].title).toContain('cash');
     expect(json.data.roles).toHaveLength(2);
-    expect(json.data.roles.map((r) => r.code)).toEqual(['ama', 'admin']);
+    expect(json.data.roles.map((r) => r.code)).toEqual(['finance', 'platform-admin']);
     expect((json.data.tasks[0] as { userAssignments?: unknown[] }).userAssignments ?? []).toEqual([]);
   });
 
@@ -133,7 +133,7 @@ describe('/api/tasks', () => {
     const { requireSession, requireRead } = await import('@/lib/auth/guards');
     vi.mocked(requireSession).mockResolvedValue({ ok: true, session: session() } as never);
     vi.mocked(requireRead).mockResolvedValue({ ok: true, session: session() } as never);
-    const res = await GET(authedRequest('http://localhost/api/tasks?role=made'));
+    const res = await GET(authedRequest('http://localhost/api/tasks?role=compliance'));
     expect(res.status).toBe(403);
   });
 
@@ -141,13 +141,13 @@ describe('/api/tasks', () => {
     const { requireSession, requireRead } = await import('@/lib/auth/guards');
     vi.mocked(requireSession).mockResolvedValue({
       ok: true,
-      session: session({ roleCode: 'admin', platformAdmin: true }),
+      session: session({ roleCode: 'platform-admin', platformAdmin: true }),
     } as never);
     vi.mocked(requireRead).mockResolvedValue({
       ok: true,
-      session: session({ roleCode: 'admin', platformAdmin: true }),
+      session: session({ roleCode: 'platform-admin', platformAdmin: true }),
     } as never);
-    const res = await GET(authedRequest('http://localhost/api/tasks?role=ama'));
+    const res = await GET(authedRequest('http://localhost/api/tasks?role=finance'));
     expect(res.status).toBe(200);
     const json = (await res.json()) as { data: { tasks: Record<string, unknown>[]; isPlatformAdmin: boolean } };
     expect(json.data.isPlatformAdmin).toBe(true);
@@ -162,7 +162,7 @@ describe('/api/tasks', () => {
       authedRequest('http://localhost/api/tasks', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ title: 'New task', priority: 'P1', ownerCodes: ['ama'] }),
+        body: JSON.stringify({ title: 'New task', priority: 'P1', ownerCodes: ['finance'] }),
       }),
     );
     expect(res.status).toBe(201);

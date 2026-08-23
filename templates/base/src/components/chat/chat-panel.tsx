@@ -58,6 +58,7 @@ import {
   type ChatStreamMessage,
 } from '@/store/chat-stream-slice';
 import { getClientTenantConfig } from '@shared/lib/config/tenant';
+import { getChatStarterPrompt } from '@shared/lib/config/template-profile';
 import { selectActiveSheetArg, selectSelectedCells } from '@/store/sheet-viewer-slice';
 import { sheetDataApi } from '@/store/apis/sheet-data-api';
 import { buildCellsPrompt, buildPagePrompt, type PromptRow } from '@/lib/sheet-prompt';
@@ -98,7 +99,13 @@ function formatTranscript(messages: ChatStreamMessage[]): string {
   return lines.join('\n');
 }
 
-export function ChatPanel({ variant = 'page' }: { variant?: 'page' | 'drawer' } = {}) {
+export function ChatPanel({
+  variant = 'page',
+  blockConfig,
+}: {
+  variant?: 'page' | 'drawer';
+  blockConfig?: { emptyStatePrompt?: string; suggestedPrompts?: string[] };
+} = {}) {
   const isDrawer = variant === 'drawer';
   const dispatch = useAppDispatch();
   const searchParams = useSearchParams();
@@ -132,6 +139,12 @@ export function ChatPanel({ variant = 'page' }: { variant?: 'page' | 'drawer' } 
   const [findingTitleDialogOpen, setFindingTitleDialogOpen] = useState(false);
   const [pendingFindingContent, setPendingFindingContent] = useState<string | null>(null);
   const reviewParts = listReviewParts();
+
+  const emptyStateMessage = useMemo(() => {
+    const fromBlock = blockConfig?.emptyStatePrompt?.trim();
+    if (fromBlock) return fromBlock;
+    return getChatStarterPrompt();
+  }, [blockConfig?.emptyStatePrompt]);
 
   // ── Rate limit countdown ──────────────────────────────
   const [rateLimitCountdown, setRateLimitCountdown] = useState<number | null>(null);
@@ -661,7 +674,7 @@ export function ChatPanel({ variant = 'page' }: { variant?: 'page' | 'drawer' } 
                 </Box>
               )) : (
                 <Typography variant="body2" color="text.secondary" sx={{ py: 8, textAlign: 'center' }}>
-                  Start with “How are we tracking against the June 2027 plan?”
+                  {emptyStateMessage}
                 </Typography>
               )}
             </Box>

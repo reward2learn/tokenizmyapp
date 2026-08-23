@@ -3,44 +3,15 @@ import { createClient } from '@/lib/db';
 import { requireWriteAuth } from '@/lib/auth/guards';
 import { sessionIsPlatformAdmin } from '@/lib/auth/jwt';
 import { jsonError, jsonOk } from '@/lib/api/response';
-import { PERSONS, resolvePerson } from '@/domain/security/persons';
 import { getSecretPlaintext, setSecret } from '@/lib/secrets';
 
 export const maxDuration = 30;
 
-/**
- * Map legacy person codes (from KNOWN_ROLES / seedTaskTracking) to the
- * correct USER_PIN_<sub> key. These are the capitalized codes that task
- * labels use (e.g. 'Lukas' → sub 'lucas' since the user's name is Lucas).
- */
-const LEGACY_CODE_TO_SUB: Record<string, string> = Object.fromEntries(
-  PERSONS.map((p) => {
-    // Most legacy codes are just the sub with first letter capitalized,
-    // but Lukas uses the old spelling "Lukas" in task labels while the
-    // user's sub is 'lucas'.
-    const legacyCode = p.sub === 'lucas' ? 'Lukas' :
-      p.sub.charAt(0).toUpperCase() + p.sub.slice(1);
-    return [legacyCode, p.sub];
-  }),
-);
-
-/**
- * Resolve the secret key that stores a role's PIN.
- * Platform-admin roles share the single ADMIN_PIN secret (matching verify-pin);
- * all other roles use USER_PIN_<sub> for the person assigned to that role.
- * Handles both functional role codes (e.g. 'finance' → ama) and legacy
- * person-oriented codes (e.g. 'Lukas' → lucas).
- */
+/** PIN secret key for a role — keyed by role code (USER_PIN_<code>). */
 function pinKeyForRole(role: { code: string; isPlatformAdmin: boolean }): string {
   if (role.isPlatformAdmin) return 'ADMIN_PIN';
-  // Try functional role code first (e.g. 'finance' → sub='ama').
-  const byRole = PERSONS.find((p) => p.roleCode === role.code);
-  if (byRole) return `USER_PIN_${byRole.sub}`;
-  // Try legacy person code (e.g. 'Lukas' → sub='lucas').
-  const legacySub = LEGACY_CODE_TO_SUB[role.code];
-  if (legacySub) return `USER_PIN_${legacySub}`;
-  // Fallback: treat the code as a sub directly.
-  return `USER_PIN_${role.code.toLowerCase()}`;
+  const normalized = role.code.toLowerCase().replace(/[^a-z0-9-]/g, '-');
+  return `USER_PIN_${normalized}`;
 }
 
 export interface RoleConfigView {
@@ -114,8 +85,7 @@ export async function POST(request: Request): Promise<NextResponse> {
   }
 
   // Resolve the role record to derive the correct PIN secret key (platform
-  // admins share ADMIN_PIN; others use ROLE_PIN_<CODE>). This avoids the
-  // "Unknown role code" 400 for platform-admin roles like "Graham".
+  // admins share ADMIN_PIN; others use USER_PIN_<roleCode>).
   let role;
   try {
     role = await db.role.findUnique({ where: { code } });

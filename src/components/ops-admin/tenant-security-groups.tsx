@@ -40,24 +40,13 @@ import {
   useUpdateAdminGroupMutation,
 } from '@/store/apis/admin-api';
 import type { AdminGroupView } from '@/app/api/admin/groups/route';
+import { CAPABILITY_AREAS, capability } from '@/domain/security/capabilities';
 
 interface TenantSecurityGroupsProps {
   tenantSlug: string;
   tenantName?: string;
   appId?: string | null;
 }
-
-const CAPABILITIES = [
-  { code: 'tenant:read', label: 'Tenant Read' },
-  { code: 'tenant:write', label: 'Tenant Write' },
-  { code: 'users:read', label: 'Users Read' },
-  { code: 'users:write', label: 'Users Write' },
-  { code: 'content:read', label: 'Content Read' },
-  { code: 'content:write', label: 'Content Write' },
-  { code: 'analytics:read', label: 'Analytics Read' },
-  { code: 'settings:read', label: 'Settings Read' },
-  { code: 'settings:write', label: 'Settings Write' },
-];
 
 export function TenantSecurityGroups({ tenantSlug, tenantName, appId }: TenantSecurityGroupsProps) {
   // Query is unscoped, matching this deployment's own admin panel behavior —
@@ -288,25 +277,37 @@ export function TenantSecurityGroups({ tenantSlug, tenantName, appId }: TenantSe
           <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
             Select the capabilities this group grants to its members.
           </Typography>
-          <Stack spacing={1}>
-            {CAPABILITIES.map((cap) => (
-              <FormControlLabel
-                key={cap.code}
-                control={
-                  <Checkbox
-                    checked={editing?.permissions.includes(cap.code) ?? false}
-                    onChange={() => toggleCap(cap.code)}
-                  />
-                }
-                label={
-                  <Box>
-                    <Typography variant="body2">{cap.label}</Typography>
-                    <Typography variant="caption" color="text.secondary" sx={{ fontFamily: 'monospace' }}>
-                      {cap.code}
-                    </Typography>
-                  </Box>
-                }
-              />
+          <Stack spacing={2}>
+            {CAPABILITY_AREAS.map((area) => (
+              <Box key={area.area}>
+                <Typography variant="subtitle2" sx={{ mb: 0.5 }}>{area.label}</Typography>
+                <Stack direction="row" spacing={2} flexWrap="wrap" useFlexGap>
+                  {area.accesses.map((acc) => {
+                    const cap = capability(area.area, acc);
+                    return (
+                      <FormControlLabel
+                        key={cap}
+                        control={
+                          <Checkbox
+                            checked={editing?.permissions.includes(cap) ?? false}
+                            onChange={() => toggleCap(cap)}
+                          />
+                        }
+                        label={
+                          <Box>
+                            <Typography variant="body2">
+                              {acc === 'use' ? 'Use' : acc === 'read' ? 'Read' : 'Write'}
+                            </Typography>
+                            <Typography variant="caption" color="text.secondary" sx={{ fontFamily: 'monospace' }}>
+                              {cap}
+                            </Typography>
+                          </Box>
+                        }
+                      />
+                    );
+                  })}
+                </Stack>
+              </Box>
             ))}
           </Stack>
         </DialogContent>

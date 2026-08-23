@@ -13,7 +13,7 @@ import { NextResponse } from 'next/server';
 import { z } from 'zod';
 import { ZodError } from 'zod';
 import { PrismaClient, type BlockType } from '@/generated/prisma';
-import { requireWriteAuth } from '@/lib/auth/guards';
+import { requireRead, requireWrite, requireWriteAuth } from '@/lib/auth/guards';
 import { sessionIsPlatformAdmin } from '@/lib/auth/jwt';
 import { jsonError, jsonOk } from '@/lib/api/response';
 import { resolveTenantDbUrl } from '@/domain/tenant/tenant-db-resolver';
@@ -100,7 +100,9 @@ async function lockPageContent(prisma: PrismaClient, pageId: string): Promise<vo
 type RouteContext = { params: Promise<{ slug: string }> };
 
 export async function GET(request: Request, context: RouteContext): Promise<NextResponse> {
-  const guard = await requireWriteAuth(request);
+  const auth = await requireWriteAuth(request);
+  if (!auth.ok) return auth.response;
+  const guard = await requireRead('pages', request);
   if (!guard.ok) return guard.response;
 
   const { slug } = await context.params;
@@ -152,9 +154,10 @@ export async function GET(request: Request, context: RouteContext): Promise<Next
 }
 
 export async function POST(request: Request, context: RouteContext): Promise<NextResponse> {
-  const guard = await requireWriteAuth(request);
+  const auth = await requireWriteAuth(request);
+  if (!auth.ok) return auth.response;
+  const guard = await requireWrite('pages', request);
   if (!guard.ok) return guard.response;
-  if (!sessionIsPlatformAdmin(guard.session)) return jsonError('Platform admin only', 403);
 
   const { slug } = await context.params;
   let body: unknown;
@@ -210,9 +213,10 @@ export async function POST(request: Request, context: RouteContext): Promise<Nex
 }
 
 export async function PUT(request: Request, context: RouteContext): Promise<NextResponse> {
-  const guard = await requireWriteAuth(request);
+  const auth = await requireWriteAuth(request);
+  if (!auth.ok) return auth.response;
+  const guard = await requireWrite('pages', request);
   if (!guard.ok) return guard.response;
-  if (!sessionIsPlatformAdmin(guard.session)) return jsonError('Platform admin only', 403);
 
   const { slug } = await context.params;
   let body: unknown;
@@ -287,9 +291,10 @@ export async function PUT(request: Request, context: RouteContext): Promise<Next
 }
 
 export async function DELETE(request: Request, context: RouteContext): Promise<NextResponse> {
-  const guard = await requireWriteAuth(request);
+  const auth = await requireWriteAuth(request);
+  if (!auth.ok) return auth.response;
+  const guard = await requireWrite('pages', request);
   if (!guard.ok) return guard.response;
-  if (!sessionIsPlatformAdmin(guard.session)) return jsonError('Platform admin only', 403);
 
   const { slug } = await context.params;
   const { searchParams } = new URL(request.url);

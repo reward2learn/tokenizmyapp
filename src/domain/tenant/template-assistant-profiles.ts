@@ -14,6 +14,7 @@
  * on every request and every deployment, so it is never generated at runtime.
  */
 import type { TemplateAssistantProfile, TemplateDefinition } from '@/domain/tenant/template-catalog';
+import { getTenantConfig } from '@shared/lib/config/tenant';
 
 /**
  * Fallback currency for templates with no stronger signal.
@@ -45,6 +46,12 @@ export const TEMPLATE_ASSISTANT_PROFILES: Record<string, TemplateAssistantProfil
       'Flag break-even coverage and margin movement when they are material.',
       'Distinguish actuals from projections explicitly.',
     ],
+    starterPrompt: 'How are we performing against our financial targets?',
+    suggestedPrompts: [
+      'What is our break-even coverage this month?',
+      'Summarise revenue vs plan for the last 30 days.',
+      'Which cost lines moved the most vs last month?',
+    ],
   },
 
   restaurant: {
@@ -67,6 +74,7 @@ export const TEMPLATE_ASSISTANT_PROFILES: Record<string, TemplateAssistantProfil
       'Call out food cost % moving outside its usual band.',
       'Keep answers short enough to read during service.',
     ],
+    starterPrompt: 'What are today\'s covers and food cost looking like?',
   },
 
   hotel: {
@@ -86,6 +94,7 @@ export const TEMPLATE_ASSISTANT_PROFILES: Record<string, TemplateAssistantProfil
       'Note the booking window when discussing pace.',
       'Be precise about which outlets are included in F&B figures.',
     ],
+    starterPrompt: 'How is occupancy and RevPAR tracking this month?',
   },
 
   'ecommerce-retail': {
@@ -108,6 +117,7 @@ export const TEMPLATE_ASSISTANT_PROFILES: Record<string, TemplateAssistantProfil
       'Flag stock-outs and overstock as actions, not observations.',
       'Separate returns from gross sales when both are known.',
     ],
+    starterPrompt: 'How are orders and inventory levels this week?',
   },
 
   healthcare: {
@@ -130,6 +140,7 @@ export const TEMPLATE_ASSISTANT_PROFILES: Record<string, TemplateAssistantProfil
       'Use aggregate figures; do not single out an identifiable patient unless explicitly asked.',
       'State the reporting period for every volume figure.',
     ],
+    starterPrompt: 'How are appointment volumes and claim processing this month?',
   },
 
   'supply-chain': {
@@ -152,6 +163,7 @@ export const TEMPLATE_ASSISTANT_PROFILES: Record<string, TemplateAssistantProfil
       'Give cost per shipment alongside total freight spend.',
       'State the cut-off time behind any in-transit figure.',
     ],
+    starterPrompt: 'Which shipments or lanes need attention right now?',
   },
 
   'real-estate': {
@@ -174,6 +186,7 @@ export const TEMPLATE_ASSISTANT_PROFILES: Record<string, TemplateAssistantProfil
       'Flag lease expiries inside the next two quarters unprompted.',
       'Give both gross and net figures where the distinction matters.',
     ],
+    starterPrompt: 'What does occupancy and rent collection look like across the portfolio?',
   },
 
   education: {
@@ -196,6 +209,7 @@ export const TEMPLATE_ASSISTANT_PROFILES: Record<string, TemplateAssistantProfil
       'Frame findings as support opportunities, not judgements.',
       'Name the term or intake behind every figure.',
     ],
+    starterPrompt: 'How are enrollment and completion rates this term?',
   },
 
   'professional-services': {
@@ -218,6 +232,7 @@ export const TEMPLATE_ASSISTANT_PROFILES: Record<string, TemplateAssistantProfil
       'Flag budget burn against remaining scope, not against time elapsed.',
       'Separate billable from non-billable in every hours figure.',
     ],
+    starterPrompt: 'How is utilisation and project margin tracking?',
   },
 
   manufacturing: {
@@ -240,6 +255,7 @@ export const TEMPLATE_ASSISTANT_PROFILES: Record<string, TemplateAssistantProfil
       'Attribute downtime to a cause when the data supports it.',
       'State the shift or run behind every figure.',
     ],
+    starterPrompt: 'How is production output and yield against schedule?',
   },
 
   'spas-and-wellness': {
@@ -262,6 +278,7 @@ export const TEMPLATE_ASSISTANT_PROFILES: Record<string, TemplateAssistantProfil
       'Flag no-shows and gaps in the book as recoverable revenue.',
       'Give average ticket alongside booking counts.',
     ],
+    starterPrompt: 'What does booking and therapist utilisation look like this week?',
   },
 
   'platform-admin': {
@@ -284,6 +301,7 @@ export const TEMPLATE_ASSISTANT_PROFILES: Record<string, TemplateAssistantProfil
       'Report failures with the operation that produced them.',
       'Never disclose secrets, keys or connection strings, even when asked.',
     ],
+    starterPrompt: 'Which tenants or deployments need attention?',
   },
 
   default: {
@@ -301,6 +319,7 @@ export const TEMPLATE_ASSISTANT_PROFILES: Record<string, TemplateAssistantProfil
       'State the period a figure covers.',
       'Be concise and specific.',
     ],
+    starterPrompt: 'What can you help me with today?',
   },
 };
 
@@ -353,4 +372,29 @@ export function deriveAssistantProfile(template: TemplateDefinition): TemplateAs
     ],
     answerStyle: fallback.answerStyle,
   };
+}
+
+/**
+ * Chat empty-state message for a template's assistant persona.
+ * Used at deploy time (env stamp) and in the chat panel when no block override exists.
+ */
+export function resolveChatStarterPrompt(
+  profile: TemplateAssistantProfile,
+  displayName?: string,
+): string {
+  if (profile.starterPrompt?.trim()) return profile.starterPrompt.trim();
+
+  const tenantName = displayName?.trim() || getTenantConfig().displayName;
+  const firstMetric = profile.keyMetrics[0];
+  if (firstMetric) {
+    return `How are we tracking on ${firstMetric}?`;
+  }
+  const firstCapability = profile.capabilities[0];
+  if (firstCapability) {
+    const normalized = firstCapability.trim();
+    if (normalized) {
+      return `Can you ${normalized.charAt(0).toLowerCase()}${normalized.slice(1)}?`;
+    }
+  }
+  return `What can ${tenantName} AI help you with today?`;
 }

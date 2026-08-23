@@ -14,8 +14,8 @@ import { DEFAULT_RELAY_REDIRECT_URI } from '@/lib/auth/google-relay';
 import { buildWeb3EnvVars } from '@/lib/web3/reown';
 import { billingIdentityEnvVars } from '@/lib/billing/organization-env';
 import { resolveTemplate } from '@/domain/tenant/custom-template-service';
-import { resolveAssistantProfile } from '@/domain/tenant/template-assistant-profiles';
-import { TEMPLATE_PROFILE_ENV_KEY } from '@shared/lib/config/template-profile';
+import { resolveAssistantProfile, resolveChatStarterPrompt } from '@/domain/tenant/template-assistant-profiles';
+import { TEMPLATE_PROFILE_ENV_KEY, CHAT_STARTER_PROMPT_ENV_KEY } from '@shared/lib/config/template-profile';
 import type { UpdateProjectRequestBody } from '@vercel/sdk/models/updateprojectbranchmatcher.js';
 
 
@@ -360,7 +360,12 @@ export async function buildEnvVarsForProject(input: DeployTenantInput): Promise<
     envVars.NEXT_PUBLIC_TEMPLATE_LABEL = template.label;
     // Server-only: this is prompt material, not UI copy, and large enough that
     // putting it in the client bundle would be waste.
-    envVars[TEMPLATE_PROFILE_ENV_KEY] = JSON.stringify(resolveAssistantProfile(template));
+    const assistantProfile = resolveAssistantProfile(template);
+    envVars[TEMPLATE_PROFILE_ENV_KEY] = JSON.stringify(assistantProfile);
+    envVars[CHAT_STARTER_PROMPT_ENV_KEY] = resolveChatStarterPrompt(
+      assistantProfile,
+      input.displayName,
+    );
   } catch (err) {
     console.warn(
       `[vercel-deploy] Could not resolve template "${input.template}" for wallet config; deploying without a wallet:`,

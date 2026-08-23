@@ -176,15 +176,14 @@ model ActionItem {
   @@map("action_items")
 }
 
-// ── Task tracking (role-based exit-viability action tracking) ──
+// ── Task tracking (role-based action tracking) ──
 
 /// A role/owner of tasks — a display-name catalog (code + name).
-/// Roles are NOT tied to a person: people map to roles via the PERSONS
-/// registry (person.roleCode), and group/route security uses SecurityGroup
-/// memberships, never this table.
+/// Roles are NOT tied to a person: people map to roles via user_accounts.role_code,
+/// and group/route security uses SecurityGroup memberships.
 model Role {
   id          String           @id @default(cuid())
-  /// Short code used to match task labels, e.g. "Ama", "Made", "Lukas", "James", "Graham".
+  /// Short code used to match task owner labels, e.g. "finance", "manager", "therapist".
   code        String           @unique @map("code")
   /// Display name shown in task views and the Admin UI.
   name        String
@@ -408,7 +407,7 @@ model AppSetting {
   webSearchEnabled    Boolean  @default(false) @map("web_search_enabled")
   /// Tenant subdomain slug (e.g. "redrubybali" — used for URL derivation)
   tenantSlug          String   @default("tokenizmyapp") @map("tenant_slug")
-  /// Human-readable business name (e.g. "Red Ruby Bali")
+  /// Human-readable business name (e.g. tenant display name from env)
   tenantDisplayName   String   @default("") @map("tenant_display_name")
   /// Template category identifier (e.g. "nightclub-bar", "restaurant", "hotel")
   tenantTemplate      String   @default("default") @map("tenant_template")
@@ -681,7 +680,7 @@ model Tenant {
   id              String   @id @default(cuid())
   /// Subdomain slug — unique identifier (e.g. "redrubybali")
   slug            String   @unique
-  /// Human-readable business name (e.g. "Red Ruby Bali")
+  /// Human-readable business name (e.g. tenant display name from env)
   displayName     String   @map("display_name")
   /// Template category (e.g. "nightclub-bar", "restaurant", "hotel")
   template        String   @default("default")

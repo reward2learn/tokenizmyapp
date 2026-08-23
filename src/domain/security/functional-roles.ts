@@ -1,30 +1,25 @@
 /**
- * Functional role catalog — the business titles in the restaurant.
- * Used by UserAccount.roleCode, the roles DB table, security groups, and Role Manager UI.
+ * Functional role catalog — generic fallback for UI when the roles API has not loaded.
  *
- * This is a pure-data file — no server-only imports. Safe to import from client components.
- * Preferred source of truth for roles over the LEGACY persons.ts.
- *
- * See:
- * - security-service.ts for user_accounts backfill, listConfiguredPinUsers, capability resolution
- * - persons.ts (LEGACY/DEPRECATED) for transitional mappings only
+ * At runtime each tenant's `roles` table is seeded from its template
+ * (see template-default-roles.ts). Prefer `useListRoleConfigsQuery()` or
+ * `roleOptionsFromApi()` in admin UI instead of this static list.
  */
+import { GENERIC_DEFAULT_ROLES, type TemplateRole } from '@/domain/tenant/template-default-roles';
 
-export interface FunctionalRole {
-  code: string;
-  name: string;
-  isPlatformAdmin?: boolean;
-}
+export type FunctionalRole = TemplateRole;
 
-export const FUNCTIONAL_ROLES: FunctionalRole[] = [
-  { code: 'platform-admin', name: 'Platform Admin', isPlatformAdmin: true },
-  { code: 'finance', name: 'Finance' },
-  { code: 'ceo', name: 'CEO' },
-  { code: 'entertainment', name: 'Entertainment' },
-  { code: 'operations', name: 'Operations / Data' },
-  { code: 'compliance', name: 'Compliance / Permits' },
-];
+/** Generic fallback — not the authoritative list for provisioned tenants. */
+export const FUNCTIONAL_ROLES: FunctionalRole[] = GENERIC_DEFAULT_ROLES;
 
-// Re-export for convenience during auth refactor (exported from both;
-// definition lives in LEGACY persons.ts but prefer importing from here).
 export { DEFAULT_PLATFORM_ADMIN_EMAIL } from './persons';
+
+/** Role dropdown options: DB roles when present, otherwise the generic fallback. */
+export function roleOptionsFromApi(
+  apiRoles: { code: string; name: string }[] | undefined,
+): { code: string; name: string }[] {
+  if (apiRoles?.length) {
+    return apiRoles.map((r) => ({ code: r.code, name: r.name }));
+  }
+  return FUNCTIONAL_ROLES;
+}

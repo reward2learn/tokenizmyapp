@@ -190,6 +190,7 @@ export const DEFAULT_SECURITY_GROUPS: {
       'tasks:read', 'tasks:write',
       'pos:use',
       'conversations:read', 'conversations:write',
+      'pages:read', 'pages:write',
       'settings:write',
     ],
   },
@@ -205,7 +206,7 @@ export const DEFAULT_SECURITY_GROUPS: {
     name: 'Viewer',
     description: 'Read-only access to dashboards.',
     isSystem: false,
-    permissions: ['metrics:read', 'financials:read', 'tasks:read', 'conversations:read'],
+    permissions: ['metrics:read', 'financials:read', 'tasks:read', 'conversations:read', 'pages:read'],
   },
 ];
 
@@ -292,15 +293,17 @@ export async function ensureSecurityTables(
     );
   });
 
-  // One-time migration: re-key old ROLE_PIN_* secrets to USER_PIN_* format.
-  // After this runs once, new verify-pin (which looks for USER_PIN_<sub>)
-  // can authenticate existing users without manual PIN re-set.
+  // One-time migration: re-key legacy ROLE_PIN_* secrets to USER_PIN_* format.
   await withRetry(async () => {
     const OLD_TO_NEW: Record<string, string> = {
-      ROLE_PIN_AMA: 'USER_PIN_ama',
-      ROLE_PIN_MADE: 'USER_PIN_made',
-      ROLE_PIN_LUKAS: 'USER_PIN_lucas',  // note: Lukas → lucas
-      ROLE_PIN_JAMES: 'USER_PIN_james',
+      ROLE_PIN_AMA: 'USER_PIN_finance',
+      ROLE_PIN_MADE: 'USER_PIN_compliance',
+      ROLE_PIN_LUKAS: 'USER_PIN_operations',
+      ROLE_PIN_JAMES: 'USER_PIN_entertainment',
+      USER_PIN_ama: 'USER_PIN_finance',
+      USER_PIN_made: 'USER_PIN_compliance',
+      USER_PIN_lucas: 'USER_PIN_operations',
+      USER_PIN_james: 'USER_PIN_entertainment',
     };
     for (const [oldKey, newKey] of Object.entries(OLD_TO_NEW)) {
       const existingNew = await getSecretPlaintext(newKey);
