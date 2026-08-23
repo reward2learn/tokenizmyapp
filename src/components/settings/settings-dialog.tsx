@@ -1,6 +1,8 @@
 'use client';
 
+import Box from '@mui/material/Box';
 import Dialog from '@mui/material/Dialog';
+import DialogActions from '@mui/material/DialogActions';
 import DialogContent from '@mui/material/DialogContent';
 import DialogTitle from '@mui/material/DialogTitle';
 import IconButton from '@mui/material/IconButton';
@@ -8,6 +10,7 @@ import CloseIcon from '@mui/icons-material/Close';
 import { AuthGate } from '@/components/auth/auth-gate';
 import { SignInPanelGate } from '@/components/auth/sign-in-panel';
 import { SettingsGate } from '@/components/settings/settings-gate';
+import { SettingsLogoutButton } from '@/components/settings/settings-panel';
 import { useAppDispatch, useAppSelector } from '@/store/hooks';
 import { setSettingsDialogOpen } from '@/store/ui-slice';
 import { RADIUS } from '@/theme/design-tokens';
@@ -37,22 +40,55 @@ export function SettingsDialog() {
       fullWidth
       maxWidth="lg"
       aria-labelledby="settings-dialog-title"
-      slotProps={{ paper: { sx: { borderRadius: `${RADIUS.card}px` } } }}
+      slotProps={{
+        paper: {
+          sx: {
+            borderRadius: `${RADIUS.card}px`,
+            maxHeight: '90vh',
+            display: 'flex',
+            flexDirection: 'column',
+          },
+        },
+      }}
     >
       <DialogTitle
         id="settings-dialog-title"
-        sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', pr: 1 }}
+        sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', pr: 1, flexShrink: 0 }}
       >
         Settings
         <IconButton aria-label="Close settings" onClick={close} size="small">
           <CloseIcon fontSize="small" />
         </IconButton>
       </DialogTitle>
-      <DialogContent dividers sx={{ p: { xs: 1.5, md: 2 } }}>
+      <DialogContent
+        dividers
+        sx={{
+          p: { xs: 1.5, md: 2 },
+          flex: 1,
+          minHeight: 0,
+          overflow: 'hidden',
+          display: 'flex',
+          flexDirection: 'column',
+        }}
+      >
         <AuthGate requiredTier="google" fallback={<SignInPanelGate requiredTier="google" />}>
-          <SettingsGate />
+          <Box sx={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
+            <SettingsGate variant="dialog" />
+          </Box>
         </AuthGate>
       </DialogContent>
+      <DialogActions
+        sx={{
+          flexShrink: 0,
+          px: 2,
+          py: 1.5,
+          borderTop: '1px solid',
+          borderColor: 'divider',
+          justifyContent: 'flex-start',
+        }}
+      >
+        <SettingsLogoutButton />
+      </DialogActions>
     </Dialog>
   );
 }

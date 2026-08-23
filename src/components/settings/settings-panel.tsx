@@ -2,7 +2,6 @@
 
 import Box from '@mui/material/Box';
 import Button from '@mui/material/Button';
-import Divider from '@mui/material/Divider';
 import List from '@mui/material/List';
 import ListItemButton from '@mui/material/ListItemButton';
 import ListItemIcon from '@mui/material/ListItemIcon';
@@ -71,23 +70,47 @@ const PERSONAL_SECTIONS: SectionDef[] = [
   { id: 'security', label: 'Security', icon: LockIcon },
 ];
 
+/** Server-side logout — session cookie is httpOnly so the client cannot clear it. */
+export function SettingsLogoutButton({ fullWidth = false }: { fullWidth?: boolean }) {
+  return (
+    <Button
+      fullWidth={fullWidth}
+      size="small"
+      color="inherit"
+      startIcon={<LogoutIcon />}
+      href="/api/auth?action=logout"
+    >
+      Log out
+    </Button>
+  );
+}
+
 export function SettingsPanel({
   orgId,
   selfServeBilling = false,
+  variant = 'page',
 }: {
   orgId: string | null;
   selfServeBilling?: boolean;
+  variant?: 'dialog' | 'page';
 }) {
   const dispatch = useAppDispatch();
   const section = useAppSelector((s) => s.ui.settingsSection);
   const onPlatform = isPlatformApp();
   const organizationSections = onPlatform ? PLATFORM_ORGANIZATION_SECTIONS : TENANT_ORGANIZATION_SECTIONS;
   const organizationTitle = onPlatform ? 'Organization' : 'Your organization';
+  const embedded = variant === 'dialog';
 
   return (
     <Paper
       variant="outlined"
-      sx={{ display: 'flex', minHeight: 560, borderRadius: `${RADIUS.card}px`, overflow: 'hidden' }}
+      sx={{
+        display: 'flex',
+        ...(embedded ? { flex: 1, minHeight: 0 } : { minHeight: 560 }),
+        width: '100%',
+        borderRadius: `${RADIUS.card}px`,
+        overflow: 'hidden',
+      }}
     >
       <Box
         component="nav"
@@ -99,6 +122,7 @@ export function SettingsPanel({
           borderColor: 'divider',
           display: 'flex',
           flexDirection: 'column',
+          overflow: 'hidden',
         }}
       >
         <SectionGroup
@@ -113,29 +137,17 @@ export function SettingsPanel({
           active={section}
           onSelect={(id) => dispatch(setSettingsSection(id))}
         />
-
-        <Box sx={{ flexGrow: 1 }} />
-        <Divider />
-        <Box sx={{ p: 1 }}>
-          {/*
-            A full navigation, not a fetch: signing out clears an httpOnly
-            cookie the client cannot see, so the server has to be the one to
-            do it and the app has to reload without it.
-          */}
-          <Button
-            fullWidth
-            size="small"
-            color="inherit"
-            startIcon={<LogoutIcon />}
-            sx={{ justifyContent: 'flex-start' }}
-            href="/api/auth?action=logout"
-          >
-            Logout
-          </Button>
-        </Box>
       </Box>
 
-      <Box sx={{ flexGrow: 1, p: 3, minWidth: 0 }}>
+      <Box
+        sx={{
+          flexGrow: 1,
+          minWidth: 0,
+          minHeight: 0,
+          overflow: 'auto',
+          p: 3,
+        }}
+      >
         {section === 'general' && <OrganizationGeneralPanel orgId={orgId} />}
         {section === 'branding' &&
           (orgId ? (

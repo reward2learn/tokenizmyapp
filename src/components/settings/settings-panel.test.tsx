@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { Provider } from 'react-redux';
 import { configureStore } from '@reduxjs/toolkit';
-import { SettingsPanel } from '@/components/settings/settings-panel';
+import { SettingsLogoutButton, SettingsPanel } from '@/components/settings/settings-panel';
 import { organizationApi } from '@/store/apis/organization-api';
 import { authSlice } from '@/store/auth-slice';
 import { uiSlice } from '@/store/ui-slice';
@@ -89,12 +89,15 @@ describe('SettingsPanel', () => {
     expect(screen.getByText(/No organization is selected/i)).toBeInTheDocument();
   });
 
+});
+
+describe('SettingsLogoutButton', () => {
   it('signs out through the server, not a client-side clear', () => {
-    // The session cookie is httpOnly, so only the server can drop it.
-    renderPanel('org_1');
-    expect(screen.getByRole('link', { name: /Logout/i })).toHaveAttribute(
+    render(<SettingsLogoutButton />);
+    expect(screen.getByRole('link', { name: /Log out/i })).toHaveAttribute(
       'href',
       '/api/auth?action=logout',
     );
+    cleanup();
   });
 });

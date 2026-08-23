@@ -17,8 +17,10 @@ import { useBillingOrgId, useSelfServeBillingEnabled } from '@/components/billin
  * resolution the organization bar uses — so Billing opens on the org that
  * actually pays for this tenant instead of a "No organization" pane.
  */
-export function SettingsGate() {
+export function SettingsGate({ variant = 'page' }: { variant?: 'dialog' | 'page' }) {
   const orgId = useBillingOrgId();
   const selfServeBilling = useSelfServeBillingEnabled();
-  return <SettingsPanel orgId={orgId} selfServeBilling={selfServeBilling} />;
+  return (
+    <SettingsPanel orgId={orgId} selfServeBilling={selfServeBilling} variant={variant} />
+  );
 }
