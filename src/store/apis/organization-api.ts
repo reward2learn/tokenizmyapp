@@ -459,11 +459,11 @@ export const organizationApi = createApi({
       providesTags: ['Subscription'],
     }),
 
-    /** Create a PaymentIntent for a paid top-up. Credits arrive via webhook + confirm. */
+    /** Create a Checkout Session for a paid top-up. Credits arrive via webhook + confirm. */
     createTopUpIntent: builder.mutation<
       ApiEnvelope<{
         clientSecret: string;
-        paymentIntentId: string;
+        checkoutSessionId: string;
         amountCents: number;
         publishableKey: string | null;
         pack: { id: string; label: string; baseCredits: number; bonusCredits: number };
@@ -477,23 +477,24 @@ export const organizationApi = createApi({
       }),
     }),
 
-    /** Apply credits after Elements confirmPayment succeeds (idempotent). */
+    /** Apply credits after Checkout Elements confirm succeeds (idempotent). */
     confirmTopUpPayment: builder.mutation<
       ApiEnvelope<{
         orgId: string;
         packId: string;
-        paymentIntentId: string;
+        checkoutSessionId: string;
+        paymentIntentId: string | null;
         alreadyGranted: boolean;
         balance: { available: number; expiringSoon: number; debt: number; net: number };
         baseCredits: number;
         bonusCredits: number;
       }>,
-      { orgId: string; paymentIntentId: string }
+      { orgId: string; checkoutSessionId: string }
     >({
-      query: ({ orgId, paymentIntentId }) => ({
+      query: ({ orgId, checkoutSessionId }) => ({
         url: `admin/organizations/${orgId}/topup/confirm`,
         method: 'POST',
-        body: { paymentIntentId },
+        body: { checkoutSessionId },
       }),
       invalidatesTags: ['Credits'],
     }),

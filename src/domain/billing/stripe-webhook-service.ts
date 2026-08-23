@@ -518,7 +518,7 @@ async function handleInvoicePaymentFailed(
   };
 }
 
-/** A one-off payment succeeded — grant the top-up pack it paid for. */
+/** A one-off payment succeeded — grant legacy PaymentIntent top-up packs. */
 async function handlePaymentIntentSucceeded(
   intent: Stripe.PaymentIntent,
   db: RawDb,

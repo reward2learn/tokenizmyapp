@@ -3,7 +3,7 @@
  *
  * POST /api/admin/organizations/[orgId]/topup
  *   Body: { packId }
- *   Returns a Stripe PaymentIntent client secret for inline Elements.
+ *   Returns a Stripe Checkout Session client secret for inline Elements.
  *
  * This is the PAID path. The existing POST .../credits is the unpaid admin
  * grant, and the two stay separate on purpose: one moves money and one does
@@ -21,7 +21,7 @@ import { sessionIsPlatformAdmin } from '@/lib/auth/jwt';
 import { jsonError, jsonOk } from '@/lib/api/response';
 import { getOrganization, resolveTenantStripeConfig } from '@/domain/billing/organization-service';
 import {
-  createTopUpIntent,
+  createTopUpCheckoutSession,
   reconcileSubscriptionFromStripe,
   stripeReadiness,
 } from '@/domain/billing/stripe-service';
@@ -114,12 +114,24 @@ export async function POST(
       ? null
       : await resolveViewerUserId(guard.session.sub);
 
-    const intent = await createTopUpIntent(orgId, pack.id, db, stripe, { purchaserUserId });
+    const returnUrlObj = new URL('/settings/billing', request.url);
+    returnUrlObj.searchParams.set('topup', 'complete');
+    returnUrlObj.searchParams.set('session_id', '{CHECKOUT_SESSION_ID}');
+    const returnUrl = returnUrlObj.toString();
+
+    const session = await createTopUpCheckoutSession(
+      orgId,
+      pack.id,
+      returnUrl,
+      db,
+      stripe,
+      { purchaserUserId },
+    );
 
     return jsonOk({
-      clientSecret: intent.clientSecret,
-      paymentIntentId: intent.paymentIntentId,
-      amountCents: intent.amountCents,
+      clientSecret: session.clientSecret,
+      checkoutSessionId: session.checkoutSessionId,
+      amountCents: session.amountCents,
       publishableKey: stripeConfig?.publishableKey ?? getStripePublishableKey(),
       pack,
     });

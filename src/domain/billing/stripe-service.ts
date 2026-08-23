@@ -396,23 +396,27 @@ export async function changePlan(
   return { applied: 'immediate' };
 }
 
+/** Dashboard label for inline credit top-up Checkout Sessions (Elements ui_mode). */
+const TOPUP_CHECKOUT_INTEGRATION_ID = 'tokenizmyapp-topup-a7f3b2c1';
+
 /**
- * Payment intent for a credit top-up.
+ * Checkout Session for a credit top-up (Elements `ui_mode: 'elements'`).
  *
  * Returns a client secret for inline Elements (roadmap §4.6) — top-ups happen
  * mid-flow, where bouncing to hosted Checkout costs conversions. Credits are
- * granted by `payment_intent.succeeded` (webhook) and/or
- * `confirmTopUpPaymentIntent` (client confirm after Elements succeeds). The
+ * granted by `checkout.session.completed` (webhook) and/or
+ * `confirmTopUpCheckoutSession` (client confirm after Elements succeeds). The
  * confirm path matters when top-ups charge a **tenant** Stripe account whose
  * webhooks never reach this app with a matching signing secret.
  */
-export async function createTopUpIntent(
+export async function createTopUpCheckoutSession(
   orgId: string,
   packId: string,
+  returnUrl: string,
   db?: RawDb,
   stripe?: Stripe,
   options: { purchaserUserId?: string | null } = {},
-): Promise<{ clientSecret: string; paymentIntentId: string; amountCents: number }> {
+): Promise<{ clientSecret: string; checkoutSessionId: string; amountCents: number }> {
   db = await getDb(db);
   stripe = stripe ?? requireStripe();
 
@@ -425,26 +429,42 @@ export async function createTopUpIntent(
 
   const customerId = await ensureStripeCustomer(orgId, db, stripe);
 
-  const intent = await stripe.paymentIntents.create({
-    amount: pack.priceCents,
-    currency: 'usd',
+  const topUpMetadata = {
+    orgId,
+    packId: pack.id,
+    kind: 'credit_topup',
+    ...(options.purchaserUserId ? { purchaserUserId: options.purchaserUserId } : {}),
+  };
+
+  const session = await stripe.checkout.sessions.create({
+    mode: 'payment',
+    ui_mode: 'elements',
     customer: customerId,
-    automatic_payment_methods: { enabled: true },
-    // The webhook / confirm path reads these to know what to grant and to whom.
-    metadata: {
-      orgId,
-      packId: pack.id,
-      kind: 'credit_topup',
-      ...(options.purchaserUserId ? { purchaserUserId: options.purchaserUserId } : {}),
-    },
+    line_items: [
+      {
+        quantity: 1,
+        price_data: {
+          currency: 'usd',
+          unit_amount: pack.priceCents,
+          product_data: {
+            name: `AI Credits — ${pack.label}`,
+            metadata: { packId: pack.id },
+          },
+        },
+      },
+    ],
+    return_url: returnUrl,
+    client_reference_id: orgId,
+    integration_identifier: TOPUP_CHECKOUT_INTEGRATION_ID,
+    metadata: topUpMetadata,
   });
 
-  if (!intent.client_secret) {
-    throw new Error('Stripe returned a payment intent with no client secret.');
+  if (!session.client_secret) {
+    throw new Error('Stripe returned a checkout session with no client secret.');
   }
   return {
-    clientSecret: intent.client_secret,
-    paymentIntentId: intent.id,
+    clientSecret: session.client_secret,
+    checkoutSessionId: session.id,
     amountCents: pack.priceCents,
   };
 }
@@ -452,7 +472,9 @@ export async function createTopUpIntent(
 export interface ConfirmTopUpResult {
   orgId: string;
   packId: string;
-  paymentIntentId: string;
+  checkoutSessionId: string;
+  /** Present when Stripe attached a PaymentIntent to the Checkout Session. */
+  paymentIntentId: string | null;
   alreadyGranted: boolean;
   balance: {
     available: number;
@@ -465,34 +487,39 @@ export interface ConfirmTopUpResult {
 }
 
 /**
- * After Elements `confirmPayment` succeeds, grant the pack against the billing
- * DB. Idempotent on PaymentIntent id (same as the webhook).
+ * After Checkout Elements `confirm` succeeds, grant the pack against the billing
+ * DB. Idempotent on Checkout Session id (same as the webhook).
  */
-export async function confirmTopUpPaymentIntent(
+export async function confirmTopUpCheckoutSession(
   orgId: string,
-  paymentIntentId: string,
+  checkoutSessionId: string,
   db?: RawDb,
   stripe?: Stripe,
 ): Promise<ConfirmTopUpResult> {
   db = await getDb(db);
   stripe = stripe ?? requireStripe();
 
-  const intent = await stripe.paymentIntents.retrieve(paymentIntentId);
-  if (intent.status !== 'succeeded') {
+  const session = await stripe.checkout.sessions.retrieve(checkoutSessionId);
+  if (session.status !== 'complete') {
     throw new Error(
-      `PaymentIntent ${paymentIntentId} is "${intent.status}", not succeeded.`,
+      `Checkout Session ${checkoutSessionId} is "${session.status ?? 'unknown'}", not complete.`,
     );
   }
-  if (intent.metadata?.kind !== 'credit_topup') {
-    throw new Error('PaymentIntent is not a credit top-up.');
+  if (session.payment_status !== 'paid') {
+    throw new Error(
+      `Checkout Session ${checkoutSessionId} has payment_status "${session.payment_status}", not paid.`,
+    );
   }
-  const intentOrgId = intent.metadata.orgId?.trim();
-  const packId = intent.metadata.packId?.trim();
-  if (!intentOrgId || !packId) {
-    throw new Error('Top-up PaymentIntent is missing orgId or packId metadata.');
+  if (session.metadata?.kind !== 'credit_topup') {
+    throw new Error('Checkout Session is not a credit top-up.');
   }
-  if (intentOrgId !== orgId) {
-    throw new Error('PaymentIntent does not belong to this organization.');
+  const sessionOrgId = session.metadata.orgId?.trim();
+  const packId = session.metadata.packId?.trim();
+  if (!sessionOrgId || !packId) {
+    throw new Error('Top-up Checkout Session is missing orgId or packId metadata.');
+  }
+  if (sessionOrgId !== orgId) {
+    throw new Error('Checkout Session does not belong to this organization.');
   }
 
   const { redeemCreditPack, ensureCreditTables } = await import(
@@ -505,23 +532,29 @@ export async function confirmTopUpPaymentIntent(
       WHERE org_id = $1 AND metadata->>'paymentRef' = $2
       LIMIT 1;`,
     orgId,
-    intent.id,
+    session.id,
   )) as { id: string }[];
   const alreadyGranted = prior.length > 0;
 
-  const ownerUserId = intent.metadata?.purchaserUserId?.trim() || null;
+  const ownerUserId = session.metadata?.purchaserUserId?.trim() || null;
 
   const result = await redeemCreditPack(
     orgId,
     packId,
-    { paymentRef: intent.id, ownerUserId },
+    { paymentRef: session.id, ownerUserId },
     db,
   );
+
+  const paymentIntentId =
+    typeof session.payment_intent === 'string'
+      ? session.payment_intent
+      : session.payment_intent?.id ?? null;
 
   return {
     orgId,
     packId,
-    paymentIntentId: intent.id,
+    checkoutSessionId: session.id,
+    paymentIntentId,
     alreadyGranted,
     balance: result.balance,
     baseCredits: result.pack.baseCredits,
@@ -530,8 +563,9 @@ export async function confirmTopUpPaymentIntent(
 }
 
 /**
- * Heal stuck top-ups: list recent succeeded credit_topup PaymentIntents for the
- * org's Stripe customer and redeem any that never minted grants (webhook miss).
+ * Heal stuck top-ups: list recent succeeded credit_topup Checkout Sessions (and
+ * legacy PaymentIntents) for the org's Stripe customer and redeem any that
+ * never minted grants (webhook miss).
  */
 export async function reconcileRecentTopUpPayments(
   orgId: string,
@@ -544,17 +578,55 @@ export async function reconcileRecentTopUpPayments(
   const linkage = await getStripeLinkage(orgId, db);
   if (!linkage.customerId) return { scanned: 0, granted: 0 };
 
-  const listed = await stripe.paymentIntents.list({
-    customer: linkage.customerId,
-    limit: 25,
-  });
-
   const { redeemCreditPack, ensureCreditTables } = await import(
     '@/domain/billing/credit-service'
   );
   await ensureCreditTables(db);
   let scanned = 0;
   let granted = 0;
+
+  const grantIfMissing = async (
+    paymentRef: string,
+    packId: string,
+    ownerUserId: string | null,
+  ): Promise<void> => {
+    scanned += 1;
+    const prior = (await db.$queryRawUnsafe(
+      `SELECT id FROM credit_grants
+        WHERE org_id = $1 AND metadata->>'paymentRef' = $2
+        LIMIT 1;`,
+      orgId,
+      paymentRef,
+    )) as { id: string }[];
+    if (prior.length > 0) return;
+
+    await redeemCreditPack(orgId, packId, { paymentRef, ownerUserId }, db);
+    granted += 1;
+  };
+
+  const sessions = await stripe.checkout.sessions.list({
+    customer: linkage.customerId,
+    limit: 25,
+  });
+
+  for (const session of sessions.data) {
+    if (session.status !== 'complete' || session.payment_status !== 'paid') continue;
+    if (session.metadata?.kind !== 'credit_topup') continue;
+    if (session.metadata?.orgId !== orgId) continue;
+    const packId = session.metadata.packId?.trim();
+    if (!packId) continue;
+
+    await grantIfMissing(
+      session.id,
+      packId,
+      session.metadata?.purchaserUserId?.trim() || null,
+    );
+  }
+
+  const listed = await stripe.paymentIntents.list({
+    customer: linkage.customerId,
+    limit: 25,
+  });
 
   for (const intent of listed.data) {
     if (intent.status !== 'succeeded') continue;
@@ -563,21 +635,11 @@ export async function reconcileRecentTopUpPayments(
     const packId = intent.metadata.packId?.trim();
     if (!packId) continue;
 
-    scanned += 1;
-    const prior = (await db.$queryRawUnsafe(
-      `SELECT id FROM credit_grants
-        WHERE org_id = $1 AND metadata->>'paymentRef' = $2
-        LIMIT 1;`,
-      orgId,
+    await grantIfMissing(
       intent.id,
-    )) as { id: string }[];
-    if (prior.length > 0) continue;
-
-    await redeemCreditPack(orgId, packId, {
-      paymentRef: intent.id,
-      ownerUserId: intent.metadata?.purchaserUserId?.trim() || null,
-    }, db);
-    granted += 1;
+      packId,
+      intent.metadata?.purchaserUserId?.trim() || null,
+    );
   }
 
   return { scanned, granted };

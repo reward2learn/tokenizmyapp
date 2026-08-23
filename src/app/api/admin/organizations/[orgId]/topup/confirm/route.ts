@@ -2,28 +2,28 @@
  * Confirm a paid credit top-up after Stripe Elements succeeds.
  *
  * POST /api/admin/organizations/[orgId]/topup/confirm
- *   Body: { paymentIntentId }
+ *   Body: { checkoutSessionId }
  *
- * Retrieves the PaymentIntent from the tenant (or factory) Stripe account,
- * verifies it succeeded with credit_topup metadata for this org, then calls
+ * Retrieves the Checkout Session from the tenant (or factory) Stripe account,
+ * verifies it completed with credit_topup metadata for this org, then calls
  * redeemCreditPack on the control-plane billing DB.
  *
  * Needed because top-ups often charge a per-tenant Stripe account whose
  * webhooks do not verify against this app's STRIPE_WEBHOOK_SECRET — so
- * payment_intent.succeeded never grants credits even though the card charged.
+ * checkout.session.completed never grants credits even though the card charged.
  */
 import { z } from 'zod';
 import { createBillingRawClient } from '@/lib/db';
 import { requireOrgCreditPurchase } from '@/lib/auth/billing-guards';
 import { jsonError, jsonOk } from '@/lib/api/response';
 import { getOrganization, resolveTenantStripeConfig } from '@/domain/billing/organization-service';
-import { confirmTopUpPaymentIntent } from '@/domain/billing/stripe-service';
+import { confirmTopUpCheckoutSession } from '@/domain/billing/stripe-service';
 import { requireStripeFor } from '@/lib/billing/stripe-client';
 
 export const dynamic = 'force-dynamic';
 
 const postSchema = z.object({
-  paymentIntentId: z.string().min(1),
+  checkoutSessionId: z.string().min(1),
 });
 
 export async function POST(
@@ -60,9 +60,9 @@ export async function POST(
     if (!organization) return jsonError('Organization not found', 404);
 
     const stripe = requireStripeFor(stripeConfig);
-    const result = await confirmTopUpPaymentIntent(
+    const result = await confirmTopUpCheckoutSession(
       orgId,
-      parsed.data.paymentIntentId,
+      parsed.data.checkoutSessionId,
       db,
       stripe,
     );

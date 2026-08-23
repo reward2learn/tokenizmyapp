@@ -2,7 +2,12 @@
 
 import { useState } from 'react';
 import { loadStripe, type Stripe } from '@stripe/stripe-js';
-import { Elements, PaymentElement, useElements, useStripe } from '@stripe/react-stripe-js';
+import {
+  CheckoutElementsProvider,
+  ContactDetailsElement,
+  PaymentElement,
+  useCheckoutElements,
+} from '@stripe/react-stripe-js/checkout';
 import Alert from '@mui/material/Alert';
 import Box from '@mui/material/Box';
 import Button from '@mui/material/Button';
@@ -22,7 +27,7 @@ import { useAppDispatch } from '@/store/hooks';
 import { CREDIT_PACKS } from '@/lib/billing/plans';
 
 /**
- * Paid credit top-up with inline Stripe Elements.
+ * Paid credit top-up with inline Stripe Checkout Elements.
  *
  * Inline rather than hosted Checkout (roadmap §4.6): a top-up happens
  * mid-task, usually because a generation was just blocked, and bouncing the
@@ -31,7 +36,7 @@ import { CREDIT_PACKS } from '@/lib/billing/plans';
  *
  * ⚠️ No card data ever reaches this component or our servers. PaymentElement
  * renders inside a Stripe-hosted iframe; we only ever hold a client secret,
- * which authorizes confirming one specific payment and nothing else.
+ * which authorizes confirming one specific Checkout Session and nothing else.
  */
 
 /** Memoized per publishable key — loadStripe injects a script tag on each call. */
@@ -48,7 +53,7 @@ function stripeFor(publishableKey: string): Promise<Stripe | null> {
 
 interface PaymentFormProps {
   orgId: string;
-  paymentIntentId: string;
+  checkoutSessionId: string;
   packLabel: string;
   totalCredits: number;
   onDone: () => void;
@@ -57,14 +62,13 @@ interface PaymentFormProps {
 
 function PaymentForm({
   orgId,
-  paymentIntentId,
+  checkoutSessionId,
   packLabel,
   totalCredits,
   onDone,
   onCancel,
 }: PaymentFormProps) {
-  const stripe = useStripe();
-  const elements = useElements();
+  const checkoutState = useCheckoutElements();
   const [confirmTopUp] = useConfirmTopUpPaymentMutation();
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -73,25 +77,26 @@ function PaymentForm({
   const [balanceAvailable, setBalanceAvailable] = useState<number | null>(null);
 
   const handleSubmit = async () => {
-    if (!stripe || !elements) return;
+    if (checkoutState.type !== 'success') return;
     setSubmitting(true);
     setError(null);
 
     // `redirect: 'if_required'` keeps cards inline and only navigates away for
     // methods that genuinely need it (3DS, bank redirects).
-    const result = await stripe.confirmPayment({ elements, redirect: 'if_required' });
+    const { error: confirmError } = await checkoutState.checkout.confirm({
+      redirect: 'if_required',
+    });
 
-    if (result.error) {
-      setError(result.error.message ?? 'The payment could not be completed.');
+    if (confirmError) {
+      setError(confirmError.message ?? 'The payment could not be completed.');
       setSubmitting(false);
       return;
     }
 
-    const piId = result.paymentIntent?.id ?? paymentIntentId;
     try {
       const confirmed = await confirmTopUp({
         orgId,
-        paymentIntentId: piId,
+        checkoutSessionId,
       }).unwrap();
       setBalanceAvailable(confirmed.data.balance.available);
       setCredited(true);
@@ -127,6 +132,8 @@ function PaymentForm({
     );
   }
 
+  const checkoutReady = checkoutState.type === 'success';
+
   return (
     <>
       <DialogContent>
@@ -138,7 +145,15 @@ function PaymentForm({
         <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
           {packLabel} — {totalCredits} credits
         </Typography>
-        <PaymentElement />
+        <Stack spacing={2}>
+          <ContactDetailsElement />
+          <PaymentElement />
+        </Stack>
+        {checkoutState.type === 'error' && (
+          <Alert severity="error" sx={{ mt: 2 }}>
+            {checkoutState.error.message}
+          </Alert>
+        )}
       </DialogContent>
       <DialogActions>
         <Button onClick={onCancel} disabled={submitting}>
@@ -147,7 +162,7 @@ function PaymentForm({
         <Button
           onClick={handleSubmit}
           variant="contained"
-          disabled={!stripe || !elements || submitting}
+          disabled={!checkoutReady || submitting}
           startIcon={submitting ? <CircularProgress size={16} /> : undefined}
         >
           {submitting ? 'Processing…' : 'Pay'}
@@ -170,12 +185,12 @@ export function StripeTopUpDialog({ open, orgId, packId, onClose }: StripeTopUpD
   const [started, setStarted] = useState(false);
 
   const pack = CREDIT_PACKS.find((p) => p.id === packId) ?? null;
-  const intent = data?.data ?? null;
+  const session = data?.data ?? null;
 
   // Kicked off by the click that opens the dialog rather than by an effect on
-  // `open`: creating a PaymentIntent is a side effect with a cost (it shows up
-  // in the Stripe dashboard), so it should follow an explicit user action, not
-  // a render.
+  // `open`: creating a Checkout Session is a side effect with a cost (it shows
+  // up in the Stripe dashboard), so it should follow an explicit user action,
+  // not a render.
   const begin = async () => {
     setStarted(true);
     await createIntent({ orgId, packId }).unwrap().catch(() => null);
@@ -245,23 +260,23 @@ export function StripeTopUpDialog({ open, orgId, packId, onClose }: StripeTopUpD
         </>
       )}
 
-      {started && intent?.clientSecret && intent.publishableKey && intent.paymentIntentId && (
-        <Elements
-          stripe={stripeFor(intent.publishableKey)}
-          options={{ clientSecret: intent.clientSecret }}
+      {started && session?.clientSecret && session.publishableKey && session.checkoutSessionId && (
+        <CheckoutElementsProvider
+          stripe={stripeFor(session.publishableKey)}
+          options={{ clientSecret: session.clientSecret }}
         >
           <PaymentForm
             orgId={orgId}
-            paymentIntentId={intent.paymentIntentId}
+            checkoutSessionId={session.checkoutSessionId}
             packLabel={pack.label}
             totalCredits={totalCredits}
             onDone={finish}
             onCancel={cancel}
           />
-        </Elements>
+        </CheckoutElementsProvider>
       )}
 
-      {started && intent && !intent.publishableKey && (
+      {started && session && !session.publishableKey && (
         <>
           <DialogContent>
             <Alert severity="error">
