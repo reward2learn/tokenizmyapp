@@ -15,8 +15,10 @@ describe('pageSlugLookupCandidates', () => {
 describe('cmsPageCacheKey', () => {
   it('isolates suite apps on the same tenant', () => {
     const tenant = 'acme';
-    expect(cmsPageCacheKey({ tenantSlug: tenant, appId: 'finance' }, 'home')).not.toEqual(
-      cmsPageCacheKey({ tenantSlug: tenant, appId: 'ceo-overview' }, 'home'),
+    expect(
+      cmsPageCacheKey({ tenantSlug: tenant, deploymentSlug: tenant, appId: 'finance' }, 'home'),
+    ).not.toEqual(
+      cmsPageCacheKey({ tenantSlug: tenant, deploymentSlug: tenant, appId: 'ceo-overview' }, 'home'),
     );
   });
 });

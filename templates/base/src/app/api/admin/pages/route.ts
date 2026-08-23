@@ -7,7 +7,8 @@
 
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
-import { getCurrentAppId, getTenantConfig } from '@shared/lib/config/tenant';
+import { getCurrentAppId } from '@shared/lib/config/tenant';
+import { getCmsTenantAppScope } from '@shared/lib/cms-scope';
 import { resolveAppPageRow } from '@shared/lib/page-cms-resolve';
 import { toRoutePageSlug } from '@shared/lib/page-slug';
 import { requireRead, requireWrite, requireWriteAuth } from '@/lib/auth/guards';
@@ -30,7 +31,7 @@ export async function GET(request: Request): Promise<NextResponse> {
 
   const prisma = getPageCmsClient();
   const appId = getCurrentAppId();
-  const tenantSlug = getTenantConfig().slug;
+  const cmsScope = getCmsTenantAppScope();
   try {
     await ensurePageCmsColumns(prisma);
 
@@ -64,7 +65,7 @@ export async function GET(request: Request): Promise<NextResponse> {
        FROM app_pages p
        WHERE COALESCE(p.tenant_slug, '') = $1
        ORDER BY p.sort_order ASC, p.slug ASC`,
-      ...(appId ? [tenantSlug, appId] : [tenantSlug]),
+      ...(appId ? [cmsScope.tenantSlug, appId] : [cmsScope.tenantSlug]),
     );
 
     return jsonOk({
@@ -100,11 +101,12 @@ export async function PUT(request: Request): Promise<NextResponse> {
   const { slug: routeSlug, contentLocked } = parsed.data;
   const prisma = getPageCmsClient();
   const appId = getCurrentAppId();
+  const cmsScope = getCmsTenantAppScope();
   try {
     await ensurePageCmsColumns(prisma);
     const page = await resolveAppPageRow(prisma, routeSlug, {
       appId,
-      tenantSlug: getTenantConfig().slug,
+      tenantSlug: cmsScope.tenantSlug,
     });
     if (!page) return jsonError(`Page "${routeSlug}" not found`, 404);
     const result = await prisma.$executeRawUnsafe(

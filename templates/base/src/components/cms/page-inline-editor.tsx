@@ -26,6 +26,7 @@ import AddIcon from '@mui/icons-material/Add';
 import DeleteIcon from '@mui/icons-material/Delete';
 import ArrowUpwardIcon from '@mui/icons-material/ArrowUpward';
 import ArrowDownwardIcon from '@mui/icons-material/ArrowDownward';
+import BuildIcon from '@mui/icons-material/Build';
 import type { AuthTier, BlockType, PageDefinition } from '@/lib/page-catalog';
 import { resolveBlockComponent } from '@/lib/block-registry';
 import { parseBlockConfig } from '@/lib/schemas/block-config';
@@ -37,6 +38,7 @@ import {
   useCreatePageSectionMutation,
   useDeletePageSectionsMutation,
   useGetPageSectionsQuery,
+  useProvisionCatalogPageMutation,
   useUpdatePageSectionsMutation,
 } from '@/store/apis/admin-api';
 import { useAppDispatch } from '@/store/hooks';
@@ -103,6 +105,7 @@ export function PageInlineEditor({ page }: PageInlineEditorProps) {
       enabled: isSmUp,
     });
   const { data, isLoading, error, refetch } = useGetPageSectionsQuery({ slug: page.slug, ...cmsScope });
+  const [provisionPage, { isLoading: provisioning }] = useProvisionCatalogPageMutation();
   const [updateSections, { isLoading: saving }] = useUpdatePageSectionsMutation();
   const [createSection, { isLoading: creating }] = useCreatePageSectionMutation();
   const [deleteSections, { isLoading: deleting }] = useDeletePageSectionsMutation();
@@ -278,6 +281,28 @@ export function PageInlineEditor({ page }: PageInlineEditorProps) {
     }
   }, [addBlockType, cmsScope, createSection, page.slug, refetch, router]);
 
+  const handleProvision = useCallback(async () => {
+    setMessage(null);
+    try {
+      await provisionPage({ slug: page.slug, ...cmsScope }).unwrap();
+      setMessage({ severity: 'success', text: 'Page initialized for CMS editing.' });
+      await refetch();
+      router.refresh();
+    } catch (err) {
+      setMessage({
+        severity: 'error',
+        text: err instanceof Error ? err.message : 'Failed to initialize page for CMS',
+      });
+    }
+  }, [cmsScope, page.slug, provisionPage, refetch, router]);
+
+  const pageNotInCms =
+    Boolean(error) &&
+    typeof error === 'object' &&
+    error !== null &&
+    'status' in error &&
+    (error as { status: number }).status === 404;
+
   if (isLoading) {
     return (
       <Box sx={{ display: 'flex', justifyContent: 'center', py: 6 }}>
@@ -290,8 +315,21 @@ export function PageInlineEditor({ page }: PageInlineEditorProps) {
     return (
       <Stack spacing={2} sx={{ p: 3 }}>
         <Alert severity="error">
-          Could not load page sections for editing. Use Admin → Page Content for catalog-only pages.
+          {pageNotInCms
+            ? 'This page is not in the CMS database yet. Initialize it to enable inline editing.'
+            : 'Could not load page sections for editing. Use Admin → Page Content for catalog-only pages.'}
         </Alert>
+        {pageNotInCms ? (
+          <Button
+            variant="contained"
+            startIcon={provisioning ? <CircularProgress size={18} color="inherit" /> : <BuildIcon />}
+            onClick={handleProvision}
+            disabled={provisioning}
+          >
+            Initialize page for CMS editing
+          </Button>
+        ) : null}
+        {message ? <Alert severity={message.severity}>{message.text}</Alert> : null}
         <Button variant="outlined" onClick={handleCancel}>Exit edit mode</Button>
       </Stack>
     );

@@ -13,6 +13,8 @@ import { sessionIsPlatformAdmin } from '@/lib/auth/jwt';
 import { jsonError, jsonOk } from '@/lib/api/response';
 import { resolveTenantDbUrl } from '@/domain/tenant/tenant-db-resolver';
 import { addTenantColumnsIfMissing } from '@/domain/tenant/tenant-seed-service';
+import { getCurrentAppId, getTenantConfig } from '@shared/lib/config/tenant';
+import { normalizeCmsScope } from '@shared/lib/cms-scope';
 import { resolveAppPageRow } from '@shared/lib/page-cms-resolve';
 import { toRoutePageSlug } from '@shared/lib/page-slug';
 
@@ -39,22 +41,22 @@ export async function GET(request: Request): Promise<NextResponse> {
 
   const { searchParams } = new URL(request.url);
   const isPlatformAdmin = sessionIsPlatformAdmin(guard.session);
-  const tenantSlug = isPlatformAdmin ? searchParams.get('tenantSlug') : null;
-  const appId = isPlatformAdmin ? searchParams.get('appId') : null;
+  const cmsScope = normalizeCmsScope({
+    tenantSlug: isPlatformAdmin ? searchParams.get('tenantSlug') : getTenantConfig().slug,
+    appId: isPlatformAdmin ? searchParams.get('appId') : getCurrentAppId() || undefined,
+  });
 
-  const dbUrl = await resolveTenantDbUrl(tenantSlug, appId);
+  const dbUrl = await resolveTenantDbUrl(cmsScope.tenantSlug, cmsScope.appId);
   const prisma = getClient(dbUrl);
   try {
     await addTenantColumnsIfMissing(prisma);
 
     const where: string[] = [];
     const params: unknown[] = [];
-    if (tenantSlug) {
-      params.push(tenantSlug);
-      where.push(`tenant_slug = $${params.length}`);
-    }
-    if (appId) {
-      params.push(appId);
+    params.push(cmsScope.tenantSlug);
+    where.push(`tenant_slug = $${params.length}`);
+    if (cmsScope.appId) {
+      params.push(cmsScope.appId);
       where.push(`app_id = $${params.length}`);
     }
     const whereClause = where.length ? `WHERE ${where.join(' AND ')}` : '';
@@ -86,7 +88,7 @@ export async function GET(request: Request): Promise<NextResponse> {
     return jsonOk({
       pages: pages.map((p) => ({
         ...p,
-        slug: appId ? toRoutePageSlug(p.slug, appId) : p.slug,
+        slug: cmsScope.appId ? toRoutePageSlug(p.slug, cmsScope.appId) : p.slug,
       })),
     });
   } catch (err) {
@@ -114,13 +116,14 @@ export async function PUT(request: Request): Promise<NextResponse> {
   }
 
   const { slug: routeSlug, contentLocked, tenantSlug, appId } = parsed.data;
-  const dbUrl = await resolveTenantDbUrl(tenantSlug, appId);
+  const cmsScope = normalizeCmsScope({ tenantSlug, appId });
+  const dbUrl = await resolveTenantDbUrl(cmsScope.tenantSlug, cmsScope.appId);
   const prisma = getClient(dbUrl);
   try {
     await addTenantColumnsIfMissing(prisma);
     const page = await resolveAppPageRow(prisma, routeSlug, {
-      appId: appId ?? '',
-      tenantSlug: tenantSlug ?? undefined,
+      appId: cmsScope.appId ?? '',
+      tenantSlug: cmsScope.deploymentSlug,
     });
     if (!page) return jsonError(`Page "${routeSlug}" not found`, 404);
     const result = await prisma.$executeRawUnsafe(

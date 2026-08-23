@@ -12,7 +12,8 @@
 
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
-import { getCurrentAppId, getTenantConfig } from '@shared/lib/config/tenant';
+import { getCurrentAppId } from '@shared/lib/config/tenant';
+import { getCmsTenantAppScope } from '@shared/lib/cms-scope';
 import { resolveAppPageRow } from '@shared/lib/page-cms-resolve';
 import { type BlockType, PrismaClient } from '@/generated/prisma';
 import { requireRead, requireWrite, requireWriteAuth } from '@/lib/auth/guards';
@@ -48,9 +49,10 @@ async function resolvePageId(
   prisma: PrismaClient,
   routeSlug: string,
 ): Promise<{ id: string } | null> {
+  const cmsScope = getCmsTenantAppScope();
   const page = await resolveAppPageRow(prisma, routeSlug, {
     appId: getCurrentAppId(),
-    tenantSlug: getTenantConfig().slug,
+    tenantSlug: cmsScope.tenantSlug,
   });
   return page ? { id: page.id } : null;
 }

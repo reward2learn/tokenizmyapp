@@ -1,3 +1,4 @@
+import { resolveRegistryTenantSlug } from './cms-scope';
 import { pageSlugLookupCandidates, toRoutePageSlug } from './page-slug';
 
 export interface AppPageRow {
@@ -20,7 +21,8 @@ export async function resolveAppPageRow(
   options?: { appId?: string; tenantSlug?: string },
 ): Promise<AppPageRow | null> {
   const appId = options?.appId ?? '';
-  const tenantSlug = options?.tenantSlug?.trim() ?? '';
+  const deploymentSlug = options?.tenantSlug?.trim() ?? '';
+  const tenantSlug = resolveRegistryTenantSlug(deploymentSlug, appId);
   const candidates = pageSlugLookupCandidates(routeSlug, appId);
 
   for (const storageSlug of candidates) {

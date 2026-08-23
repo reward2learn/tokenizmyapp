@@ -19,6 +19,7 @@ import { jsonError, jsonOk } from '@/lib/api/response';
 import { resolveTenantDbUrl } from '@/domain/tenant/tenant-db-resolver';
 import { addTenantColumnsIfMissing } from '@/domain/tenant/tenant-seed-service';
 import { getCurrentAppId, getTenantConfig } from '@shared/lib/config/tenant';
+import { normalizeCmsScope, type CmsTenantAppScope } from '@shared/lib/cms-scope';
 import { resolveAppPageRow } from '@shared/lib/page-cms-resolve';
 import { parseBlockConfig } from '@/lib/schemas/block-config';
 import { resolveBlockAnimate } from '@/lib/schemas/block-animate';
@@ -85,14 +86,28 @@ function validateConfig(blockType: CatalogBlockType, config: Record<string, unkn
   }
 }
 
+function readCmsScopeFromRequest(
+  searchParams: URLSearchParams,
+  isPlatformAdmin: boolean,
+): CmsTenantAppScope {
+  return normalizeCmsScope({
+    tenantSlug: isPlatformAdmin
+      ? searchParams.get('tenantSlug') ?? undefined
+      : getTenantConfig().slug,
+    appId: isPlatformAdmin
+      ? searchParams.get('appId') ?? undefined
+      : getCurrentAppId() || undefined,
+  });
+}
+
 async function resolvePageId(
   prisma: PrismaClient,
   routeSlug: string,
-  scope?: { appId?: string | null; tenantSlug?: string | null },
+  scope: CmsTenantAppScope,
 ): Promise<{ id: string } | null> {
   const page = await resolveAppPageRow(prisma, routeSlug, {
-    appId: scope?.appId ?? '',
-    tenantSlug: scope?.tenantSlug ?? undefined,
+    appId: scope.appId ?? '',
+    tenantSlug: scope.deploymentSlug,
   });
   return page ? { id: page.id } : null;
 }
@@ -115,18 +130,13 @@ export async function GET(request: Request, context: RouteContext): Promise<Next
   const { slug } = await context.params;
   const { searchParams } = new URL(request.url);
   const isPlatformAdmin = sessionIsPlatformAdmin(guard.session);
-  const tenantSlug = isPlatformAdmin
-    ? searchParams.get('tenantSlug') ?? undefined
-    : getTenantConfig().slug;
-  const appId = isPlatformAdmin
-    ? searchParams.get('appId') ?? undefined
-    : getCurrentAppId() || undefined;
+  const cmsScope = readCmsScopeFromRequest(searchParams, isPlatformAdmin);
 
-  const dbUrl = await resolveTenantDbUrl(tenantSlug, appId);
+  const dbUrl = await resolveTenantDbUrl(cmsScope.tenantSlug, cmsScope.appId);
   const prisma = getClient(dbUrl);
   try {
     await addTenantColumnsIfMissing(prisma);
-    const page = await resolvePageId(prisma, slug, { tenantSlug, appId });
+    const page = await resolvePageId(prisma, slug, cmsScope);
     if (!page) return jsonError(`Page "${slug}" not found`, 404);
 
     const pageMeta = (await prisma.$queryRawUnsafe(
@@ -190,11 +200,12 @@ export async function POST(request: Request, context: RouteContext): Promise<Nex
   }
 
   const { tenantSlug, appId, blockType, sortOrder } = parsed.data;
-  const dbUrl = await resolveTenantDbUrl(tenantSlug, appId);
+  const cmsScope = normalizeCmsScope({ tenantSlug, appId });
+  const dbUrl = await resolveTenantDbUrl(cmsScope.tenantSlug, cmsScope.appId);
   const prisma = getClient(dbUrl);
   try {
     await addTenantColumnsIfMissing(prisma);
-    const page = await resolvePageId(prisma, slug, { tenantSlug, appId });
+    const page = await resolvePageId(prisma, slug, cmsScope);
     if (!page) return jsonError(`Page "${slug}" not found`, 404);
 
     const orderRows = (await prisma.$queryRawUnsafe(
@@ -242,11 +253,12 @@ export async function PUT(request: Request, context: RouteContext): Promise<Next
   }
 
   const { tenantSlug, appId, sections } = parsed.data;
-  const dbUrl = await resolveTenantDbUrl(tenantSlug, appId);
+  const cmsScope = normalizeCmsScope({ tenantSlug, appId });
+  const dbUrl = await resolveTenantDbUrl(cmsScope.tenantSlug, cmsScope.appId);
   const prisma = getClient(dbUrl);
   try {
     await addTenantColumnsIfMissing(prisma);
-    const page = await resolvePageId(prisma, slug, { tenantSlug, appId });
+    const page = await resolvePageId(prisma, slug, cmsScope);
     if (!page) return jsonError(`Page "${slug}" not found`, 404);
 
     for (const section of sections) {
@@ -315,12 +327,13 @@ export async function DELETE(request: Request, context: RouteContext): Promise<N
   if (ids.length === 0) return jsonError('No valid IDs provided', 400);
   const tenantSlug = searchParams.get('tenantSlug');
   const appId = searchParams.get('appId');
+  const cmsScope = normalizeCmsScope({ tenantSlug, appId });
 
-  const dbUrl = await resolveTenantDbUrl(tenantSlug, appId);
+  const dbUrl = await resolveTenantDbUrl(cmsScope.tenantSlug, cmsScope.appId);
   const prisma = getClient(dbUrl);
   try {
     await addTenantColumnsIfMissing(prisma);
-    const page = await resolvePageId(prisma, slug, { tenantSlug, appId });
+    const page = await resolvePageId(prisma, slug, cmsScope);
     if (!page) return jsonError(`Page "${slug}" not found`, 404);
 
     const result = await prisma.$executeRawUnsafe(

@@ -10,7 +10,7 @@ import type { BatchUserInput, BatchUserResult } from '@/app/api/admin/users/batc
 import type { AdminGroupView } from '@/app/api/admin/groups/route';
 import { contentApi } from '@/store/apis/content-api';
 import { publishPageSections } from '@/store/ui-slice';
-import { cmsPageCacheKey } from '@shared/lib/cms-scope';
+import { cmsPageCacheKey, normalizeCmsScope } from '@shared/lib/cms-scope';
 import { getTenantConfig } from '@shared/lib/config/tenant';
 
 /** Cross-tenant browse scope — resolved server-side only for platform admins. */
@@ -334,6 +334,25 @@ export const adminApi = createApi({
       providesTags: ['PageSections'],
     }),
 
+    provisionCatalogPage: builder.mutation<
+      ApiEnvelope<{
+        slug: string;
+        provisioned: boolean;
+        created: boolean;
+        sectionCount: number;
+        pageId: string;
+      }>,
+      { slug: string } & TenantAppScope
+    >({
+      query: ({ slug, tenantSlug, appId }) => ({
+        url: `admin/pages/${encodeURIComponent(slug)}/provision`,
+        method: 'POST',
+        params: { tenantSlug, appId },
+        body: { tenantSlug, appId },
+      }),
+      invalidatesTags: ['PageSections'],
+    }),
+
     /** POST /api/admin/pages/[slug]/sections */
     createPageSection: builder.mutation<
       ApiEnvelope<{ created: boolean; id: string; sortOrder: number }>,
@@ -380,10 +399,7 @@ export const adminApi = createApi({
             publishPageSections({
               slug: arg.slug,
               cacheKey: cmsPageCacheKey(
-                {
-                  tenantSlug: arg.tenantSlug ?? getTenantConfig().slug,
-                  ...(arg.appId ? { appId: arg.appId } : {}),
-                },
+                normalizeCmsScope({ tenantSlug: arg.tenantSlug, appId: arg.appId }),
                 arg.slug,
               ),
               sections: arg.sections.map((s, i) => ({
@@ -520,6 +536,7 @@ export const {
   useSetPageContentLockedMutation,
   useGetCmsSourcesQuery,
   useGetPageSectionsQuery,
+  useProvisionCatalogPageMutation,
   useCreatePageSectionMutation,
   useUpdatePageSectionsMutation,
   useDeletePageSectionsMutation,
