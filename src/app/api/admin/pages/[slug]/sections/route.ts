@@ -18,6 +18,7 @@ import { sessionIsPlatformAdmin } from '@/lib/auth/jwt';
 import { jsonError, jsonOk } from '@/lib/api/response';
 import { resolveTenantDbUrl } from '@/domain/tenant/tenant-db-resolver';
 import { addTenantColumnsIfMissing } from '@/domain/tenant/tenant-seed-service';
+import { resolveAppPageRow } from '@shared/lib/page-cms-resolve';
 import { parseBlockConfig } from '@/lib/schemas/block-config';
 import type { BlockType as CatalogBlockType } from '@/lib/page-catalog';
 
@@ -81,13 +82,14 @@ function validateConfig(blockType: CatalogBlockType, config: Record<string, unkn
 
 async function resolvePageId(
   prisma: PrismaClient,
-  slug: string,
+  routeSlug: string,
+  scope?: { appId?: string | null; tenantSlug?: string | null },
 ): Promise<{ id: string } | null> {
-  const rows = (await prisma.$queryRawUnsafe(
-    `SELECT id FROM app_pages WHERE slug = $1 LIMIT 1`,
-    slug,
-  )) as { id: string }[];
-  return rows[0] ?? null;
+  const page = await resolveAppPageRow(prisma, routeSlug, {
+    appId: scope?.appId ?? '',
+    tenantSlug: scope?.tenantSlug ?? undefined,
+  });
+  return page ? { id: page.id } : null;
 }
 
 async function lockPageContent(prisma: PrismaClient, pageId: string): Promise<void> {
@@ -115,7 +117,7 @@ export async function GET(request: Request, context: RouteContext): Promise<Next
   const prisma = getClient(dbUrl);
   try {
     await addTenantColumnsIfMissing(prisma);
-    const page = await resolvePageId(prisma, slug);
+    const page = await resolvePageId(prisma, slug, { tenantSlug, appId });
     if (!page) return jsonError(`Page "${slug}" not found`, 404);
 
     const pageMeta = (await prisma.$queryRawUnsafe(
@@ -183,7 +185,7 @@ export async function POST(request: Request, context: RouteContext): Promise<Nex
   const prisma = getClient(dbUrl);
   try {
     await addTenantColumnsIfMissing(prisma);
-    const page = await resolvePageId(prisma, slug);
+    const page = await resolvePageId(prisma, slug, { tenantSlug, appId });
     if (!page) return jsonError(`Page "${slug}" not found`, 404);
 
     const orderRows = (await prisma.$queryRawUnsafe(
@@ -235,7 +237,7 @@ export async function PUT(request: Request, context: RouteContext): Promise<Next
   const prisma = getClient(dbUrl);
   try {
     await addTenantColumnsIfMissing(prisma);
-    const page = await resolvePageId(prisma, slug);
+    const page = await resolvePageId(prisma, slug, { tenantSlug, appId });
     if (!page) return jsonError(`Page "${slug}" not found`, 404);
 
     for (const section of sections) {
@@ -309,7 +311,7 @@ export async function DELETE(request: Request, context: RouteContext): Promise<N
   const prisma = getClient(dbUrl);
   try {
     await addTenantColumnsIfMissing(prisma);
-    const page = await resolvePageId(prisma, slug);
+    const page = await resolvePageId(prisma, slug, { tenantSlug, appId });
     if (!page) return jsonError(`Page "${slug}" not found`, 404);
 
     const result = await prisma.$executeRawUnsafe(

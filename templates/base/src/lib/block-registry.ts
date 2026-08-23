@@ -43,3 +43,8 @@ export const BLOCK_REGISTRY: Record<BlockType, BlockComponent> = {
 export function getBlockComponent(blockType: BlockType): BlockComponent {
   return BLOCK_REGISTRY[blockType];
 }
+
+/** Returns null when the block type is not registered in this deployment. */
+export function resolveBlockComponent(blockType: string): BlockComponent | null {
+  return (BLOCK_REGISTRY as Record<string, BlockComponent | undefined>)[blockType] ?? null;
+}

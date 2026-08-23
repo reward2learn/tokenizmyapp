@@ -321,6 +321,18 @@ export const adminApi = createApi({
       invalidatesTags: ['PageSections'],
     }),
 
+    /** GET /api/admin/cms-sources — doc/snippet keys, workbook sheets, pack tables */
+    getCmsSources: builder.query<
+      ApiEnvelope<{ docSources: string[]; workbookSheets: string[]; packTables: string[] }>,
+      TenantAppScope | void
+    >({
+      query: (scope) => ({
+        url: 'admin/cms-sources',
+        params: { tenantSlug: scope?.tenantSlug, appId: scope?.appId },
+      }),
+      providesTags: ['PageSections'],
+    }),
+
     /** GET /api/admin/pages/[slug]/sections */
     getPageSections: builder.query<
       ApiEnvelope<{
@@ -509,6 +521,7 @@ export const {
   useReconcileNavigationMutation,
   useListAdminPagesQuery,
   useSetPageContentLockedMutation,
+  useGetCmsSourcesQuery,
   useGetPageSectionsQuery,
   useCreatePageSectionMutation,
   useUpdatePageSectionsMutation,

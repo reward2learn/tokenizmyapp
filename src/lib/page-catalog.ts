@@ -42,6 +42,9 @@ export type BlockType =
   | 'pricing_table';
 
 export interface PageSectionDefinition {
+  /** Present when loaded from Neon — required for inline CMS edits. */
+  id?: string;
+  sortOrder?: number;
   blockType: BlockType;
   config: Record<string, unknown>;
 }

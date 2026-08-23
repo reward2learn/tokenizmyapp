@@ -1,0 +1,450 @@
+'use client';
+
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useRouter } from 'next/navigation';
+import Alert from '@mui/material/Alert';
+import Box from '@mui/material/Box';
+import Button from '@mui/material/Button';
+import Chip from '@mui/material/Chip';
+import CircularProgress from '@mui/material/CircularProgress';
+import Drawer from '@mui/material/Drawer';
+import FormControl from '@mui/material/FormControl';
+import IconButton from '@mui/material/IconButton';
+import InputLabel from '@mui/material/InputLabel';
+import MenuItem from '@mui/material/MenuItem';
+import Paper from '@mui/material/Paper';
+import Select from '@mui/material/Select';
+import Stack from '@mui/material/Stack';
+import Tooltip from '@mui/material/Tooltip';
+import Typography from '@mui/material/Typography';
+import SettingsIcon from '@mui/icons-material/Settings';
+import SaveIcon from '@mui/icons-material/Save';
+import CloseIcon from '@mui/icons-material/Close';
+import AddIcon from '@mui/icons-material/Add';
+import DeleteIcon from '@mui/icons-material/Delete';
+import ArrowUpwardIcon from '@mui/icons-material/ArrowUpward';
+import ArrowDownwardIcon from '@mui/icons-material/ArrowDownward';
+import type { AuthTier, BlockType, PageDefinition } from '@/lib/page-catalog';
+import { resolveBlockComponent } from '@/lib/block-registry';
+import { parseBlockConfig } from '@/lib/schemas/block-config';
+import { AuthGate } from '@/components/auth/auth-gate';
+import { CMS_ADDABLE_BLOCKS, defaultConfigForBlock } from '@/components/cms/cms-block-catalog';
+import { SectionConfigEditor } from '@/components/cms/section-config-editor';
+import {
+  useCreatePageSectionMutation,
+  useDeletePageSectionsMutation,
+  useGetPageSectionsQuery,
+  useUpdatePageSectionsMutation,
+} from '@/store/apis/admin-api';
+import { useAppDispatch } from '@/store/hooks';
+import { setPageEditMode } from '@/store/ui-slice';
+
+interface SectionDraft {
+  id: string;
+  sortOrder: number;
+  blockType: string;
+  config: Record<string, unknown>;
+}
+
+function BlockPreview({
+  blockType,
+  config,
+}: {
+  blockType: string;
+  config: Record<string, unknown>;
+}) {
+  const Component = resolveBlockComponent(blockType);
+  if (!Component) {
+    return (
+      <Box sx={{ py: 6, px: 2, textAlign: 'center' }}>
+        <Typography variant="body2" color="text.secondary">
+          Preview not available for <strong>{blockType}</strong> in this template. Settings still save.
+        </Typography>
+      </Box>
+    );
+  }
+  let parsed: { minTier?: AuthTier } | undefined;
+  try {
+    parsed = parseBlockConfig(blockType as BlockType, config);
+  } catch {
+    parsed = undefined;
+  }
+  const minTier = parsed && 'minTier' in parsed ? (parsed.minTier as AuthTier | undefined) : undefined;
+  const block = <Component config={config} />;
+  if (!minTier || minTier === 'public') return block;
+  return <AuthGate requiredTier={minTier} fallback={null}>{block}</AuthGate>;
+}
+
+export interface PageInlineEditorProps {
+  page: PageDefinition;
+}
+
+export function PageInlineEditor({ page }: PageInlineEditorProps) {
+  const dispatch = useAppDispatch();
+  const router = useRouter();
+  const { data, isLoading, error, refetch } = useGetPageSectionsQuery({ slug: page.slug });
+  const [updateSections, { isLoading: saving }] = useUpdatePageSectionsMutation();
+  const [createSection, { isLoading: creating }] = useCreatePageSectionMutation();
+  const [deleteSections, { isLoading: deleting }] = useDeletePageSectionsMutation();
+
+  const [drafts, setDrafts] = useState<SectionDraft[]>([]);
+  const [dirty, setDirty] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [addBlockType, setAddBlockType] = useState<string>('faq');
+  const [message, setMessage] = useState<{ severity: 'success' | 'error' | 'info'; text: string } | null>(null);
+
+  const cmsSections = data?.data?.sections;
+  const contentLocked = data?.data?.contentLocked ?? false;
+  const pageLoaded = data?.data !== undefined;
+
+  useEffect(() => {
+    if (!cmsSections) return;
+    setDrafts(
+      cmsSections.map((s) => ({
+        id: s.id,
+        sortOrder: s.sortOrder,
+        blockType: s.blockType,
+        config: s.config,
+      })),
+    );
+    setDirty(false);
+  }, [cmsSections]);
+
+  const editingSection = useMemo(
+    () => drafts.find((s) => s.id === editingId) ?? null,
+    [drafts, editingId],
+  );
+
+  const previewSections = useMemo(() => {
+    if (drafts.length > 0) return drafts;
+    return page.sections.map((s, index) => ({
+      id: s.id ?? `preview-${index}`,
+      sortOrder: s.sortOrder ?? index,
+      blockType: s.blockType,
+      config: s.config,
+    }));
+  }, [drafts, page.sections]);
+
+  const exitEditMode = useCallback(() => {
+    dispatch(setPageEditMode({ enabled: false, slug: null }));
+  }, [dispatch]);
+
+  const handleCancel = useCallback(() => {
+    if (cmsSections) {
+      setDrafts(
+        cmsSections.map((s) => ({
+          id: s.id,
+          sortOrder: s.sortOrder,
+          blockType: s.blockType,
+          config: s.config,
+        })),
+      );
+    }
+    setDirty(false);
+    setEditingId(null);
+    exitEditMode();
+  }, [cmsSections, exitEditMode]);
+
+  const handleSave = useCallback(async () => {
+    if (drafts.length === 0) {
+      setMessage({ severity: 'info', text: 'No sections to save for this page.' });
+      return;
+    }
+    try {
+      await updateSections({
+        slug: page.slug,
+        sections: drafts.map((s, i) => ({
+          id: s.id,
+          blockType: s.blockType,
+          config: s.config,
+          sortOrder: i,
+        })),
+      }).unwrap();
+      setDirty(false);
+      setMessage({ severity: 'success', text: 'Page content saved.' });
+      await refetch();
+      router.refresh();
+    } catch (err) {
+      setMessage({
+        severity: 'error',
+        text: err instanceof Error ? err.message : 'Failed to save page content',
+      });
+    }
+  }, [drafts, page.slug, refetch, router, updateSections]);
+
+  const updateDraftConfig = useCallback((id: string, config: Record<string, unknown>) => {
+    setDrafts((prev) => prev.map((s) => (s.id === id ? { ...s, config } : s)));
+    setDirty(true);
+  }, []);
+
+  const moveSection = useCallback((index: number, dir: -1 | 1) => {
+    const next = index + dir;
+    setDrafts((prev) => {
+      if (next < 0 || next >= prev.length) return prev;
+      const copy = [...prev];
+      const tmp = copy[index];
+      copy[index] = copy[next];
+      copy[next] = tmp;
+      return copy.map((d, i) => ({ ...d, sortOrder: i }));
+    });
+    setDirty(true);
+  }, []);
+
+  const handleDelete = useCallback(
+    async (id: string) => {
+      if (!window.confirm('Delete this block from the page?')) return;
+      setMessage(null);
+      try {
+        await deleteSections({ slug: page.slug, ids: [id] }).unwrap();
+        setDrafts((prev) => prev.filter((s) => s.id !== id));
+        if (editingId === id) setEditingId(null);
+        setMessage({ severity: 'success', text: 'Block deleted.' });
+        await refetch();
+        router.refresh();
+      } catch (err) {
+        setMessage({
+          severity: 'error',
+          text: err instanceof Error ? err.message : 'Failed to delete block',
+        });
+      }
+    },
+    [deleteSections, editingId, page.slug, refetch, router],
+  );
+
+  const handleAdd = useCallback(async () => {
+    setMessage(null);
+    try {
+      await createSection({
+        slug: page.slug,
+        blockType: addBlockType,
+        config: defaultConfigForBlock(addBlockType),
+      }).unwrap();
+      setMessage({ severity: 'success', text: `Added ${addBlockType} block.` });
+      await refetch();
+      router.refresh();
+    } catch (err) {
+      setMessage({
+        severity: 'error',
+        text: err instanceof Error ? err.message : 'Failed to add block',
+      });
+    }
+  }, [addBlockType, createSection, page.slug, refetch, router]);
+
+  if (isLoading) {
+    return (
+      <Box sx={{ display: 'flex', justifyContent: 'center', py: 6 }}>
+        <CircularProgress size={28} />
+      </Box>
+    );
+  }
+
+  if (error || !pageLoaded) {
+    return (
+      <Stack spacing={2} sx={{ p: 3 }}>
+        <Alert severity="error">
+          Could not load page sections for editing. Use Admin → Page Content for catalog-only pages.
+        </Alert>
+        <Button variant="outlined" onClick={handleCancel}>Exit edit mode</Button>
+      </Stack>
+    );
+  }
+
+  return (
+    <Box component="main" id="pdfCapture">
+      <Paper
+        elevation={0}
+        sx={{
+          position: 'sticky',
+          top: 52,
+          zIndex: 10,
+          mx: 2,
+          mt: 2,
+          mb: 1,
+          px: 2,
+          py: 1.25,
+          border: '1px solid',
+          borderColor: 'primary.main',
+          bgcolor: 'background.paper',
+          display: 'flex',
+          alignItems: 'center',
+          gap: 1,
+          flexWrap: 'wrap',
+        }}
+      >
+        <Chip label="Editing page" color="primary" size="small" />
+        <Typography variant="body2" sx={{ flex: 1, minWidth: 120 }}>
+          {page.title}
+        </Typography>
+        {contentLocked ? <Chip label="CMS locked" size="small" variant="outlined" /> : null}
+        {dirty ? <Chip label="Unsaved order/config" size="small" color="warning" /> : null}
+        <Button size="small" startIcon={<CloseIcon />} onClick={handleCancel}>
+          Cancel
+        </Button>
+        <Button
+          size="small"
+          variant="contained"
+          startIcon={saving ? <CircularProgress size={14} color="inherit" /> : <SaveIcon />}
+          disabled={!dirty || saving}
+          onClick={() => void handleSave()}
+        >
+          Save
+        </Button>
+      </Paper>
+
+      {message ? (
+        <Alert severity={message.severity} onClose={() => setMessage(null)} sx={{ mx: 2, mb: 1 }}>
+          {message.text}
+        </Alert>
+      ) : null}
+
+      <Stack spacing={2} sx={{ px: 1, pb: 4 }}>
+        {previewSections.length === 0 ? (
+          <Alert severity="info" sx={{ mx: 1 }}>
+            This page has no blocks yet. Add one below.
+          </Alert>
+        ) : null}
+
+        {previewSections.map((section, index) => (
+          <Box
+            key={section.id}
+            sx={{
+              position: 'relative',
+              outline: '2px dashed',
+              outlineColor: editingId === section.id ? 'primary.main' : 'divider',
+              outlineOffset: 4,
+              borderRadius: 1,
+            }}
+          >
+            <Stack
+              direction="row"
+              spacing={0.5}
+              sx={{
+                position: 'absolute',
+                top: 8,
+                right: 8,
+                zIndex: 2,
+                bgcolor: 'background.paper',
+                borderRadius: 1,
+                boxShadow: 1,
+                p: 0.25,
+              }}
+            >
+              <Tooltip title="Move up">
+                <span>
+                  <IconButton
+                    size="small"
+                    aria-label="Move block up"
+                    disabled={index === 0}
+                    onClick={() => moveSection(index, -1)}
+                  >
+                    <ArrowUpwardIcon fontSize="small" />
+                  </IconButton>
+                </span>
+              </Tooltip>
+              <Tooltip title="Move down">
+                <span>
+                  <IconButton
+                    size="small"
+                    aria-label="Move block down"
+                    disabled={index === previewSections.length - 1}
+                    onClick={() => moveSection(index, 1)}
+                  >
+                    <ArrowDownwardIcon fontSize="small" />
+                  </IconButton>
+                </span>
+              </Tooltip>
+              <Tooltip title="Edit block settings">
+                <IconButton
+                  size="small"
+                  aria-label={`Edit ${section.blockType} block`}
+                  onClick={() => setEditingId(section.id)}
+                >
+                  <SettingsIcon fontSize="small" />
+                </IconButton>
+              </Tooltip>
+              <Tooltip title="Delete block">
+                <span>
+                  <IconButton
+                    size="small"
+                    aria-label={`Delete ${section.blockType} block`}
+                    disabled={deleting}
+                    onClick={() => void handleDelete(section.id)}
+                  >
+                    <DeleteIcon fontSize="small" />
+                  </IconButton>
+                </span>
+              </Tooltip>
+            </Stack>
+            <Chip
+              label={section.blockType}
+              size="small"
+              sx={{ position: 'absolute', top: 8, left: 8, zIndex: 2 }}
+            />
+            <BlockPreview
+              blockType={section.blockType}
+              config={section.config}
+            />
+            <Typography variant="caption" color="text.disabled" sx={{ display: 'block', textAlign: 'right', pr: 1, pb: 0.5 }}>
+              #{index + 1}
+            </Typography>
+          </Box>
+        ))}
+
+        <Paper variant="outlined" sx={{ mx: 1, p: 2 }}>
+          <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5} sx={{ alignItems: { sm: 'center' } }}>
+            <FormControl size="small" sx={{ minWidth: 200, flex: 1 }}>
+              <InputLabel id="inline-add-block">Add block</InputLabel>
+              <Select
+                labelId="inline-add-block"
+                label="Add block"
+                value={addBlockType}
+                onChange={(e) => setAddBlockType(e.target.value)}
+              >
+                {CMS_ADDABLE_BLOCKS.map((bt) => (
+                  <MenuItem key={bt} value={bt}>{bt}</MenuItem>
+                ))}
+              </Select>
+            </FormControl>
+            <Button
+              variant="outlined"
+              startIcon={creating ? <CircularProgress size={14} /> : <AddIcon />}
+              disabled={creating}
+              onClick={() => void handleAdd()}
+            >
+              Add block
+            </Button>
+          </Stack>
+        </Paper>
+      </Stack>
+
+      <Drawer
+        anchor="right"
+        open={editingSection !== null}
+        onClose={() => setEditingId(null)}
+        slotProps={{ paper: { sx: { width: { xs: '100%', sm: 420 }, p: 2 } } }}
+      >
+        {editingSection ? (
+          <Stack spacing={2} sx={{ height: '100%' }}>
+            <Stack direction="row" spacing={1} sx={{ alignItems: 'center', justifyContent: 'space-between' }}>
+              <Typography variant="h6">Block settings</Typography>
+              <IconButton aria-label="Close block settings" onClick={() => setEditingId(null)}>
+                <CloseIcon />
+              </IconButton>
+            </Stack>
+            <Chip label={editingSection.blockType} size="small" sx={{ alignSelf: 'flex-start' }} />
+            <Box sx={{ flex: 1, overflow: 'auto' }}>
+              <SectionConfigEditor
+                blockType={editingSection.blockType}
+                config={editingSection.config}
+                onChange={(config) => updateDraftConfig(editingSection.id, config)}
+              />
+            </Box>
+            <Button variant="contained" onClick={() => setEditingId(null)}>
+              Done
+            </Button>
+          </Stack>
+        ) : null}
+      </Drawer>
+    </Box>
+  );
+}

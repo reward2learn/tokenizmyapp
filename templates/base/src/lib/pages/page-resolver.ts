@@ -7,37 +7,71 @@
  *  - app/page.tsx (root Home '/' rendering when it is the default route)
  */
 
+import { getCurrentAppId } from '@shared/lib/config/tenant';
+import { pageSlugLookupCandidates, toRoutePageSlug } from '@shared/lib/page-slug';
 import { resolvePage } from '@/lib/page-catalog';
 import type { PageDefinition, AuthTier } from '@/lib/page-catalog';
+
+function mapDbPage(
+  row: {
+    slug: string;
+    title: string;
+    authTier: string;
+    navLabel: string | null;
+    showInNav: boolean;
+    sections: Array<{
+      id: string;
+      sortOrder: number;
+      blockType: string;
+      config: unknown;
+    }>;
+  },
+  appId: string,
+): PageDefinition {
+  return {
+    slug: toRoutePageSlug(row.slug, appId),
+    title: row.title,
+    authTier: (row.authTier ?? 'google') as AuthTier,
+    navLabel: row.navLabel ?? undefined,
+    showInNav: row.showInNav,
+    sections: row.sections.map((s) => ({
+      id: s.id,
+      sortOrder: s.sortOrder,
+      blockType: s.blockType as PageDefinition['sections'][number]['blockType'],
+      config: (s.config ?? {}) as Record<string, unknown>,
+    })),
+  };
+}
+
+async function loadPageFromDb(routeSlug: string): Promise<PageDefinition | null> {
+  const appId = getCurrentAppId();
+  const { PrismaClient } = await import('@/generated/prisma');
+  const url = process.env.POSTGRES_URL ?? process.env.DATABASE_URL;
+  if (!url) return null;
+  const prisma = new PrismaClient({ datasources: { db: { url } } });
+  try {
+    for (const storageSlug of pageSlugLookupCandidates(routeSlug, appId)) {
+      const row = await prisma.appPage.findFirst({
+        where: {
+          slug: storageSlug,
+          ...(appId ? { appId } : {}),
+        },
+        include: { sections: { orderBy: { sortOrder: 'asc' } } },
+      });
+      if (row) return mapDbPage(row, appId);
+    }
+    return null;
+  } finally {
+    await prisma.$disconnect();
+  }
+}
 
 export async function resolvePageWithDb(slug: string): Promise<PageDefinition | null> {
   const fromCatalog = resolvePage(slug);
   if (fromCatalog) return fromCatalog;
 
   try {
-    const { PrismaClient } = await import('@/generated/prisma');
-    const url = process.env.POSTGRES_URL ?? process.env.DATABASE_URL;
-    if (!url) return null;
-    const prisma = new PrismaClient({ datasources: { db: { url } } });
-    try {
-      const row = await prisma.appPage.findUnique({
-        where: { slug },
-        include: { sections: { orderBy: { sortOrder: 'asc' } } },
-      });
-      if (row) {
-        return {
-          slug: row.slug,
-          title: row.title,
-          authTier: (row.authTier ?? 'google') as AuthTier,
-          sections: row.sections.map((s) => ({
-            blockType: s.blockType as PageDefinition['sections'][number]['blockType'],
-            config: (s.config ?? {}) as Record<string, unknown>,
-          })),
-        };
-      }
-    } finally {
-      await prisma.$disconnect();
-    }
+    return await loadPageFromDb(slug);
   } catch {
     // DB unavailable — catalog-only resolution still applies above.
   }

@@ -7,6 +7,9 @@
 
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
+import { getCurrentAppId } from '@shared/lib/config/tenant';
+import { resolveAppPageRow } from '@shared/lib/page-cms-resolve';
+import { toRoutePageSlug } from '@shared/lib/page-slug';
 import { requireRead, requireWrite, requireWriteAuth } from '@/lib/auth/guards';
 import { jsonError, jsonOk } from '@/lib/api/response';
 import { ensurePageCmsColumns, getPageCmsClient } from '@/lib/page-cms-db';
@@ -26,6 +29,7 @@ export async function GET(request: Request): Promise<NextResponse> {
   if (!guard.ok) return guard.response;
 
   const prisma = getPageCmsClient();
+  const appId = getCurrentAppId();
   try {
     await ensurePageCmsColumns(prisma);
 
@@ -42,16 +46,31 @@ export async function GET(request: Request): Promise<NextResponse> {
         sectionCount: number;
       }[]
     >(
-      `SELECT p.id, p.slug, p.title, p.auth_tier AS "authTier",
+      appId
+        ? `SELECT p.id, p.slug, p.title, p.auth_tier AS "authTier",
+              p.nav_label AS "navLabel", COALESCE(p.show_in_nav, true) AS "showInNav",
+              COALESCE(p.content_locked, false) AS "contentLocked",
+              p.sort_order AS "sortOrder",
+              (SELECT COUNT(*)::int FROM page_sections s WHERE s.page_id = p.id) AS "sectionCount"
+       FROM app_pages p
+       WHERE COALESCE(p.app_id, '') = $1
+       ORDER BY p.sort_order ASC, p.slug ASC`
+        : `SELECT p.id, p.slug, p.title, p.auth_tier AS "authTier",
               p.nav_label AS "navLabel", COALESCE(p.show_in_nav, true) AS "showInNav",
               COALESCE(p.content_locked, false) AS "contentLocked",
               p.sort_order AS "sortOrder",
               (SELECT COUNT(*)::int FROM page_sections s WHERE s.page_id = p.id) AS "sectionCount"
        FROM app_pages p
        ORDER BY p.sort_order ASC, p.slug ASC`,
+      ...(appId ? [appId] : []),
     );
 
-    return jsonOk({ pages });
+    return jsonOk({
+      pages: pages.map((p) => ({
+        ...p,
+        slug: toRoutePageSlug(p.slug, appId),
+      })),
+    });
   } catch (err) {
     return jsonError(err instanceof Error ? err.message : String(err), 500);
   } finally {
@@ -76,17 +95,20 @@ export async function PUT(request: Request): Promise<NextResponse> {
     return jsonError('Validation error: ' + JSON.stringify(parsed.error.flatten()), 400);
   }
 
-  const { slug, contentLocked } = parsed.data;
+  const { slug: routeSlug, contentLocked } = parsed.data;
   const prisma = getPageCmsClient();
+  const appId = getCurrentAppId();
   try {
     await ensurePageCmsColumns(prisma);
+    const page = await resolveAppPageRow(prisma, routeSlug, { appId });
+    if (!page) return jsonError(`Page "${routeSlug}" not found`, 404);
     const result = await prisma.$executeRawUnsafe(
-      `UPDATE app_pages SET content_locked = $1 WHERE slug = $2`,
+      `UPDATE app_pages SET content_locked = $1 WHERE id = $2`,
       contentLocked,
-      slug,
+      page.id,
     );
-    if (Number(result) === 0) return jsonError(`Page "${slug}" not found`, 404);
-    return jsonOk({ slug, contentLocked });
+    if (Number(result) === 0) return jsonError(`Page "${routeSlug}" not found`, 404);
+    return jsonOk({ slug: routeSlug, contentLocked });
   } catch (err) {
     return jsonError(err instanceof Error ? err.message : String(err), 500);
   } finally {

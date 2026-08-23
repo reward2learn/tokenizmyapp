@@ -10,6 +10,7 @@
  */
 import { getTemplate, type TemplateDefinition } from '@/domain/tenant/template-catalog';
 import { DEFAULT_PLATFORM_ADMIN_EMAIL } from '@/domain/security/functional-roles';
+import { toStoragePageSlug } from '@shared/lib/page-slug';
 
 /**
  * Minimal SQL surface used by seed helpers. Accepts both the generated
@@ -341,12 +342,11 @@ export async function seedTenantDefaults(input: SeedTenantInput): Promise<{
 
   for (const tplPage of input.skipContent ? [] : template.defaultPages) {
     try {
+      const routeSlug = tplPage.slug;
+      const storageSlug = input.appId ? toStoragePageSlug(routeSlug, input.appId) : routeSlug;
       // Upsert page — include a generated ID for FK references.
-      // NOTE: `slug` is a GLOBAL unique constraint, not composite with
-      // tenant/app — two apps sharing the same template and the same shared
-      // DB (dedicated-DB provisioning failure fallback) can still collide
-      // here. Stamping app_id below is correct for the normal case (each
-      // app in its own dedicated DB) but doesn't fully solve that fallback.
+      // `slug` is globally unique; suite apps use `{appId}-{routeSlug}` storage
+      // slugs so sibling apps in a shared DB do not overwrite each other.
       const pageId_ = genRandomId();
       await db.$executeRawUnsafe(
         `INSERT INTO app_pages (id, slug, title, auth_tier, sort_order, nav_label, show_in_nav, tenant_slug, app_id)
@@ -355,7 +355,7 @@ export async function seedTenantDefaults(input: SeedTenantInput): Promise<{
            SET id = COALESCE(app_pages.id, $1), title = $3, auth_tier = CAST($4 AS "AuthTier"), sort_order = $5,
                nav_label = $6, show_in_nav = true, tenant_slug = $7, app_id = $8;`,
         pageId_,
-        tplPage.slug,
+        storageSlug,
         tplPage.title,
         tplPage.authTier,
         pageCount, // sort_order reflects page definition order in the template
@@ -368,7 +368,7 @@ export async function seedTenantDefaults(input: SeedTenantInput): Promise<{
       // (when a page already exists, the upsert keeps the old ID, not our generated one)
       const pageIdRows = (await db.$queryRawUnsafe(
         `SELECT id FROM app_pages WHERE slug = $1 LIMIT 1;`,
-        tplPage.slug,
+        storageSlug,
       )) as { id: string }[];
 
       if (pageIdRows.length === 0) {
@@ -399,7 +399,7 @@ export async function seedTenantDefaults(input: SeedTenantInput): Promise<{
       // Insert sections with generated deterministic IDs
       for (let i = 0; i < tplPage.blockTypes.length; i++) {
         const blockType = tplPage.blockTypes[i];
-        const sectionId = `${tplPage.slug}:section:${i}`;
+        const sectionId = `${storageSlug}:section:${i}`;
         const authored = tplPage.sectionConfigs?.[i];
         // doc_markdown requires a content source — the summary page renders the
         // executive summary snippet (same source the root catalog uses).

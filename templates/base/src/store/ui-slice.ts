@@ -15,6 +15,9 @@ export interface UiState {
   selectedMonthPeriod: string | null;
   primaryColor?: string;
   secondaryColor?: string;
+  /** Inline page CMS — edit blocks on the current route. */
+  pageEditMode: boolean;
+  pageEditSlug: string | null;
 }
 
 const initialState: UiState = {
@@ -28,6 +31,8 @@ const initialState: UiState = {
   selectedMonthPeriod: null,
   primaryColor: '#eb3d28',
   secondaryColor: '#0af9fe',
+  pageEditMode: false,
+  pageEditSlug: null,
 };
 
 export const uiSlice = createSlice({
@@ -69,6 +74,18 @@ export const uiSlice = createSlice({
       state.primaryColor = action.payload.primary;
       state.secondaryColor = action.payload.secondary;
     },
+    setPageEditMode(
+      state,
+      action: { payload: { enabled: boolean; slug: string | null } },
+    ) {
+      state.pageEditMode = action.payload.enabled;
+      state.pageEditSlug = action.payload.enabled ? action.payload.slug : null;
+    },
+    togglePageEditMode(state, action: { payload: { slug: string | null } }) {
+      const next = !(state.pageEditMode && state.pageEditSlug === action.payload.slug);
+      state.pageEditMode = next;
+      state.pageEditSlug = next ? action.payload.slug : null;
+    },
   },
 });
 
@@ -82,4 +99,6 @@ export const {
   setChartScenario,
   setSelectedMonth,
   setThemeColors,
+  setPageEditMode,
+  togglePageEditMode,
 } = uiSlice.actions;

@@ -10,32 +10,60 @@
  *  - app/page.tsx (root Home '/' rendering when it is the default route)
  */
 
-import { isPlatformApp } from '@shared/lib/config/tenant';
+import { getCurrentAppId, isPlatformApp } from '@shared/lib/config/tenant';
+import { pageSlugLookupCandidates, toRoutePageSlug } from '@shared/lib/page-slug';
 import { resolvePage } from '@/lib/page-catalog';
 import type { PageDefinition, AuthTier } from '@/lib/page-catalog';
 
-async function loadPageFromDb(slug: string): Promise<PageDefinition | null> {
+function mapDbPage(
+  row: {
+    slug: string;
+    title: string;
+    authTier: string;
+    navLabel: string | null;
+    showInNav: boolean;
+    sections: Array<{
+      id: string;
+      sortOrder: number;
+      blockType: string;
+      config: unknown;
+    }>;
+  },
+  appId: string,
+): PageDefinition {
+  return {
+    slug: toRoutePageSlug(row.slug, appId),
+    title: row.title,
+    authTier: (row.authTier ?? 'google') as AuthTier,
+    navLabel: row.navLabel ?? undefined,
+    showInNav: row.showInNav,
+    sections: row.sections.map((s) => ({
+      id: s.id,
+      sortOrder: s.sortOrder,
+      blockType: s.blockType as PageDefinition['sections'][number]['blockType'],
+      config: (s.config ?? {}) as Record<string, unknown>,
+    })),
+  };
+}
+
+async function loadPageFromDb(routeSlug: string): Promise<PageDefinition | null> {
+  const appId = getCurrentAppId();
   const { PrismaClient } = await import('@/generated/prisma');
   const url = process.env.POSTGRES_URL ?? process.env.DATABASE_URL;
   if (!url) return null;
   const prisma = new PrismaClient({ datasources: { db: { url } } });
   try {
-    const row = await prisma.appPage.findUnique({
-      where: { slug },
-      include: { sections: { orderBy: { sortOrder: 'asc' } } },
-    });
-    if (!row) return null;
-    return {
-      slug: row.slug,
-      title: row.title,
-      authTier: (row.authTier ?? 'google') as AuthTier,
-      navLabel: row.navLabel ?? undefined,
-      showInNav: row.showInNav,
-      sections: row.sections.map((s) => ({
-        blockType: s.blockType as PageDefinition['sections'][number]['blockType'],
-        config: (s.config ?? {}) as Record<string, unknown>,
-      })),
-    };
+    for (const storageSlug of pageSlugLookupCandidates(routeSlug, appId)) {
+      const row = await prisma.appPage.findFirst({
+        where: {
+          slug: storageSlug,
+          ...(appId ? { appId } : {}),
+        },
+        include: { sections: { orderBy: { sortOrder: 'asc' } } },
+      });
+      if (row) return mapDbPage(row, appId);
+    }
+    return null;
   } finally {
     await prisma.$disconnect();
   }
@@ -51,10 +79,7 @@ export async function resolvePageWithDb(slug: string): Promise<PageDefinition | 
     const fromDb = await loadPageFromDb(slug);
     // A DB row with zero sections is treated as "not populated yet" so we can
     // fall back to the code catalog (tenant home after AI Content, etc.).
-    // An intentionally empty CMS page should set content_locked / keep a stub section.
     if (fromDb && fromDb.sections.length > 0) {
-      // Home is a CEO KPI snapshot — drop legacy Trial Balance / sheet grids
-      // that older ensure/seed runs may still have stored in Neon.
       if (slug === 'home') {
         return {
           ...fromDb,

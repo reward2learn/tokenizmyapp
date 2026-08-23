@@ -12,6 +12,8 @@
 
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
+import { getCurrentAppId } from '@shared/lib/config/tenant';
+import { resolveAppPageRow } from '@shared/lib/page-cms-resolve';
 import { type BlockType, PrismaClient } from '@/generated/prisma';
 import { requireRead, requireWrite, requireWriteAuth } from '@/lib/auth/guards';
 import { jsonError, jsonOk } from '@/lib/api/response';
@@ -44,13 +46,10 @@ const updateSchema = z.object({
 
 async function resolvePageId(
   prisma: PrismaClient,
-  slug: string,
+  routeSlug: string,
 ): Promise<{ id: string } | null> {
-  const rows = (await prisma.$queryRawUnsafe(
-    `SELECT id FROM app_pages WHERE slug = $1 LIMIT 1`,
-    slug,
-  )) as { id: string }[];
-  return rows[0] ?? null;
+  const page = await resolveAppPageRow(prisma, routeSlug, { appId: getCurrentAppId() });
+  return page ? { id: page.id } : null;
 }
 
 async function lockPageContent(prisma: PrismaClient, pageId: string): Promise<void> {

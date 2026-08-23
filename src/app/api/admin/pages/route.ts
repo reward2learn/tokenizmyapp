@@ -13,6 +13,8 @@ import { sessionIsPlatformAdmin } from '@/lib/auth/jwt';
 import { jsonError, jsonOk } from '@/lib/api/response';
 import { resolveTenantDbUrl } from '@/domain/tenant/tenant-db-resolver';
 import { addTenantColumnsIfMissing } from '@/domain/tenant/tenant-seed-service';
+import { resolveAppPageRow } from '@shared/lib/page-cms-resolve';
+import { toRoutePageSlug } from '@shared/lib/page-slug';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 30;
@@ -81,7 +83,12 @@ export async function GET(request: Request): Promise<NextResponse> {
       ...params,
     );
 
-    return jsonOk({ pages });
+    return jsonOk({
+      pages: pages.map((p) => ({
+        ...p,
+        slug: appId ? toRoutePageSlug(p.slug, appId) : p.slug,
+      })),
+    });
   } catch (err) {
     return jsonError(err instanceof Error ? err.message : String(err), 500);
   } finally {
@@ -106,18 +113,23 @@ export async function PUT(request: Request): Promise<NextResponse> {
     return jsonError('Validation error: ' + JSON.stringify(parsed.error.flatten()), 400);
   }
 
-  const { slug, contentLocked, tenantSlug, appId } = parsed.data;
+  const { slug: routeSlug, contentLocked, tenantSlug, appId } = parsed.data;
   const dbUrl = await resolveTenantDbUrl(tenantSlug, appId);
   const prisma = getClient(dbUrl);
   try {
     await addTenantColumnsIfMissing(prisma);
+    const page = await resolveAppPageRow(prisma, routeSlug, {
+      appId: appId ?? '',
+      tenantSlug: tenantSlug ?? undefined,
+    });
+    if (!page) return jsonError(`Page "${routeSlug}" not found`, 404);
     const result = await prisma.$executeRawUnsafe(
-      `UPDATE app_pages SET content_locked = $1 WHERE slug = $2`,
+      `UPDATE app_pages SET content_locked = $1 WHERE id = $2`,
       contentLocked,
-      slug,
+      page.id,
     );
-    if (Number(result) === 0) return jsonError(`Page "${slug}" not found`, 404);
-    return jsonOk({ slug, contentLocked });
+    if (Number(result) === 0) return jsonError(`Page "${routeSlug}" not found`, 404);
+    return jsonOk({ slug: routeSlug, contentLocked });
   } catch (err) {
     return jsonError(err instanceof Error ? err.message : String(err), 500);
   } finally {

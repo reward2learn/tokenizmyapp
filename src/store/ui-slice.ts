@@ -80,6 +80,9 @@ export interface UiState {
    * across the tree for a setter.
    */
   settingsDialogOpen: boolean;
+  /** Inline page CMS — edit blocks on the current route. */
+  pageEditMode: boolean;
+  pageEditSlug: string | null;
 }
 
 const initialState: UiState = {
@@ -100,6 +103,8 @@ const initialState: UiState = {
   billingTab: 'plan',
   settingsSection: 'general',
   settingsDialogOpen: false,
+  pageEditMode: false,
+  pageEditSlug: null,
 };
 
 export const uiSlice = createSlice({
@@ -196,6 +201,18 @@ export const uiSlice = createSlice({
     setAdminActiveSubtab(state, action: { payload: AdminTenantSubtab }) {
       state.adminActiveSubtab = action.payload;
     },
+    setPageEditMode(
+      state,
+      action: { payload: { enabled: boolean; slug: string | null } },
+    ) {
+      state.pageEditMode = action.payload.enabled;
+      state.pageEditSlug = action.payload.enabled ? action.payload.slug : null;
+    },
+    togglePageEditMode(state, action: { payload: { slug: string | null } }) {
+      const next = !(state.pageEditMode && state.pageEditSlug === action.payload.slug);
+      state.pageEditMode = next;
+      state.pageEditSlug = next ? action.payload.slug : null;
+    },
   },
 });
 
@@ -217,4 +234,6 @@ export const {
   setSettingsSection,
   setSettingsDialogOpen,
   openSettingsDialog,
+  setPageEditMode,
+  togglePageEditMode,
 } = uiSlice.actions;

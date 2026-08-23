@@ -25,6 +25,8 @@ import Button from '@mui/material/Button';
 import dynamic from 'next/dynamic';
 import MenuIcon from '@mui/icons-material/Menu';
 import ChatIcon from '@mui/icons-material/Chat';
+import EditIcon from '@mui/icons-material/Edit';
+import EditOffIcon from '@mui/icons-material/EditOff';
 import CloseIcon from '@mui/icons-material/Close';
 import NavigateNextIcon from '@mui/icons-material/NavigateNext';
 import SearchOutlined from '@mui/icons-material/SearchOutlined';
@@ -36,7 +38,9 @@ import { SavedConversationsMenu } from '@/components/chat/saved-conversations-me
 import { WalletConnectButton } from '@/components/web3/wallet-connect-button';
 import { getReviewPartDisplayTitle, listNavPages, resolvePage, resolveReviewPart } from '@/lib/page-catalog';
 import { useAppDispatch, useAppSelector } from '@/store/hooks';
-import { setChatDrawerOpen, setDrawerOpen, toggleChatDrawer } from '@/store/ui-slice';
+import { setChatDrawerOpen, setDrawerOpen, setPageEditMode, toggleChatDrawer, togglePageEditMode } from '@/store/ui-slice';
+import { hasPagesWrite } from '@/lib/auth/admin-access';
+import { routePathToPageSlug } from '@/lib/page-route-slug';
 import { useListPagesQuery } from '@/store/apis/content-api';
 import { useGetBrandConfigQuery } from '@shared/store/apis/brand-config-api';
 import { useGetNavigationQuery } from '@/store/apis/navigation-api';
@@ -76,7 +80,9 @@ export function AppShell({ children }: { children: ReactNode }) {
   const dispatch = useAppDispatch();
   const drawerOpen = useAppSelector((s) => s.ui.drawerOpen);
   const chatDrawerOpen = useAppSelector((s) => s.ui.chatDrawerOpen);
-  const { tier, user, groups } = useAppSelector((s) => s.auth);
+  const pageEditMode = useAppSelector((s) => s.ui.pageEditMode);
+  const pageEditSlug = useAppSelector((s) => s.ui.pageEditSlug);
+  const { tier, user, groups, permissions, platformAdmin } = useAppSelector((s) => s.auth);
   useListPagesQuery();
 
   // Brand config via RTK Query — fallback to tenant env var, then default
@@ -113,7 +119,15 @@ export function AppShell({ children }: { children: ReactNode }) {
   // Only fall back to the static catalog when the response is missing/malformed.
   const navItems = (dbNavItems !== undefined ? dbNavItems : catalogFallback) as DbNavItem[];
 
+  const pageSlug = useMemo(() => routePathToPageSlug(pathname), [pathname]);
+  const canEditPages = hasPagesWrite(permissions, platformAdmin);
+  const pageEditActive = pageEditMode && pageEditSlug === pageSlug;
 
+  useEffect(() => {
+    if (pageEditMode && pageEditSlug && pageEditSlug !== pageSlug) {
+      dispatch(setPageEditMode({ enabled: false, slug: null }));
+    }
+  }, [dispatch, pageEditMode, pageEditSlug, pageSlug]);
 
   const closeDrawer = () => dispatch(setDrawerOpen(false));
   const toggleDrawer = () => dispatch(setDrawerOpen(!drawerOpen));
@@ -351,6 +365,18 @@ export function AppShell({ children }: { children: ReactNode }) {
 
           {/* Right-aligned controls */}
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75 }}>
+            {canEditPages && pageSlug ? (
+              <Tooltip title={pageEditActive ? 'Exit page edit mode' : 'Edit this page'}>
+                <IconButton
+                  aria-label={pageEditActive ? 'Exit page edit mode' : 'Edit this page'}
+                  aria-pressed={pageEditActive}
+                  onClick={() => dispatch(togglePageEditMode({ slug: pageSlug }))}
+                  sx={{ color: pageEditActive ? 'primary.main' : 'text.secondary' }}
+                >
+                  {pageEditActive ? <EditOffIcon /> : <EditIcon />}
+                </IconButton>
+              </Tooltip>
+            ) : null}
             {/* Renders nothing unless the app's template enabled the wallet. */}
             <WalletConnectButton />
             <Tooltip title={chatDrawerOpen ? 'Close AI chat' : 'Open AI chat'}>

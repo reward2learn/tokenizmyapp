@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { usePathname } from 'next/navigation';
 import Link from 'next/link';
 import type { Route } from 'next';
@@ -27,6 +27,8 @@ import SettingsOutlined from '@mui/icons-material/SettingsOutlined';
 import Menu from '@mui/material/Menu';
 import MenuItem from '@mui/material/MenuItem';
 import ChatIcon from '@mui/icons-material/Chat';
+import EditIcon from '@mui/icons-material/Edit';
+import EditOffIcon from '@mui/icons-material/EditOff';
 import CloseIcon from '@mui/icons-material/Close';
 import SearchOutlined from '@mui/icons-material/SearchOutlined';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
@@ -40,7 +42,9 @@ import { HeaderCredits } from '@/components/billing/header-credits';
 import { SettingsDialog } from '@/components/settings/settings-dialog';
 import { listNavPages } from '@/lib/page-catalog';
 import { useAppDispatch, useAppSelector } from '@/store/hooks';
-import { openSettingsDialog, setChatDrawerOpen, setDrawerOpen, toggleChatDrawer } from '@/store/ui-slice';
+import { openSettingsDialog, setChatDrawerOpen, setDrawerOpen, setPageEditMode, toggleChatDrawer, togglePageEditMode } from '@/store/ui-slice';
+import { hasPagesWrite } from '@/lib/auth/admin-access';
+import { routePathToPageSlug } from '@/lib/page-route-slug';
 import { useListPagesQuery } from '@/store/apis/content-api';
 import { useGetBrandConfigQuery } from '@shared/store/apis/brand-config-api';
 import { useGetNavigationQuery } from '@/store/apis/navigation-api';
@@ -120,7 +124,9 @@ export function AppShell({ children }: { children: ReactNode }) {
   const dispatch = useAppDispatch();
   const drawerOpen = useAppSelector((s) => s.ui.drawerOpen);
   const chatDrawerOpen = useAppSelector((s) => s.ui.chatDrawerOpen);
-  const { tier, user, groups, platformAdmin, bootstrapped } = useAppSelector((s) => s.auth);
+  const pageEditMode = useAppSelector((s) => s.ui.pageEditMode);
+  const pageEditSlug = useAppSelector((s) => s.ui.pageEditSlug);
+  const { tier, user, groups, platformAdmin, bootstrapped, permissions } = useAppSelector((s) => s.auth);
   const avatarUrl = useUserAvatarUrl();
   const navGroups = useMemo(
     () => effectiveUserGroups(groups, platformAdmin),
@@ -165,6 +171,16 @@ export function AppShell({ children }: { children: ReactNode }) {
   // Use DB nav when the API returned an items array (including empty).
   // Only fall back to the static catalog when the response is missing/malformed.
   const navItems = (dbNavItems !== undefined ? dbNavItems : catalogFallback) as DbNavItem[];
+
+  const pageSlug = useMemo(() => routePathToPageSlug(pathname), [pathname]);
+  const canEditPages = hasPagesWrite(permissions, platformAdmin);
+  const pageEditActive = pageEditMode && pageEditSlug === pageSlug;
+
+  useEffect(() => {
+    if (pageEditMode && pageEditSlug && pageEditSlug !== pageSlug) {
+      dispatch(setPageEditMode({ enabled: false, slug: null }));
+    }
+  }, [dispatch, pageEditMode, pageEditSlug, pageSlug]);
 
   const logoHref = useMemo((): Route => {
     const findDefault = (items: DbNavItem[]): string | null => {
@@ -392,6 +408,18 @@ export function AppShell({ children }: { children: ReactNode }) {
 
           {/* Right-aligned controls */}
           <Box sx={{ display: 'flex', alignItems: 'center' }}>
+            {canEditPages && pageSlug ? (
+              <Tooltip title={pageEditActive ? 'Exit page edit mode' : 'Edit this page'}>
+                <IconButton
+                  aria-label={pageEditActive ? 'Exit page edit mode' : 'Edit this page'}
+                  aria-pressed={pageEditActive}
+                  onClick={() => dispatch(togglePageEditMode({ slug: pageSlug }))}
+                  sx={{ color: pageEditActive ? 'primary.main' : 'text.secondary', mr: 0.5 }}
+                >
+                  {pageEditActive ? <EditOffIcon /> : <EditIcon />}
+                </IconButton>
+              </Tooltip>
+            ) : null}
             {/* Balance first: it is the number that decides whether the next
                 generation runs, so it reads before the tools that spend it. */}
             <HeaderCredits />
