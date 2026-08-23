@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo } from 'react';
+import { useMemo, type ReactNode } from 'react';
 import Box from '@mui/material/Box';
 import FormControl from '@mui/material/FormControl';
 import InputLabel from '@mui/material/InputLabel';
@@ -12,7 +12,11 @@ import FormControlLabel from '@mui/material/FormControlLabel';
 import Checkbox from '@mui/material/Checkbox';
 import Typography from '@mui/material/Typography';
 import { HeroConfigEditor } from '@/components/cms/hero-config-editor';
+import { CmsAiTextField } from '@/components/cms/cms-ai-text-field';
+import { AiGenerateFieldButton } from '@/components/cms/ai-field-generate-button';
+import { CmsEditorProvider } from '@/components/cms/cms-editor-context';
 import { hydrateBlockConfigForEdit } from '@/lib/hydrate-block-config';
+import type { CmsFieldValueType } from '@/lib/cms-block-field-catalog';
 import { useGetCmsSourcesQuery } from '@/store/apis/admin-api';
 
 function str(config: Record<string, unknown>, key: string): string {
@@ -82,6 +86,70 @@ export interface SectionConfigEditorProps {
   config: Record<string, unknown>;
   onChange: (config: Record<string, unknown>) => void;
   readOnly?: boolean;
+  pageSlug?: string;
+  pageTitle?: string;
+  tenantSlug?: string;
+  appId?: string;
+}
+
+function CmsAiFieldRow({
+  fieldKey,
+  fieldType,
+  currentValue,
+  readOnly,
+  onGenerated,
+  children,
+}: {
+  fieldKey: string;
+  fieldType?: CmsFieldValueType;
+  currentValue?: unknown;
+  readOnly?: boolean;
+  onGenerated: (value: unknown) => void;
+  children: ReactNode;
+}) {
+  return (
+    <Stack spacing={0.5}>
+      {!readOnly ? (
+        <Stack direction="row" justifyContent="flex-end">
+          <AiGenerateFieldButton
+            fieldKey={fieldKey}
+            fieldType={fieldType}
+            currentValue={currentValue}
+            onGenerated={onGenerated}
+          />
+        </Stack>
+      ) : null}
+      {children}
+    </Stack>
+  );
+}
+
+function wrapWithCmsContext(
+  node: ReactNode,
+  opts: {
+    pageSlug?: string;
+    pageTitle?: string;
+    blockType: string;
+    config: Record<string, unknown>;
+    tenantSlug?: string;
+    appId?: string;
+  },
+) {
+  if (!opts.pageSlug || !opts.pageTitle) return node;
+  return (
+    <CmsEditorProvider
+      value={{
+        pageSlug: opts.pageSlug,
+        pageTitle: opts.pageTitle,
+        blockType: opts.blockType,
+        config: opts.config,
+        tenantSlug: opts.tenantSlug,
+        appId: opts.appId,
+      }}
+    >
+      {node}
+    </CmsEditorProvider>
+  );
 }
 
 export function SectionConfigEditor({
@@ -89,15 +157,29 @@ export function SectionConfigEditor({
   config,
   onChange,
   readOnly = false,
+  pageSlug,
+  pageTitle,
+  tenantSlug,
+  appId,
 }: SectionConfigEditorProps) {
   const displayConfig = useMemo(
     () => hydrateBlockConfigForEdit(blockType, config),
     [blockType, config],
   );
 
+  const ctxWrap = (node: React.ReactNode) =>
+    wrapWithCmsContext(node, {
+      pageSlug,
+      pageTitle,
+      blockType,
+      config: displayConfig,
+      tenantSlug,
+      appId,
+    });
+
   if (blockType === 'hero') {
-    return (
-      <HeroConfigEditor config={displayConfig} onChange={onChange} readOnly={readOnly} />
+    return ctxWrap(
+      <HeroConfigEditor config={displayConfig} onChange={onChange} readOnly={readOnly} />,
     );
   }
 
@@ -112,361 +194,435 @@ export function SectionConfigEditor({
     const headlineKey = blockType === 'marketing_hero' ? 'headline' : 'heading';
     const subKey = blockType === 'marketing_hero' ? 'subheadline' : 'subheading';
 
-    return (
+    return ctxWrap(
       <Box component="fieldset" disabled={readOnly} sx={{ border: 0, m: 0, p: 0, minWidth: 0 }}>
         <Stack spacing={1.5}>
-          <TextField
+          <CmsAiTextField
             label={headlineKey}
+            fieldKey={headlineKey}
             size="small"
             fullWidth
             value={str(displayConfig, headlineKey)}
-            onChange={(e) => onChange(setStr(config, headlineKey, e.target.value))}
+            onChange={(v) => onChange(setStr(config, headlineKey, v))}
+            readOnly={readOnly}
           />
-          <TextField
+          <CmsAiTextField
             label={subKey}
+            fieldKey={subKey}
+            fieldType="multiline"
             size="small"
             fullWidth
             multiline
             minRows={2}
             value={str(displayConfig, subKey)}
-            onChange={(e) => onChange(setStr(config, subKey, e.target.value))}
+            onChange={(v) => onChange(setStr(config, subKey, v))}
+            readOnly={readOnly}
           />
           {blockType === 'marketing_hero' && (
             <>
-              <TextField
-                label="audiences (comma-separated)"
-                size="small"
-                fullWidth
-                value={Array.isArray(displayConfig.audiences) ? (displayConfig.audiences as string[]).join(', ') : ''}
-                onChange={(e) =>
-                  onChange({
-                    ...config,
-                    audiences: e.target.value
-                      .split(',')
-                      .map((s) => s.trim())
-                      .filter(Boolean),
-                  })
-                }
-              />
-              <TextField
-                label="quickStarts (comma-separated)"
-                size="small"
-                fullWidth
-                value={Array.isArray(displayConfig.quickStarts) ? (displayConfig.quickStarts as string[]).join(', ') : ''}
-                onChange={(e) =>
-                  onChange({
-                    ...config,
-                    quickStarts: e.target.value
-                      .split(',')
-                      .map((s) => s.trim())
-                      .filter(Boolean),
-                  })
-                }
-              />
-              <TextField
+              <CmsAiFieldRow
+                fieldKey="audiences"
+                fieldType="string_array"
+                currentValue={displayConfig.audiences}
+                readOnly={readOnly}
+                onGenerated={(v) => {
+                  if (Array.isArray(v)) {
+                    onChange({ ...config, audiences: v.filter((x): x is string => typeof x === 'string') });
+                  }
+                }}
+              >
+                <TextField
+                  label="audiences (comma-separated)"
+                  size="small"
+                  fullWidth
+                  value={Array.isArray(displayConfig.audiences) ? (displayConfig.audiences as string[]).join(', ') : ''}
+                  onChange={(e) =>
+                    onChange({
+                      ...config,
+                      audiences: e.target.value
+                        .split(',')
+                        .map((s) => s.trim())
+                        .filter(Boolean),
+                    })
+                  }
+                />
+              </CmsAiFieldRow>
+              <CmsAiFieldRow
+                fieldKey="quickStarts"
+                fieldType="string_array"
+                currentValue={displayConfig.quickStarts}
+                readOnly={readOnly}
+                onGenerated={(v) => {
+                  if (Array.isArray(v)) {
+                    onChange({ ...config, quickStarts: v.filter((x): x is string => typeof x === 'string') });
+                  }
+                }}
+              >
+                <TextField
+                  label="quickStarts (comma-separated)"
+                  size="small"
+                  fullWidth
+                  value={Array.isArray(displayConfig.quickStarts) ? (displayConfig.quickStarts as string[]).join(', ') : ''}
+                  onChange={(e) =>
+                    onChange({
+                      ...config,
+                      quickStarts: e.target.value
+                        .split(',')
+                        .map((s) => s.trim())
+                        .filter(Boolean),
+                    })
+                  }
+                />
+              </CmsAiFieldRow>
+              <CmsAiTextField
                 label="placeholder"
+                fieldKey="placeholder"
                 size="small"
                 fullWidth
                 value={str(displayConfig, 'placeholder')}
-                onChange={(e) => onChange(setStr(config, 'placeholder', e.target.value))}
+                onChange={(v) => onChange(setStr(config, 'placeholder', v))}
+                readOnly={readOnly}
               />
-              <TextField
+              <CmsAiTextField
                 label="ctaLabel"
+                fieldKey="ctaLabel"
                 size="small"
                 fullWidth
                 value={str(displayConfig, 'ctaLabel')}
-                onChange={(e) => onChange(setStr(config, 'ctaLabel', e.target.value))}
+                onChange={(v) => onChange(setStr(config, 'ctaLabel', v))}
+                readOnly={readOnly}
               />
-              <TextField
+              <CmsAiTextField
                 label="ctaHref"
+                fieldKey="ctaHref"
+                fieldType="url"
                 size="small"
                 fullWidth
                 value={str(displayConfig, 'ctaHref')}
-                onChange={(e) => onChange(setStr(config, 'ctaHref', e.target.value))}
+                onChange={(v) => onChange(setStr(config, 'ctaHref', v))}
+                readOnly={readOnly}
               />
             </>
           )}
           {blockType === 'pricing_table' && (
             <>
-              <TextField
+              <CmsAiTextField
                 label="ctaHref"
+                fieldKey="ctaHref"
+                fieldType="url"
                 size="small"
                 fullWidth
                 value={str(displayConfig, 'ctaHref')}
-                onChange={(e) => onChange(setStr(config, 'ctaHref', e.target.value))}
+                onChange={(v) => onChange(setStr(config, 'ctaHref', v))}
+                readOnly={readOnly}
               />
-              <TextField
+              <CmsAiTextField
                 label="highlightPlanId"
+                fieldKey="highlightPlanId"
                 size="small"
                 fullWidth
                 value={str(displayConfig, 'highlightPlanId')}
-                onChange={(e) => onChange(setStr(config, 'highlightPlanId', e.target.value))}
+                onChange={(v) => onChange(setStr(config, 'highlightPlanId', v))}
                 helperText="Plan id to mark as Most popular (e.g. business)"
+                readOnly={readOnly}
               />
             </>
           )}
           {blockType === 'cta_banner' && (
             <>
-              <TextField
+              <CmsAiTextField
                 label="ctaLabel"
+                fieldKey="ctaLabel"
                 size="small"
                 fullWidth
                 value={str(displayConfig, 'ctaLabel')}
-                onChange={(e) => onChange(setStr(config, 'ctaLabel', e.target.value))}
+                onChange={(v) => onChange(setStr(config, 'ctaLabel', v))}
+                readOnly={readOnly}
               />
-              <TextField
+              <CmsAiTextField
                 label="ctaHref"
+                fieldKey="ctaHref"
+                fieldType="url"
                 size="small"
                 fullWidth
                 value={str(displayConfig, 'ctaHref')}
-                onChange={(e) => onChange(setStr(config, 'ctaHref', e.target.value))}
+                onChange={(v) => onChange(setStr(config, 'ctaHref', v))}
+                readOnly={readOnly}
               />
             </>
           )}
           {blockType === 'capability_marquee' && (
-            <TextField
-              label="rows (JSON array of string arrays)"
-              size="small"
-              fullWidth
-              multiline
-              minRows={4}
-              value={JSON.stringify(displayConfig.rows ?? [], null, 2)}
-              onChange={(e) => {
-                try {
-                  onChange({ ...config, rows: JSON.parse(e.target.value) as unknown });
-                } catch {
-                  /* keep typing invalid JSON */
-                }
-              }}
-            />
+            <CmsAiFieldRow
+              fieldKey="rows"
+              fieldType="json_rows"
+              currentValue={displayConfig.rows}
+              readOnly={readOnly}
+              onGenerated={(v) => onChange({ ...config, rows: v })}
+            >
+              <TextField
+                label="rows (JSON array of string arrays)"
+                size="small"
+                fullWidth
+                multiline
+                minRows={4}
+                value={JSON.stringify(displayConfig.rows ?? [], null, 2)}
+                onChange={(e) => {
+                  try {
+                    onChange({ ...config, rows: JSON.parse(e.target.value) as unknown });
+                  } catch {
+                    /* keep typing invalid JSON */
+                  }
+                }}
+              />
+            </CmsAiFieldRow>
           )}
         </Stack>
-      </Box>
+      </Box>,
     );
   }
 
   if (blockType === 'faq') {
-    return (
+    return ctxWrap(
       <Box component="fieldset" disabled={readOnly} sx={{ border: 0, m: 0, p: 0, minWidth: 0 }}>
         <Stack spacing={1.5}>
-          <TextField
+          <CmsAiTextField
             label="heading"
+            fieldKey="heading"
             size="small"
             fullWidth
             value={str(displayConfig, 'heading')}
-            onChange={(e) => onChange(setStr(config, 'heading', e.target.value))}
+            onChange={(v) => onChange(setStr(config, 'heading', v))}
+            readOnly={readOnly}
           />
-          <TextField
-            label="FAQ items (blocks of Q: / A:)"
-            size="small"
-            fullWidth
-            multiline
-            minRows={8}
-            value={faqItemsToText(displayConfig)}
-            onChange={(e) => onChange({ ...config, items: textToFaqItems(e.target.value) })}
-            helperText="Separate Q&A pairs with a blank line. Start lines with Q: and A:."
-          />
+          <CmsAiFieldRow
+            fieldKey="items"
+            fieldType="faq_items"
+            currentValue={displayConfig.items}
+            readOnly={readOnly}
+            onGenerated={(v) => onChange({ ...config, items: v })}
+          >
+            <TextField
+              label="FAQ items (blocks of Q: / A:)"
+              size="small"
+              fullWidth
+              multiline
+              minRows={8}
+              value={faqItemsToText(displayConfig)}
+              onChange={(e) => onChange({ ...config, items: textToFaqItems(e.target.value) })}
+              helperText="Separate Q&A pairs with a blank line. Start lines with Q: and A:."
+            />
+          </CmsAiFieldRow>
         </Stack>
-      </Box>
+      </Box>,
     );
   }
 
   if (blockType === 'product_showcase') {
-    return (
+    return ctxWrap(
       <Box component="fieldset" disabled={readOnly} sx={{ border: 0, m: 0, p: 0, minWidth: 0 }}>
         <Stack spacing={1.5}>
-          <TextField
+          <CmsAiTextField
             label="heading"
+            fieldKey="heading"
             size="small"
             fullWidth
             value={str(displayConfig, 'heading')}
-            onChange={(e) => onChange(setStr(config, 'heading', e.target.value))}
+            onChange={(v) => onChange(setStr(config, 'heading', v))}
+            readOnly={readOnly}
           />
-          <TextField
+          <CmsAiTextField
             label="subheading"
+            fieldKey="subheading"
+            fieldType="multiline"
             size="small"
             fullWidth
             multiline
             minRows={2}
             value={str(displayConfig, 'subheading')}
-            onChange={(e) => onChange(setStr(config, 'subheading', e.target.value))}
+            onChange={(v) => onChange(setStr(config, 'subheading', v))}
+            readOnly={readOnly}
           />
-          <TextField
-            label="items (title then body, blank line between)"
-            size="small"
-            fullWidth
-            multiline
-            minRows={8}
-            value={showcaseItemsToText(displayConfig)}
-            onChange={(e) => onChange({ ...config, items: textToShowcaseItems(e.target.value) })}
-          />
+          <CmsAiFieldRow
+            fieldKey="items"
+            fieldType="showcase_items"
+            currentValue={displayConfig.items}
+            readOnly={readOnly}
+            onGenerated={(v) => onChange({ ...config, items: v })}
+          >
+            <TextField
+              label="items (title then body, blank line between)"
+              size="small"
+              fullWidth
+              multiline
+              minRows={8}
+              value={showcaseItemsToText(displayConfig)}
+              onChange={(e) => onChange({ ...config, items: textToShowcaseItems(e.target.value) })}
+            />
+          </CmsAiFieldRow>
         </Stack>
-      </Box>
+      </Box>,
     );
   }
 
   if (blockType === 'feature_grid') {
-    return (
+    return ctxWrap(
       <Box component="fieldset" disabled={readOnly} sx={{ border: 0, m: 0, p: 0, minWidth: 0 }}>
         <Stack spacing={1.5}>
-          <TextField
+          <CmsAiTextField
             label="heading"
+            fieldKey="heading"
             size="small"
             fullWidth
             value={str(displayConfig, 'heading')}
-            onChange={(e) => onChange(setStr(config, 'heading', e.target.value))}
+            onChange={(v) => onChange(setStr(config, 'heading', v))}
+            readOnly={readOnly}
           />
-          <TextField
+          <CmsAiTextField
             label="subheading"
+            fieldKey="subheading"
+            fieldType="multiline"
             size="small"
             fullWidth
             multiline
             minRows={2}
             value={str(displayConfig, 'subheading')}
-            onChange={(e) => onChange(setStr(config, 'subheading', e.target.value))}
+            onChange={(v) => onChange(setStr(config, 'subheading', v))}
+            readOnly={readOnly}
           />
         </Stack>
-      </Box>
+      </Box>,
     );
   }
 
   if (blockType === 'lever_accordion') {
-    return (
+    return ctxWrap(
       <Box component="fieldset" disabled={readOnly} sx={{ border: 0, m: 0, p: 0, minWidth: 0 }}>
-        <TextField
+        <CmsAiTextField
           label="title"
+          fieldKey="title"
           size="small"
           fullWidth
           value={str(displayConfig, 'title')}
-          onChange={(e) => onChange(setStr(config, 'title', e.target.value))}
+          onChange={(v) => onChange(setStr(config, 'title', v))}
           helperText="Lever content is loaded from dashboard data"
+          readOnly={readOnly}
         />
-      </Box>
+      </Box>,
     );
   }
 
   if (blockType === 'doc_markdown') {
-    return (
-      <DocMarkdownConfigEditor config={displayConfig} onChange={onChange} readOnly={readOnly} />
+    return ctxWrap(
+      <DocMarkdownConfigEditor config={displayConfig} onChange={onChange} readOnly={readOnly} />,
     );
   }
 
   if (blockType === 'sheet_viewer') {
-    return (
-      <SheetViewerConfigEditor config={displayConfig} onChange={onChange} readOnly={readOnly} />
+    return ctxWrap(
+      <SheetViewerConfigEditor config={displayConfig} onChange={onChange} readOnly={readOnly} />,
     );
   }
 
   if (blockType === 'pack_table') {
-    return (
-      <PackTableConfigEditor config={displayConfig} onChange={onChange} readOnly={readOnly} />
+    return ctxWrap(
+      <PackTableConfigEditor config={displayConfig} onChange={onChange} readOnly={readOnly} />,
     );
   }
 
   if (blockType === 'chat_panel') {
-    return (
+    return ctxWrap(
       <Box component="fieldset" disabled={readOnly} sx={{ border: 0, m: 0, p: 0, minWidth: 0 }}>
         <Stack spacing={1.5}>
-          <TextField
+          <CmsAiTextField
             label="emptyStatePrompt"
+            fieldKey="emptyStatePrompt"
+            fieldType="multiline"
             size="small"
             fullWidth
             multiline
             minRows={2}
             value={str(displayConfig, 'emptyStatePrompt')}
-            onChange={(e) => onChange(setStr(config, 'emptyStatePrompt', e.target.value))}
+            onChange={(v) => onChange(setStr(config, 'emptyStatePrompt', v))}
+            readOnly={readOnly}
           />
-          <TextField
-            label="suggestedPrompts (one per line)"
-            size="small"
-            fullWidth
-            multiline
-            minRows={4}
-            value={
-              Array.isArray(displayConfig.suggestedPrompts)
-                ? (displayConfig.suggestedPrompts as string[]).join('\n')
-                : ''
-            }
-            onChange={(e) =>
-              onChange({
-                ...config,
-                suggestedPrompts: e.target.value
-                  .split('\n')
-                  .map((s) => s.trim())
-                  .filter(Boolean)
-                  .slice(0, 5),
-              })
-            }
-          />
+          <CmsAiFieldRow
+            fieldKey="suggestedPrompts"
+            fieldType="string_array"
+            currentValue={displayConfig.suggestedPrompts}
+            readOnly={readOnly}
+            onGenerated={(v) => {
+              if (Array.isArray(v)) {
+                onChange({
+                  ...config,
+                  suggestedPrompts: v
+                    .filter((x): x is string => typeof x === 'string')
+                    .slice(0, 5),
+                });
+              }
+            }}
+          >
+            <TextField
+              label="suggestedPrompts (one per line)"
+              size="small"
+              fullWidth
+              multiline
+              minRows={4}
+              value={
+                Array.isArray(displayConfig.suggestedPrompts)
+                  ? (displayConfig.suggestedPrompts as string[]).join('\n')
+                  : ''
+              }
+              onChange={(e) =>
+                onChange({
+                  ...config,
+                  suggestedPrompts: e.target.value
+                    .split('\n')
+                    .map((s) => s.trim())
+                    .filter(Boolean)
+                    .slice(0, 5),
+                })
+              }
+            />
+          </CmsAiFieldRow>
         </Stack>
-      </Box>
+      </Box>,
     );
   }
 
   if (blockType === 'chart_financial') {
-    return (
+    return ctxWrap(
       <Box component="fieldset" disabled={readOnly} sx={{ border: 0, m: 0, p: 0, minWidth: 0 }}>
         <Stack spacing={1.5}>
-          <FormControl size="small" fullWidth>
-            <InputLabel id="chart-scenario">scenario</InputLabel>
-            <Select
-              labelId="chart-scenario"
-              label="scenario"
-              value={str(displayConfig, 'scenario') || 'conservative'}
-              onChange={(e) => onChange(setStr(config, 'scenario', e.target.value))}
-            >
-              {['conservative', 'realistic', 'aspirational', 'actual'].map((s) => (
-                <MenuItem key={s} value={s}>{s}</MenuItem>
-              ))}
-            </Select>
-          </FormControl>
-          <FormControl size="small" fullWidth>
-            <InputLabel id="chart-variant">variant</InputLabel>
-            <Select
-              labelId="chart-variant"
-              label="variant"
-              value={str(displayConfig, 'variant') || 'dashboard'}
-              onChange={(e) => onChange(setStr(config, 'variant', e.target.value))}
-            >
-              <MenuItem value="dashboard">dashboard</MenuItem>
-              <MenuItem value="ops">ops</MenuItem>
-            </Select>
-          </FormControl>
-          <TextField
-            label="height (px)"
-            size="small"
-            type="number"
-            fullWidth
-            value={typeof config.height === 'number' ? config.height : ''}
-            onChange={(e) =>
-              onChange({
-                ...config,
-                height: e.target.value ? Number(e.target.value) : undefined,
-              })
-            }
-          />
-        </Stack>
-      </Box>
-    );
-  }
-
-  if (blockType === 'kpi_cards' || blockType === 'pnl_table') {
-    return (
-      <Box component="fieldset" disabled={readOnly} sx={{ border: 0, m: 0, p: 0, minWidth: 0 }}>
-        <Stack spacing={1.5}>
-          <TextField
-            label="period"
-            size="small"
-            fullWidth
-            value={str(displayConfig, 'period')}
-            onChange={(e) => onChange(setStr(config, 'period', e.target.value))}
-            placeholder="e.g. 2025-01"
-          />
-          {blockType === 'kpi_cards' && (
+          <Stack direction="row" spacing={1} alignItems="flex-start">
             <FormControl size="small" fullWidth>
-              <InputLabel id="kpi-variant">variant</InputLabel>
+              <InputLabel id="chart-scenario">scenario</InputLabel>
               <Select
-                labelId="kpi-variant"
+                labelId="chart-scenario"
+                label="scenario"
+                value={str(displayConfig, 'scenario') || 'conservative'}
+                onChange={(e) => onChange(setStr(config, 'scenario', e.target.value))}
+              >
+                {['conservative', 'realistic', 'aspirational', 'actual'].map((s) => (
+                  <MenuItem key={s} value={s}>{s}</MenuItem>
+                ))}
+              </Select>
+            </FormControl>
+            {!readOnly ? (
+              <AiGenerateFieldButton
+                fieldKey="scenario"
+                fieldType="enum"
+                currentValue={str(displayConfig, 'scenario') || 'conservative'}
+                onGenerated={(v) => {
+                  if (typeof v === 'string') onChange(setStr(config, 'scenario', v));
+                }}
+              />
+            ) : null}
+          </Stack>
+          <Stack direction="row" spacing={1} alignItems="flex-start">
+            <FormControl size="small" fullWidth>
+              <InputLabel id="chart-variant">variant</InputLabel>
+              <Select
+                labelId="chart-variant"
                 label="variant"
                 value={str(displayConfig, 'variant') || 'dashboard'}
                 onChange={(e) => onChange(setStr(config, 'variant', e.target.value))}
@@ -475,36 +631,114 @@ export function SectionConfigEditor({
                 <MenuItem value="ops">ops</MenuItem>
               </Select>
             </FormControl>
+            {!readOnly ? (
+              <AiGenerateFieldButton
+                fieldKey="variant"
+                fieldType="enum"
+                currentValue={str(displayConfig, 'variant') || 'dashboard'}
+                onGenerated={(v) => {
+                  if (typeof v === 'string') onChange(setStr(config, 'variant', v));
+                }}
+              />
+            ) : null}
+          </Stack>
+          <CmsAiTextField
+            label="height (px)"
+            fieldKey="height"
+            size="small"
+            type="number"
+            fullWidth
+            value={typeof displayConfig.height === 'number' ? String(displayConfig.height) : ''}
+            onChange={(v) =>
+              onChange({
+                ...config,
+                height: v ? Number(v) : undefined,
+              })
+            }
+            readOnly={readOnly}
+          />
+        </Stack>
+      </Box>,
+    );
+  }
+
+  if (blockType === 'kpi_cards' || blockType === 'pnl_table') {
+    return ctxWrap(
+      <Box component="fieldset" disabled={readOnly} sx={{ border: 0, m: 0, p: 0, minWidth: 0 }}>
+        <Stack spacing={1.5}>
+          <CmsAiTextField
+            label="period"
+            fieldKey="period"
+            size="small"
+            fullWidth
+            value={str(displayConfig, 'period')}
+            onChange={(v) => onChange(setStr(config, 'period', v))}
+            placeholder="e.g. 2025-01"
+            readOnly={readOnly}
+          />
+          {blockType === 'kpi_cards' && (
+            <Stack direction="row" spacing={1} alignItems="flex-start">
+              <FormControl size="small" fullWidth>
+                <InputLabel id="kpi-variant">variant</InputLabel>
+                <Select
+                  labelId="kpi-variant"
+                  label="variant"
+                  value={str(displayConfig, 'variant') || 'dashboard'}
+                  onChange={(e) => onChange(setStr(config, 'variant', e.target.value))}
+                >
+                  <MenuItem value="dashboard">dashboard</MenuItem>
+                  <MenuItem value="ops">ops</MenuItem>
+                </Select>
+              </FormControl>
+              {!readOnly ? (
+                <AiGenerateFieldButton
+                  fieldKey="variant"
+                  fieldType="enum"
+                  currentValue={str(displayConfig, 'variant') || 'dashboard'}
+                  onGenerated={(v) => {
+                    if (typeof v === 'string') onChange(setStr(config, 'variant', v));
+                  }}
+                />
+              ) : null}
+            </Stack>
           )}
         </Stack>
-      </Box>
+      </Box>,
     );
   }
 
   if (blockType === 'metric_grid') {
-    return (
+    return ctxWrap(
       <Box component="fieldset" disabled={readOnly} sx={{ border: 0, m: 0, p: 0, minWidth: 0 }}>
-        <TextField
-          label="scenarios (JSON)"
-          size="small"
-          fullWidth
-          multiline
-          minRows={6}
-          value={JSON.stringify(config.scenarios ?? [], null, 2)}
-          onChange={(e) => {
-            try {
-              onChange({ ...config, scenarios: JSON.parse(e.target.value) as unknown });
-            } catch {
-              /* keep typing */
-            }
-          }}
-          helperText='Array of { "key", "label", "target"? } objects'
-        />
-      </Box>
+        <CmsAiFieldRow
+          fieldKey="scenarios"
+          fieldType="json_rows"
+          currentValue={displayConfig.scenarios}
+          readOnly={readOnly}
+          onGenerated={(v) => onChange({ ...config, scenarios: v })}
+        >
+          <TextField
+            label="scenarios (JSON)"
+            size="small"
+            fullWidth
+            multiline
+            minRows={6}
+            value={JSON.stringify(displayConfig.scenarios ?? [], null, 2)}
+            onChange={(e) => {
+              try {
+                onChange({ ...config, scenarios: JSON.parse(e.target.value) as unknown });
+              } catch {
+                /* keep typing */
+              }
+            }}
+            helperText='Array of { "key", "label", "target"? } objects'
+          />
+        </CmsAiFieldRow>
+      </Box>,
     );
   }
 
-  return (
+  return ctxWrap(
     <Box component="fieldset" disabled={readOnly} sx={{ border: 0, m: 0, p: 0, minWidth: 0 }}>
       <TextField
         label="config (JSON)"
@@ -521,7 +755,7 @@ export function SectionConfigEditor({
           }
         }}
       />
-    </Box>
+    </Box>,
   );
 }
 
@@ -557,30 +791,37 @@ function DocMarkdownConfigEditor({
             ))}
           </Select>
         </FormControl>
-        <TextField
+        <CmsAiTextField
           label="source"
+          fieldKey="source"
           size="small"
           fullWidth
           value={current}
-          onChange={(e) => onChange(setStr(config, 'source', e.target.value))}
+          onChange={(v) => onChange(setStr(config, 'source', v))}
           helperText="Snippet key or alias (e.g. executive-summary)"
+          readOnly={readOnly}
         />
-        <TextField
+        <CmsAiTextField
           label="title"
+          fieldKey="title"
           size="small"
           fullWidth
           value={str(config, 'title')}
-          onChange={(e) => onChange(setStr(config, 'title', e.target.value))}
+          onChange={(v) => onChange(setStr(config, 'title', v))}
+          readOnly={readOnly}
         />
-        <TextField
+        <CmsAiTextField
           label="markdown (inline override)"
+          fieldKey="markdown"
+          fieldType="markdown"
           size="small"
           fullWidth
           multiline
           minRows={6}
           value={str(config, 'markdown')}
-          onChange={(e) => onChange(setStr(config, 'markdown', e.target.value))}
+          onChange={(v) => onChange(setStr(config, 'markdown', v))}
           helperText="Optional — overrides fetched snippet content"
+          readOnly={readOnly}
         />
         <FormControlLabel
           control={
@@ -633,20 +874,24 @@ function SheetViewerConfigEditor({
             ))}
           </Select>
         </FormControl>
-        <TextField
+        <CmsAiTextField
           label="sheet"
+          fieldKey="sheet"
           size="small"
           fullWidth
           value={current}
-          onChange={(e) => onChange(setStr(config, 'sheet', e.target.value))}
+          onChange={(v) => onChange(setStr(config, 'sheet', v))}
           helperText="Excel tab name from uploaded workbook"
+          readOnly={readOnly}
         />
-        <TextField
+        <CmsAiTextField
           label="title"
+          fieldKey="title"
           size="small"
           fullWidth
           value={str(config, 'title')}
-          onChange={(e) => onChange(setStr(config, 'title', e.target.value))}
+          onChange={(v) => onChange(setStr(config, 'title', v))}
+          readOnly={readOnly}
         />
         <TextField
           label="columns (comma-separated, optional)"
@@ -700,21 +945,25 @@ function PackTableConfigEditor({
             ))}
           </Select>
         </FormControl>
-        <TextField
+        <CmsAiTextField
           label="table"
+          fieldKey="table"
           size="small"
           fullWidth
           required
           value={current}
-          onChange={(e) => onChange(setStr(config, 'table', e.target.value))}
+          onChange={(v) => onChange(setStr(config, 'table', v))}
           helperText="Pack table name (app-pack model tableName)"
+          readOnly={readOnly}
         />
-        <TextField
+        <CmsAiTextField
           label="title"
+          fieldKey="title"
           size="small"
           fullWidth
           value={str(config, 'title')}
-          onChange={(e) => onChange(setStr(config, 'title', e.target.value))}
+          onChange={(v) => onChange(setStr(config, 'title', v))}
+          readOnly={readOnly}
         />
         <TextField
           label="pageSize"

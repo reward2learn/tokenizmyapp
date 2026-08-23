@@ -451,6 +451,10 @@ export function PageSectionsManager({ tenantSlug, appId, isSuite = false }: Page
                 <SectionConfigEditor
                   blockType={section.blockType}
                   config={section.config}
+                  pageSlug={slug ?? ''}
+                  pageTitle={pageTitle}
+                  tenantSlug={tenantSlug}
+                  appId={appId}
                   readOnly={!canWrite}
                   onChange={(config) => updateDraft(section.id, { config })}
                 />

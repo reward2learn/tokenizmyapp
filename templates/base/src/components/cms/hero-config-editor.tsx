@@ -22,6 +22,8 @@ import {
   type HeroNavButton,
   type HeroSlide,
 } from '@/lib/hero-config';
+import { CmsAiTextField } from '@/components/cms/cms-ai-text-field';
+import { AiGenerateFieldButton } from '@/components/cms/ai-field-generate-button';
 
 function str(config: Record<string, unknown>, key: string): string {
   const v = config[key];
@@ -88,64 +90,89 @@ function slidesFromConfig(config: Record<string, unknown>): HeroSlide[] {
   return config.slides.map(slideFromUnknown);
 }
 
-function updateNavButton(
-  config: Record<string, unknown>,
-  index: number,
-  field: 'label' | 'href',
-  value: string,
-  onChange: (config: Record<string, unknown>) => void,
-) {
-  const buttons = navButtonsFromConfig(config);
-  buttons[index] = { ...buttons[index], [field]: value };
-  onChange({
-    ...config,
-    navButtons: buttons.filter((b) => b.label.trim() || b.href.trim()),
-  });
-}
 
 function SlideFields({
   slide,
+  slideIndex,
   onChange,
   readOnly,
 }: {
   slide: HeroSlide;
+  slideIndex?: number;
   onChange: (slide: HeroSlide) => void;
   readOnly?: boolean;
 }) {
+  const path = (field: string) =>
+    slideIndex !== undefined ? `slides.${slideIndex}.${field}` : field;
+
   const buttons = slide.navButtons ?? [{ label: '', href: '' }, { label: '', href: '' }];
   const paddedButtons = [...buttons];
   while (paddedButtons.length < 2) paddedButtons.push({ label: '', href: '' });
 
   return (
     <Stack spacing={1.5}>
-      <TextField
+      <CmsAiTextField
         label="headline"
+        fieldKey="headline"
+        fieldPath={path('headline')}
         size="small"
         fullWidth
         value={slide.headline ?? ''}
-        onChange={(e) => onChange({ ...slide, headline: e.target.value })}
+        onChange={(v) => onChange({ ...slide, headline: v })}
         helperText="Main title line"
+        readOnly={readOnly}
       />
-      <TextField
+      <CmsAiTextField
         label="accent"
+        fieldKey="accent"
+        fieldPath={path('accent')}
         size="small"
         fullWidth
         value={slide.accent ?? ''}
-        onChange={(e) => onChange({ ...slide, accent: e.target.value })}
+        onChange={(v) => onChange({ ...slide, accent: v })}
         helperText="Second line in brand colour"
+        readOnly={readOnly}
       />
-      <TextField
+      <CmsAiTextField
         label="subtitle"
+        fieldKey="subtitle"
+        fieldPath={path('subtitle')}
+        fieldType="multiline"
         size="small"
         fullWidth
         multiline
         minRows={2}
         value={slide.subtitle ?? ''}
-        onChange={(e) => onChange({ ...slide, subtitle: e.target.value })}
+        onChange={(v) => onChange({ ...slide, subtitle: v })}
+        readOnly={readOnly}
       />
       <Typography variant="caption" color="text.secondary">
         Navigation buttons (up to 2)
       </Typography>
+      {!readOnly ? (
+        <Stack direction="row" justifyContent="flex-end">
+          <AiGenerateFieldButton
+            fieldKey="navButtons"
+            fieldPath={path('navButtons')}
+            fieldType="nav_buttons"
+            currentValue={slide.navButtons}
+            onGenerated={(v) => {
+              if (Array.isArray(v)) {
+                onChange({
+                  ...slide,
+                  navButtons: v
+                    .filter((b): b is HeroNavButton => !!b && typeof b === 'object')
+                    .map((b) => ({
+                      label: typeof b.label === 'string' ? b.label : '',
+                      href: typeof b.href === 'string' ? b.href : '',
+                    }))
+                    .slice(0, 2),
+                });
+              }
+            }}
+          />
+        </Stack>
+      ) : null}
       {paddedButtons.map((btn, i) => (
         <Stack key={i} direction="row" spacing={1}>
           <TextField
@@ -178,21 +205,29 @@ function SlideFields({
           />
         </Stack>
       ))}
-      <TextField
+      <CmsAiTextField
         label="background image URL"
+        fieldKey="backgroundImage"
+        fieldPath={path('backgroundImage')}
+        fieldType="url"
         size="small"
         fullWidth
         value={slide.backgroundImage ?? ''}
-        onChange={(e) => onChange({ ...slide, backgroundImage: e.target.value })}
+        onChange={(v) => onChange({ ...slide, backgroundImage: v })}
         helperText="Optional — shown behind hero text"
+        readOnly={readOnly}
       />
-      <TextField
+      <CmsAiTextField
         label="background video URL"
+        fieldKey="backgroundVideo"
+        fieldPath={path('backgroundVideo')}
+        fieldType="url"
         size="small"
         fullWidth
         value={slide.backgroundVideo ?? ''}
-        onChange={(e) => onChange({ ...slide, backgroundVideo: e.target.value })}
+        onChange={(v) => onChange({ ...slide, backgroundVideo: v })}
         helperText="Optional — MP4/WebM; image is ignored when video is set"
+        readOnly={readOnly}
       />
       <FormControlLabel
         control={
@@ -251,13 +286,15 @@ export function HeroConfigEditor({ config, onChange, readOnly = false }: HeroCon
   return (
     <Box component="fieldset" disabled={readOnly} sx={{ border: 0, m: 0, p: 0, minWidth: 0 }}>
       <Stack spacing={1.5}>
-        <TextField
+        <CmsAiTextField
           label="badge"
+          fieldKey="badge"
           size="small"
           fullWidth
           value={str(config, 'badge')}
-          onChange={(e) => onChange(setStr(config, 'badge', e.target.value))}
+          onChange={(v) => onChange(setStr(config, 'badge', v))}
           helperText="Optional chip above the headline"
+          readOnly={readOnly}
         />
 
         <FormControlLabel
@@ -299,6 +336,7 @@ export function HeroConfigEditor({ config, onChange, readOnly = false }: HeroCon
                   <Stack spacing={1}>
                     <SlideFields
                       slide={slide}
+                      slideIndex={index}
                       onChange={(next) => updateSlide(index, next)}
                       readOnly={readOnly}
                     />
@@ -330,77 +368,22 @@ export function HeroConfigEditor({ config, onChange, readOnly = false }: HeroCon
             </Button>
           </>
         ) : (
-          <>
-            <TextField
-              label="headline"
-              size="small"
-              fullWidth
-              value={str(config, 'headline')}
-              onChange={(e) => onChange(setStr(config, 'headline', e.target.value))}
-            />
-            <TextField
-              label="accent"
-              size="small"
-              fullWidth
-              value={str(config, 'accent')}
-              onChange={(e) => onChange(setStr(config, 'accent', e.target.value))}
-              helperText="Second line in brand colour"
-            />
-            <TextField
-              label="subtitle"
-              size="small"
-              fullWidth
-              multiline
-              minRows={2}
-              value={str(config, 'subtitle')}
-              onChange={(e) => onChange(setStr(config, 'subtitle', e.target.value))}
-            />
-            <Typography variant="caption" color="text.secondary">
-              Navigation buttons (up to 2)
-            </Typography>
-            {navButtonsFromConfig(config).map((btn, i) => (
-              <Stack key={i} direction="row" spacing={1}>
-                <TextField
-                  label={`Button ${i + 1} label`}
-                  size="small"
-                  fullWidth
-                  value={btn.label}
-                  onChange={(e) => updateNavButton(config, i, 'label', e.target.value, onChange)}
-                />
-                <TextField
-                  label="href"
-                  size="small"
-                  fullWidth
-                  value={btn.href}
-                  onChange={(e) => updateNavButton(config, i, 'href', e.target.value, onChange)}
-                />
-              </Stack>
-            ))}
-            <TextField
-              label="background image URL"
-              size="small"
-              fullWidth
-              value={str(config, 'backgroundImage')}
-              onChange={(e) => onChange(setStr(config, 'backgroundImage', e.target.value))}
-            />
-            <TextField
-              label="background video URL"
-              size="small"
-              fullWidth
-              value={str(config, 'backgroundVideo')}
-              onChange={(e) => onChange(setStr(config, 'backgroundVideo', e.target.value))}
-            />
-            <FormControlLabel
-              control={
-                <Checkbox
-                  checked={config.videoAutoplay !== false}
-                  onChange={(e) => onChange({ ...config, videoAutoplay: e.target.checked })}
-                  disabled={readOnly}
-                />
-              }
-              label="Video autoplay (muted)"
-            />
-          </>
+          <SlideFields
+            slide={slides[0] ?? emptyHeroSlide()}
+            onChange={(next) =>
+              onChange({
+                ...config,
+                headline: next.headline ?? '',
+                accent: next.accent ?? '',
+                subtitle: next.subtitle ?? '',
+                navButtons: next.navButtons,
+                backgroundImage: next.backgroundImage ?? '',
+                backgroundVideo: next.backgroundVideo ?? '',
+                videoAutoplay: next.videoAutoplay,
+              })
+            }
+            readOnly={readOnly}
+          />
         )}
       </Stack>
     </Box>

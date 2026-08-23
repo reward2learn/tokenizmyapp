@@ -391,6 +391,27 @@ export const adminApi = createApi({
       },
     }),
 
+    /** POST /api/admin/cms-generate-field — AI-generate a single CMS block config field */
+    generateCmsField: builder.mutation<
+      ApiEnvelope<{ value: unknown }>,
+      {
+        pageSlug: string;
+        pageTitle: string;
+        blockType: string;
+        fieldKey: string;
+        fieldPath?: string;
+        fieldType?: string;
+        currentConfig?: Record<string, unknown>;
+        currentValue?: unknown;
+      } & TenantAppScope
+    >({
+      query: (body) => ({
+        url: 'admin/cms-generate-field',
+        method: 'POST',
+        body,
+      }),
+    }),
+
     /** DELETE /api/admin/pages/[slug]/sections */
     deletePageSections: builder.mutation<
       ApiEnvelope<{ deleted: number; contentLocked: boolean }>,
@@ -493,6 +514,7 @@ export const {
   useCreatePageSectionMutation,
   useUpdatePageSectionsMutation,
   useDeletePageSectionsMutation,
+  useGenerateCmsFieldMutation,
   usePopulateSheetPagesMutation,
   useGenerateAppPackMutation,
   useGetAppPackStatusQuery,

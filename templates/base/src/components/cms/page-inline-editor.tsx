@@ -462,6 +462,8 @@ export function PageInlineEditor({ page }: PageInlineEditorProps) {
               <SectionConfigEditor
                 blockType={editingSection.blockType}
                 config={editingSection.config}
+                pageSlug={page.slug}
+                pageTitle={page.title}
                 onChange={(config) => updateDraftConfig(editingSection.id, config)}
               />
             </Box>
