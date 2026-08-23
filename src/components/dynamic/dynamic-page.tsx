@@ -25,11 +25,13 @@ function BlockSection({
   blockType,
   config,
   sectionKey,
+  animationKey,
   animateDisabled,
 }: {
   blockType: BlockType;
   config: Record<string, unknown>;
   sectionKey: string;
+  animationKey: string;
   animateDisabled?: boolean;
 }) {
   const Component = getBlockComponent(blockType);
@@ -43,7 +45,7 @@ function BlockSection({
 
   const block = <Component key={sectionKey} config={config} />;
   const wrapped = (
-    <BlockScrollAnimate animate={config.animate} disabled={animateDisabled}>
+    <BlockScrollAnimate animationKey={animationKey} animate={config.animate} disabled={animateDisabled}>
       {block}
     </BlockScrollAnimate>
   );
@@ -92,6 +94,7 @@ export function DynamicPage({ page }: DynamicPageProps) {
           blockType={section.blockType}
           config={section.config}
           sectionKey={sectionRenderKey(section, publishRevision)}
+          animationKey={`${page.slug}:${section.id}`}
           animateDisabled={isPdf}
         />
       ))}

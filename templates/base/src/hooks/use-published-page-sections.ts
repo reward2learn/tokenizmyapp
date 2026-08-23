@@ -50,11 +50,5 @@ export function sectionRenderKey(
   section: LivePageSection,
   publishRevision: number,
 ): string {
-  let configHash = '';
-  try {
-    configHash = JSON.stringify(section.config);
-  } catch {
-    configHash = String(section.sortOrder);
-  }
-  return `${section.id}-r${publishRevision}-${configHash.length}-${configHash.slice(0, 48)}`;
+  return `${section.id}-r${publishRevision}`;
 }
