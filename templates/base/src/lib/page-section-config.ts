@@ -1,5 +1,6 @@
 import { ZodError } from 'zod';
 import { blockConfigSchemas, parseBlockConfig } from '@/lib/schemas/block-config';
+import { resolveBlockAnimate } from '@/lib/schemas/block-animate';
 import type { BlockType } from '@/lib/page-catalog';
 
 /** Block types allowed in page_sections for this deployment's Postgres enum. */
@@ -38,18 +39,21 @@ export function validatePageSectionConfig(
   blockType: string,
   config: Record<string, unknown>,
 ): Record<string, unknown> {
+  const animate = resolveBlockAnimate(config.animate);
+  const { animate: _drop, ...blockOnly } = config;
   const withDefaults: Record<string, unknown> =
     blockType === 'marketing_hero'
       ? {
           headline: 'Build software for your business',
           subheadline: 'Describe what you need and get a working app.',
-          ...config,
+          ...blockOnly,
         }
-      : config;
+      : blockOnly;
 
   if (blockType in blockConfigSchemas) {
     try {
-      return parseBlockConfig(blockType as BlockType, withDefaults) as Record<string, unknown>;
+      const parsed = parseBlockConfig(blockType as BlockType, withDefaults) as Record<string, unknown>;
+      return { ...parsed, animate };
     } catch (err) {
       if (err instanceof ZodError) {
         throw new Error(
@@ -60,5 +64,5 @@ export function validatePageSectionConfig(
     }
   }
 
-  return withDefaults;
+  return { ...withDefaults, animate };
 }

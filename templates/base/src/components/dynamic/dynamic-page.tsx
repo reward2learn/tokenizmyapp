@@ -9,6 +9,7 @@ import { AuthGate } from '@/components/auth/auth-gate';
 import { SignInPanelGate } from '@/components/auth/sign-in-panel';
 import { PdfExportButton } from '@/components/ui/pdf-export-button';
 import { PageInlineEditor } from '@/components/cms/page-inline-editor';
+import { BlockScrollAnimate } from '@/components/blocks/block-scroll-animate';
 import { usePublishedPageSections, sectionRenderKey } from '@/hooks/use-published-page-sections';
 import { useAppSelector } from '@/store/hooks';
 
@@ -24,24 +25,31 @@ function BlockSection({
   blockType,
   config,
   sectionKey,
+  animateDisabled,
 }: {
   blockType: BlockType;
   config: Record<string, unknown>;
   sectionKey: string;
+  animateDisabled?: boolean;
 }) {
   const Component = getBlockComponent(blockType);
   const parsed = parseBlockConfig(blockType, config);
   const minTier = 'minTier' in parsed ? (parsed.minTier as AuthTier | undefined) : undefined;
 
   const block = <Component key={sectionKey} config={config} />;
+  const wrapped = (
+    <BlockScrollAnimate animate={config.animate} disabled={animateDisabled}>
+      {block}
+    </BlockScrollAnimate>
+  );
 
   if (!minTier || minTier === 'public') {
-    return <Box key={sectionKey}>{block}</Box>;
+    return <Box key={sectionKey}>{wrapped}</Box>;
   }
 
   return (
     <AuthGate key={sectionKey} requiredTier={minTier} fallback={null}>
-      {block}
+      {wrapped}
     </AuthGate>
   );
 }
@@ -75,6 +83,7 @@ export function DynamicPage({ page }: DynamicPageProps) {
           blockType={section.blockType}
           config={section.config}
           sectionKey={sectionRenderKey(section, publishRevision)}
+          animateDisabled={isPdf}
         />
       ))}
 

@@ -20,6 +20,7 @@ import { resolveTenantDbUrl } from '@/domain/tenant/tenant-db-resolver';
 import { addTenantColumnsIfMissing } from '@/domain/tenant/tenant-seed-service';
 import { resolveAppPageRow } from '@shared/lib/page-cms-resolve';
 import { parseBlockConfig } from '@/lib/schemas/block-config';
+import { resolveBlockAnimate } from '@/lib/schemas/block-animate';
 import type { BlockType as CatalogBlockType } from '@/lib/page-catalog';
 
 export const dynamic = 'force-dynamic';
@@ -59,17 +60,20 @@ const updateSchema = z.object({
 });
 
 function validateConfig(blockType: CatalogBlockType, config: Record<string, unknown>) {
+  const animate = resolveBlockAnimate(config.animate);
+  const { animate: _drop, ...blockOnly } = config;
   // marketing_hero requires headline/subheadline — seed empty creates with component defaults.
   const withDefaults: Record<string, unknown> =
     blockType === 'marketing_hero'
       ? {
           headline: 'Build software for your business',
           subheadline: 'Describe what you need and get a working app.',
-          ...config,
+          ...blockOnly,
         }
-      : config;
+      : blockOnly;
   try {
-    return parseBlockConfig(blockType, withDefaults) as Record<string, unknown>;
+    const parsed = parseBlockConfig(blockType, withDefaults) as Record<string, unknown>;
+    return { ...parsed, animate };
   } catch (err) {
     if (err instanceof ZodError) {
       throw new Error(

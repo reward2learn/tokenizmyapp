@@ -30,6 +30,7 @@ import { parseBlockConfig } from '@/lib/schemas/block-config';
 import { AuthGate } from '@/components/auth/auth-gate';
 import { CMS_ADDABLE_BLOCKS, defaultConfigForBlock } from '@/components/cms/cms-block-catalog';
 import { SectionConfigEditor } from '@/components/cms/section-config-editor';
+import { BlockAnimateSettings } from '@/components/cms/block-animate-settings';
 import {
   useCreatePageSectionMutation,
   useDeletePageSectionsMutation,
@@ -459,13 +460,19 @@ export function PageInlineEditor({ page }: PageInlineEditorProps) {
             </Stack>
             <Chip label={editingSection.blockType} size="small" sx={{ alignSelf: 'flex-start' }} />
             <Box sx={{ flex: 1, overflow: 'auto' }}>
-              <SectionConfigEditor
-                blockType={editingSection.blockType}
-                config={editingSection.config}
-                pageSlug={page.slug}
-                pageTitle={page.title}
-                onChange={(config) => updateDraftConfig(editingSection.id, config)}
-              />
+              <Stack spacing={2}>
+                <BlockAnimateSettings
+                  config={editingSection.config}
+                  onChange={(config) => updateDraftConfig(editingSection.id, config)}
+                />
+                <SectionConfigEditor
+                  blockType={editingSection.blockType}
+                  config={editingSection.config}
+                  pageSlug={page.slug}
+                  pageTitle={page.title}
+                  onChange={(config) => updateDraftConfig(editingSection.id, config)}
+                />
+              </Stack>
             </Box>
             <Button variant="contained" onClick={() => setEditingId(null)}>
               Done

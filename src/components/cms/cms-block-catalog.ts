@@ -22,63 +22,70 @@ export const CMS_ADDABLE_BLOCKS = [
 export type CmsAddableBlock = (typeof CMS_ADDABLE_BLOCKS)[number];
 
 import { DEFAULT_HERO_FALLBACK_ACCENT, DEFAULT_HERO_NAV_BUTTONS, getHeroFallbackTitle } from '@/lib/hero-config';
+import { DEFAULT_BLOCK_ANIMATE } from '@/lib/schemas/block-animate';
 
 /** Default config when creating a new section of the given block type. */
 export function defaultConfigForBlock(blockType: string): Record<string, unknown> {
+  const animate = { ...DEFAULT_BLOCK_ANIMATE };
+
   switch (blockType) {
     case 'hero':
       return {
+        animate,
         headline: getHeroFallbackTitle(),
         accent: DEFAULT_HERO_FALLBACK_ACCENT,
         navButtons: DEFAULT_HERO_NAV_BUTTONS,
       };
     case 'faq':
-      return { heading: 'Frequently asked questions', items: [] };
+      return { animate, heading: 'Frequently asked questions', items: [] };
     case 'cta_banner':
-      return { heading: 'Start building for free', ctaLabel: 'Start building', ctaHref: '/admin' };
+      return { animate, heading: 'Start building for free', ctaLabel: 'Start building', ctaHref: '/admin' };
     case 'pricing_table':
       return {
+        animate,
         heading: 'Pricing',
         subheading: 'Start for free and upgrade as you grow.',
         ctaHref: '/admin',
         highlightPlanId: 'business',
       };
     case 'capability_marquee':
-      return { heading: 'Everything you need is built-in', rows: [] };
+      return { animate, heading: 'Everything you need is built-in', rows: [] };
     case 'customer_proof':
-      return { heading: 'Customer results', items: [] };
+      return { animate, heading: 'Customer results', items: [] };
     case 'testimonials':
-      return { heading: 'What customers say', items: [] };
+      return { animate, heading: 'What customers say', items: [] };
     case 'product_showcase':
-      return { heading: 'From idea to published app in minutes', items: [] };
+      return { animate, heading: 'From idea to published app in minutes', items: [] };
     case 'feature_grid':
       return {
+        animate,
         heading: 'Everything the business runs on, in one tenant',
         subheading:
           'Private AI for planning and analysis, department apps generated on demand, and access controlled down to the record.',
       };
     case 'lever_accordion':
-      return { title: 'The 5 Levers' };
+      return { animate, title: 'The 5 Levers' };
     case 'marketing_hero':
       return {
+        animate,
         headline: 'Build software for your business',
         subheadline: 'Describe what you need and get a working app.',
       };
     case 'doc_markdown':
-      return { source: 'executive-summary', title: 'Document' };
+      return { animate, source: 'executive-summary', title: 'Document' };
     case 'sheet_viewer':
-      return { sheet: '', title: '' };
+      return { animate, sheet: '', title: '' };
     case 'pack_table':
-      return { table: '', title: '' };
+      return { animate, table: '', title: '' };
     case 'chat_panel':
-      return { emptyStatePrompt: 'How can I help?', suggestedPrompts: [] };
+      return { animate, emptyStatePrompt: 'How can I help?', suggestedPrompts: [] };
     case 'metric_grid':
-      return { scenarios: [] };
+      return { animate, scenarios: [] };
     case 'chart_financial':
-      return { variant: 'dashboard', scenario: 'conservative' };
+      return { animate, variant: 'dashboard', scenario: 'conservative' };
     case 'kpi_cards':
-      return { variant: 'dashboard' };
+      return { animate, variant: 'dashboard' };
     default:
-      return {};
+      return { animate };
   }
 }
