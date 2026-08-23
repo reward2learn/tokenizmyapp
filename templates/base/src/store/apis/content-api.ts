@@ -60,6 +60,32 @@ export const contentApi = createApi({
       query: (source) => `content?source=${encodeURIComponent(source)}`,
       providesTags: (_result, _error, source) => [{ type: 'Document', id: source }],
     }),
+    updateReviewPart: builder.mutation<
+      ReviewPartContent,
+      { partSlug: string; markdown: string; title?: string }
+    >({
+      query: ({ partSlug, markdown, title }) => ({
+        url: 'content',
+        method: 'PATCH',
+        body: {
+          source: `review:${partSlug}`,
+          markdown,
+          ...(title !== undefined ? { title } : {}),
+        },
+      }),
+      invalidatesTags: (_result, _error, { partSlug }) => [
+        { type: 'ReviewPart', id: partSlug },
+        { type: 'Document', id: `review:${partSlug}` },
+      ],
+      transformResponse: (response: { success?: boolean; data?: ReviewPartContent & { markdown: string } }) => {
+        const data = response.data;
+        return {
+          slug: data?.slug ?? '',
+          title: data?.title ?? '',
+          markdown: data?.markdown ?? '',
+        };
+      },
+    }),
   }),
 });
 
@@ -68,4 +94,5 @@ export const {
   useListPagesQuery,
   useGetReviewPartQuery,
   useGetDocumentQuery,
+  useUpdateReviewPartMutation,
 } = contentApi;

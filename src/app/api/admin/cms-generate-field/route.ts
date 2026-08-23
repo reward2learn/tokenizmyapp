@@ -3,7 +3,7 @@
  * Generate a single CMS block config field with the active AI provider.
  */
 
-import { NextResponse } from 'next/server';
+import { z } from 'zod';
 import { createClient } from '@/lib/db';
 import { requireWriteAuth } from '@/lib/auth/guards';
 import { jsonError, jsonOk } from '@/lib/api/response';

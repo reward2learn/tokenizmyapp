@@ -1,6 +1,6 @@
 'use client';
 
-import { createContext, useContext } from 'react';
+import { createContext, useContext, type ReactNode } from 'react';
 
 export interface CmsEditorContextValue {
   pageSlug: string;
@@ -19,7 +19,7 @@ export function CmsEditorProvider({
   children,
 }: {
   value: CmsEditorContextValue;
-  children: React.ReactNode;
+  children: ReactNode;
 }) {
   return <CmsEditorContext.Provider value={value}>{children}</CmsEditorContext.Provider>;
 }

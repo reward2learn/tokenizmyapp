@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo } from 'react';
+import { useMemo, type ReactNode } from 'react';
 import Box from '@mui/material/Box';
 import FormControl from '@mui/material/FormControl';
 import InputLabel from '@mui/material/InputLabel';
@@ -105,7 +105,7 @@ function CmsAiFieldRow({
   currentValue?: unknown;
   readOnly?: boolean;
   onGenerated: (value: unknown) => void;
-  children: React.ReactNode;
+  children: ReactNode;
 }) {
   return (
     <Stack spacing={0.5}>
@@ -125,7 +125,7 @@ function CmsAiFieldRow({
 }
 
 function wrapWithCmsContext(
-  node: React.ReactNode,
+  node: ReactNode,
   opts: {
     pageSlug?: string;
     pageTitle?: string;

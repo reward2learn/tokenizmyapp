@@ -82,7 +82,7 @@ export function AiGenerateFieldButton({
           startIcon={isLoading ? <CircularProgress size={14} color="inherit" /> : <AutoAwesomeIcon fontSize="small" />}
           sx={{ whiteSpace: 'nowrap', minWidth: 0, flexShrink: 0 }}
         >
-          {isLoading ? 'Generating…' : 'AI'}
+          {isLoading ? 'Generating…' : 'Generate with AI'}
         </Button>
       </span>
     </Tooltip>
