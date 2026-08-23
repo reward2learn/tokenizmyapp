@@ -604,6 +604,7 @@ async function handleChatPost(request: Request): Promise<Response> {
       keySource: ai.keySource,
       viewerEmail: session?.email,
       viewerUserId,
+      provider: ai.provider.id,
     });
   } catch (err) {
     console.error('CHAT ERROR:', err);

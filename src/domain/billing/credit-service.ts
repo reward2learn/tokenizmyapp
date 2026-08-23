@@ -1033,6 +1033,8 @@ export interface MeterAiUsageForOrgInput {
   viewerEmail?: string | null;
   /** Limits spend to org-shared + this user's personal grants. */
   viewerUserId?: string | null;
+  /** AI provider id (openai, vercel-ai-gateway, …) when known. */
+  provider?: string | null;
 }
 
 /**
@@ -1068,6 +1070,8 @@ async function recordExemptUsage(
       promptTokens: input.promptTokens,
       completionTokens: input.completionTokens,
       viewerEmail: input.viewerEmail ?? null,
+      viewerUserId: input.viewerUserId ?? null,
+      provider: input.provider ?? null,
     }),
   );
 
@@ -1112,6 +1116,8 @@ export async function meterAiUsageForOrg(
         model: input.model,
         promptTokens: input.promptTokens,
         completionTokens: input.completionTokens,
+        viewerUserId: input.viewerUserId ?? null,
+        provider: input.provider ?? null,
       },
       viewerUserId: input.viewerUserId,
       // The tokens are already spent by the time metering runs. Recording only
@@ -1168,6 +1174,8 @@ export interface MeterAiUsageInput {
   viewerEmail?: string | null;
   /** See MeterAiUsageForOrgInput.viewerUserId. */
   viewerUserId?: string | null;
+  /** See MeterAiUsageForOrgInput.provider. */
+  provider?: string | null;
 }
 
 /**

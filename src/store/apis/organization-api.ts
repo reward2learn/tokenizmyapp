@@ -121,6 +121,35 @@ export interface CreditLedgerEntry {
   metadata: unknown;
 }
 
+export interface CreditAdminAnalytics {
+  users: Array<{
+    userId: string | null;
+    sharedPool: boolean;
+    email: string | null;
+    name: string | null;
+    purchasedRemaining: number;
+    bonusRemaining: number;
+    purchasedGranted: number;
+    bonusGranted: number;
+    spent: number;
+  }>;
+  byModel: Array<{
+    model: string;
+    provider: string;
+    credits: number;
+    promptTokens: number;
+    completionTokens: number;
+    runs: number;
+  }>;
+  byProvider: Array<{
+    provider: string;
+    credits: number;
+    promptTokens: number;
+    completionTokens: number;
+    runs: number;
+  }>;
+}
+
 export const organizationApi = createApi({
   reducerPath: 'organizationApi',
   baseQuery,
@@ -294,6 +323,7 @@ export const organizationApi = createApi({
         grants: CreditGrant[];
         ledger: CreditLedgerEntry[];
         paymentsReady?: boolean;
+        analytics?: CreditAdminAnalytics;
       }>,
       string
     >({

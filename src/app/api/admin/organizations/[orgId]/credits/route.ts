@@ -32,6 +32,7 @@ import {
   mapCreditGrant,
   mapCreditLedgerEntry,
 } from '@/domain/billing/credit-service';
+import { getCreditAdminAnalytics } from '@/domain/billing/credit-analytics';
 
 export const dynamic = 'force-dynamic';
 
@@ -103,11 +104,13 @@ export async function GET(
       }
     }
 
+    const isAdminView = isPlatformApp() || sessionIsPlatformAdmin(guard.session);
+
     const [balance, grants, ledger] = await Promise.all([
       getCreditBalance(
         orgId,
         db,
-        !isPlatformApp() && !sessionIsPlatformAdmin(guard.session)
+        !isAdminView
           ? { forViewerUserId: await resolveViewerUserId(guard.session.sub) }
           : {},
       ),
@@ -129,6 +132,11 @@ export async function GET(
       grants: grants.map(mapCreditGrant),
       ledger: ledger.map(mapCreditLedgerEntry),
       paymentsReady: paymentsReadiness.ready,
+      ...(isAdminView
+        ? {
+            analytics: await getCreditAdminAnalytics(orgId, db),
+          }
+        : {}),
     });
   } catch (err) {
     return jsonError('Failed to load credits: ' + (err as Error).message, 500);

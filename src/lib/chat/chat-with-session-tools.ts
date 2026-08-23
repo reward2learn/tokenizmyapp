@@ -273,6 +273,7 @@ async function meterChatUsage(
     model: string;
     viewerEmail?: string | null;
     viewerUserId?: string | null;
+    provider?: string | null;
   },
   usage: { promptTokens: number; completionTokens: number } | null | undefined,
 ): Promise<void> {
@@ -290,6 +291,7 @@ async function meterChatUsage(
       // everyone else on the same org.
       viewerEmail: options.viewerEmail,
       viewerUserId: options.viewerUserId,
+      provider: options.provider,
     });
   } catch (err) {
     console.warn('[chat] Metering failed (non-blocking):', err instanceof Error ? err.message : err);
@@ -310,6 +312,7 @@ async function completeChatWithoutStreaming(options: {
   /** Signed-in viewer; exempt operators are recorded but never charged. */
   viewerEmail?: string | null;
   viewerUserId?: string | null;
+  provider?: string | null;
 }): Promise<Response> {
   const clientActions: ChatSessionAction[] = [];
   let templateDraft: CustomTemplateDraft | undefined;
@@ -401,6 +404,7 @@ async function completeChatWithStreaming(options: {
   /** Signed-in viewer; exempt operators are recorded but never charged. */
   viewerEmail?: string | null;
   viewerUserId?: string | null;
+  provider?: string | null;
 }): Promise<Response> {
   const encoder = new TextEncoder();
   const { readable, writable } = new TransformStream<Uint8Array>();
@@ -525,6 +529,7 @@ export async function completeChatWithSessionTools(options: {
   /** Signed-in viewer; exempt operators are recorded but never charged. */
   viewerEmail?: string | null;
   viewerUserId?: string | null;
+  provider?: string | null;
 }): Promise<Response> {
   if (options.stream) {
     return completeChatWithStreaming(options);

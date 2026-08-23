@@ -57,11 +57,13 @@ import {
 } from '@/components/billing/embedded-plan-checkout';
 import { CreditGrantsTable } from '@/components/billing/credit-grants-table';
 import { CreditUsageTable } from '@/components/billing/credit-usage-table';
+import { CreditAdminAnalyticsPanels } from '@/components/billing/credit-admin-analytics';
 import { BillingDetailsTab } from '@/components/billing/billing-details-tab';
 import { CloudCreditsTab } from '@/components/billing/cloud-credits-tab';
 import { PaymentMethodsTab } from '@/components/billing/payment-methods-tab';
 import { StripeTopUpDialog } from '@/components/ops-admin/stripe-topup-dialog';
 import { TenantManagedOrgAlert } from '@/components/settings/tenant-managed-message';
+import type { CreditAdminAnalytics } from '@/store/apis/organization-api';
 
 /**
  * Settings → Billing.
@@ -108,6 +110,7 @@ export function BillingPanel({
   const balance = creditsData?.data?.balance ?? null;
   const grants = creditsData?.data?.grants ?? [];
   const ledger = creditsData?.data?.ledger ?? [];
+  const analytics = creditsData?.data?.analytics ?? null;
   const readiness = checkoutData?.data?.readiness ?? null;
   const creditsPaymentsReady = creditsData?.data?.paymentsReady;
   const effectiveReadiness =
@@ -205,6 +208,7 @@ export function BillingPanel({
             grants={grants}
             ledger={ledger}
             readiness={effectiveReadiness}
+            analytics={analytics}
             readOnly={readOnly}
             selfServeTopUp={selfServeBilling}
             onOpenPlanTab={() => dispatch(setBillingTab('plan'))}
@@ -542,16 +546,25 @@ function AiCreditsTab({
   grants,
   ledger,
   readiness,
+  analytics,
   readOnly = false,
   selfServeTopUp = false,
   onOpenPlanTab,
 }: {
   orgId: string;
   planId: PlanId;
-  balance: { available: number; expiringSoon: number; debt: number; net: number; shared?: number; personal?: number } | null;
+  balance: {
+    available: number;
+    expiringSoon: number;
+    debt: number;
+    net: number;
+    shared?: number;
+    personal?: number;
+  } | null;
   grants: React.ComponentProps<typeof CreditGrantsTable>['grants'];
   ledger: React.ComponentProps<typeof CreditUsageTable>['ledger'];
   readiness: { ready: boolean } | null;
+  analytics?: CreditAdminAnalytics | null;
   readOnly?: boolean;
   selfServeTopUp?: boolean;
   onOpenPlanTab?: () => void;
@@ -562,26 +575,29 @@ function AiCreditsTab({
   const [requestCopied, setRequestCopied] = useState(false);
   const { user } = useAppSelector((s) => s.auth);
 
-  const byPlan = selfServeTopUp && balance?.shared !== undefined
-    ? balance.shared
-    : grants
-        .filter((g) => g.source === 'plan' && !g.ownerUserId)
-        .reduce((sum, g) => sum + g.remaining, 0);
-  const byPurchase = selfServeTopUp && user?.id
-    ? grants
-        .filter(
-          (g) =>
-            (g.source === 'addon' || g.source === 'onetime') && g.ownerUserId === user.id,
-        )
-        .reduce((sum, g) => sum + g.remaining, 0)
-    : grants
-        .filter((g) => g.source === 'addon' || g.source === 'onetime')
-        .reduce((sum, g) => sum + g.remaining, 0);
-  const byPromo = selfServeTopUp && user?.id
-    ? grants
-        .filter((g) => g.source === 'promo' && g.ownerUserId === user.id)
-        .reduce((sum, g) => sum + g.remaining, 0)
-    : grants.filter((g) => g.source === 'promo').reduce((sum, g) => sum + g.remaining, 0);
+  const byPlan =
+    selfServeTopUp && balance?.shared !== undefined
+      ? balance.shared
+      : grants
+          .filter((g) => g.source === 'plan' && !g.ownerUserId)
+          .reduce((sum, g) => sum + g.remaining, 0);
+  const byPurchase =
+    selfServeTopUp && user?.id
+      ? grants
+          .filter(
+            (g) =>
+              (g.source === 'addon' || g.source === 'onetime') && g.ownerUserId === user.id,
+          )
+          .reduce((sum, g) => sum + g.remaining, 0)
+      : grants
+          .filter((g) => g.source === 'addon' || g.source === 'onetime')
+          .reduce((sum, g) => sum + g.remaining, 0);
+  const byPromo =
+    selfServeTopUp && user?.id
+      ? grants
+          .filter((g) => g.source === 'promo' && g.ownerUserId === user.id)
+          .reduce((sum, g) => sum + g.remaining, 0)
+      : grants.filter((g) => g.source === 'promo').reduce((sum, g) => sum + g.remaining, 0);
 
   const visibleGrants =
     selfServeTopUp && user?.id
@@ -591,6 +607,7 @@ function AiCreditsTab({
   const mayPurchase = !readOnly || selfServeTopUp;
   const planAllowsTopUp = canPurchaseCreditPacks(planId);
   const canTopUp = mayPurchase && planAllowsTopUp;
+  const showAdminAnalytics = !readOnly && Boolean(analytics);
 
   const requestMessage = [
     'Hi,',
@@ -643,25 +660,6 @@ function AiCreditsTab({
         </Stack>
       </Box>
 
-      {/*
-        Auto-reload is NOT built. There is no store behind it: no column, no
-        endpoint, nothing that would run a top-up when a balance crosses a
-        threshold. The UI that used to sit here was unreachable anyway —
-        `autoReload` was initialised false and no control ever set it — so it
-        rendered as a permanent "Auto-reload: Disabled" line, promising a
-        feature that does not exist and cannot be switched on.
-
-        Building it needs three things this file cannot supply on its own: a
-        persisted setting on the organization, a server-side check that fires
-        when a balance crosses the threshold, and a stored payment method to
-        charge without a human present. Until those exist, the manual top-up
-        below is the whole story.
-      */}
-
-
-      {/* Where the balance comes from. Purchased and bonus credits are separate
-          lines because they are separate grants — a refund can claw back a
-          bonus without touching what the customer paid for. */}
       <Stack direction="row" spacing={3} sx={{ flexWrap: 'wrap' }}>
         <Box>
           <Typography variant="caption" color="text.secondary">
@@ -713,17 +711,7 @@ function AiCreditsTab({
         <Box>
           <Alert severity="info" sx={{ mb: 1.5 }}>
             Credit packs require a Pro plan or higher. This organization is on the{' '}
-            <strong>{planId}</strong> plan
-            {orgId ? (
-              <>
-                {' '}
-                (<Typography component="span" variant="caption" sx={{ fontFamily: 'monospace' }}>
-                  {orgId}
-                </Typography>
-                )
-              </>
-            ) : null}
-            .
+            <strong>{planId}</strong> plan.
           </Alert>
           <Button variant="contained" onClick={() => onOpenPlanTab?.()}>
             Upgrade plan
@@ -743,22 +731,15 @@ function AiCreditsTab({
           </Button>
         </Box>
       )}
-      {!canTopUp && !readiness?.ready && (
-        <Typography variant="caption" color="text.secondary">
-          Payments are not configured, so credits can only be granted by a platform admin.
-        </Typography>
-      )}
-      {canTopUp && !readiness?.ready && (
-        <Typography variant="caption" color="text.secondary">
-          Payments are not configured — top-ups are unavailable until Stripe Flight Check passes.
-        </Typography>
+
+      {showAdminAnalytics && analytics && (
+        <CreditAdminAnalyticsPanels
+          users={analytics.users}
+          byProvider={analytics.byProvider}
+          byModel={analytics.byModel}
+        />
       )}
 
-      {/*
-        Usage first. "Where did my credits go" is the question people arrive
-        with; "when do they expire" is the one they ask second, and only the
-        grants table can answer it — which is why both are here rather than one.
-      */}
       <Box>
         <Tabs
           value={historyTab}
@@ -813,43 +794,6 @@ function AiCreditsTab({
           </Button>
         </DialogActions>
       </Dialog>
-
-      {/* Usage History */}
-      {!readOnly && balance && (
-        <Box>
-          <Typography variant="subtitle2" sx={{ mb: 1 }}>
-            Usage History
-          </Typography>
-          <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap' }}>
-            <Typography variant="caption" color="text.secondary">
-              Last {Math.min(grants.length, 10)} generation events
-            </Typography>
-          </Stack>
-          <Table size="small">
-            <TableHead>
-              <TableRow>
-                <TableCell>Date</TableCell>
-                <TableCell>Model</TableCell>
-                <TableCell align="right">Prompt</TableCell>
-                <TableCell align="right">Completion</TableCell>
-                <TableCell align="right">Credits</TableCell>
-                <TableCell>Reason</TableCell>
-              </TableRow>
-            </TableHead>
-            <TableBody>
-              {/* Ledger entries would be fetched here */}
-              <TableRow>
-                <TableCell>—</TableCell>
-                <TableCell>No consumption data yet</TableCell>
-                <TableCell align="right">—</TableCell>
-                <TableCell align="right">—</TableCell>
-                <TableCell align="right">—</TableCell>
-                <TableCell>—</TableCell>
-              </TableRow>
-            </TableBody>
-          </Table>
-        </Box>
-      )}
     </Stack>
   );
 }
