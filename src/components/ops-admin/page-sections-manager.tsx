@@ -31,6 +31,7 @@ import LockOpenIcon from '@mui/icons-material/LockOpen';
 import SaveIcon from '@mui/icons-material/Save';
 import ArrowUpwardIcon from '@mui/icons-material/ArrowUpward';
 import ArrowDownwardIcon from '@mui/icons-material/ArrowDownward';
+import PlayArrowIcon from '@mui/icons-material/PlayArrow';
 import {
   useListAdminPagesQuery,
   useGetPageSectionsQuery,
@@ -39,8 +40,10 @@ import {
   useDeletePageSectionsMutation,
   useSetPageContentLockedMutation,
 } from '@/store/apis/admin-api';
+import { useSeedAppMutation, useSeedTenantMutation } from '@/store/apis/tenant-api';
 import { useAppSelector } from '@/store/hooks';
 import { hasPagesWrite } from '@/lib/auth/admin-access';
+import { getCurrentAppId, getTenantConfig } from '@/lib/tenant-config';
 
 const MARKETING_BLOCKS = [
   'marketing_hero',
@@ -63,6 +66,8 @@ const ADDABLE_BLOCKS = [
 interface PageSectionsManagerProps {
   tenantSlug?: string;
   appId?: string;
+  /** Suite tenants seed page/nav content per app — not via tenant-level seed. */
+  isSuite?: boolean;
 }
 
 interface SectionDraft {
@@ -135,11 +140,12 @@ function textToShowcaseItems(text: string): Array<{ title: string; body: string 
     .filter((i) => i.title || i.body);
 }
 
-export function PageSectionsManager({ tenantSlug, appId }: PageSectionsManagerProps = {}) {
+export function PageSectionsManager({ tenantSlug, appId, isSuite = false }: PageSectionsManagerProps = {}) {
   const scope = useMemo(() => ({ tenantSlug, appId }), [tenantSlug, appId]);
   const { platformAdmin, permissions } = useAppSelector((s) => s.auth);
   const canWrite = hasPagesWrite(permissions, platformAdmin);
-  const { data: pagesData, isLoading: pagesLoading, error: pagesError } = useListAdminPagesQuery(scope);
+  const { data: pagesData, isLoading: pagesLoading, error: pagesError, refetch: refetchPages } =
+    useListAdminPagesQuery(scope);
   const pages = pagesData?.data?.pages ?? [];
 
   const [slug, setSlug] = useState('');
@@ -158,6 +164,83 @@ export function PageSectionsManager({ tenantSlug, appId }: PageSectionsManagerPr
   const [createSection, { isLoading: creating }] = useCreatePageSectionMutation();
   const [deleteSections, { isLoading: deleting }] = useDeletePageSectionsMutation();
   const [setLocked, { isLoading: unlocking }] = useSetPageContentLockedMutation();
+  const [seedTenant, { isLoading: seedingTenant }] = useSeedTenantMutation();
+  const [seedApp, { isLoading: seedingApp }] = useSeedAppMutation();
+  const seeding = seedingTenant || seedingApp;
+
+  const resolvedSlug = tenantSlug ?? getTenantConfig().slug;
+  const resolvedAppId = appId ?? getCurrentAppId() || undefined;
+  const seedMode: 'app' | 'tenant' | 'blocked' = isSuite
+    ? appId
+      ? 'app'
+      : 'blocked'
+    : tenantSlug
+      ? 'tenant'
+      : resolvedAppId
+        ? 'app'
+        : 'tenant';
+
+  const handleSeedFromTemplate = async () => {
+    setMessage(null);
+    try {
+      if (seedMode === 'blocked') {
+        setMessage({
+          severity: 'info',
+          text: 'Select an app in the suite list above, then seed it from its template.',
+        });
+        return;
+      }
+
+      if (seedMode === 'app') {
+        const targetAppId = appId ?? resolvedAppId;
+        if (!targetAppId) {
+          setMessage({ severity: 'error', text: 'No app selected to seed.' });
+          return;
+        }
+        const result = await seedApp({ slug: resolvedSlug, appId: targetAppId }).unwrap();
+        const d = result.data;
+        if (d?.dbTarget === 'root') {
+          setMessage({
+            severity: 'error',
+            text: `Seeded to ROOT DB (no dedicated DB for this tenant) — ${d.verifiedPages ?? d.pages ?? 0} pages verified.`,
+          });
+        } else {
+          setMessage({
+            severity: 'success',
+            text: `App seeded from template — ${d?.verifiedPages ?? d?.pages ?? 0} pages, ${d?.verifiedNavItems ?? d?.navItems ?? 0} nav items.`,
+          });
+        }
+      } else {
+        const result = await seedTenant(resolvedSlug).unwrap();
+        const d = result.data;
+        if (d?.dbTarget === 'root') {
+          setMessage({
+            severity: 'error',
+            text: `Seeded to ROOT DB (no dedicated DB configured) — ${d.verifiedPages ?? d.pages ?? 0} pages verified.`,
+          });
+        } else if (d?.scope === 'tenant-wide') {
+          setMessage({
+            severity: 'error',
+            text: 'Suite tenant: page content is seeded per app. Select an app and use Seed from template.',
+          });
+        } else {
+          setMessage({
+            severity: 'success',
+            text: `Tenant seeded from template — ${d?.verifiedPages ?? d?.pages ?? 0} pages, ${d?.verifiedNavItems ?? d?.navItems ?? 0} nav items.`,
+          });
+        }
+      }
+      await refetchPages();
+    } catch (err) {
+      setMessage({
+        severity: 'error',
+        text:
+          err && typeof err === 'object' && 'data' in err
+            ? String((err as { data?: { error?: string } }).data?.error ?? 'Seed failed')
+            : 'Seed failed',
+      });
+    }
+  };
 
   useEffect(() => {
     if (!slug && pages.length > 0) {
@@ -309,10 +392,33 @@ export function PageSectionsManager({ tenantSlug, appId }: PageSectionsManagerPr
   }
 
   if (pages.length === 0) {
+    const seedBlocked = seedMode === 'blocked';
     return (
-      <Alert severity="info">
-        No pages in this app database yet. Seed the tenant from its template first.
-      </Alert>
+      <Stack spacing={2}>
+        <Alert severity="info">
+          No pages in this app database yet. Seed from the template to create default pages and unlock this CMS.
+        </Alert>
+        {seedBlocked && (
+          <Typography variant="body2" color="text.secondary">
+            Select an app in the suite list above, then seed it from its template.
+          </Typography>
+        )}
+        <Box>
+          <Button
+            variant="contained"
+            startIcon={seeding ? <CircularProgress size={18} color="inherit" /> : <PlayArrowIcon />}
+            onClick={() => void handleSeedFromTemplate()}
+            disabled={seeding || seedBlocked}
+          >
+            {seeding ? 'Seeding…' : seedMode === 'app' ? 'Seed app from template' : 'Seed tenant from template'}
+          </Button>
+        </Box>
+        {message && (
+          <Alert severity={message.severity} onClose={() => setMessage(null)}>
+            {message.text}
+          </Alert>
+        )}
+      </Stack>
     );
   }
 

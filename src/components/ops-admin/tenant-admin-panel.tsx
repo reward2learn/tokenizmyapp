@@ -420,7 +420,11 @@ export function TenantAdminPanel() {
                   <NavigationManager tenantSlug={selectedTenant.slug} appId={effectiveAppId} />
                 )}
                 {activeSubtab === 'pages' && selectedTenant && (
-                  <PageSectionsManager tenantSlug={selectedTenant.slug} appId={effectiveAppId} />
+                  <PageSectionsManager
+                    tenantSlug={selectedTenant.slug}
+                    appId={effectiveAppId}
+                    isSuite={isSuite}
+                  />
                 )}
                 {activeSubtab === 'brand' && selectedTenant && (
                   <BrandConfigTab tenantSlug={selectedTenant.slug} appId={effectiveAppId} />
