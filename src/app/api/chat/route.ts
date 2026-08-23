@@ -78,6 +78,10 @@ const chatBodySchema = z.object({
    * than any phrasing heuristic, so it turns them on directly.
    */
   activeTool: z.enum(['build_custom_template']).optional(),
+  /** Optional per-request provider override from the chat Tools picker. */
+  providerId: z.enum(['openai', 'vercel-ai-gateway', 'opencode-zen']).optional(),
+  /** Optional per-request model override from the chat Tools picker. */
+  model: z.string().trim().min(1).max(200).optional(),
 });
 
 const voiceBodySchema = z.object({
@@ -398,7 +402,7 @@ async function handleChatPost(request: Request): Promise<Response> {
     return legacyError('Message is required', 400);
   }
 
-  const { message, history = [], stream, attachments = [], activeTool } = parsed.data;
+  const { message, history = [], stream, attachments = [], activeTool, providerId, model } = parsed.data;
   const session = await getSessionFromRequest(request);
   const userName = session?.name || session?.email || 'Anonymous';
   const db = createClient({
@@ -420,8 +424,9 @@ async function handleChatPost(request: Request): Promise<Response> {
 
     const systemPrompt = await knowledge.buildSystemPrompt();
 
-    // Resolve the active AI provider early — needed for MapReduce phase below
-    const ai = await resolveActiveAiConfig();
+    // Resolve the active AI provider early — needed for MapReduce phase below.
+    // Chat Tools picker may override provider/model for this request only.
+    const ai = await resolveActiveAiConfig(model ?? null, undefined, providerId ?? null);
     if (!ai) {
       return friendlyChatReply(
         'I\'m not fully configured yet. The owner needs to set up an AI provider in Config > AI Chat.',
@@ -473,14 +478,12 @@ async function handleChatPost(request: Request): Promise<Response> {
     );
     const sessionToolsEnabled = Boolean(activeTool) || isExplicitSessionRequest(message) || lowBalance;
 
-    const appSettings = await getAppSettings(db);
-    // Web search relies on OpenAI's own search-preview model — no equivalent
-    // has been verified for the other providers yet, so it only actually
-    // activates when OpenAI is the active provider. Telling a different
-    // provider's model "web search is enabled" when it has no such
-    // capability would just produce misleading answers, so this degrades to
-    // off rather than sending a broken request.
-    const webSearchEnabled = appSettings.webSearchEnabled && ai.provider.id === 'openai';
+    await getAppSettings(db); // still loads settings; webSearchEnabled reserved for Responses API migration
+    // OpenAI's Chat Completions `*-search-preview` models are deprecated
+    // (shutdown 2026-07-23). Do not enable the legacy search-preview path —
+    // it forced a dead model id and stripped session tools. Responses API
+    // `web_search` migration is TBD; until then use the selected chat model.
+    const webSearchEnabled = false;
 
     const systemSections = [
       systemPrompt,

@@ -8,6 +8,7 @@ import {
   type CustomTemplateDraft,
 } from '@/lib/chat/session-tools';
 import type { ChatAttachment } from '@/lib/chat/attachments';
+import type { AiProviderId } from '@/store/apis/config-api';
 
 export interface ChatStreamMessage {
   role: 'user' | 'assistant';
@@ -31,6 +32,10 @@ export interface ChatStreamState {
    * drawer closes and reopens between turns). Sticky until explicitly cleared.
    */
   activeTool: ChatComposerTool | null;
+  /** Provider selected in Tools & Options for the next prompt (null = workspace default). */
+  selectedProviderId: AiProviderId | null;
+  /** Model selected in Tools & Options for the next prompt (null = workspace default). */
+  selectedModel: string | null;
   /**
    * A template the assistant designed but has NOT saved.
    *
@@ -53,6 +58,8 @@ const initialState: ChatStreamState = {
   pendingSessionActions: [],
   pendingCreditTopUp: null,
   activeTool: null,
+  selectedProviderId: null,
+  selectedModel: null,
   templateDraft: null,
 };
 
@@ -68,7 +75,7 @@ export const sendStreamingMessage = createAsyncThunk<
 
   // Read from the store rather than an argument so every caller sends the
   // selected tool without having to thread it through.
-  const activeTool = getState().chatStream.activeTool;
+  const { activeTool, selectedProviderId, selectedModel } = getState().chatStream;
 
   dispatch(resetStream());
   dispatch(addMessage({
@@ -92,6 +99,8 @@ export const sendStreamingMessage = createAsyncThunk<
         // Explicit composer selection — forces the matching tool on server-side
         // instead of relying on the message-phrasing heuristic.
         ...(activeTool ? { activeTool } : {}),
+        ...(selectedProviderId ? { providerId: selectedProviderId } : {}),
+        ...(selectedModel ? { model: selectedModel } : {}),
       }),
     });
 
@@ -209,6 +218,14 @@ export const chatStreamSlice = createSlice({
     setActiveTool(state, action: { payload: ChatComposerTool | null }) {
       state.activeTool = action.payload;
     },
+    setSelectedProviderId(state, action: { payload: AiProviderId | null }) {
+      state.selectedProviderId = action.payload;
+      // Changing provider clears a model that may not exist on the new provider.
+      state.selectedModel = null;
+    },
+    setSelectedModel(state, action: { payload: string | null }) {
+      state.selectedModel = action.payload;
+    },
     setTemplateDraft(state, action: { payload: CustomTemplateDraft }) {
       state.templateDraft = action.payload;
     },
@@ -236,6 +253,8 @@ export const {
   queueSessionAction,
   resetStream,
   setActiveTool,
+  setSelectedProviderId,
+  setSelectedModel,
   setMessages,
   setPendingCreditTopUp,
   setStreamError,

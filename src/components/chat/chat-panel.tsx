@@ -78,6 +78,7 @@ import {
   type ChatAttachment,
 } from '@/lib/chat/attachments';
 import { ActiveToolBadge, ComposerToolPicker } from '@/components/chat/composer-tool-picker';
+import { ComposerModelPicker } from '@/components/chat/composer-model-picker';
 import { availableComposerTools, CHAT_COMPOSER_TOOLS } from '@/lib/chat/session-tools';
 import { TemplateDraftCard } from '@/components/chat/template-draft-card';
 
@@ -1035,6 +1036,7 @@ export function ChatPanel({ variant = 'page' }: { variant?: 'page' | 'drawer' } 
                 onChange={(tool) => dispatch(setActiveTool(tool))}
                 iconButtonSx={ICON_BUTTON_SX}
               />
+              <ComposerModelPicker />
               <VoiceProfileMenu voice={ttsVoice} onVoiceChange={setTtsVoice} />
               <Tooltip title={assistantMuted ? 'Unmute assistant voice' : 'Mute assistant voice'}>
                 <IconButton
