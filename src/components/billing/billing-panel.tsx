@@ -548,7 +548,7 @@ function AiCreditsTab({
 }: {
   orgId: string;
   planId: PlanId;
-  balance: { available: number; expiringSoon: number; debt: number; net: number } | null;
+  balance: { available: number; expiringSoon: number; debt: number; net: number; shared?: number; personal?: number } | null;
   grants: React.ComponentProps<typeof CreditGrantsTable>['grants'];
   ledger: React.ComponentProps<typeof CreditUsageTable>['ledger'];
   readiness: { ready: boolean } | null;
@@ -562,13 +562,31 @@ function AiCreditsTab({
   const [requestCopied, setRequestCopied] = useState(false);
   const { user } = useAppSelector((s) => s.auth);
 
-  const byPlan = grants
-    .filter((g) => g.source === 'plan')
-    .reduce((sum, g) => sum + g.remaining, 0);
-  const byPurchase = grants
-    .filter((g) => g.source === 'addon' || g.source === 'onetime')
-    .reduce((sum, g) => sum + g.remaining, 0);
-  const byPromo = grants.filter((g) => g.source === 'promo').reduce((sum, g) => sum + g.remaining, 0);
+  const byPlan = selfServeTopUp && balance?.shared !== undefined
+    ? balance.shared
+    : grants
+        .filter((g) => g.source === 'plan' && !g.ownerUserId)
+        .reduce((sum, g) => sum + g.remaining, 0);
+  const byPurchase = selfServeTopUp && user?.id
+    ? grants
+        .filter(
+          (g) =>
+            (g.source === 'addon' || g.source === 'onetime') && g.ownerUserId === user.id,
+        )
+        .reduce((sum, g) => sum + g.remaining, 0)
+    : grants
+        .filter((g) => g.source === 'addon' || g.source === 'onetime')
+        .reduce((sum, g) => sum + g.remaining, 0);
+  const byPromo = selfServeTopUp && user?.id
+    ? grants
+        .filter((g) => g.source === 'promo' && g.ownerUserId === user.id)
+        .reduce((sum, g) => sum + g.remaining, 0)
+    : grants.filter((g) => g.source === 'promo').reduce((sum, g) => sum + g.remaining, 0);
+
+  const visibleGrants =
+    selfServeTopUp && user?.id
+      ? grants.filter((g) => !g.ownerUserId || g.ownerUserId === user.id)
+      : grants;
 
   const mayPurchase = !readOnly || selfServeTopUp;
   const planAllowsTopUp = canPurchaseCreditPacks(planId);
@@ -605,7 +623,7 @@ function AiCreditsTab({
 
       <Box>
         <Typography variant="overline" color="text.secondary">
-          {readOnly ? 'Organization AI credit balance' : 'AI credit balance'}
+          {readOnly ? 'Your spendable AI credits' : 'AI credit balance'}
         </Typography>
         <Stack direction="row" sx={{ alignItems: 'baseline', gap: 1 }}>
           <Typography variant="h3" sx={{ fontWeight: 600, fontVariantNumeric: 'tabular-nums' }}>
@@ -647,23 +665,30 @@ function AiCreditsTab({
       <Stack direction="row" spacing={3} sx={{ flexWrap: 'wrap' }}>
         <Box>
           <Typography variant="caption" color="text.secondary">
-            From plan
+            {selfServeTopUp ? 'Shared (plan)' : 'From plan'}
           </Typography>
           <Typography variant="h6">{byPlan}</Typography>
         </Box>
         <Box>
           <Typography variant="caption" color="text.secondary">
-            Purchased
+            {selfServeTopUp ? 'Your purchases' : 'Purchased'}
           </Typography>
           <Typography variant="h6">{byPurchase}</Typography>
         </Box>
         <Box>
           <Typography variant="caption" color="text.secondary">
-            Bonus
+            {selfServeTopUp ? 'Your bonus' : 'Bonus'}
           </Typography>
           <Typography variant="h6">{byPromo}</Typography>
         </Box>
       </Stack>
+
+      {selfServeTopUp && (
+        <Typography variant="body2" color="text.secondary">
+          Plan credits are shared with everyone on this organization. Credits you buy are for your
+          account only and are spent before shared plan credits.
+        </Typography>
+      )}
 
       {canTopUp ? (
         <Box>
@@ -746,7 +771,7 @@ function AiCreditsTab({
         {historyTab === 'usage' ? (
           <CreditUsageTable ledger={ledger} />
         ) : (
-          <CreditGrantsTable grants={grants} />
+          <CreditGrantsTable grants={visibleGrants} />
         )}
       </Box>
 

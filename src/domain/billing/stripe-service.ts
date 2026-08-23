@@ -411,6 +411,7 @@ export async function createTopUpIntent(
   packId: string,
   db?: RawDb,
   stripe?: Stripe,
+  options: { purchaserUserId?: string | null } = {},
 ): Promise<{ clientSecret: string; paymentIntentId: string; amountCents: number }> {
   db = await getDb(db);
   stripe = stripe ?? requireStripe();
@@ -430,7 +431,12 @@ export async function createTopUpIntent(
     customer: customerId,
     automatic_payment_methods: { enabled: true },
     // The webhook / confirm path reads these to know what to grant and to whom.
-    metadata: { orgId, packId: pack.id, kind: 'credit_topup' },
+    metadata: {
+      orgId,
+      packId: pack.id,
+      kind: 'credit_topup',
+      ...(options.purchaserUserId ? { purchaserUserId: options.purchaserUserId } : {}),
+    },
   });
 
   if (!intent.client_secret) {
@@ -503,7 +509,14 @@ export async function confirmTopUpPaymentIntent(
   )) as { id: string }[];
   const alreadyGranted = prior.length > 0;
 
-  const result = await redeemCreditPack(orgId, packId, { paymentRef: intent.id }, db);
+  const ownerUserId = intent.metadata?.purchaserUserId?.trim() || null;
+
+  const result = await redeemCreditPack(
+    orgId,
+    packId,
+    { paymentRef: intent.id, ownerUserId },
+    db,
+  );
 
   return {
     orgId,
@@ -560,7 +573,10 @@ export async function reconcileRecentTopUpPayments(
     )) as { id: string }[];
     if (prior.length > 0) continue;
 
-    await redeemCreditPack(orgId, packId, { paymentRef: intent.id }, db);
+    await redeemCreditPack(orgId, packId, {
+      paymentRef: intent.id,
+      ownerUserId: intent.metadata?.purchaserUserId?.trim() || null,
+    }, db);
     granted += 1;
   }
 

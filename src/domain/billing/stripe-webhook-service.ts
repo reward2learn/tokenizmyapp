@@ -227,7 +227,11 @@ async function handleCheckoutCompleted(
     const packId = session.metadata.packId;
     if (packId) {
       const { redeemCreditPack } = await import('@/domain/billing/credit-service');
-      const result = await redeemCreditPack(orgId, packId, { paymentRef: session.id }, db);
+      const ownerUserId = session.metadata?.purchaserUserId?.trim() || null;
+      const result = await redeemCreditPack(orgId, packId, {
+        paymentRef: session.id,
+        ownerUserId,
+      }, db);
       return {
         handled: true,
         duplicate: false,
@@ -255,7 +259,11 @@ async function handleCheckoutCompleted(
     );
     if (packId) {
       const { redeemCreditPack } = await import('@/domain/billing/credit-service');
-      const result = await redeemCreditPack(orgId, packId, { paymentRef: session.id }, db);
+      const ownerUserId = session.metadata?.purchaserUserId?.trim() || null;
+      const result = await redeemCreditPack(orgId, packId, {
+        paymentRef: session.id,
+        ownerUserId,
+      }, db);
       return {
         handled: true,
         duplicate: false,
@@ -538,7 +546,11 @@ async function handlePaymentIntentSucceeded(
   }
 
   const { redeemCreditPack } = await import('@/domain/billing/credit-service');
-  const result = await redeemCreditPack(orgId, packId, { paymentRef: intent.id }, db);
+  const ownerUserId = intent.metadata?.purchaserUserId?.trim() || null;
+  const result = await redeemCreditPack(orgId, packId, {
+    paymentRef: intent.id,
+    ownerUserId,
+  }, db);
 
   return {
     handled: true,

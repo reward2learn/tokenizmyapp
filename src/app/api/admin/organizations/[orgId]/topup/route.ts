@@ -14,8 +14,10 @@
  * The create endpoint only returns a client secret — it does not grant credits.
  */
 import { z } from 'zod';
-import { createRawClient, createBillingRawClient } from '@/lib/db';
+import { createBillingRawClient } from '@/lib/db';
 import { requireOrgCreditPurchase } from '@/lib/auth/billing-guards';
+import { resolveViewerUserId } from '@/lib/auth/resolve-viewer-user';
+import { sessionIsPlatformAdmin } from '@/lib/auth/jwt';
 import { jsonError, jsonOk } from '@/lib/api/response';
 import { getOrganization, resolveTenantStripeConfig } from '@/domain/billing/organization-service';
 import {
@@ -107,7 +109,12 @@ export async function POST(
       );
     }
 
-    const intent = await createTopUpIntent(orgId, pack.id, db, stripe);
+    // Platform admins grant org-wide credits; self-serve purchasers get a personal pool.
+    const purchaserUserId = sessionIsPlatformAdmin(guard.session)
+      ? null
+      : await resolveViewerUserId(guard.session.sub);
+
+    const intent = await createTopUpIntent(orgId, pack.id, db, stripe, { purchaserUserId });
 
     return jsonOk({
       clientSecret: intent.clientSecret,

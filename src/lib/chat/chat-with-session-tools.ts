@@ -272,6 +272,7 @@ async function meterChatUsage(
     keySource: 'db' | 'env';
     model: string;
     viewerEmail?: string | null;
+    viewerUserId?: string | null;
   },
   usage: { promptTokens: number; completionTokens: number } | null | undefined,
 ): Promise<void> {
@@ -288,6 +289,7 @@ async function meterChatUsage(
       // passed the gate but got charged here would accrue debt that then blocks
       // everyone else on the same org.
       viewerEmail: options.viewerEmail,
+      viewerUserId: options.viewerUserId,
     });
   } catch (err) {
     console.warn('[chat] Metering failed (non-blocking):', err instanceof Error ? err.message : err);
@@ -307,6 +309,7 @@ async function completeChatWithoutStreaming(options: {
   keySource: 'db' | 'env';
   /** Signed-in viewer; exempt operators are recorded but never charged. */
   viewerEmail?: string | null;
+  viewerUserId?: string | null;
 }): Promise<Response> {
   const clientActions: ChatSessionAction[] = [];
   let templateDraft: CustomTemplateDraft | undefined;
@@ -397,6 +400,7 @@ async function completeChatWithStreaming(options: {
   keySource: 'db' | 'env';
   /** Signed-in viewer; exempt operators are recorded but never charged. */
   viewerEmail?: string | null;
+  viewerUserId?: string | null;
 }): Promise<Response> {
   const encoder = new TextEncoder();
   const { readable, writable } = new TransformStream<Uint8Array>();
@@ -520,6 +524,7 @@ export async function completeChatWithSessionTools(options: {
   keySource: 'db' | 'env';
   /** Signed-in viewer; exempt operators are recorded but never charged. */
   viewerEmail?: string | null;
+  viewerUserId?: string | null;
 }): Promise<Response> {
   if (options.stream) {
     return completeChatWithStreaming(options);

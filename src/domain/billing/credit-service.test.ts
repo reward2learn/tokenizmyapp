@@ -16,6 +16,7 @@ interface FakeGrant {
   granted_at: Date;
   expires_at: Date;
   plan_id: string | null;
+  owner_user_id: string | null;
   metadata: unknown;
 }
 
@@ -89,10 +90,50 @@ function makeDb() {
           granted_at: new Date(),
           expires_at: args[3] as Date,
           plan_id: (args[4] as string) ?? null,
-          metadata: args[5] ?? null,
+          owner_user_id: (args[5] as string) ?? null,
+          metadata: args[6] ?? null,
         };
         grants.push(grant);
         return [grant];
+      }
+      if (sql.includes('SELECT * FROM credit_grants') && sql.includes('CASE WHEN owner_user_id IS NULL')) {
+        const viewerId = args[1] as string;
+        return grants
+          .filter(
+            (g) =>
+              g.org_id === args[0]
+              && g.remaining > 0
+              && g.expires_at > new Date()
+              && (g.owner_user_id === null || g.owner_user_id === viewerId),
+          )
+          .sort((a, b) => {
+            const aBucket = a.owner_user_id === null ? 1 : 0;
+            const bBucket = b.owner_user_id === null ? 1 : 0;
+            return (
+              aBucket - bBucket
+              || a.expires_at.getTime() - b.expires_at.getTime()
+              || a.granted_at.getTime() - b.granted_at.getTime()
+            );
+          });
+      }
+      if (
+        sql.includes('SELECT * FROM credit_grants')
+        && sql.includes('owner_user_id IS NULL')
+        && sql.includes('ORDER BY expires_at ASC')
+      ) {
+        return grants
+          .filter(
+            (g) =>
+              g.org_id === args[0]
+              && g.remaining > 0
+              && g.expires_at > new Date()
+              && g.owner_user_id === null,
+          )
+          .sort(
+            (a, b) =>
+              a.expires_at.getTime() - b.expires_at.getTime()
+              || a.granted_at.getTime() - b.granted_at.getTime(),
+          );
       }
       if (sql.includes('SELECT * FROM credit_grants') && sql.includes('ORDER BY expires_at ASC')) {
         return grants
@@ -102,6 +143,34 @@ function makeDb() {
               a.expires_at.getTime() - b.expires_at.getTime() ||
               a.granted_at.getTime() - b.granted_at.getTime(),
           );
+      }
+      if (sql.includes('COALESCE(SUM(CASE WHEN owner_user_id IS NULL THEN remaining')) {
+        const viewerId = args[1] as string;
+        const live = grants.filter(
+          (g) =>
+            g.org_id === args[0]
+            && g.remaining > 0
+            && g.expires_at > new Date()
+            && (g.owner_user_id === null || g.owner_user_id === viewerId),
+        );
+        const soon = new Date(Date.now() + 7 * 86_400_000);
+        const shared = live
+          .filter((g) => g.owner_user_id === null)
+          .reduce((sum, g) => sum + g.remaining, 0);
+        const personal = live
+          .filter((g) => g.owner_user_id === viewerId)
+          .reduce((sum, g) => sum + g.remaining, 0);
+        const available = shared + personal;
+        return [
+          {
+            shared,
+            personal,
+            available,
+            expiring_soon: live
+              .filter((g) => g.expires_at <= soon)
+              .reduce((sum, g) => sum + g.remaining, 0),
+          },
+        ];
       }
       if (sql.includes('COALESCE(SUM(remaining), 0) AS available')) {
         const live = grants.filter(
@@ -192,7 +261,7 @@ describe('redeemCreditPack', () => {
     const { CREDIT_PACKS } = await import('@/lib/billing/plans');
     const pack = CREDIT_PACKS[0];
 
-    const result = await service.redeemCreditPack(ORG, pack.id, {}, db);
+    const result = await service.redeemCreditPack(ORG, pack.id, { ownerUserId: 'user_buyer' }, db);
 
     // The whole point of the split: a refund or withdrawn promotion must be
     // able to claw back the bonus without touching paid-for credits.
@@ -201,6 +270,8 @@ describe('redeemCreditPack', () => {
     expect(result.bonusGrant?.source).toBe('promo');
     expect(result.bonusGrant?.amount).toBe(pack.bonusCredits);
     expect(db.grants).toHaveLength(2);
+    expect(result.baseGrant.ownerUserId).toBe('user_buyer');
+    expect(result.bonusGrant?.ownerUserId).toBe('user_buyer');
   });
 
   it('records the price on both grants so revenue can be attributed', async () => {
@@ -267,6 +338,40 @@ describe('consumeCredits', () => {
     const debits = db.ledger.filter((l) => l.delta < 0);
     expect(debits).toHaveLength(2);
     expect(debits.reduce((sum, l) => sum + l.delta, 0)).toBe(-6);
+  });
+
+  it('spends personal grants before org-shared grants', async () => {
+    const db = makeDb();
+    const viewer = 'user_a';
+
+    await service.grantCredits(ORG, { source: 'plan', amount: 5, ownerUserId: null }, db);
+    await service.grantCredits(ORG, { source: 'addon', amount: 10, ownerUserId: viewer }, db);
+
+    await service.consumeCredits(
+      ORG,
+      { amount: 5, reason: 'ai_generation', viewerUserId: viewer },
+      db,
+    );
+
+    const shared = db.grants.find((g) => g.owner_user_id === null);
+    const personal = db.grants.find((g) => g.owner_user_id === viewer);
+    expect(shared?.remaining).toBe(5);
+    expect(personal?.remaining).toBe(5);
+  });
+
+  it('does not spend another user personal grants', async () => {
+    const db = makeDb();
+
+    await service.grantCredits(ORG, { source: 'addon', amount: 10, ownerUserId: 'user_b' }, db);
+
+    const result = await service.consumeCredits(
+      ORG,
+      { amount: 5, reason: 'ai_generation', viewerUserId: 'user_a' },
+      db,
+    );
+
+    expect(result.consumed).toBe(0);
+    expect(db.grants[0]?.remaining).toBe(10);
   });
 });
 

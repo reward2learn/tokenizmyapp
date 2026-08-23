@@ -59,9 +59,11 @@ export function HeaderCredits() {
             ? `Blocked — owes ${balance.debt} credit(s). Add ${balance.debt}+ to settle.`
             : expiring
               ? `${balance.expiringSoon} credits expiring within 7 days`
-              : canTopUp
-                ? 'AI credits — open billing'
-                : 'AI credits — view usage'
+              : balance.shared !== undefined
+                ? `${balance.available} spendable (${balance.shared} shared + ${balance.personal ?? 0} yours)`
+                : canTopUp
+                  ? 'AI credits — open billing'
+                  : 'AI credits — view usage'
         }
       >
         <Chip

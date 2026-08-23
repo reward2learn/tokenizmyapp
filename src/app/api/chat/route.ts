@@ -36,6 +36,7 @@ import { canPurchaseCreditPacks } from '@/lib/billing/plans';
 import { getSubscription } from '@/domain/billing/entitlement-service';
 import { isAgenticCatalogLive, resolveTenantAgenticCommerce } from '@/domain/billing/agentic-catalog-service';
 import { resolveTenantSelfServeBilling } from '@/domain/billing/self-serve-billing-service';
+import { resolveViewerUserId } from '@/lib/auth/resolve-viewer-user';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
@@ -446,10 +447,18 @@ async function handleChatPost(request: Request): Promise<Response> {
 
     if (ai.keySource === 'env') {
       const tenantSlug = process.env.NEXT_PUBLIC_TENANT_SLUG ?? 'tokenizmyapp';
+      const viewerUserId =
+        !isPlatformApp() && session?.sub ? await resolveViewerUserId(session.sub) : undefined;
       // The platform owner is exempt (see isCreditExemptEmail) — they pay the
       // providers directly, so gating them on their own currency would only
       // lock them out of their own console.
-      const gate = await requireCreditsForTenant(tenantSlug, undefined, session?.email);
+      const gate = await requireCreditsForTenant(
+        tenantSlug,
+        undefined,
+        session?.email,
+        undefined,
+        viewerUserId,
+      );
       if (!gate.ok) {
         return friendlyChatReply(
           'This workspace has no AI credits remaining. The owner can upgrade the plan or add credits to continue chatting.',
@@ -550,11 +559,15 @@ async function handleChatPost(request: Request): Promise<Response> {
       { role: 'user', content: message },
     ];
 
+    const viewerUserId =
+      !isPlatformApp() && session?.sub ? await resolveViewerUserId(session.sub) : undefined;
+
     const toolContext: SessionToolContext = {
       db,
       userName,
       messages: sessionMessages,
       viewerEmail: session?.email,
+      viewerUserId,
       // From the verified session, never from the request body — this is the
       // boundary that keeps `build_custom_template` (which writes platform
       // configuration) out of reach of non-admins, whatever the client sends.
@@ -590,6 +603,7 @@ async function handleChatPost(request: Request): Promise<Response> {
       tenantSlug: tenantSlugForTools,
       keySource: ai.keySource,
       viewerEmail: session?.email,
+      viewerUserId,
     });
   } catch (err) {
     console.error('CHAT ERROR:', err);

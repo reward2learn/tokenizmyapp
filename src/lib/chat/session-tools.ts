@@ -270,6 +270,11 @@ export interface SessionToolContext {
    */
   viewerEmail?: string | null;
   /**
+   * Limits spend to org-shared + this user's personal grants. Undefined = org-wide
+   * (factory admin). Null = shared plan credits only.
+   */
+  viewerUserId?: string | null;
+  /**
    * Whether the viewer is a platform administrator.
    *
    * The security boundary for `adminOnly` tools. Derived from the verified

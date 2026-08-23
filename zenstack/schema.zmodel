@@ -1025,11 +1025,14 @@ model CreditGrant {
   expiresAt    DateTime     @map("expires_at")
   /// Which plan the grant came from (for plan-source grants).
   planId       String?      @map("plan_id")
+  /// When set, only this user may spend the grant (self-serve top-ups). Null = org-shared.
+  ownerUserId  String?      @map("owner_user_id")
   /// Free-form (e.g. stripe session id, promo code).
   metadata     Json?
 
   /// Balance queries consume oldest-expiring-first.
   @@index([orgId, expiresAt], map: "idx_credit_grants_org_expires")
+  @@index([orgId, ownerUserId], map: "idx_credit_grants_org_owner")
   @@allow('read', true)
   @@allow('create,update,delete', auth().tier == google)
   @@map("credit_grants")

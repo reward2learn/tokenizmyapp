@@ -18,7 +18,9 @@ import { z } from 'zod';
 import { createBillingRawClient } from '@/lib/db';
 import { requireWriteAuth } from '@/lib/auth/guards';
 import { requireOrgCreditsRead } from '@/lib/auth/billing-guards';
+import { resolveViewerUserId } from '@/lib/auth/resolve-viewer-user';
 import { sessionIsPlatformAdmin } from '@/lib/auth/jwt';
+import { isPlatformApp } from '@shared/lib/config/tenant';
 import { jsonError, jsonOk } from '@/lib/api/response';
 import { getOrganization, resolveTenantStripeConfig } from '@/domain/billing/organization-service';
 import { stripeReadiness } from '@/domain/billing/stripe-service';
@@ -102,7 +104,13 @@ export async function GET(
     }
 
     const [balance, grants, ledger] = await Promise.all([
-      getCreditBalance(orgId, db),
+      getCreditBalance(
+        orgId,
+        db,
+        !isPlatformApp() && !sessionIsPlatformAdmin(guard.session)
+          ? { forViewerUserId: await resolveViewerUserId(guard.session.sub) }
+          : {},
+      ),
       db.$queryRawUnsafe(
         `SELECT * FROM credit_grants WHERE org_id = $1 ORDER BY granted_at DESC LIMIT ${GRANTS_LIMIT};`,
         orgId,

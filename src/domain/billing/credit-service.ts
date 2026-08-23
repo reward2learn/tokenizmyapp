@@ -133,6 +133,8 @@ export interface CreditGrant {
   grantedAt: string;
   expiresAt: string;
   planId: string | null;
+  /** Null = org-shared (plan, admin grants). Set for self-serve purchaser top-ups. */
+  ownerUserId: string | null;
   metadata: Record<string, unknown> | null;
 }
 
@@ -179,8 +181,15 @@ CREATE TABLE IF NOT EXISTS credit_grants (
   granted_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   expires_at TIMESTAMP NOT NULL,
   plan_id TEXT,
+  owner_user_id TEXT,
   metadata JSONB
 );`;
+
+const CREDIT_GRANTS_OWNER_USER_ID_COL = `
+ALTER TABLE credit_grants ADD COLUMN IF NOT EXISTS owner_user_id TEXT;`;
+
+const CREDIT_GRANTS_ORG_OWNER_IDX = `
+CREATE INDEX IF NOT EXISTS idx_credit_grants_org_owner ON credit_grants (org_id, owner_user_id);`;
 
 const CREDIT_LEDGER_DDL = `
 CREATE TABLE IF NOT EXISTS credit_ledger (
@@ -207,8 +216,10 @@ export async function ensureCreditTables(db: RawDb): Promise<void> {
   const { ensureBillingTables } = await import('@/domain/billing/entitlement-service');
   await ensureBillingTables(db);
   await db.$executeRawUnsafe(CREDIT_GRANTS_DDL);
+  await db.$executeRawUnsafe(CREDIT_GRANTS_OWNER_USER_ID_COL);
   await db.$executeRawUnsafe(CREDIT_LEDGER_DDL);
   await db.$executeRawUnsafe(CREDIT_GRANTS_ORG_EXPIRES_IDX);
+  await db.$executeRawUnsafe(CREDIT_GRANTS_ORG_OWNER_IDX);
   await db.$executeRawUnsafe(CREDIT_LEDGER_ORG_CREATED_IDX);
 }
 
@@ -236,6 +247,7 @@ export function mapCreditGrant(row: Record<string, unknown>): CreditGrant {
     grantedAt: new Date(row.granted_at as string).toISOString(),
     expiresAt: new Date(row.expires_at as string).toISOString(),
     planId: row.plan_id == null ? null : String(row.plan_id),
+    ownerUserId: row.owner_user_id == null ? null : String(row.owner_user_id),
     metadata: mapMetadata(row.metadata),
   };
 }
@@ -302,6 +314,19 @@ export interface CreditBalance {
   debt: number;
   /** `available - debt`. Negative means the org is in arrears. */
   net: number;
+  /** Org-shared pool (plan allowance, admin grants). Present when scoped to a viewer. */
+  shared?: number;
+  /** Viewer-owned pool (self-serve top-ups). Present when scoped to a viewer. */
+  personal?: number;
+}
+
+export interface GetCreditBalanceOptions {
+  /**
+   * Limits the balance to org-shared grants plus this user's personal grants.
+   * Omit for the full org pool (admin). Pass `null` when the viewer has no
+   * user_accounts row — they still see shared plan credits only.
+   */
+  forViewerUserId?: string | null;
 }
 
 /**
@@ -319,22 +344,63 @@ export interface CreditBalance {
 export async function getCreditBalance(
   orgId: string,
   db?: RawDb,
+  options: GetCreditBalanceOptions = {},
 ): Promise<CreditBalance> {
   db ??= await getDb();
   await grantMonthlyAllowanceIfDue(orgId, db);
   await ensureCreditTables(db);
 
-  const rows = (await db.$queryRawUnsafe(
-    `SELECT
-       COALESCE(SUM(remaining), 0) AS available,
-       COALESCE(SUM(CASE WHEN expires_at <= CURRENT_TIMESTAMP + INTERVAL '7 days' THEN remaining ELSE 0 END), 0) AS expiring_soon
-     FROM credit_grants
-     WHERE org_id = $1 AND remaining > 0 AND expires_at > CURRENT_TIMESTAMP;`,
-    orgId,
-  )) as Record<string, unknown>[];
+  const scopedToViewer = options.forViewerUserId !== undefined;
+  const viewerUserId = options.forViewerUserId?.trim() || null;
+
+  const rows = scopedToViewer
+    ? ((await db.$queryRawUnsafe(
+        `SELECT
+           COALESCE(SUM(CASE WHEN owner_user_id IS NULL THEN remaining ELSE 0 END), 0) AS shared,
+           COALESCE(SUM(CASE WHEN owner_user_id = $2 THEN remaining ELSE 0 END), 0) AS personal,
+           COALESCE(SUM(
+             CASE
+               WHEN owner_user_id IS NULL OR owner_user_id = $2 THEN remaining
+               ELSE 0
+             END
+           ), 0) AS available,
+           COALESCE(SUM(
+             CASE
+               WHEN (owner_user_id IS NULL OR owner_user_id = $2)
+                 AND expires_at <= CURRENT_TIMESTAMP + INTERVAL '7 days'
+               THEN remaining
+               ELSE 0
+             END
+           ), 0) AS expiring_soon
+         FROM credit_grants
+         WHERE org_id = $1 AND remaining > 0 AND expires_at > CURRENT_TIMESTAMP;`,
+        orgId,
+        viewerUserId,
+      )) as Record<string, unknown>[])
+    : ((await db.$queryRawUnsafe(
+        `SELECT
+           COALESCE(SUM(remaining), 0) AS available,
+           COALESCE(SUM(CASE WHEN expires_at <= CURRENT_TIMESTAMP + INTERVAL '7 days' THEN remaining ELSE 0 END), 0) AS expiring_soon
+         FROM credit_grants
+         WHERE org_id = $1 AND remaining > 0 AND expires_at > CURRENT_TIMESTAMP;`,
+        orgId,
+      )) as Record<string, unknown>[]);
 
   const available = Number(rows[0]?.available ?? 0);
   const debt = await getOutstandingDebt(orgId, db);
+
+  if (scopedToViewer) {
+    const shared = Number(rows[0]?.shared ?? 0);
+    const personal = Number(rows[0]?.personal ?? 0);
+    return {
+      available,
+      expiringSoon: Number(rows[0]?.expiring_soon ?? 0),
+      debt,
+      net: available - debt,
+      shared,
+      personal,
+    };
+  }
 
   return {
     available,
@@ -350,6 +416,8 @@ export interface GrantCreditsInput {
   /** Defaults to now + CREDIT_EXPIRY_DAYS. */
   expiresAt?: Date;
   planId?: string | null;
+  /** Null = org-shared. Set for self-serve purchaser top-ups. */
+  ownerUserId?: string | null;
   metadata?: Record<string, unknown> | null;
 }
 
@@ -370,14 +438,15 @@ export async function grantCredits(
   const expiresAt = input.expiresAt ?? new Date(Date.now() + CREDIT_EXPIRY_DAYS * 86_400_000);
 
   const inserted = (await db.$queryRawUnsafe(
-    `INSERT INTO credit_grants (id, org_id, source, amount, remaining, expires_at, plan_id, metadata)
-     VALUES (gen_random_uuid()::TEXT, $1, $2, $3, $3, $4, $5, $6::jsonb)
+    `INSERT INTO credit_grants (id, org_id, source, amount, remaining, expires_at, plan_id, owner_user_id, metadata)
+     VALUES (gen_random_uuid()::TEXT, $1, $2, $3, $3, $4, $5, $6, $7::jsonb)
      RETURNING *;`,
     orgId,
     input.source,
     input.amount,
     expiresAt,
     input.planId ?? null,
+    input.ownerUserId ?? null,
     JSON.stringify(input.metadata ?? null),
   )) as Record<string, unknown>[];
 
@@ -427,7 +496,7 @@ export interface RedeemPackResult {
 export async function redeemCreditPack(
   orgId: string,
   packId: string,
-  options: { paymentRef?: string | null } = {},
+  options: { paymentRef?: string | null; ownerUserId?: string | null } = {},
   db?: RawDb,
 ): Promise<RedeemPackResult> {
   db ??= await getDb();
@@ -469,18 +538,21 @@ export async function redeemCreditPack(
     packId: pack.id,
     priceCents: pack.priceCents,
     paymentRef,
+    ...(options.ownerUserId ? { purchaserUserId: options.ownerUserId } : {}),
   };
+
+  const ownerUserId = options.ownerUserId ?? null;
 
   const baseGrant = await grantCredits(
     orgId,
-    { source: 'addon', amount: pack.baseCredits, metadata },
+    { source: 'addon', amount: pack.baseCredits, metadata, ownerUserId },
     db,
   );
 
   const bonusGrant = pack.bonusCredits > 0
     ? await grantCredits(
         orgId,
-        { source: 'promo', amount: pack.bonusCredits, metadata },
+        { source: 'promo', amount: pack.bonusCredits, metadata, ownerUserId },
         db,
       )
     : null;
@@ -494,6 +566,12 @@ export interface ConsumeCreditsInput {
   refType?: string | null;
   refId?: string | null;
   metadata?: Record<string, unknown> | null;
+  /**
+   * When set, only org-shared grants and this user's personal grants are spent.
+   * Consumption order: personal (top-ups) first, then shared (plan), oldest-
+   * expiring-first within each bucket.
+   */
+  viewerUserId?: string | null;
   /**
    * Record consumption beyond the available balance as debt rather than
    * silently taking only what is there. Defaults to false.
@@ -535,12 +613,24 @@ export async function consumeCredits(
   db ??= await getDb();
   await ensureCreditTables(db);
 
-  const grants = (await db.$queryRawUnsafe(
-    `SELECT * FROM credit_grants
-     WHERE org_id = $1 AND remaining > 0 AND expires_at > CURRENT_TIMESTAMP
-     ORDER BY expires_at ASC, granted_at ASC;`,
-    orgId,
-  )) as Record<string, unknown>[];
+  const viewerUserId = input.viewerUserId?.trim() || null;
+
+  const grants = viewerUserId
+    ? ((await db.$queryRawUnsafe(
+        `SELECT * FROM credit_grants
+         WHERE org_id = $1 AND remaining > 0 AND expires_at > CURRENT_TIMESTAMP
+           AND (owner_user_id IS NULL OR owner_user_id = $2)
+         ORDER BY CASE WHEN owner_user_id IS NULL THEN 1 ELSE 0 END,
+                  expires_at ASC, granted_at ASC;`,
+        orgId,
+        viewerUserId,
+      )) as Record<string, unknown>[])
+    : ((await db.$queryRawUnsafe(
+        `SELECT * FROM credit_grants
+         WHERE org_id = $1 AND remaining > 0 AND expires_at > CURRENT_TIMESTAMP
+         ORDER BY expires_at ASC, granted_at ASC;`,
+        orgId,
+      )) as Record<string, unknown>[]);
 
   let toConsume = input.amount;
   const touched: { grantId: string; consumedFromGrant: number }[] = [];
@@ -624,7 +714,11 @@ export async function consumeCredits(
     );
   }
 
-  const { available } = await getCreditBalance(orgId, db);
+  const { available } = await getCreditBalance(
+    orgId,
+    db,
+    viewerUserId !== undefined ? { forViewerUserId: viewerUserId } : {},
+  );
   return { consumed, debtIncurred, writtenOff, balance: available };
 }
 
@@ -654,6 +748,7 @@ export async function settleDebt(
   const grants = (await db.$queryRawUnsafe(
     `SELECT * FROM credit_grants
      WHERE org_id = $1 AND remaining > 0 AND expires_at > CURRENT_TIMESTAMP
+       AND owner_user_id IS NULL
      ORDER BY expires_at ASC, granted_at ASC;`,
     orgId,
   )) as Record<string, unknown>[];
@@ -936,6 +1031,8 @@ export interface MeterAiUsageForOrgInput {
    * `isCreditExemptEmail()` the usage is recorded but not charged.
    */
   viewerEmail?: string | null;
+  /** Limits spend to org-shared + this user's personal grants. */
+  viewerUserId?: string | null;
 }
 
 /**
@@ -974,7 +1071,11 @@ async function recordExemptUsage(
     }),
   );
 
-  const { available } = await getCreditBalance(input.orgId, db);
+  const { available } = await getCreditBalance(
+    input.orgId,
+    db,
+    input.viewerUserId !== undefined ? { forViewerUserId: input.viewerUserId } : {},
+  );
   return { charged: false, credits, consumed: 0, shortfall: 0, debt: 0, writtenOff: 0, balance: available };
 }
 
@@ -1012,6 +1113,7 @@ export async function meterAiUsageForOrg(
         promptTokens: input.promptTokens,
         completionTokens: input.completionTokens,
       },
+      viewerUserId: input.viewerUserId,
       // The tokens are already spent by the time metering runs. Recording only
       // what the balance could cover would hand the rest of the work over for
       // free; the overage becomes debt and blocks the NEXT generation instead.
@@ -1064,6 +1166,8 @@ export interface MeterAiUsageInput {
   refId?: string | null;
   /** See MeterAiUsageForOrgInput.viewerEmail. */
   viewerEmail?: string | null;
+  /** See MeterAiUsageForOrgInput.viewerUserId. */
+  viewerUserId?: string | null;
 }
 
 /**
@@ -1110,11 +1214,12 @@ export async function requireCreditsForTenant(
   db?: RawDb,
   viewerEmail?: string | null,
   minimum: number = MIN_CREDITS_TO_START,
+  viewerUserId?: string | null,
 ): Promise<CreditGateResult> {
   if (isCreditExemptEmail(viewerEmail)) return { ok: true, balance: Infinity, exempt: true };
   db ??= await getDb();
   const orgId = await resolvePayingOrgId(tenantSlug, db);
-  return requireCreditsForOrg(orgId, db, minimum, viewerEmail);
+  return requireCreditsForOrg(orgId, db, minimum, viewerEmail, viewerUserId);
 }
 
 /**
@@ -1126,6 +1231,7 @@ export async function requireCreditsForOrg(
   db?: RawDb,
   minimum: number = MIN_CREDITS_TO_START,
   viewerEmail?: string | null,
+  viewerUserId?: string | null,
 ): Promise<CreditGateResult> {
   // Checked before any org resolution or balance read: the exemption follows
   // the person, not the org, so there is nothing here worth looking up.
@@ -1134,7 +1240,9 @@ export async function requireCreditsForOrg(
   db ??= await getDb();
   await grantMonthlyAllowanceIfDue(orgId, db);
 
-  const { available, debt, net } = await getCreditBalance(orgId, db);
+  const balanceOpts =
+    viewerUserId !== undefined ? { forViewerUserId: viewerUserId } : {};
+  const { available, debt, net } = await getCreditBalance(orgId, db, balanceOpts);
 
   // Arrears block first and say so plainly. Reporting "no credits remaining"
   // to an org that is actually carrying debt would send them to top up by the

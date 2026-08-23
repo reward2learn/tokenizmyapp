@@ -90,6 +90,10 @@ export interface CreditBalance {
   debt: number;
   /** `available - debt`. Negative means the org is in arrears. */
   net: number;
+  /** Org-shared pool (plan). Present for self-serve scoped reads. */
+  shared?: number;
+  /** Viewer-owned pool (self-serve top-ups). Present for self-serve scoped reads. */
+  personal?: number;
 }
 
 export interface CreditGrant {
@@ -101,6 +105,7 @@ export interface CreditGrant {
   grantedAt: string;
   expiresAt: string;
   planId: string | null;
+  ownerUserId?: string | null;
   metadata: unknown;
 }
 
