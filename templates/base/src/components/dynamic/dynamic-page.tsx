@@ -1,7 +1,8 @@
 'use client';
 
+import { useLayoutEffect } from 'react';
 import Box from '@mui/material/Box';
-import { useSearchParams } from 'next/navigation';
+import { usePathname, useSearchParams } from 'next/navigation';
 import type { AuthTier, BlockType, PageDefinition } from '@/lib/page-catalog';
 import { getBlockComponent } from '@/lib/block-registry';
 import { parseBlockConfig } from '@/lib/schemas/block-config';
@@ -9,7 +10,7 @@ import { AuthGate } from '@/components/auth/auth-gate';
 import { SignInPanelGate } from '@/components/auth/sign-in-panel';
 import { PdfExportButton } from '@/components/ui/pdf-export-button';
 import { PageInlineEditor } from '@/components/cms/page-inline-editor';
-import { BlockScrollAnimate } from '@/components/blocks/block-scroll-animate';
+import { BlockScrollAnimate, resetBlockScrollAnimationsForRoute } from '@/components/blocks/block-scroll-animate';
 import { usePublishedPageSections, sectionRenderKey, sectionAnimationKey } from '@/hooks/use-published-page-sections';
 import { useAppSelector } from '@/store/hooks';
 
@@ -57,6 +58,7 @@ function BlockSection({
 }
 
 export function DynamicPage({ page }: DynamicPageProps) {
+  const pathname = usePathname();
   const tier = useAppSelector((s) => s.auth.tier);
   const platformAdmin = useAppSelector((s) => s.auth.platformAdmin);
   const pageEditMode = useAppSelector((s) => s.ui.pageEditMode);
@@ -66,6 +68,12 @@ export function DynamicPage({ page }: DynamicPageProps) {
   const showSignIn = page.slug === 'dashboard' && tier === 'public';
   const inlineEdit = pageEditMode && pageEditSlug === page.slug && !isPdf;
   const { sections: liveSections, publishRevision, isSectionsPending } = usePublishedPageSections(page);
+
+  useLayoutEffect(() => {
+    if (!inlineEdit) {
+      resetBlockScrollAnimationsForRoute(pathname);
+    }
+  }, [pathname, inlineEdit]);
 
   if (inlineEdit) {
     return <PageInlineEditor page={page} />;

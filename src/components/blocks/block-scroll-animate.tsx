@@ -4,8 +4,17 @@ import { useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import Box from '@mui/material/Box';
 import { resolveBlockAnimate } from '@/lib/schemas/block-animate';
 
-/** Tracks blocks that have already revealed this session (survives Strict Mode remounts). */
+/** Tracks blocks revealed on the current route (survives Strict Mode remounts). */
 const revealedKeys = new Set<string>();
+let activeRouteKey = '';
+
+/** Clear revealed state when the user navigates to a different route. */
+export function resetBlockScrollAnimationsForRoute(routeKey: string): void {
+  if (routeKey !== activeRouteKey) {
+    revealedKeys.clear();
+    activeRouteKey = routeKey;
+  }
+}
 
 function isInViewport(el: HTMLElement): boolean {
   const rect = el.getBoundingClientRect();
