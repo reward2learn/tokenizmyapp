@@ -232,6 +232,8 @@ export const uiSlice = createSlice({
       action: {
         payload: {
           slug: string;
+          /** Defaults to slug when omitted (legacy). Prefer cmsPageCacheKey(). */
+          cacheKey?: string;
           sections: Array<{
             id: string;
             sortOrder: number;
@@ -241,9 +243,10 @@ export const uiSlice = createSlice({
         };
       },
     ) {
-      const { slug, sections } = action.payload;
-      state.publishedPageSections[slug] = sections;
-      state.pageSectionsRevision[slug] = (state.pageSectionsRevision[slug] ?? 0) + 1;
+      const { slug, sections, cacheKey } = action.payload;
+      const key = cacheKey ?? slug;
+      state.publishedPageSections[key] = sections;
+      state.pageSectionsRevision[key] = (state.pageSectionsRevision[key] ?? 0) + 1;
     },
   },
 });

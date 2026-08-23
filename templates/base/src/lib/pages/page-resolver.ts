@@ -7,8 +7,9 @@
  *  - app/page.tsx (root Home '/' rendering when it is the default route)
  */
 
-import { getCurrentAppId } from '@shared/lib/config/tenant';
-import { pageSlugLookupCandidates, toRoutePageSlug } from '@shared/lib/page-slug';
+import { getCurrentAppId, getTenantConfig } from '@shared/lib/config/tenant';
+import { resolveAppPageRow } from '@shared/lib/page-cms-resolve';
+import { toRoutePageSlug } from '@shared/lib/page-slug';
 import { resolvePage } from '@/lib/page-catalog';
 import type { PageDefinition, AuthTier } from '@/lib/page-catalog';
 
@@ -45,22 +46,21 @@ function mapDbPage(
 
 async function loadPageFromDb(routeSlug: string): Promise<PageDefinition | null> {
   const appId = getCurrentAppId();
+  const tenantSlug = getTenantConfig().slug;
   const { PrismaClient } = await import('@/generated/prisma');
   const url = process.env.POSTGRES_URL ?? process.env.DATABASE_URL;
   if (!url) return null;
   const prisma = new PrismaClient({ datasources: { db: { url } } });
   try {
-    for (const storageSlug of pageSlugLookupCandidates(routeSlug, appId)) {
-      const row = await prisma.appPage.findFirst({
-        where: {
-          slug: storageSlug,
-          ...(appId ? { appId } : {}),
-        },
-        include: { sections: { orderBy: { sortOrder: 'asc' } } },
-      });
-      if (row) return mapDbPage(row, appId);
-    }
-    return null;
+    const resolved = await resolveAppPageRow(prisma, routeSlug, { appId, tenantSlug });
+    if (!resolved) return null;
+
+    const row = await prisma.appPage.findFirst({
+      where: { id: resolved.id },
+      include: { sections: { orderBy: { sortOrder: 'asc' } } },
+    });
+    if (!row) return null;
+    return mapDbPage(row, appId);
   } finally {
     await prisma.$disconnect();
   }

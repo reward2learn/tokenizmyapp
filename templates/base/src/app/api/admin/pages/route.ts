@@ -7,7 +7,7 @@
 
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
-import { getCurrentAppId } from '@shared/lib/config/tenant';
+import { getCurrentAppId, getTenantConfig } from '@shared/lib/config/tenant';
 import { resolveAppPageRow } from '@shared/lib/page-cms-resolve';
 import { toRoutePageSlug } from '@shared/lib/page-slug';
 import { requireRead, requireWrite, requireWriteAuth } from '@/lib/auth/guards';
@@ -30,6 +30,7 @@ export async function GET(request: Request): Promise<NextResponse> {
 
   const prisma = getPageCmsClient();
   const appId = getCurrentAppId();
+  const tenantSlug = getTenantConfig().slug;
   try {
     await ensurePageCmsColumns(prisma);
 
@@ -53,7 +54,7 @@ export async function GET(request: Request): Promise<NextResponse> {
               p.sort_order AS "sortOrder",
               (SELECT COUNT(*)::int FROM page_sections s WHERE s.page_id = p.id) AS "sectionCount"
        FROM app_pages p
-       WHERE COALESCE(p.app_id, '') = $1
+       WHERE COALESCE(p.tenant_slug, '') = $1 AND COALESCE(p.app_id, '') = $2
        ORDER BY p.sort_order ASC, p.slug ASC`
         : `SELECT p.id, p.slug, p.title, p.auth_tier AS "authTier",
               p.nav_label AS "navLabel", COALESCE(p.show_in_nav, true) AS "showInNav",
@@ -61,8 +62,9 @@ export async function GET(request: Request): Promise<NextResponse> {
               p.sort_order AS "sortOrder",
               (SELECT COUNT(*)::int FROM page_sections s WHERE s.page_id = p.id) AS "sectionCount"
        FROM app_pages p
+       WHERE COALESCE(p.tenant_slug, '') = $1
        ORDER BY p.sort_order ASC, p.slug ASC`,
-      ...(appId ? [appId] : []),
+      ...(appId ? [tenantSlug, appId] : [tenantSlug]),
     );
 
     return jsonOk({
@@ -100,7 +102,10 @@ export async function PUT(request: Request): Promise<NextResponse> {
   const appId = getCurrentAppId();
   try {
     await ensurePageCmsColumns(prisma);
-    const page = await resolveAppPageRow(prisma, routeSlug, { appId });
+    const page = await resolveAppPageRow(prisma, routeSlug, {
+      appId,
+      tenantSlug: getTenantConfig().slug,
+    });
     if (!page) return jsonError(`Page "${routeSlug}" not found`, 404);
     const result = await prisma.$executeRawUnsafe(
       `UPDATE app_pages SET content_locked = $1 WHERE id = $2`,

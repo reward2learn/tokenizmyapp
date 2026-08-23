@@ -20,9 +20,8 @@ export function toRoutePageSlug(storageSlug: string, appId: string): string {
   return storageSlug;
 }
 
-/** Slug values to try when resolving a page row (prefixed first, then legacy). */
+/** Slug values to try when resolving a page row (prefixed when suite app id is set). */
 export function pageSlugLookupCandidates(routeSlug: string, appId: string): string[] {
   if (!appId) return [routeSlug];
-  const storage = toStoragePageSlug(routeSlug, appId);
-  return storage === routeSlug ? [routeSlug] : [storage, routeSlug];
+  return [toStoragePageSlug(routeSlug, appId)];
 }

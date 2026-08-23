@@ -4,6 +4,7 @@ import { useMemo } from 'react';
 import type { BlockType, PageDefinition } from '@/lib/page-catalog';
 import { useGetPageSectionsQuery } from '@/store/apis/admin-api';
 import { useAppSelector } from '@/store/hooks';
+import { cmsPageCacheKey, getCmsTenantAppScope } from '@shared/lib/cms-scope';
 
 export interface LivePageSection {
   id: string;
@@ -15,10 +16,6 @@ export interface LivePageSection {
 /**
  * Resolved sections for the live (non-edit) page view.
  * Priority: Redux publish cache → CMS API → server page prop.
- *
- * When CMS is being fetched (platform admin) and the server only sent catalog
- * sections (no Neon ids), hold rendering until CMS resolves — avoids a
- * default-hero flash and a second scroll animation.
  */
 export function usePublishedPageSections(
   page: PageDefinition,
@@ -29,8 +26,10 @@ export function usePublishedPageSections(
   isLoading: boolean;
   isSectionsPending: boolean;
 } {
-  const published = useAppSelector((s) => s.ui.publishedPageSections[page.slug]);
-  const publishRevision = useAppSelector((s) => s.ui.pageSectionsRevision[page.slug] ?? 0);
+  const cmsScope = useMemo(() => getCmsTenantAppScope(), []);
+  const pageCacheKey = cmsPageCacheKey(cmsScope, page.slug);
+  const published = useAppSelector((s) => s.ui.publishedPageSections[pageCacheKey]);
+  const publishRevision = useAppSelector((s) => s.ui.pageSectionsRevision[pageCacheKey] ?? 0);
   const platformAdmin = useAppSelector((s) => s.auth.platformAdmin);
 
   const shouldFetchCms = opts?.fetchCms ?? platformAdmin;
@@ -38,7 +37,7 @@ export function usePublishedPageSections(
   const serverLooksLikeCatalogOnly =
     page.sections.length > 0 && page.sections.every((s) => !s.id);
   const { data: cmsData, isLoading, isFetching } = useGetPageSectionsQuery(
-    { slug: page.slug },
+    { slug: page.slug, tenantSlug: cmsScope.tenantSlug, appId: cmsScope.appId },
     { skip: !shouldFetchCms },
   );
 

@@ -20,19 +20,20 @@ export async function resolveAppPageRow(
   options?: { appId?: string; tenantSlug?: string },
 ): Promise<AppPageRow | null> {
   const appId = options?.appId ?? '';
+  const tenantSlug = options?.tenantSlug?.trim() ?? '';
   const candidates = pageSlugLookupCandidates(routeSlug, appId);
 
   for (const storageSlug of candidates) {
     const params: unknown[] = [storageSlug];
     const clauses = ['slug = $1'];
     let idx = 2;
+    if (tenantSlug) {
+      clauses.push(`COALESCE(tenant_slug, '') = $${idx++}`);
+      params.push(tenantSlug);
+    }
     if (appId) {
       clauses.push(`COALESCE(app_id, '') = $${idx++}`);
       params.push(appId);
-    }
-    if (options?.tenantSlug) {
-      clauses.push(`tenant_slug = $${idx++}`);
-      params.push(options.tenantSlug);
     }
     const rows = await db.$queryRawUnsafe<{ id: string; slug: string; title: string }[]>(
       `SELECT id, slug, title FROM app_pages WHERE ${clauses.join(' AND ')} LIMIT 1`,

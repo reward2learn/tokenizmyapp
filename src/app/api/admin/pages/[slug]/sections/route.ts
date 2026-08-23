@@ -18,6 +18,7 @@ import { sessionIsPlatformAdmin } from '@/lib/auth/jwt';
 import { jsonError, jsonOk } from '@/lib/api/response';
 import { resolveTenantDbUrl } from '@/domain/tenant/tenant-db-resolver';
 import { addTenantColumnsIfMissing } from '@/domain/tenant/tenant-seed-service';
+import { getCurrentAppId, getTenantConfig } from '@shared/lib/config/tenant';
 import { resolveAppPageRow } from '@shared/lib/page-cms-resolve';
 import { parseBlockConfig } from '@/lib/schemas/block-config';
 import { resolveBlockAnimate } from '@/lib/schemas/block-animate';
@@ -114,8 +115,12 @@ export async function GET(request: Request, context: RouteContext): Promise<Next
   const { slug } = await context.params;
   const { searchParams } = new URL(request.url);
   const isPlatformAdmin = sessionIsPlatformAdmin(guard.session);
-  const tenantSlug = isPlatformAdmin ? searchParams.get('tenantSlug') : null;
-  const appId = isPlatformAdmin ? searchParams.get('appId') : null;
+  const tenantSlug = isPlatformAdmin
+    ? searchParams.get('tenantSlug') ?? undefined
+    : getTenantConfig().slug;
+  const appId = isPlatformAdmin
+    ? searchParams.get('appId') ?? undefined
+    : getCurrentAppId() || undefined;
 
   const dbUrl = await resolveTenantDbUrl(tenantSlug, appId);
   const prisma = getClient(dbUrl);

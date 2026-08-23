@@ -11,6 +11,8 @@ import type { BatchUserInput, BatchUserResult } from '@/app/api/admin/users/batc
 import type { AdminGroupView } from '@/app/api/admin/groups/route';
 import { contentApi } from '@/store/apis/content-api';
 import { publishPageSections } from '@/store/ui-slice';
+import { cmsPageCacheKey } from '@shared/lib/cms-scope';
+import { getTenantConfig } from '@shared/lib/config/tenant';
 
 /** Cross-tenant browse scope — resolved server-side only for platform admins. */
 export interface TenantAppScope {
@@ -402,6 +404,13 @@ export const adminApi = createApi({
           dispatch(
             publishPageSections({
               slug: arg.slug,
+              cacheKey: cmsPageCacheKey(
+                {
+                  tenantSlug: arg.tenantSlug ?? getTenantConfig().slug,
+                  ...(arg.appId ? { appId: arg.appId } : {}),
+                },
+                arg.slug,
+              ),
               sections: arg.sections.map((s, i) => ({
                 id: s.id,
                 sortOrder: s.sortOrder ?? i,

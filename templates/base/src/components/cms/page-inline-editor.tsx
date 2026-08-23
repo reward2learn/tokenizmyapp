@@ -42,6 +42,7 @@ import {
 import { useAppDispatch } from '@/store/hooks';
 import { publishPageSections, setPageEditMode } from '@/store/ui-slice';
 import { contentApi } from '@/store/apis/content-api';
+import { cmsPageCacheKey, getCmsTenantAppScope } from '@shared/lib/cms-scope';
 import { DrawerResizeHandle } from '@/components/shared/drawer-resize-handle';
 import { useResizableDrawerWidth } from '@/hooks/use-resizable-drawer-width';
 
@@ -88,6 +89,8 @@ export interface PageInlineEditorProps {
 export function PageInlineEditor({ page }: PageInlineEditorProps) {
   const dispatch = useAppDispatch();
   const router = useRouter();
+  const cmsScope = useMemo(() => getCmsTenantAppScope(), []);
+  const pageCacheKey = cmsPageCacheKey(cmsScope, page.slug);
   const theme = useTheme();
   const isSmUp = useMediaQuery(theme.breakpoints.up('sm'));
   const { width: blockSettingsWidth, isResizing: blockSettingsResizing, onPointerDown: onBlockSettingsResize } =
@@ -99,7 +102,7 @@ export function PageInlineEditor({ page }: PageInlineEditorProps) {
       anchor: 'right',
       enabled: isSmUp,
     });
-  const { data, isLoading, error, refetch } = useGetPageSectionsQuery({ slug: page.slug });
+  const { data, isLoading, error, refetch } = useGetPageSectionsQuery({ slug: page.slug, ...cmsScope });
   const [updateSections, { isLoading: saving }] = useUpdatePageSectionsMutation();
   const [createSection, { isLoading: creating }] = useCreatePageSectionMutation();
   const [deleteSections, { isLoading: deleting }] = useDeletePageSectionsMutation();
@@ -176,6 +179,7 @@ export function PageInlineEditor({ page }: PageInlineEditorProps) {
     try {
       await updateSections({
         slug: page.slug,
+        ...cmsScope,
         sections: sectionsPayload,
       }).unwrap();
 
@@ -183,6 +187,7 @@ export function PageInlineEditor({ page }: PageInlineEditorProps) {
       dispatch(
         publishPageSections({
           slug: page.slug,
+          cacheKey: pageCacheKey,
           sections: sectionsPayload.map((s) => ({
             id: s.id,
             sortOrder: s.sortOrder,
@@ -212,7 +217,7 @@ export function PageInlineEditor({ page }: PageInlineEditorProps) {
         text: err instanceof Error ? err.message : 'Failed to save page content',
       });
     }
-  }, [drafts, dispatch, page.slug, refetch, router, updateSections]);
+  }, [cmsScope, drafts, dispatch, page.slug, pageCacheKey, refetch, router, updateSections]);
 
   const updateDraftConfig = useCallback((id: string, config: Record<string, unknown>) => {
     setDrafts((prev) => prev.map((s) => (s.id === id ? { ...s, config } : s)));
@@ -237,7 +242,7 @@ export function PageInlineEditor({ page }: PageInlineEditorProps) {
       if (!window.confirm('Delete this block from the page?')) return;
       setMessage(null);
       try {
-        await deleteSections({ slug: page.slug, ids: [id] }).unwrap();
+        await deleteSections({ slug: page.slug, ids: [id], ...cmsScope }).unwrap();
         setDrafts((prev) => prev.filter((s) => s.id !== id));
         if (editingId === id) setEditingId(null);
         setMessage({ severity: 'success', text: 'Block deleted.' });
@@ -250,7 +255,7 @@ export function PageInlineEditor({ page }: PageInlineEditorProps) {
         });
       }
     },
-    [deleteSections, editingId, page.slug, refetch, router],
+    [cmsScope, deleteSections, editingId, page.slug, refetch, router],
   );
 
   const handleAdd = useCallback(async () => {
@@ -258,6 +263,7 @@ export function PageInlineEditor({ page }: PageInlineEditorProps) {
     try {
       await createSection({
         slug: page.slug,
+        ...cmsScope,
         blockType: addBlockType,
         config: defaultConfigForBlock(addBlockType),
       }).unwrap();
@@ -270,7 +276,7 @@ export function PageInlineEditor({ page }: PageInlineEditorProps) {
         text: err instanceof Error ? err.message : 'Failed to add block',
       });
     }
-  }, [addBlockType, createSection, page.slug, refetch, router]);
+  }, [addBlockType, cmsScope, createSection, page.slug, refetch, router]);
 
   if (isLoading) {
     return (
