@@ -49,6 +49,8 @@ import { useListPagesQuery } from '@/store/apis/content-api';
 import { useGetBrandConfigQuery } from '@shared/store/apis/brand-config-api';
 import { useGetNavigationQuery } from '@/store/apis/navigation-api';
 import { NavIcon } from '@/components/shared/nav-icon';
+import { DrawerResizeHandle } from '@/components/shared/drawer-resize-handle';
+import { useResizableDrawerWidth } from '@/hooks/use-resizable-drawer-width';
 import { getClientTenantConfig } from '@shared/lib/config/tenant';
 import { effectiveUserGroups } from '@/lib/auth/jwt';
 import { useUserAvatarUrl } from '@/lib/auth/use-user-avatar-url';
@@ -56,8 +58,7 @@ import { useThemeMode } from '@/theme/theme-registry';
 import type { ThemeMode } from '@/theme/design-tokens';
 
 const DRAWER_WIDTH = 280;
-/** Right-side AI chat drawer — persistent (pushes the main container, no overlay). */
-const CHAT_DRAWER_WIDTH = { xs: 320, sm: 400 };
+const CHAT_DRAWER_DEFAULT_WIDTH = 400;
 
 // Lazy-load the chat panel so the shell stays light; it renders in the drawer.
 const ChatDrawerPanel = dynamic(
@@ -124,6 +125,18 @@ export function AppShell({ children }: { children: ReactNode }) {
   const dispatch = useAppDispatch();
   const drawerOpen = useAppSelector((s) => s.ui.drawerOpen);
   const chatDrawerOpen = useAppSelector((s) => s.ui.chatDrawerOpen);
+  const {
+    width: chatDrawerWidth,
+    isResizing: chatDrawerResizing,
+    onPointerDown: onChatDrawerResize,
+  } = useResizableDrawerWidth({
+    storageKey: 'drawer-width:chat',
+    defaultWidth: CHAT_DRAWER_DEFAULT_WIDTH,
+    minWidth: 280,
+    maxWidth: 900,
+    anchor: 'right',
+    enabled: chatDrawerOpen,
+  });
   const pageEditMode = useAppSelector((s) => s.ui.pageEditMode);
   const pageEditSlug = useAppSelector((s) => s.ui.pageEditSlug);
   const { tier, user, groups, platformAdmin, bootstrapped, permissions } = useAppSelector((s) => s.auth);
@@ -573,7 +586,7 @@ export function AppShell({ children }: { children: ReactNode }) {
         component="aside"
         aria-label="AI chat drawer"
         sx={{
-          width: chatDrawerOpen ? CHAT_DRAWER_WIDTH : 0,
+          width: chatDrawerOpen ? chatDrawerWidth : 0,
           flexShrink: 0,
           height: '100dvh',
           position: 'sticky',
@@ -585,9 +598,10 @@ export function AppShell({ children }: { children: ReactNode }) {
           borderColor: 'divider',
           bgcolor: 'background.default',
           visibility: chatDrawerOpen ? 'visible' : 'hidden',
-          transition: 'width 220ms cubic-bezier(0.4, 0, 0.2, 1)',
+          transition: chatDrawerResizing ? 'none' : 'width 220ms cubic-bezier(0.4, 0, 0.2, 1)',
         }}
       >
+        {chatDrawerOpen ? <DrawerResizeHandle anchor="right" onPointerDown={onChatDrawerResize} /> : null}
         <Box
           sx={{
             display: 'flex',

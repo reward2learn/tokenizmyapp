@@ -70,8 +70,20 @@ async function loadPageFromDb(routeSlug: string): Promise<PageDefinition | null>
 }
 
 export async function resolvePageWithDb(slug: string): Promise<PageDefinition | null> {
-  // Factory marketing homepage is authored in page-catalog — not CMS/Neon.
+  // Factory home: prefer Neon CMS when populated so SSR matches live edits;
+  // fall back to the code catalog when the DB has no sections yet.
   if (isPlatformApp() && slug === 'home') {
+    try {
+      const fromDb = await loadPageFromDb(slug);
+      if (fromDb && fromDb.sections.length > 0) {
+        return {
+          ...fromDb,
+          sections: fromDb.sections.filter((s) => s.blockType !== 'sheet_viewer'),
+        };
+      }
+    } catch {
+      // DB unavailable — fall through to catalog.
+    }
     return resolvePage('home');
   }
 

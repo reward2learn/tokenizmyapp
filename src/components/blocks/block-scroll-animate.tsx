@@ -15,7 +15,7 @@ function isInViewport(el: HTMLElement): boolean {
 }
 
 export interface BlockScrollAnimateProps {
-  /** Stable per-section id (e.g. page slug + section id) — used to animate at most once. */
+  /** Stable per-section slot (page slug + sort order) — used to animate at most once. */
   animationKey: string;
   animate?: unknown;
   disabled?: boolean;

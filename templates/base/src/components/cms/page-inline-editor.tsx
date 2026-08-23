@@ -17,6 +17,8 @@ import Select from '@mui/material/Select';
 import Stack from '@mui/material/Stack';
 import Tooltip from '@mui/material/Tooltip';
 import Typography from '@mui/material/Typography';
+import useMediaQuery from '@mui/material/useMediaQuery';
+import { useTheme } from '@mui/material/styles';
 import SettingsIcon from '@mui/icons-material/Settings';
 import SaveIcon from '@mui/icons-material/Save';
 import CloseIcon from '@mui/icons-material/Close';
@@ -40,6 +42,8 @@ import {
 import { useAppDispatch } from '@/store/hooks';
 import { publishPageSections, setPageEditMode } from '@/store/ui-slice';
 import { contentApi } from '@/store/apis/content-api';
+import { DrawerResizeHandle } from '@/components/shared/drawer-resize-handle';
+import { useResizableDrawerWidth } from '@/hooks/use-resizable-drawer-width';
 
 interface SectionDraft {
   id: string;
@@ -84,6 +88,17 @@ export interface PageInlineEditorProps {
 export function PageInlineEditor({ page }: PageInlineEditorProps) {
   const dispatch = useAppDispatch();
   const router = useRouter();
+  const theme = useTheme();
+  const isSmUp = useMediaQuery(theme.breakpoints.up('sm'));
+  const { width: blockSettingsWidth, isResizing: blockSettingsResizing, onPointerDown: onBlockSettingsResize } =
+    useResizableDrawerWidth({
+      storageKey: 'drawer-width:block-settings',
+      defaultWidth: 420,
+      minWidth: 320,
+      maxWidth: 720,
+      anchor: 'right',
+      enabled: isSmUp,
+    });
   const { data, isLoading, error, refetch } = useGetPageSectionsQuery({ slug: page.slug });
   const [updateSections, { isLoading: saving }] = useUpdatePageSectionsMutation();
   const [createSection, { isLoading: creating }] = useCreatePageSectionMutation();
@@ -448,8 +463,18 @@ export function PageInlineEditor({ page }: PageInlineEditorProps) {
         anchor="right"
         open={editingSection !== null}
         onClose={() => setEditingId(null)}
-        slotProps={{ paper: { sx: { width: { xs: '100%', sm: 420 }, p: 2 } } }}
+        slotProps={{
+          paper: {
+            sx: {
+              width: { xs: '100%', sm: blockSettingsWidth },
+              p: 2,
+              position: 'relative',
+              transition: blockSettingsResizing ? 'none' : undefined,
+            },
+          },
+        }}
       >
+        {isSmUp ? <DrawerResizeHandle anchor="right" onPointerDown={onBlockSettingsResize} /> : null}
         {editingSection ? (
           <Stack spacing={2} sx={{ height: '100%' }}>
             <Stack direction="row" spacing={1} sx={{ alignItems: 'center', justifyContent: 'space-between' }}>

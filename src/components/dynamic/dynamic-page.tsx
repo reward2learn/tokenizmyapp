@@ -10,7 +10,7 @@ import { SignInPanelGate } from '@/components/auth/sign-in-panel';
 import { PdfExportButton } from '@/components/ui/pdf-export-button';
 import { PageInlineEditor } from '@/components/cms/page-inline-editor';
 import { BlockScrollAnimate } from '@/components/blocks/block-scroll-animate';
-import { usePublishedPageSections, sectionRenderKey } from '@/hooks/use-published-page-sections';
+import { usePublishedPageSections, sectionRenderKey, sectionAnimationKey } from '@/hooks/use-published-page-sections';
 import { useAppSelector } from '@/store/hooks';
 
 export interface DynamicPageProps {
@@ -74,14 +74,14 @@ export function DynamicPage({ page }: DynamicPageProps) {
   });
   const showSignIn = hasGatedSection && tier === 'public';
   const inlineEdit = pageEditMode && pageEditSlug === page.slug && !isPdf;
-  const { sections: liveSections, publishRevision } = usePublishedPageSections(page);
+  const { sections: liveSections, publishRevision, isSectionsPending } = usePublishedPageSections(page);
 
   if (inlineEdit) {
     return <PageInlineEditor page={page} />;
   }
 
   return (
-    <Box component="main" id="pdfCapture">
+    <Box component="main" id="pdfCapture" aria-busy={isSectionsPending || undefined}>
       {!isPdf && page.pdfExport && platformAdmin ? (
         <Box sx={{ display: 'flex', justifyContent: 'flex-end', px: 3, pt: 2 }}>
           <PdfExportButton page={`/${page.slug}`} label="PDF" />
@@ -94,7 +94,7 @@ export function DynamicPage({ page }: DynamicPageProps) {
           blockType={section.blockType}
           config={section.config}
           sectionKey={sectionRenderKey(section, publishRevision)}
-          animationKey={`${page.slug}:${section.id}`}
+          animationKey={sectionAnimationKey(page.slug, section)}
           animateDisabled={isPdf}
         />
       ))}
