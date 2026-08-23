@@ -1,5 +1,6 @@
 'use client';
 
+import { useMemo } from 'react';
 import Box from '@mui/material/Box';
 import FormControl from '@mui/material/FormControl';
 import InputLabel from '@mui/material/InputLabel';
@@ -11,6 +12,7 @@ import FormControlLabel from '@mui/material/FormControlLabel';
 import Checkbox from '@mui/material/Checkbox';
 import Typography from '@mui/material/Typography';
 import { HeroConfigEditor } from '@/components/cms/hero-config-editor';
+import { hydrateBlockConfigForEdit } from '@/lib/hydrate-block-config';
 import { useGetCmsSourcesQuery } from '@/store/apis/admin-api';
 
 function str(config: Record<string, unknown>, key: string): string {
@@ -88,9 +90,14 @@ export function SectionConfigEditor({
   onChange,
   readOnly = false,
 }: SectionConfigEditorProps) {
+  const displayConfig = useMemo(
+    () => hydrateBlockConfigForEdit(blockType, config),
+    [blockType, config],
+  );
+
   if (blockType === 'hero') {
     return (
-      <HeroConfigEditor config={config} onChange={onChange} readOnly={readOnly} />
+      <HeroConfigEditor config={displayConfig} onChange={onChange} readOnly={readOnly} />
     );
   }
 
@@ -112,7 +119,7 @@ export function SectionConfigEditor({
             label={headlineKey}
             size="small"
             fullWidth
-            value={str(config, headlineKey)}
+            value={str(displayConfig, headlineKey)}
             onChange={(e) => onChange(setStr(config, headlineKey, e.target.value))}
           />
           <TextField
@@ -121,7 +128,7 @@ export function SectionConfigEditor({
             fullWidth
             multiline
             minRows={2}
-            value={str(config, subKey)}
+            value={str(displayConfig, subKey)}
             onChange={(e) => onChange(setStr(config, subKey, e.target.value))}
           />
           {blockType === 'marketing_hero' && (
@@ -130,7 +137,7 @@ export function SectionConfigEditor({
                 label="audiences (comma-separated)"
                 size="small"
                 fullWidth
-                value={Array.isArray(config.audiences) ? (config.audiences as string[]).join(', ') : ''}
+                value={Array.isArray(displayConfig.audiences) ? (displayConfig.audiences as string[]).join(', ') : ''}
                 onChange={(e) =>
                   onChange({
                     ...config,
@@ -145,7 +152,7 @@ export function SectionConfigEditor({
                 label="quickStarts (comma-separated)"
                 size="small"
                 fullWidth
-                value={Array.isArray(config.quickStarts) ? (config.quickStarts as string[]).join(', ') : ''}
+                value={Array.isArray(displayConfig.quickStarts) ? (displayConfig.quickStarts as string[]).join(', ') : ''}
                 onChange={(e) =>
                   onChange({
                     ...config,
@@ -160,22 +167,41 @@ export function SectionConfigEditor({
                 label="placeholder"
                 size="small"
                 fullWidth
-                value={str(config, 'placeholder')}
+                value={str(displayConfig, 'placeholder')}
                 onChange={(e) => onChange(setStr(config, 'placeholder', e.target.value))}
               />
               <TextField
                 label="ctaLabel"
                 size="small"
                 fullWidth
-                value={str(config, 'ctaLabel')}
+                value={str(displayConfig, 'ctaLabel')}
                 onChange={(e) => onChange(setStr(config, 'ctaLabel', e.target.value))}
               />
               <TextField
                 label="ctaHref"
                 size="small"
                 fullWidth
-                value={str(config, 'ctaHref')}
+                value={str(displayConfig, 'ctaHref')}
                 onChange={(e) => onChange(setStr(config, 'ctaHref', e.target.value))}
+              />
+            </>
+          )}
+          {blockType === 'pricing_table' && (
+            <>
+              <TextField
+                label="ctaHref"
+                size="small"
+                fullWidth
+                value={str(displayConfig, 'ctaHref')}
+                onChange={(e) => onChange(setStr(config, 'ctaHref', e.target.value))}
+              />
+              <TextField
+                label="highlightPlanId"
+                size="small"
+                fullWidth
+                value={str(displayConfig, 'highlightPlanId')}
+                onChange={(e) => onChange(setStr(config, 'highlightPlanId', e.target.value))}
+                helperText="Plan id to mark as Most popular (e.g. business)"
               />
             </>
           )}
@@ -185,14 +211,14 @@ export function SectionConfigEditor({
                 label="ctaLabel"
                 size="small"
                 fullWidth
-                value={str(config, 'ctaLabel')}
+                value={str(displayConfig, 'ctaLabel')}
                 onChange={(e) => onChange(setStr(config, 'ctaLabel', e.target.value))}
               />
               <TextField
                 label="ctaHref"
                 size="small"
                 fullWidth
-                value={str(config, 'ctaHref')}
+                value={str(displayConfig, 'ctaHref')}
                 onChange={(e) => onChange(setStr(config, 'ctaHref', e.target.value))}
               />
             </>
@@ -204,7 +230,7 @@ export function SectionConfigEditor({
               fullWidth
               multiline
               minRows={4}
-              value={JSON.stringify(config.rows ?? [], null, 2)}
+              value={JSON.stringify(displayConfig.rows ?? [], null, 2)}
               onChange={(e) => {
                 try {
                   onChange({ ...config, rows: JSON.parse(e.target.value) as unknown });
@@ -227,7 +253,7 @@ export function SectionConfigEditor({
             label="heading"
             size="small"
             fullWidth
-            value={str(config, 'heading')}
+            value={str(displayConfig, 'heading')}
             onChange={(e) => onChange(setStr(config, 'heading', e.target.value))}
           />
           <TextField
@@ -236,7 +262,7 @@ export function SectionConfigEditor({
             fullWidth
             multiline
             minRows={8}
-            value={faqItemsToText(config)}
+            value={faqItemsToText(displayConfig)}
             onChange={(e) => onChange({ ...config, items: textToFaqItems(e.target.value) })}
             helperText="Separate Q&A pairs with a blank line. Start lines with Q: and A:."
           />
@@ -253,8 +279,17 @@ export function SectionConfigEditor({
             label="heading"
             size="small"
             fullWidth
-            value={str(config, 'heading')}
+            value={str(displayConfig, 'heading')}
             onChange={(e) => onChange(setStr(config, 'heading', e.target.value))}
+          />
+          <TextField
+            label="subheading"
+            size="small"
+            fullWidth
+            multiline
+            minRows={2}
+            value={str(displayConfig, 'subheading')}
+            onChange={(e) => onChange(setStr(config, 'subheading', e.target.value))}
           />
           <TextField
             label="items (title then body, blank line between)"
@@ -262,7 +297,7 @@ export function SectionConfigEditor({
             fullWidth
             multiline
             minRows={8}
-            value={showcaseItemsToText(config)}
+            value={showcaseItemsToText(displayConfig)}
             onChange={(e) => onChange({ ...config, items: textToShowcaseItems(e.target.value) })}
           />
         </Stack>
@@ -270,21 +305,61 @@ export function SectionConfigEditor({
     );
   }
 
+  if (blockType === 'feature_grid') {
+    return (
+      <Box component="fieldset" disabled={readOnly} sx={{ border: 0, m: 0, p: 0, minWidth: 0 }}>
+        <Stack spacing={1.5}>
+          <TextField
+            label="heading"
+            size="small"
+            fullWidth
+            value={str(displayConfig, 'heading')}
+            onChange={(e) => onChange(setStr(config, 'heading', e.target.value))}
+          />
+          <TextField
+            label="subheading"
+            size="small"
+            fullWidth
+            multiline
+            minRows={2}
+            value={str(displayConfig, 'subheading')}
+            onChange={(e) => onChange(setStr(config, 'subheading', e.target.value))}
+          />
+        </Stack>
+      </Box>
+    );
+  }
+
+  if (blockType === 'lever_accordion') {
+    return (
+      <Box component="fieldset" disabled={readOnly} sx={{ border: 0, m: 0, p: 0, minWidth: 0 }}>
+        <TextField
+          label="title"
+          size="small"
+          fullWidth
+          value={str(displayConfig, 'title')}
+          onChange={(e) => onChange(setStr(config, 'title', e.target.value))}
+          helperText="Lever content is loaded from dashboard data"
+        />
+      </Box>
+    );
+  }
+
   if (blockType === 'doc_markdown') {
     return (
-      <DocMarkdownConfigEditor config={config} onChange={onChange} readOnly={readOnly} />
+      <DocMarkdownConfigEditor config={displayConfig} onChange={onChange} readOnly={readOnly} />
     );
   }
 
   if (blockType === 'sheet_viewer') {
     return (
-      <SheetViewerConfigEditor config={config} onChange={onChange} readOnly={readOnly} />
+      <SheetViewerConfigEditor config={displayConfig} onChange={onChange} readOnly={readOnly} />
     );
   }
 
   if (blockType === 'pack_table') {
     return (
-      <PackTableConfigEditor config={config} onChange={onChange} readOnly={readOnly} />
+      <PackTableConfigEditor config={displayConfig} onChange={onChange} readOnly={readOnly} />
     );
   }
 
@@ -298,7 +373,7 @@ export function SectionConfigEditor({
             fullWidth
             multiline
             minRows={2}
-            value={str(config, 'emptyStatePrompt')}
+            value={str(displayConfig, 'emptyStatePrompt')}
             onChange={(e) => onChange(setStr(config, 'emptyStatePrompt', e.target.value))}
           />
           <TextField
@@ -308,8 +383,8 @@ export function SectionConfigEditor({
             multiline
             minRows={4}
             value={
-              Array.isArray(config.suggestedPrompts)
-                ? (config.suggestedPrompts as string[]).join('\n')
+              Array.isArray(displayConfig.suggestedPrompts)
+                ? (displayConfig.suggestedPrompts as string[]).join('\n')
                 : ''
             }
             onChange={(e) =>
@@ -337,7 +412,7 @@ export function SectionConfigEditor({
             <Select
               labelId="chart-scenario"
               label="scenario"
-              value={str(config, 'scenario') || 'conservative'}
+              value={str(displayConfig, 'scenario') || 'conservative'}
               onChange={(e) => onChange(setStr(config, 'scenario', e.target.value))}
             >
               {['conservative', 'realistic', 'aspirational', 'actual'].map((s) => (
@@ -350,7 +425,7 @@ export function SectionConfigEditor({
             <Select
               labelId="chart-variant"
               label="variant"
-              value={str(config, 'variant') || 'dashboard'}
+              value={str(displayConfig, 'variant') || 'dashboard'}
               onChange={(e) => onChange(setStr(config, 'variant', e.target.value))}
             >
               <MenuItem value="dashboard">dashboard</MenuItem>
@@ -383,7 +458,7 @@ export function SectionConfigEditor({
             label="period"
             size="small"
             fullWidth
-            value={str(config, 'period')}
+            value={str(displayConfig, 'period')}
             onChange={(e) => onChange(setStr(config, 'period', e.target.value))}
             placeholder="e.g. 2025-01"
           />
@@ -393,7 +468,7 @@ export function SectionConfigEditor({
               <Select
                 labelId="kpi-variant"
                 label="variant"
-                value={str(config, 'variant') || 'dashboard'}
+                value={str(displayConfig, 'variant') || 'dashboard'}
                 onChange={(e) => onChange(setStr(config, 'variant', e.target.value))}
               >
                 <MenuItem value="dashboard">dashboard</MenuItem>
@@ -437,7 +512,7 @@ export function SectionConfigEditor({
         fullWidth
         multiline
         minRows={6}
-        value={JSON.stringify(config, null, 2)}
+        value={JSON.stringify(displayConfig, null, 2)}
         onChange={(e) => {
           try {
             onChange(JSON.parse(e.target.value) as Record<string, unknown>);

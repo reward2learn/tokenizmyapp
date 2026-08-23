@@ -30,7 +30,6 @@ import { parseBlockConfig } from '@/lib/schemas/block-config';
 import { AuthGate } from '@/components/auth/auth-gate';
 import { CMS_ADDABLE_BLOCKS, defaultConfigForBlock } from '@/components/cms/cms-block-catalog';
 import { SectionConfigEditor } from '@/components/cms/section-config-editor';
-import { hydrateHeroConfigForEdit } from '@/lib/hero-config';
 import {
   useCreatePageSectionMutation,
   useDeletePageSectionsMutation,
@@ -164,6 +163,7 @@ export function PageInlineEditor({ page }: PageInlineEditorProps) {
         sections: sectionsPayload,
       }).unwrap();
 
+      // Publish immediately so the live view updates when edit mode is toggled off.
       dispatch(
         publishPageSections({
           slug: page.slug,
@@ -461,11 +461,7 @@ export function PageInlineEditor({ page }: PageInlineEditorProps) {
             <Box sx={{ flex: 1, overflow: 'auto' }}>
               <SectionConfigEditor
                 blockType={editingSection.blockType}
-                config={
-                  editingSection.blockType === 'hero'
-                    ? hydrateHeroConfigForEdit(editingSection.config)
-                    : editingSection.config
-                }
+                config={editingSection.config}
                 onChange={(config) => updateDraftConfig(editingSection.id, config)}
               />
             </Box>

@@ -29,7 +29,6 @@ import { resolveBlockComponent } from '@/lib/block-registry';
 import { parseBlockConfig } from '@/lib/schemas/block-config';
 import { AuthGate } from '@/components/auth/auth-gate';
 import { CMS_ADDABLE_BLOCKS, defaultConfigForBlock } from '@/components/cms/cms-block-catalog';
-import { hydrateHeroConfigForEdit } from '@/lib/hero-config';
 import { SectionConfigEditor } from '@/components/cms/section-config-editor';
 import {
   useCreatePageSectionMutation,
@@ -462,11 +461,7 @@ export function PageInlineEditor({ page }: PageInlineEditorProps) {
             <Box sx={{ flex: 1, overflow: 'auto' }}>
               <SectionConfigEditor
                 blockType={editingSection.blockType}
-                config={
-                  editingSection.blockType === 'hero'
-                    ? hydrateHeroConfigForEdit(editingSection.config)
-                    : editingSection.config
-                }
+                config={editingSection.config}
                 onChange={(config) => updateDraftConfig(editingSection.id, config)}
               />
             </Box>

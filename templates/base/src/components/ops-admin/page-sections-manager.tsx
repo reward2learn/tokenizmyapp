@@ -42,7 +42,6 @@ import {
 import { useAppSelector } from '@/store/hooks';
 import { hasPagesWrite } from '@/lib/auth/admin-access';
 import { SectionConfigEditor } from '@/components/cms/section-config-editor';
-import { hydrateHeroConfigForEdit } from '@/lib/hero-config';
 import { CMS_ADDABLE_BLOCKS, defaultConfigForBlock } from '@/components/cms/cms-block-catalog';
 
 interface PageSectionsManagerProps {
@@ -346,11 +345,7 @@ export function PageSectionsManager({ tenantSlug, appId }: PageSectionsManagerPr
               <AccordionDetails>
                 <SectionConfigEditor
                   blockType={section.blockType}
-                  config={
-                    section.blockType === 'hero'
-                      ? hydrateHeroConfigForEdit(section.config)
-                      : section.config
-                  }
+                  config={section.config}
                   readOnly={!canWrite}
                   onChange={(config) => updateDraft(section.id, { config })}
                 />

@@ -35,7 +35,30 @@ export function defaultConfigForBlock(blockType: string): Record<string, unknown
     case 'faq':
       return { heading: 'Frequently asked questions', items: [] };
     case 'cta_banner':
-      return { heading: 'Get started', ctaLabel: 'Start', ctaHref: '/admin' };
+      return { heading: 'Start building for free', ctaLabel: 'Start building', ctaHref: '/admin' };
+    case 'pricing_table':
+      return {
+        heading: 'Pricing',
+        subheading: 'Start for free and upgrade as you grow.',
+        ctaHref: '/admin',
+        highlightPlanId: 'business',
+      };
+    case 'capability_marquee':
+      return { heading: 'Everything you need is built-in', rows: [] };
+    case 'customer_proof':
+      return { heading: 'Customer results', items: [] };
+    case 'testimonials':
+      return { heading: 'What customers say', items: [] };
+    case 'product_showcase':
+      return { heading: 'From idea to published app in minutes', items: [] };
+    case 'feature_grid':
+      return {
+        heading: 'Everything the business runs on, in one tenant',
+        subheading:
+          'Private AI for planning and analysis, department apps generated on demand, and access controlled down to the record.',
+      };
+    case 'lever_accordion':
+      return { title: 'The 5 Levers' };
     case 'marketing_hero':
       return {
         headline: 'Build software for your business',
