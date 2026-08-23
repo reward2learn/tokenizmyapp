@@ -85,6 +85,8 @@ export interface SavedResult {
   sheetPages?: { slug: string; title: string }[];
   /** Per seeded template page — what this run delivered. */
   pages?: import('@/domain/ai-content/ensure-template-pages').PageContentStatus[];
+  /** CMS doc_markdown sections updated via aiRegenerate placeholders. */
+  cmsPlaceholders?: import('@/domain/ai-content/cms-placeholder-service').CmsPlaceholderUpdateResult[];
 }
 
 // ── AI Call ─────────────────────────────────────────────
@@ -456,7 +458,21 @@ export async function generateAndSave(
     }
 
     const mergedContext = [seededContext, additionalContext].filter(Boolean).join('\n\n');
-    const prompt = overridePrompt ?? buildGenerationPrompt(data, mergedContext || undefined);
+    let cmsPlaceholderContext = '';
+    try {
+      const { listCmsAiPlaceholders, buildCmsPlaceholdersContext } = await import(
+        '@/domain/ai-content/cms-placeholder-service'
+      );
+      const placeholders = await listCmsAiPlaceholders(db, { onlyMarked: true });
+      cmsPlaceholderContext = buildCmsPlaceholdersContext(placeholders);
+    } catch (err) {
+      console.warn(
+        '[generateAndSave] Could not load CMS placeholder context:',
+        err instanceof Error ? err.message : err,
+      );
+    }
+    const fullAdditionalContext = [mergedContext, cmsPlaceholderContext].filter(Boolean).join('\n\n');
+    const prompt = overridePrompt ?? buildGenerationPrompt(data, fullAdditionalContext || undefined);
     const promptKb = (prompt.length / 1000).toFixed(0);
 
     onProgress?.({
@@ -704,6 +720,36 @@ export async function generateAndSave(
       );
     }
 
+    // ── 7e. Regenerate CMS doc_markdown placeholders (aiRegenerate) ──
+    let cmsPlaceholderResults: import('@/domain/ai-content/cms-placeholder-service').CmsPlaceholderUpdateResult[] =
+      [];
+    try {
+      const { applyCmsPlaceholderUpdates } = await import(
+        '@/domain/ai-content/cms-placeholder-service'
+      );
+      cmsPlaceholderResults = await applyCmsPlaceholderUpdates(db, {
+        ai,
+        tenantSlug: tenant,
+        excelData: data,
+        additionalContext,
+        executiveSummary: content.executiveSummary,
+        includeUnmarked: true,
+        onProgress: (message, detail) => {
+          onProgress?.({
+            step: 'saving',
+            message,
+            pct: 96,
+            detail,
+          });
+        },
+      });
+    } catch (err) {
+      console.warn(
+        '[content-generator] CMS placeholder update failed (non-fatal):',
+        err instanceof Error ? err.message : err,
+      );
+    }
+
     // ── 8. Complete ─────────────────────────────────────
     const updatedPages = pageStatuses.filter((p) => p.status === 'updated' || p.status === 'ready');
     const result: GenerationResult & { saved?: SavedResult; prompt?: string } = {
@@ -715,6 +761,7 @@ export async function generateAndSave(
         executiveSummarySaved: execSummarySaved,
         sheetPages,
         pages: pageStatuses,
+        cmsPlaceholders: cmsPlaceholderResults,
       },
     };
 

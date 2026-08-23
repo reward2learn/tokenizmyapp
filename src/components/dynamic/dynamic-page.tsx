@@ -2,14 +2,14 @@
 
 import Box from '@mui/material/Box';
 import { useSearchParams } from 'next/navigation';
-import type { AuthTier, PageDefinition } from '@/lib/page-catalog';
+import type { AuthTier, BlockType, PageDefinition } from '@/lib/page-catalog';
 import { getBlockComponent } from '@/lib/block-registry';
 import { parseBlockConfig } from '@/lib/schemas/block-config';
-import type { BlockType } from '@/lib/page-catalog';
 import { AuthGate } from '@/components/auth/auth-gate';
 import { SignInPanelGate } from '@/components/auth/sign-in-panel';
 import { PdfExportButton } from '@/components/ui/pdf-export-button';
 import { PageInlineEditor } from '@/components/cms/page-inline-editor';
+import { usePublishedPageSections, sectionRenderKey } from '@/hooks/use-published-page-sections';
 import { useAppSelector } from '@/store/hooks';
 
 export interface DynamicPageProps {
@@ -23,11 +23,11 @@ function DashboardSignInPrompt() {
 function BlockSection({
   blockType,
   config,
-  index,
+  sectionKey,
 }: {
   blockType: BlockType;
   config: Record<string, unknown>;
-  index: number;
+  sectionKey: string;
 }) {
   const Component = getBlockComponent(blockType);
   let parsed: { minTier?: AuthTier } | undefined;
@@ -38,14 +38,14 @@ function BlockSection({
   }
   const minTier = parsed && 'minTier' in parsed ? (parsed.minTier as AuthTier | undefined) : undefined;
 
-  const block = <Component config={config} />;
+  const block = <Component key={sectionKey} config={config} />;
 
   if (!minTier || minTier === 'public') {
-    return <Box key={`${blockType}-${index}`}>{block}</Box>;
+    return <Box key={sectionKey}>{block}</Box>;
   }
 
   return (
-    <AuthGate key={`${blockType}-${index}`} requiredTier={minTier} fallback={null}>
+    <AuthGate key={sectionKey} requiredTier={minTier} fallback={null}>
       {block}
     </AuthGate>
   );
@@ -64,6 +64,7 @@ export function DynamicPage({ page }: DynamicPageProps) {
   });
   const showSignIn = hasGatedSection && tier === 'public';
   const inlineEdit = pageEditMode && pageEditSlug === page.slug && !isPdf;
+  const { sections: liveSections, publishRevision } = usePublishedPageSections(page);
 
   if (inlineEdit) {
     return <PageInlineEditor page={page} />;
@@ -77,12 +78,12 @@ export function DynamicPage({ page }: DynamicPageProps) {
         </Box>
       ) : null}
 
-      {page.sections.map((section, index) => (
+      {liveSections.map((section) => (
         <BlockSection
-          key={section.id ?? `${section.blockType}-${index}`}
+          key={sectionRenderKey(section, publishRevision)}
           blockType={section.blockType}
           config={section.config}
-          index={index}
+          sectionKey={sectionRenderKey(section, publishRevision)}
         />
       ))}
 

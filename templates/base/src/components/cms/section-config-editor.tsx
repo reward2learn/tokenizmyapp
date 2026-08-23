@@ -7,6 +7,9 @@ import MenuItem from '@mui/material/MenuItem';
 import Select from '@mui/material/Select';
 import Stack from '@mui/material/Stack';
 import TextField from '@mui/material/TextField';
+import FormControlLabel from '@mui/material/FormControlLabel';
+import Checkbox from '@mui/material/Checkbox';
+import Typography from '@mui/material/Typography';
 import { useGetCmsSourcesQuery } from '@/store/apis/admin-api';
 
 function str(config: Record<string, unknown>, key: string): string {
@@ -503,6 +506,20 @@ function DocMarkdownConfigEditor({
           onChange={(e) => onChange(setStr(config, 'markdown', e.target.value))}
           helperText="Optional — overrides fetched snippet content"
         />
+        <FormControlLabel
+          control={
+            <Checkbox
+              checked={config.aiRegenerate === true}
+              onChange={(e) => onChange({ ...config, aiRegenerate: e.target.checked })}
+              disabled={readOnly}
+            />
+          }
+          label="AI regenerate placeholder"
+        />
+        <Typography variant="caption" color="text.secondary" sx={{ mt: -1 }}>
+          When enabled, Generate Content uses this section&apos;s markdown as a structure template and
+          writes fresh copy back here on the next AI run.
+        </Typography>
       </Stack>
     </Box>
   );

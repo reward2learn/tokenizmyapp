@@ -37,7 +37,8 @@ import {
   useUpdatePageSectionsMutation,
 } from '@/store/apis/admin-api';
 import { useAppDispatch } from '@/store/hooks';
-import { setPageEditMode } from '@/store/ui-slice';
+import { publishPageSections, setPageEditMode } from '@/store/ui-slice';
+import { contentApi } from '@/store/apis/content-api';
 
 interface SectionDraft {
   id: string;
@@ -150,18 +151,43 @@ export function PageInlineEditor({ page }: PageInlineEditorProps) {
       setMessage({ severity: 'info', text: 'No sections to save for this page.' });
       return;
     }
+    const sectionsPayload = drafts.map((s, i) => ({
+      id: s.id,
+      blockType: s.blockType,
+      config: s.config,
+      sortOrder: i,
+    }));
     try {
       await updateSections({
         slug: page.slug,
-        sections: drafts.map((s, i) => ({
-          id: s.id,
-          blockType: s.blockType,
-          config: s.config,
-          sortOrder: i,
-        })),
+        sections: sectionsPayload,
       }).unwrap();
+
+      // Publish immediately so the live view updates when edit mode is toggled off.
+      dispatch(
+        publishPageSections({
+          slug: page.slug,
+          sections: sectionsPayload.map((s) => ({
+            id: s.id,
+            sortOrder: s.sortOrder,
+            blockType: s.blockType,
+            config: s.config,
+          })),
+        }),
+      );
+
+      for (const s of sectionsPayload) {
+        if (s.blockType === 'doc_markdown') {
+          const source = s.config.source;
+          if (typeof source === 'string' && source.length > 0) {
+            dispatch(contentApi.util.invalidateTags([{ type: 'Document', id: source }]));
+          }
+        }
+      }
+      dispatch(contentApi.util.invalidateTags(['Document']));
+
       setDirty(false);
-      setMessage({ severity: 'success', text: 'Page content saved.' });
+      setMessage({ severity: 'success', text: 'Page content saved and published.' });
       await refetch();
       router.refresh();
     } catch (err) {
@@ -170,7 +196,7 @@ export function PageInlineEditor({ page }: PageInlineEditorProps) {
         text: err instanceof Error ? err.message : 'Failed to save page content',
       });
     }
-  }, [drafts, page.slug, refetch, router, updateSections]);
+  }, [drafts, dispatch, page.slug, refetch, router, updateSections]);
 
   const updateDraftConfig = useCallback((id: string, config: Record<string, unknown>) => {
     setDrafts((prev) => prev.map((s) => (s.id === id ? { ...s, config } : s)));
@@ -287,7 +313,7 @@ export function PageInlineEditor({ page }: PageInlineEditorProps) {
           disabled={!dirty || saving}
           onClick={() => void handleSave()}
         >
-          Save
+          Save & publish
         </Button>
       </Paper>
 

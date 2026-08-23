@@ -83,6 +83,18 @@ export interface UiState {
   /** Inline page CMS — edit blocks on the current route. */
   pageEditMode: boolean;
   pageEditSlug: string | null;
+  /** Client-side publish cache — applied immediately after CMS save (before router.refresh). */
+  publishedPageSections: Record<
+    string,
+    Array<{
+      id: string;
+      sortOrder: number;
+      blockType: string;
+      config: Record<string, unknown>;
+    }>
+  >;
+  /** Bumped on publish so live blocks remount with fresh config. */
+  pageSectionsRevision: Record<string, number>;
 }
 
 const initialState: UiState = {
@@ -105,6 +117,8 @@ const initialState: UiState = {
   settingsDialogOpen: false,
   pageEditMode: false,
   pageEditSlug: null,
+  publishedPageSections: {},
+  pageSectionsRevision: {},
 };
 
 export const uiSlice = createSlice({
@@ -213,6 +227,24 @@ export const uiSlice = createSlice({
       state.pageEditMode = next;
       state.pageEditSlug = next ? action.payload.slug : null;
     },
+    publishPageSections(
+      state,
+      action: {
+        payload: {
+          slug: string;
+          sections: Array<{
+            id: string;
+            sortOrder: number;
+            blockType: string;
+            config: Record<string, unknown>;
+          }>;
+        };
+      },
+    ) {
+      const { slug, sections } = action.payload;
+      state.publishedPageSections[slug] = sections;
+      state.pageSectionsRevision[slug] = (state.pageSectionsRevision[slug] ?? 0) + 1;
+    },
   },
 });
 
@@ -236,4 +268,5 @@ export const {
   openSettingsDialog,
   setPageEditMode,
   togglePageEditMode,
+  publishPageSections,
 } = uiSlice.actions;

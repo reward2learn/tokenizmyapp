@@ -55,3 +55,23 @@ export class CreditService {
     return this.client.creditPack.delete({ where: { id } });
   }
 }
+
+/** Template billing stubs — full metering lives in the root app credit-service. */
+export const CREDIT_FLOORS = {
+  chat: 1,
+  contentGeneration: 1,
+  templateGeneration: 1,
+} as const;
+
+export async function meterAiUsage(_input: unknown): Promise<void> {
+  // Template apps use BYOK / no platform metering gate.
+}
+
+export async function requireCreditsForTenant(
+  _tenantSlug: string,
+  _orgId?: string,
+  _db?: unknown,
+  _floor?: number,
+): Promise<{ ok: true } | { ok: false; reason?: string }> {
+  return { ok: true };
+}

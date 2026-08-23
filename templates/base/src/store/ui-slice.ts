@@ -18,6 +18,16 @@ export interface UiState {
   /** Inline page CMS — edit blocks on the current route. */
   pageEditMode: boolean;
   pageEditSlug: string | null;
+  publishedPageSections: Record<
+    string,
+    Array<{
+      id: string;
+      sortOrder: number;
+      blockType: string;
+      config: Record<string, unknown>;
+    }>
+  >;
+  pageSectionsRevision: Record<string, number>;
 }
 
 const initialState: UiState = {
@@ -33,6 +43,8 @@ const initialState: UiState = {
   secondaryColor: '#0af9fe',
   pageEditMode: false,
   pageEditSlug: null,
+  publishedPageSections: {},
+  pageSectionsRevision: {},
 };
 
 export const uiSlice = createSlice({
@@ -86,6 +98,24 @@ export const uiSlice = createSlice({
       state.pageEditMode = next;
       state.pageEditSlug = next ? action.payload.slug : null;
     },
+    publishPageSections(
+      state,
+      action: {
+        payload: {
+          slug: string;
+          sections: Array<{
+            id: string;
+            sortOrder: number;
+            blockType: string;
+            config: Record<string, unknown>;
+          }>;
+        };
+      },
+    ) {
+      const { slug, sections } = action.payload;
+      state.publishedPageSections[slug] = sections;
+      state.pageSectionsRevision[slug] = (state.pageSectionsRevision[slug] ?? 0) + 1;
+    },
   },
 });
 
@@ -101,4 +131,5 @@ export const {
   setThemeColors,
   setPageEditMode,
   togglePageEditMode,
+  publishPageSections,
 } = uiSlice.actions;

@@ -3,13 +3,14 @@ import { AuthGate } from '@/components/auth/auth-gate';
 import { SignInPanelGate } from '@/components/auth/sign-in-panel';
 import { DynamicPage } from '@/components/dynamic/dynamic-page';
 import { AiFindingsBlock } from '@/components/blocks/ai-findings-block';
-import { resolvePage } from '@/lib/page-catalog';
+import { resolvePageWithDb } from '@/lib/pages/page-resolver';
+import { notFound } from 'next/navigation';
 
-export default function SummaryPage() {
-  const page = resolvePage('summary');
+export default async function SummaryPage() {
+  const page = await resolvePageWithDb('summary');
 
   if (!page) {
-    return null;
+    notFound();
   }
 
   return (

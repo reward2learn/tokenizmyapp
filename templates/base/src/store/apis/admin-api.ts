@@ -8,6 +8,8 @@ import type { AdminConversationView } from '@/app/api/admin/conversations/route'
 import type { AdminUserView } from '@/app/api/admin/users/route';
 import type { BatchUserInput, BatchUserResult } from '@/app/api/admin/users/batch/route';
 import type { AdminGroupView } from '@/app/api/admin/groups/route';
+import { contentApi } from '@/store/apis/content-api';
+import { publishPageSections } from '@/store/ui-slice';
 
 /** Cross-tenant browse scope — resolved server-side only for platform admins. */
 export interface TenantAppScope {
@@ -362,6 +364,31 @@ export const adminApi = createApi({
         body,
       }),
       invalidatesTags: ['PageSections'],
+      async onQueryStarted(arg, { dispatch, queryFulfilled }) {
+        try {
+          await queryFulfilled;
+          for (const section of arg.sections) {
+            const source = section.config?.source;
+            if (typeof source === 'string' && source.length > 0) {
+              dispatch(contentApi.util.invalidateTags([{ type: 'Document', id: source }]));
+            }
+          }
+          dispatch(contentApi.util.invalidateTags(['Document']));
+          dispatch(
+            publishPageSections({
+              slug: arg.slug,
+              sections: arg.sections.map((s, i) => ({
+                id: s.id,
+                sortOrder: s.sortOrder ?? i,
+                blockType: s.blockType ?? 'doc_markdown',
+                config: s.config ?? {},
+              })),
+            }),
+          );
+        } catch {
+          // save failed — do not publish
+        }
+      },
     }),
 
     /** DELETE /api/admin/pages/[slug]/sections */

@@ -46,6 +46,8 @@ export const docMarkdownConfigSchema = z.object({
   source: z.string().optional(),
   markdown: z.string().optional(),
   title: z.string().optional(),
+  /** When true, AI Content Generation refreshes this section from current CMS markdown. */
+  aiRegenerate: z.boolean().optional(),
   minTier: minTierSchema,
 });
 

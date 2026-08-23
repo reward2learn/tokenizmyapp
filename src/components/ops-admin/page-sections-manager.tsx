@@ -220,7 +220,7 @@ export function PageSectionsManager({ tenantSlug, appId, isSuite = false }: Page
           sortOrder: i,
         })),
       }).unwrap();
-      setMessage({ severity: 'success', text: 'Sections saved. Page is content-locked against re-seed.' });
+      setMessage({ severity: 'success', text: 'Sections saved and published. Page is content-locked against re-seed.' });
       refetch();
     } catch (err) {
       setMessage({

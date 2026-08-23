@@ -1,4 +1,4 @@
-import { createClient } from '@/lib/db';
+import { createClient, type DbClient } from '@/lib/db';
 import { decrypt, encrypt } from '@/lib/crypto';
 
 export interface SecretRecord {
@@ -7,9 +7,8 @@ export interface SecretRecord {
   authTag: string;
 }
 
-export async function getSecret(keyName: string): Promise<SecretRecord | null> {
+export async function getSecret(keyName: string, db: DbClient = createClient()): Promise<SecretRecord | null> {
   try {
-    const db = createClient();
     const row = await db.secret.findUnique({ where: { keyName } });
     if (!row) return null;
     return {
@@ -23,9 +22,8 @@ export async function getSecret(keyName: string): Promise<SecretRecord | null> {
   }
 }
 
-export async function setSecret(keyName: string, plaintext: string): Promise<void> {
+export async function setSecret(keyName: string, plaintext: string, db: DbClient = createClient()): Promise<void> {
   const { encrypted, iv, authTag } = encrypt(plaintext);
-  const db = createClient();
   await db.secret.upsert({
     where: { keyName },
     create: { keyName, encryptedValue: encrypted, iv, authTag },
@@ -33,8 +31,8 @@ export async function setSecret(keyName: string, plaintext: string): Promise<voi
   });
 }
 
-export async function getSecretPlaintext(keyName: string): Promise<string | null> {
-  const secret = await getSecret(keyName);
+export async function getSecretPlaintext(keyName: string, db: DbClient = createClient()): Promise<string | null> {
+  const secret = await getSecret(keyName, db);
   if (!secret) return null;
   try {
     return decrypt(secret.encrypted, secret.iv, secret.authTag);
@@ -43,16 +41,15 @@ export async function getSecretPlaintext(keyName: string): Promise<string | null
   }
 }
 
-export async function deleteSecret(keyName: string): Promise<void> {
-  const db = createClient();
+export async function deleteSecret(keyName: string, db: DbClient = createClient()): Promise<void> {
   await db.secret.deleteMany({ where: { keyName } });
 }
 
-export async function getOpenAiKeyStatus(): Promise<{
+export async function getOpenAiKeyStatus(db: DbClient = createClient()): Promise<{
   configured: boolean;
   source: 'db' | 'env' | null;
 }> {
-  const dbRow = await getSecret('OPENAI_API_KEY');
+  const dbRow = await getSecret('OPENAI_API_KEY', db);
   if (dbRow) return { configured: true, source: 'db' };
   if (process.env.OPENAI_API_KEY) return { configured: true, source: 'env' };
   return { configured: false, source: null };

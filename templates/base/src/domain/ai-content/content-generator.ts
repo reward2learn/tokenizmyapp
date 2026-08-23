@@ -24,7 +24,6 @@ import { buildSeededPromptContext } from '@/domain/ai-content/seeded-prompt-cont
 import { resolveActiveAiConfig, type ActiveAiConfig } from '@/lib/ai-providers';
 import type { DbClient } from '@/lib/db';
 import { withTimeout } from '@/lib/with-timeout';
-import { getCurrentAppId } from '@shared/lib/config/tenant';
 import { parseReviewParts } from '@/domain/ai-content/parse-review-parts';
 import type { ReviewPart } from '@/domain/ai-content/parse-review-parts';
 import { meterAiUsage, requireCreditsForTenant, CREDIT_FLOORS } from '@/domain/billing/credit-service';
@@ -85,6 +84,8 @@ export interface SavedResult {
   sheetPages?: { slug: string; title: string }[];
   /** Per seeded template page — what this run delivered. */
   pages?: import('@/domain/ai-content/ensure-template-pages').PageContentStatus[];
+  /** CMS doc_markdown sections updated via aiRegenerate placeholders. */
+  cmsPlaceholders?: import('@/domain/ai-content/cms-placeholder-service').CmsPlaceholderUpdateResult[];
 }
 
 // ── AI Call ─────────────────────────────────────────────
@@ -328,12 +329,11 @@ async function saveExecutiveSummary(
 ): Promise<boolean> {
   try {
     await db.knowledgeSnippet.upsert({
-      where: { key_appId: { key: 'executive_summary', appId: getCurrentAppId() } },
+      where: { key: 'executive_summary' },
       create: {
         key: 'executive_summary',
         category: 'document',
         content: markdown,
-        appId: getCurrentAppId(),
       },
       update: {
         content: markdown,
@@ -358,7 +358,7 @@ async function saveBusinessReviewParts(
     const part = parts[i];
     try {
       await db.businessReviewPart.upsert({
-        where: { slug_appId: { slug: part.slug, appId: getCurrentAppId() } },
+        where: { slug: part.slug },
         create: {
           slug: part.slug,
           partKey: part.partKey,
@@ -366,7 +366,6 @@ async function saveBusinessReviewParts(
           sortOrder: part.sortOrder,
           authTier: 'google',
           markdown: part.markdown,
-          appId: getCurrentAppId(),
         },
         update: {
           title: part.title,
@@ -456,7 +455,21 @@ export async function generateAndSave(
     }
 
     const mergedContext = [seededContext, additionalContext].filter(Boolean).join('\n\n');
-    const prompt = overridePrompt ?? buildGenerationPrompt(data, mergedContext || undefined);
+    let cmsPlaceholderContext = '';
+    try {
+      const { listCmsAiPlaceholders, buildCmsPlaceholdersContext } = await import(
+        '@/domain/ai-content/cms-placeholder-service'
+      );
+      const placeholders = await listCmsAiPlaceholders(db, { onlyMarked: true });
+      cmsPlaceholderContext = buildCmsPlaceholdersContext(placeholders);
+    } catch (err) {
+      console.warn(
+        '[generateAndSave] Could not load CMS placeholder context:',
+        err instanceof Error ? err.message : err,
+      );
+    }
+    const fullAdditionalContext = [mergedContext, cmsPlaceholderContext].filter(Boolean).join('\n\n');
+    const prompt = overridePrompt ?? buildGenerationPrompt(data, fullAdditionalContext || undefined);
     const promptKb = (prompt.length / 1000).toFixed(0);
 
     onProgress?.({
@@ -548,12 +561,11 @@ export async function generateAndSave(
     if (dashboardData) {
       // Save to knowledge_snippets so the dashboard blocks can read it
       await db.knowledgeSnippet.upsert({
-        where: { key_appId: { key: 'dashboard_data', appId: getCurrentAppId() } },
+        where: { key: 'dashboard_data' },
         create: {
           key: 'dashboard_data',
           category: 'document',
           content: JSON.stringify(dashboardData),
-          appId: getCurrentAppId(),
         },
         update: {
           content: JSON.stringify(dashboardData),
@@ -644,26 +656,17 @@ export async function generateAndSave(
       pct: 90,
     });
     try {
-      const { ensureTaskTables, seedTaskTracking, seedTasksFromAi } = await import(
+      const { ensureTaskTables, seedTaskTracking } = await import(
         '@/domain/seed/seed-runner'
       );
       await ensureTaskTables(db);
       const aiTasks = dashboardData?.tasks ?? null;
       if (aiTasks && aiTasks.length > 0) {
-        const n = await seedTasksFromAi(
-          db as Parameters<typeof seedTasksFromAi>[0],
-          aiTasks.map((t) => ({
-            title: t.title,
-            priority: t.priority,
-            ownerCodes: t.ownerCodes,
-            dueOffsetDays: t.dueOffsetDays,
-            description: t.description,
-          })),
-        );
-        tasksSeeded = n > 0;
+        // Template seed-runner has no seedTasksFromAi — fall back to playbook tasks.
+        await seedTaskTracking(db as Parameters<typeof seedTaskTracking>[0]);
         onProgress?.({
           step: 'seeding_tasks',
-          message: `Seeded ${n} AI-generated task(s) onto /tasks`,
+          message: `Seeded playbook tasks (${aiTasks.length} AI task(s) skipped in template)`,
           pct: 91,
         });
       } else {
@@ -704,6 +707,36 @@ export async function generateAndSave(
       );
     }
 
+    // ── 7e. Regenerate CMS doc_markdown placeholders (aiRegenerate) ──
+    let cmsPlaceholderResults: import('@/domain/ai-content/cms-placeholder-service').CmsPlaceholderUpdateResult[] =
+      [];
+    try {
+      const { applyCmsPlaceholderUpdates } = await import(
+        '@/domain/ai-content/cms-placeholder-service'
+      );
+      cmsPlaceholderResults = await applyCmsPlaceholderUpdates(db, {
+        ai,
+        tenantSlug: tenant,
+        excelData: data,
+        additionalContext,
+        executiveSummary: content.executiveSummary,
+        includeUnmarked: true,
+        onProgress: (message, detail) => {
+          onProgress?.({
+            step: 'saving',
+            message,
+            pct: 96,
+            detail,
+          });
+        },
+      });
+    } catch (err) {
+      console.warn(
+        '[content-generator] CMS placeholder update failed (non-fatal):',
+        err instanceof Error ? err.message : err,
+      );
+    }
+
     // ── 8. Complete ─────────────────────────────────────
     const updatedPages = pageStatuses.filter((p) => p.status === 'updated' || p.status === 'ready');
     const result: GenerationResult & { saved?: SavedResult; prompt?: string } = {
@@ -715,6 +748,7 @@ export async function generateAndSave(
         executiveSummarySaved: execSummarySaved,
         sheetPages,
         pages: pageStatuses,
+        cmsPlaceholders: cmsPlaceholderResults,
       },
     };
 
