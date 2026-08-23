@@ -468,7 +468,6 @@ export function PageInlineEditor({ page }: PageInlineEditorProps) {
             sx: {
               width: { xs: '100%', sm: blockSettingsWidth },
               p: 2,
-              position: 'relative',
               transition: blockSettingsResizing ? 'none' : undefined,
             },
           },
