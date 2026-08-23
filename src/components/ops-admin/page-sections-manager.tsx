@@ -169,7 +169,7 @@ export function PageSectionsManager({ tenantSlug, appId, isSuite = false }: Page
   const seeding = seedingTenant || seedingApp;
 
   const resolvedSlug = tenantSlug ?? getTenantConfig().slug;
-  const resolvedAppId = appId ?? getCurrentAppId() || undefined;
+  const resolvedAppId = (appId ?? getCurrentAppId()) || undefined;
   const seedMode: 'app' | 'tenant' | 'blocked' = isSuite
     ? appId
       ? 'app'
