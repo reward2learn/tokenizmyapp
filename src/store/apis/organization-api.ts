@@ -424,7 +424,7 @@ export const organizationApi = createApi({
       providesTags: ['Subscription'],
     }),
 
-    /** Create a PaymentIntent for a paid top-up. Credits arrive via webhook. */
+    /** Create a PaymentIntent for a paid top-up. Credits arrive via webhook + confirm. */
     createTopUpIntent: builder.mutation<
       ApiEnvelope<{
         clientSecret: string;
@@ -440,9 +440,27 @@ export const organizationApi = createApi({
         method: 'POST',
         body: { packId },
       }),
-      // Credits land asynchronously when payment_intent.succeeded arrives, so
-      // this does NOT invalidate Credits — the balance is refetched after the
-      // client confirms payment instead.
+    }),
+
+    /** Apply credits after Elements confirmPayment succeeds (idempotent). */
+    confirmTopUpPayment: builder.mutation<
+      ApiEnvelope<{
+        orgId: string;
+        packId: string;
+        paymentIntentId: string;
+        alreadyGranted: boolean;
+        balance: { available: number; expiringSoon: number; debt: number; net: number };
+        baseCredits: number;
+        bonusCredits: number;
+      }>,
+      { orgId: string; paymentIntentId: string }
+    >({
+      query: ({ orgId, paymentIntentId }) => ({
+        url: `admin/organizations/${orgId}/topup/confirm`,
+        method: 'POST',
+        body: { paymentIntentId },
+      }),
+      invalidatesTags: ['Credits'],
     }),
 
     createAgenticTopUp: builder.mutation<
@@ -483,5 +501,6 @@ export const {
   useGetOrganizationInvoicesQuery,
   useStartCheckoutMutation,
   useCreateTopUpIntentMutation,
+  useConfirmTopUpPaymentMutation,
   useCreateAgenticTopUpMutation,
 } = organizationApi;

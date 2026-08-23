@@ -15,7 +15,7 @@
  * Auth: platform admin, or self-serve tenant users (read balance only).
  */
 import { z } from 'zod';
-import { createRawClient, createBillingRawClient } from '@/lib/db';
+import { createBillingRawClient } from '@/lib/db';
 import { requireWriteAuth } from '@/lib/auth/guards';
 import { requireOrgCreditsRead } from '@/lib/auth/billing-guards';
 import { sessionIsPlatformAdmin } from '@/lib/auth/jwt';
@@ -73,6 +73,34 @@ export async function GET(
     const organization = await getOrganization(db, orgId);
     if (!organization) return jsonError('Organization not found', 404);
 
+    const stripeConfig = await resolveTenantStripeConfig(orgId, db);
+    const paymentsReadiness = stripeReadiness(stripeConfig ?? undefined);
+
+    // Heal stuck top-ups (paid on tenant Stripe, webhook never granted).
+    if (stripeConfig?.secretKey) {
+      try {
+        const { reconcileRecentTopUpPayments } = await import(
+          '@/domain/billing/stripe-service'
+        );
+        const { requireStripeFor } = await import('@/lib/billing/stripe-client');
+        const healed = await reconcileRecentTopUpPayments(
+          orgId,
+          db,
+          requireStripeFor(stripeConfig),
+        );
+        if (healed.granted > 0) {
+          console.log(
+            `[billing] credits GET healed ${healed.granted}/${healed.scanned} top-ups for ${orgId}`,
+          );
+        }
+      } catch (err) {
+        console.warn(
+          `[billing] top-up reconcile on credits GET failed for ${orgId}:`,
+          (err as Error).message,
+        );
+      }
+    }
+
     const [balance, grants, ledger] = await Promise.all([
       getCreditBalance(orgId, db),
       db.$queryRawUnsafe(
@@ -84,9 +112,6 @@ export async function GET(
         orgId,
       ) as Promise<Record<string, unknown>[]>,
     ]);
-
-    const stripeConfig = await resolveTenantStripeConfig(orgId, db);
-    const paymentsReadiness = stripeReadiness(stripeConfig ?? undefined);
 
     return jsonOk({
       balance,

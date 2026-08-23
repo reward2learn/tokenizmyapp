@@ -13,7 +13,11 @@ import DialogTitle from '@mui/material/DialogTitle';
 import CircularProgress from '@mui/material/CircularProgress';
 import Stack from '@mui/material/Stack';
 import Typography from '@mui/material/Typography';
-import { useCreateTopUpIntentMutation, organizationApi } from '@/store/apis/organization-api';
+import {
+  useCreateTopUpIntentMutation,
+  useConfirmTopUpPaymentMutation,
+  organizationApi,
+} from '@/store/apis/organization-api';
 import { useAppDispatch } from '@/store/hooks';
 import { CREDIT_PACKS } from '@/lib/billing/plans';
 
@@ -43,18 +47,30 @@ function stripeFor(publishableKey: string): Promise<Stripe | null> {
 }
 
 interface PaymentFormProps {
+  orgId: string;
+  paymentIntentId: string;
   packLabel: string;
   totalCredits: number;
   onDone: () => void;
   onCancel: () => void;
 }
 
-function PaymentForm({ packLabel, totalCredits, onDone, onCancel }: PaymentFormProps) {
+function PaymentForm({
+  orgId,
+  paymentIntentId,
+  packLabel,
+  totalCredits,
+  onDone,
+  onCancel,
+}: PaymentFormProps) {
   const stripe = useStripe();
   const elements = useElements();
+  const [confirmTopUp] = useConfirmTopUpPaymentMutation();
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [succeeded, setSucceeded] = useState(false);
+  const [credited, setCredited] = useState(false);
+  const [balanceAvailable, setBalanceAvailable] = useState<number | null>(null);
 
   const handleSubmit = async () => {
     if (!stripe || !elements) return;
@@ -71,6 +87,20 @@ function PaymentForm({ packLabel, totalCredits, onDone, onCancel }: PaymentFormP
       return;
     }
 
+    const piId = result.paymentIntent?.id ?? paymentIntentId;
+    try {
+      const confirmed = await confirmTopUp({
+        orgId,
+        paymentIntentId: piId,
+      }).unwrap();
+      setBalanceAvailable(confirmed.data.balance.available);
+      setCredited(true);
+    } catch (err) {
+      // Payment succeeded at Stripe; grant may still land via webhook/reconcile.
+      console.warn('[billing] top-up confirm failed after payment:', err);
+      setCredited(false);
+    }
+
     setSucceeded(true);
     setSubmitting(false);
   };
@@ -80,15 +110,12 @@ function PaymentForm({ packLabel, totalCredits, onDone, onCancel }: PaymentFormP
       <>
         <DialogContent>
           <Alert severity="success" sx={{ mb: 2 }}>
-            Payment received.
+            {credited ? 'Payment received — credits added.' : 'Payment received.'}
           </Alert>
-          {/* Deliberately not claiming the credits have landed: they are granted
-              by the payment_intent.succeeded webhook, which arrives a moment
-              later. Saying "credits added" here would be a lie whenever the
-              webhook is slow, and the balance would contradict it on screen. */}
           <Typography variant="body2" color="text.secondary">
-            {totalCredits} credits from {packLabel} will appear on the balance once Stripe
-            confirms the payment — usually within a few seconds.
+            {credited && balanceAvailable != null
+              ? `${totalCredits} credits from ${packLabel} are on your balance (now ${balanceAvailable} available).`
+              : `${totalCredits} credits from ${packLabel} will appear on the balance once confirmation finishes — refresh Billing if the total looks unchanged.`}
           </Typography>
         </DialogContent>
         <DialogActions>
@@ -155,8 +182,6 @@ export function StripeTopUpDialog({ open, orgId, packId, onClose }: StripeTopUpD
   };
 
   const finish = () => {
-    // The webhook grants the credits; invalidating here makes the balance
-    // refetch so it converges as soon as Stripe has delivered.
     dispatch(organizationApi.util.invalidateTags(['Credits']));
     setStarted(false);
     reset();
@@ -220,12 +245,14 @@ export function StripeTopUpDialog({ open, orgId, packId, onClose }: StripeTopUpD
         </>
       )}
 
-      {started && intent?.clientSecret && intent.publishableKey && (
+      {started && intent?.clientSecret && intent.publishableKey && intent.paymentIntentId && (
         <Elements
           stripe={stripeFor(intent.publishableKey)}
           options={{ clientSecret: intent.clientSecret }}
         >
           <PaymentForm
+            orgId={orgId}
+            paymentIntentId={intent.paymentIntentId}
             packLabel={pack.label}
             totalCredits={totalCredits}
             onDone={finish}

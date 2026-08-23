@@ -408,7 +408,7 @@ export interface RedeemPackResult {
   baseGrant: CreditGrant;
   /** The promotional bonus, when the pack carries one (source 'promo'). */
   bonusGrant: CreditGrant | null;
-  balance: { available: number; expiringSoon: number };
+  balance: CreditBalance;
 }
 
 /**
@@ -439,10 +439,36 @@ export async function redeemCreditPack(
     );
   }
 
+  // Webhook retries + the client confirm endpoint both call this for the same
+  // PaymentIntent. One payment must mint exactly one pack worth of credits.
+  const paymentRef = options.paymentRef?.trim() || null;
+  if (paymentRef) {
+    await ensureCreditTables(db);
+    const prior = (await db.$queryRawUnsafe(
+      `SELECT * FROM credit_grants
+        WHERE org_id = $1
+          AND metadata->>'paymentRef' = $2
+        ORDER BY granted_at ASC;`,
+      orgId,
+      paymentRef,
+    )) as Record<string, unknown>[];
+    if (prior.length > 0) {
+      const baseGrant = mapCreditGrant(prior[0]);
+      const bonusGrant =
+        prior.length > 1 ? mapCreditGrant(prior[1]) : null;
+      return {
+        pack,
+        baseGrant,
+        bonusGrant,
+        balance: await getCreditBalance(orgId, db),
+      };
+    }
+  }
+
   const metadata = {
     packId: pack.id,
     priceCents: pack.priceCents,
-    paymentRef: options.paymentRef ?? null,
+    paymentRef,
   };
 
   const baseGrant = await grantCredits(

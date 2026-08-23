@@ -400,9 +400,11 @@ export async function changePlan(
  * Payment intent for a credit top-up.
  *
  * Returns a client secret for inline Elements (roadmap §4.6) — top-ups happen
- * mid-flow, where bouncing to hosted Checkout costs conversions. The credits
- * are NOT granted here; `payment_intent.succeeded` grants them, so a customer
- * who closes the tab mid-payment still gets what they paid for.
+ * mid-flow, where bouncing to hosted Checkout costs conversions. Credits are
+ * granted by `payment_intent.succeeded` (webhook) and/or
+ * `confirmTopUpPaymentIntent` (client confirm after Elements succeeds). The
+ * confirm path matters when top-ups charge a **tenant** Stripe account whose
+ * webhooks never reach this app with a matching signing secret.
  */
 export async function createTopUpIntent(
   orgId: string,
@@ -427,7 +429,7 @@ export async function createTopUpIntent(
     currency: 'usd',
     customer: customerId,
     automatic_payment_methods: { enabled: true },
-    // The webhook reads these to know what to grant and to whom.
+    // The webhook / confirm path reads these to know what to grant and to whom.
     metadata: { orgId, packId: pack.id, kind: 'credit_topup' },
   });
 
@@ -439,6 +441,130 @@ export async function createTopUpIntent(
     paymentIntentId: intent.id,
     amountCents: pack.priceCents,
   };
+}
+
+export interface ConfirmTopUpResult {
+  orgId: string;
+  packId: string;
+  paymentIntentId: string;
+  alreadyGranted: boolean;
+  balance: {
+    available: number;
+    expiringSoon: number;
+    debt: number;
+    net: number;
+  };
+  baseCredits: number;
+  bonusCredits: number;
+}
+
+/**
+ * After Elements `confirmPayment` succeeds, grant the pack against the billing
+ * DB. Idempotent on PaymentIntent id (same as the webhook).
+ */
+export async function confirmTopUpPaymentIntent(
+  orgId: string,
+  paymentIntentId: string,
+  db?: RawDb,
+  stripe?: Stripe,
+): Promise<ConfirmTopUpResult> {
+  db = await getDb(db);
+  stripe = stripe ?? requireStripe();
+
+  const intent = await stripe.paymentIntents.retrieve(paymentIntentId);
+  if (intent.status !== 'succeeded') {
+    throw new Error(
+      `PaymentIntent ${paymentIntentId} is "${intent.status}", not succeeded.`,
+    );
+  }
+  if (intent.metadata?.kind !== 'credit_topup') {
+    throw new Error('PaymentIntent is not a credit top-up.');
+  }
+  const intentOrgId = intent.metadata.orgId?.trim();
+  const packId = intent.metadata.packId?.trim();
+  if (!intentOrgId || !packId) {
+    throw new Error('Top-up PaymentIntent is missing orgId or packId metadata.');
+  }
+  if (intentOrgId !== orgId) {
+    throw new Error('PaymentIntent does not belong to this organization.');
+  }
+
+  const { redeemCreditPack, ensureCreditTables } = await import(
+    '@/domain/billing/credit-service'
+  );
+  await ensureCreditTables(db);
+
+  const prior = (await db.$queryRawUnsafe(
+    `SELECT id FROM credit_grants
+      WHERE org_id = $1 AND metadata->>'paymentRef' = $2
+      LIMIT 1;`,
+    orgId,
+    intent.id,
+  )) as { id: string }[];
+  const alreadyGranted = prior.length > 0;
+
+  const result = await redeemCreditPack(orgId, packId, { paymentRef: intent.id }, db);
+
+  return {
+    orgId,
+    packId,
+    paymentIntentId: intent.id,
+    alreadyGranted,
+    balance: result.balance,
+    baseCredits: result.pack.baseCredits,
+    bonusCredits: result.pack.bonusCredits,
+  };
+}
+
+/**
+ * Heal stuck top-ups: list recent succeeded credit_topup PaymentIntents for the
+ * org's Stripe customer and redeem any that never minted grants (webhook miss).
+ */
+export async function reconcileRecentTopUpPayments(
+  orgId: string,
+  db?: RawDb,
+  stripe?: Stripe,
+): Promise<{ scanned: number; granted: number }> {
+  db = await getDb(db);
+  stripe = stripe ?? requireStripe();
+
+  const linkage = await getStripeLinkage(orgId, db);
+  if (!linkage.customerId) return { scanned: 0, granted: 0 };
+
+  const listed = await stripe.paymentIntents.list({
+    customer: linkage.customerId,
+    limit: 25,
+  });
+
+  const { redeemCreditPack, ensureCreditTables } = await import(
+    '@/domain/billing/credit-service'
+  );
+  await ensureCreditTables(db);
+  let scanned = 0;
+  let granted = 0;
+
+  for (const intent of listed.data) {
+    if (intent.status !== 'succeeded') continue;
+    if (intent.metadata?.kind !== 'credit_topup') continue;
+    if (intent.metadata?.orgId !== orgId) continue;
+    const packId = intent.metadata.packId?.trim();
+    if (!packId) continue;
+
+    scanned += 1;
+    const prior = (await db.$queryRawUnsafe(
+      `SELECT id FROM credit_grants
+        WHERE org_id = $1 AND metadata->>'paymentRef' = $2
+        LIMIT 1;`,
+      orgId,
+      intent.id,
+    )) as { id: string }[];
+    if (prior.length > 0) continue;
+
+    await redeemCreditPack(orgId, packId, { paymentRef: intent.id }, db);
+    granted += 1;
+  }
+
+  return { scanned, granted };
 }
 
 /** Whether payments are usable end-to-end (key + webhook secret + a price). */

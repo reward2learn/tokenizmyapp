@@ -10,9 +10,8 @@
  * not, and collapsing them would make it impossible to tell purchased credits
  * from comped ones in revenue reporting.
  *
- * Credits are NOT granted here — `payment_intent.succeeded` grants them, so a
- * customer who closes the tab mid-payment still gets what they paid for, and a
- * customer whose card is declined never gets credits at all.
+ * Credits are granted after payment via webhook and/or POST …/topup/confirm.
+ * The create endpoint only returns a client secret — it does not grant credits.
  */
 import { z } from 'zod';
 import { createRawClient, createBillingRawClient } from '@/lib/db';

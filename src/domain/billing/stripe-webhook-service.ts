@@ -24,8 +24,12 @@ type RawDb = ReturnType<typeof createRawClient>;
 
 async function getDb(db?: RawDb): Promise<RawDb> {
   if (db) return db;
-  const { createRawClient } = await import('@/lib/db');
-  return createRawClient();
+  // Must write to the control-plane billing DB (PLATFORM_POSTGRES_URL on
+  // tenant apps). Top-ups are charged on the tenant Stripe account but the
+  // balance UI reads the platform DB — granting into the tenant data-plane
+  // DB left paid credits invisible.
+  const { createBillingRawClient } = await import('@/lib/db');
+  return createBillingRawClient();
 }
 
 /** Days a past_due subscription keeps its plan before auto-downgrade (§4.4). */
