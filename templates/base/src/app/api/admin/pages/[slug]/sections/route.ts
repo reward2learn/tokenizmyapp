@@ -24,6 +24,8 @@ import {
   validatePageSectionConfig,
   type PageSectionBlockType,
 } from '@/lib/page-section-config';
+import { resolvePage } from '@/lib/page-catalog';
+import { ensureHeroNavRoutes } from '@/domain/cms/ensure-hero-nav-routes';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 30;
@@ -65,6 +67,36 @@ async function lockPageContent(prisma: PrismaClient, pageId: string): Promise<vo
 }
 
 type RouteContext = { params: Promise<{ slug: string }> };
+
+function catalogResolver(slug: string) {
+  const page = resolvePage(slug);
+  if (!page) return null;
+  return {
+    slug: page.slug,
+    title: page.title,
+    authTier: page.authTier,
+    navLabel: page.navLabel ?? page.title,
+    showInNav: page.showInNav,
+    sections: page.sections.map((s) => ({
+      blockType: s.blockType,
+      config: s.config as Record<string, unknown>,
+    })),
+  };
+}
+
+async function provisionHeroRoutesFromConfigs(
+  prisma: PrismaClient,
+  configs: Record<string, unknown>[],
+): Promise<void> {
+  const cmsScope = getCmsTenantAppScope();
+  for (const config of configs) {
+    await ensureHeroNavRoutes(prisma, config, {
+      tenantSlug: cmsScope.deploymentSlug,
+      appId: cmsScope.appId,
+      resolveCatalogPage: catalogResolver,
+    });
+  }
+}
 
 export async function GET(request: Request, context: RouteContext): Promise<NextResponse> {
   const auth = await requireWriteAuth(request);
@@ -197,6 +229,8 @@ export async function PUT(request: Request, context: RouteContext): Promise<Next
     const page = await resolvePageId(prisma, slug);
     if (!page) return jsonError(`Page "${slug}" not found`, 404);
 
+    const heroConfigs: Record<string, unknown>[] = [];
+
     for (const section of sections) {
       const sets: string[] = [];
       const params: unknown[] = [];
@@ -225,6 +259,7 @@ export async function PUT(request: Request, context: RouteContext): Promise<Next
         }
         sets.push(`config = CAST($${idx++} AS jsonb)`);
         params.push(JSON.stringify(config));
+        if (blockType === 'hero') heroConfigs.push(config);
       }
       if (section.sortOrder !== undefined) {
         sets.push(`sort_order = $${idx++}`);
@@ -240,6 +275,7 @@ export async function PUT(request: Request, context: RouteContext): Promise<Next
       if (Number(result) === 0) return jsonError(`Section "${section.id}" not found`, 404);
     }
 
+    await provisionHeroRoutesFromConfigs(prisma, heroConfigs);
     await lockPageContent(prisma, page.id);
     return jsonOk({ updated: sections.length, contentLocked: true });
   } catch (err) {

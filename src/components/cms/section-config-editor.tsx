@@ -110,7 +110,7 @@ function CmsAiFieldRow({
   return (
     <Stack spacing={0.5}>
       {!readOnly ? (
-        <Stack direction="row" justifyContent="flex-end">
+        <Stack component="div" direction="row" sx={{ justifyContent: 'flex-end' }}>
           <AiGenerateFieldButton
             fieldKey={fieldKey}
             fieldType={fieldType}
@@ -593,7 +593,7 @@ export function SectionConfigEditor({
     return ctxWrap(
       <Box component="fieldset" disabled={readOnly} sx={{ border: 0, m: 0, p: 0, minWidth: 0 }}>
         <Stack spacing={1.5}>
-          <Stack direction="row" spacing={1} alignItems="flex-start">
+          <Stack component="div" direction="row" spacing={1} sx={{ alignItems: 'flex-start' }}>
             <FormControl size="small" fullWidth>
               <InputLabel id="chart-scenario">scenario</InputLabel>
               <Select
@@ -618,7 +618,7 @@ export function SectionConfigEditor({
               />
             ) : null}
           </Stack>
-          <Stack direction="row" spacing={1} alignItems="flex-start">
+          <Stack component="div" direction="row" spacing={1} sx={{ alignItems: 'flex-start' }}>
             <FormControl size="small" fullWidth>
               <InputLabel id="chart-variant">variant</InputLabel>
               <Select
@@ -677,7 +677,7 @@ export function SectionConfigEditor({
             readOnly={readOnly}
           />
           {blockType === 'kpi_cards' && (
-            <Stack direction="row" spacing={1} alignItems="flex-start">
+            <Stack component="div" direction="row" spacing={1} sx={{ alignItems: 'flex-start' }}>
               <FormControl size="small" fullWidth>
                 <InputLabel id="kpi-variant">variant</InputLabel>
                 <Select

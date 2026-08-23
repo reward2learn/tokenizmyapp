@@ -9,9 +9,13 @@ import { requireWriteAuth } from '@/lib/auth/guards';
 import { jsonError, jsonOk } from '@/lib/api/response';
 import { resolveActiveAiConfig } from '@/lib/ai-providers';
 import { generateCmsFieldValue } from '@/domain/ai-content/cms-field-generator';
-import { getTenantConfig } from '@shared/lib/config/tenant';
+import { getCurrentAppId, getTenantConfig } from '@shared/lib/config/tenant';
+import { getCmsTenantAppScope, normalizeCmsScope } from '@shared/lib/cms-scope';
+import { ensureHeroNavRoutes } from '@/domain/cms/ensure-hero-nav-routes';
+import { resolvePage } from '@/lib/page-catalog';
 import { CREDIT_FLOORS, requireCreditsForTenant } from '@/domain/billing/credit-service';
 import type { CmsFieldValueType } from '@/lib/cms-block-field-catalog';
+import { ensurePageCmsColumns, getPageCmsClient } from '@/lib/page-cms-db';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
@@ -28,6 +32,22 @@ const bodySchema = z.object({
   tenantSlug: z.string().max(50).optional(),
   appId: z.string().max(50).optional(),
 });
+
+function catalogResolver(slug: string) {
+  const page = resolvePage(slug);
+  if (!page) return null;
+  return {
+    slug: page.slug,
+    title: page.title,
+    authTier: page.authTier,
+    navLabel: page.navLabel ?? page.title,
+    showInNav: page.showInNav,
+    sections: page.sections.map((s) => ({
+      blockType: s.blockType,
+      config: s.config as Record<string, unknown>,
+    })),
+  };
+}
 
 export async function POST(request: Request) {
   const auth = await requireWriteAuth(request);
@@ -46,11 +66,14 @@ export async function POST(request: Request) {
     return jsonError('No AI provider configured. Set up AI in Config → AI Provider.', 503);
   }
 
-  const tenantSlug = body.tenantSlug ?? getTenantConfig().slug ?? 'default';
+  const cmsScope = normalizeCmsScope({
+    tenantSlug: body.tenantSlug ?? getTenantConfig().slug,
+    appId: body.appId ?? (getCurrentAppId() || undefined),
+  });
 
   if (ai.keySource === 'env') {
     const gate = await requireCreditsForTenant(
-      tenantSlug,
+      cmsScope.deploymentSlug,
       undefined,
       auth.session.email,
       CREDIT_FLOORS.contentGeneration,
@@ -71,8 +94,28 @@ export async function POST(request: Request) {
       currentConfig: body.currentConfig,
       currentValue: body.currentValue,
       ai,
-      tenantSlug,
+      tenantSlug: cmsScope.deploymentSlug,
     });
+
+    const fieldType = body.fieldType ?? body.fieldKey;
+    if (
+      body.blockType === 'hero' &&
+      (fieldType === 'nav_buttons' || body.fieldKey === 'navButtons') &&
+      Array.isArray(value)
+    ) {
+      const prisma = getPageCmsClient();
+      try {
+        await ensurePageCmsColumns(prisma);
+        const scope = getCmsTenantAppScope();
+        await ensureHeroNavRoutes(prisma, value as { label: string; href: string }[], {
+          tenantSlug: scope.deploymentSlug,
+          appId: scope.appId,
+          resolveCatalogPage: catalogResolver,
+        });
+      } finally {
+        await prisma.$disconnect();
+      }
+    }
 
     return jsonOk({ value });
   } catch (err) {

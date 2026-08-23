@@ -416,6 +416,27 @@ export const adminApi = createApi({
       },
     }),
 
+    /** POST /api/admin/cms/ensure-hero-routes — provision pages + nav for hero CTA hrefs */
+    ensureHeroNavRoutes: builder.mutation<
+      ApiEnvelope<{
+        paths: string[];
+        pagesCreated: number;
+        navCreated: number;
+        skipped: string[];
+      }>,
+      {
+        heroConfig?: Record<string, unknown>;
+        navButtons?: Array<{ label: string; href: string }>;
+      } & TenantAppScope
+    >({
+      query: (body) => ({
+        url: 'admin/cms/ensure-hero-routes',
+        method: 'POST',
+        body,
+      }),
+      invalidatesTags: ['Navigation', 'PageSections'],
+    }),
+
     /** POST /api/admin/cms-generate-field — AI-generate a single CMS block config field */
     generateCmsField: builder.mutation<
       ApiEnvelope<{ value: unknown }>,
@@ -539,6 +560,7 @@ export const {
   useProvisionCatalogPageMutation,
   useCreatePageSectionMutation,
   useUpdatePageSectionsMutation,
+  useEnsureHeroNavRoutesMutation,
   useDeletePageSectionsMutation,
   useGenerateCmsFieldMutation,
   usePopulateSheetPagesMutation,

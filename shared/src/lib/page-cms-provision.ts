@@ -116,3 +116,33 @@ export async function provisionAppPageFromCatalog(
 
   return { id: pageRowId, created, sectionCount: catalogPage.sections.length };
 }
+
+/** Minimal narrative page when AI/user links to a slug not in the code catalog. */
+export async function provisionMinimalDocPage(
+  db: ProvisionDb,
+  input: { slug: string; title: string; authTier?: string },
+  options: { deploymentTenantSlug: string; appId?: string },
+): Promise<{ id: string; created: boolean }> {
+  const authTier = input.authTier ?? 'google';
+  return provisionAppPageFromCatalog(
+    db,
+    {
+      slug: input.slug,
+      title: input.title,
+      authTier,
+      navLabel: input.title,
+      showInNav: true,
+      sections: [
+        {
+          blockType: 'doc_markdown',
+          config: {
+            title: input.title,
+            markdown: `# ${input.title}\n\nAdd content for this page in Page Content or inline edit mode.`,
+            minTier: authTier,
+          },
+        },
+      ],
+    },
+    options,
+  );
+}

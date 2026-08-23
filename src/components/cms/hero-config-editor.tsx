@@ -1,5 +1,6 @@
 'use client';
 
+import { useCallback } from 'react';
 import Accordion from '@mui/material/Accordion';
 import AccordionDetails from '@mui/material/AccordionDetails';
 import AccordionSummary from '@mui/material/AccordionSummary';
@@ -24,6 +25,8 @@ import {
 } from '@/lib/hero-config';
 import { CmsAiTextField } from '@/components/cms/cms-ai-text-field';
 import { AiGenerateFieldButton } from '@/components/cms/ai-field-generate-button';
+import { useCmsEditorContext } from '@/components/cms/cms-editor-context';
+import { useEnsureHeroNavRoutesMutation } from '@/store/apis/admin-api';
 
 function str(config: Record<string, unknown>, key: string): string {
   const v = config[key];
@@ -102,6 +105,26 @@ function SlideFields({
   onChange: (slide: HeroSlide) => void;
   readOnly?: boolean;
 }) {
+  const cmsCtx = useCmsEditorContext();
+  const [ensureHeroRoutes] = useEnsureHeroNavRoutesMutation();
+
+  const ensureRoutes = useCallback(
+    async (buttons: HeroNavButton[]) => {
+      const navButtons = buttons.filter((b) => b.href.trim());
+      if (navButtons.length === 0) return;
+      try {
+        await ensureHeroRoutes({
+          navButtons,
+          tenantSlug: cmsCtx?.tenantSlug,
+          appId: cmsCtx?.appId,
+        }).unwrap();
+      } catch {
+        // Routes are also provisioned on section save — do not block editing.
+      }
+    },
+    [cmsCtx?.appId, cmsCtx?.tenantSlug, ensureHeroRoutes],
+  );
+
   const path = (field: string) =>
     slideIndex !== undefined ? `slides.${slideIndex}.${field}` : field;
 
@@ -158,16 +181,15 @@ function SlideFields({
             currentValue={slide.navButtons}
             onGenerated={(v) => {
               if (Array.isArray(v)) {
-                onChange({
-                  ...slide,
-                  navButtons: v
-                    .filter((b): b is HeroNavButton => !!b && typeof b === 'object')
-                    .map((b) => ({
-                      label: typeof b.label === 'string' ? b.label : '',
-                      href: typeof b.href === 'string' ? b.href : '',
-                    }))
-                    .slice(0, 2),
-                });
+                const navButtons = v
+                  .filter((b): b is HeroNavButton => !!b && typeof b === 'object')
+                  .map((b) => ({
+                    label: typeof b.label === 'string' ? b.label : '',
+                    href: typeof b.href === 'string' ? b.href : '',
+                  }))
+                  .slice(0, 2);
+                onChange({ ...slide, navButtons });
+                void ensureRoutes(navButtons);
               }
             }}
           />
@@ -202,6 +224,7 @@ function SlideFields({
                 navButtons: next.filter((b) => b.label.trim() || b.href.trim()),
               });
             }}
+            onBlur={() => void ensureRoutes(paddedButtons)}
           />
         </Stack>
       ))}

@@ -538,6 +538,8 @@ export function PageInlineEditor({ page }: PageInlineEditorProps) {
                   config={editingSection.config}
                   pageSlug={page.slug}
                   pageTitle={page.title}
+                  tenantSlug={cmsScope.deploymentSlug}
+                  appId={cmsScope.appId}
                   onChange={(config) => updateDraftConfig(editingSection.id, config)}
                 />
               </Stack>
