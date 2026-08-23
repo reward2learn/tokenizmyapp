@@ -204,7 +204,7 @@ export async function addTenantColumnsIfMissing(db: SeedSqlClient): Promise<void
        WHERE tc.table_name = p_table
          AND tc.constraint_type = (CASE WHEN p_is_pk THEN 'PRIMARY KEY' ELSE 'UNIQUE' END)
          AND (
-           SELECT array_agg(kcu.column_name ORDER BY kcu.ordinal_position)
+           SELECT array_agg(kcu.column_name::text ORDER BY kcu.ordinal_position)
            FROM information_schema.key_column_usage kcu
            WHERE kcu.constraint_name = tc.constraint_name AND kcu.table_name = p_table
          ) = p_old_cols
