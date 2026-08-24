@@ -1,5 +1,5 @@
 import { describe, expect, it, vi, afterEach } from 'vitest';
-import { cleanup, render, screen, fireEvent } from '@testing-library/react';
+import { cleanup, render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { Provider } from 'react-redux';
 import { configureStore } from '@reduxjs/toolkit';
 import { ChatCreditUsage } from '@/components/chat/chat-credit-usage';
@@ -31,8 +31,8 @@ describe('ChatCreditUsage', () => {
     expect(container).toBeEmptyDOMElement();
   });
 
-  it('shows compact chip and expands popover with metrics', () => {
-    let state = chatStreamSlice.reducer(undefined, recordTurnUsage({
+  it('shows compact chip and opens usage modal with metrics', async () => {
+    const state = chatStreamSlice.reducer(undefined, recordTurnUsage({
       promptTokens: 1000,
       completionTokens: 500,
       credits: 2,
@@ -45,9 +45,16 @@ describe('ChatCreditUsage', () => {
     expect(screen.getByLabelText('Chat credit usage')).toHaveTextContent('2 credits this chat');
 
     fireEvent.click(screen.getByLabelText('Chat credit usage'));
+    expect(screen.getByRole('dialog')).toBeInTheDocument();
     expect(screen.getByText(/~2 credits used this conversation/)).toBeInTheDocument();
     expect(screen.getByText('Prompt tokens')).toBeInTheDocument();
     expect(screen.getByText('Remaining balance')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Close' })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Close' }));
+    await waitFor(() => {
+      expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    });
 
     // Second turn updates totals when we re-render via store
     store.dispatch(recordTurnUsage({

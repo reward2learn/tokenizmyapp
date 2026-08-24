@@ -134,6 +134,10 @@ export function ChatPanel({
   );
   const [input, setInput] = useState('');
   const [attachments, setAttachments] = useState<ChatAttachment[]>([]);
+  // Elements for the credit-usage modal: portal into the chat card and match
+  // the conversation panel height (see ChatCreditUsage).
+  const [chatContainerEl, setChatContainerEl] = useState<HTMLElement | null>(null);
+  const [messagesPanelEl, setMessagesPanelEl] = useState<HTMLElement | null>(null);
   // Composer tool selection lives in the store (chat-stream-slice), not local
   // state — the send thunk reads it directly and it survives the drawer closing.
   const activeTool = useAppSelector((s) => s.chatStream.activeTool);
@@ -637,15 +641,18 @@ export function ChatPanel({
         }
       >
       <Paper
+        ref={setChatContainerEl}
         elevation={0}
         sx={
           isDrawer
-            ? { flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden', p: { xs: 1.5, sm: 2 }, border: '1px solid', borderColor: 'divider', bgcolor: 'action.hover' }
-            : { p: { xs: 2, md: 2.5 }, border: '1px solid', borderColor: 'divider', bgcolor: 'action.hover' }
+            ? { position: 'relative', flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden', p: { xs: 1.5, sm: 2 }, border: '1px solid', borderColor: 'divider', bgcolor: 'action.hover' }
+            : { position: 'relative', p: { xs: 2, md: 2.5 }, border: '1px solid', borderColor: 'divider', bgcolor: 'action.hover' }
         }
       >
         <Stack spacing={2} sx={isDrawer ? { flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', width: '100%' } : undefined}>
             <Box
+              ref={setMessagesPanelEl}
+              data-testid="chat-messages-panel"
               sx={
                 isDrawer
                   ? { flex: 1, minHeight: 0, overflowY: 'auto', pr: 1 }
@@ -916,28 +923,71 @@ export function ChatPanel({
               }
               slotProps={{
                 input: {
-                  // Send action lives inside the prompt field, aligned bottom-right
-                  // (multiline adornments center by default — flex-end pins it).
+                  // Quick actions live inside the prompt field with Send, aligned
+                  // bottom-right (multiline adornments center by default).
                   endAdornment: (
                     <InputAdornment position="end" sx={{ alignSelf: 'flex-end', mb: 0.5 }}>
-                      <Tooltip title={isStreaming ? 'Streaming…' : 'Send'}>
-                        <span>
-                          <IconButton
-                            color="primary"
-                            onClick={() => void handleSend()}
-                            disabled={isStreaming || !input.trim()}
-                            aria-label="Send"
-                            size="small"
-                          >
-                            <SendIcon />
-                          </IconButton>
-                        </span>
-                      </Tooltip>
+                      <Stack direction="row" spacing={0.25} sx={{ alignItems: 'center' }}>
+                        <Tooltip title={attachmentLoading ? 'Reading files…' : 'Add attachment'}>
+                          <span>
+                            <IconButton
+                              component="label"
+                              disabled={attachmentLoading || isStreaming}
+                              aria-label="Add attachment"
+                              size="small"
+                            >
+                              <AttachFileIcon fontSize="small" />
+                              <input
+                                hidden
+                                multiple
+                                type="file"
+                                accept="image/*,.csv,.xlsx,.xls,.pdf,.txt"
+                                onChange={(event) => void handleAttachmentChange(event)}
+                              />
+                            </IconButton>
+                          </span>
+                        </Tooltip>
+                        {sttSupported ? (
+                          <Tooltip title={voiceMode ? 'Stop voice chat' : 'Voice chat'}>
+                            <IconButton
+                              color={voiceMode ? 'error' : 'default'}
+                              onClick={toggleVoiceMode}
+                              aria-label={voiceMode ? 'Stop voice chat' : 'Voice chat'}
+                              aria-pressed={voiceMode}
+                              size="small"
+                            >
+                              {voiceMode ? <MicOffIcon fontSize="small" /> : <MicIcon fontSize="small" />}
+                            </IconButton>
+                          </Tooltip>
+                        ) : null}
+                        <Tooltip title={isStreaming ? 'Streaming…' : 'Send'}>
+                          <span>
+                            <IconButton
+                              color="primary"
+                              onClick={() => void handleSend()}
+                              disabled={isStreaming || !input.trim()}
+                              aria-label="Send"
+                              size="small"
+                            >
+                              <SendIcon />
+                            </IconButton>
+                          </span>
+                        </Tooltip>
+                      </Stack>
                     </InputAdornment>
                   ),
                 },
               }}
             />
+            {voicePhaseLabel ? (
+              <Chip
+                label={voicePhaseLabel}
+                size="small"
+                color={voicePhase === 'speaking' ? 'secondary' : 'primary'}
+                variant="outlined"
+                sx={{ alignSelf: 'flex-start' }}
+              />
+            ) : null}
 
             {/* ── Collapsible tools section ─────────────────── */}
             <Accordion
@@ -951,35 +1001,36 @@ export function ChatPanel({
                 '&:before': { display: 'none' },
               }}
             >
-              <AccordionSummary expandIcon={<ExpandMoreIcon sx={{ color: 'text.disabled', fontSize: '1rem' }} />} sx={{ minHeight: 36, py: 0, '& .MuiAccordionSummary-content': { my: 0.5 } }}>
-                <Typography variant="caption" color="text.disabled" sx={{ fontWeight: 600 }}>
+              <AccordionSummary
+                expandIcon={<ExpandMoreIcon sx={{ color: 'text.disabled', fontSize: '1rem' }} />}
+                sx={{
+                  minHeight: 36,
+                  py: 0,
+                  '& .MuiAccordionSummary-content': {
+                    my: 0.5,
+                    width: '100%',
+                    alignItems: 'center',
+                    gap: 1,
+                    overflow: 'hidden',
+                  },
+                }}
+              >
+                <Typography variant="caption" color="text.disabled" sx={{ fontWeight: 600, flexShrink: 0 }}>
                   Tools &amp; Options
                 </Typography>
+                <Box
+                  sx={{ ml: 'auto', minWidth: 0, display: 'flex', justifyContent: 'flex-end' }}
+                  onClick={(event) => event.stopPropagation()}
+                  onFocus={(event) => event.stopPropagation()}
+                >
+                  <ChatCreditUsage
+                    containerEl={chatContainerEl}
+                    messagesPanelEl={messagesPanelEl}
+                  />
+                </Box>
               </AccordionSummary>
               <AccordionDetails sx={{ pt: 0, pb: 1 }}>
             <Stack direction="row" spacing={0.5} sx={{ alignItems: 'center', flexWrap: 'wrap' }}>
-              <ChatCreditUsage />
-              {sttSupported ? (
-                <Tooltip title={voiceMode ? 'Stop voice chat' : 'Voice chat'}>
-                  <IconButton
-                    color={voiceMode ? 'error' : 'default'}
-                    onClick={toggleVoiceMode}
-                    aria-label={voiceMode ? 'Stop voice chat' : 'Voice chat'}
-                    aria-pressed={voiceMode}
-                    sx={ICON_BUTTON_SX}
-                  >
-                    {voiceMode ? <MicOffIcon /> : <MicIcon />}
-                  </IconButton>
-                </Tooltip>
-              ) : null}
-              {voicePhaseLabel ? (
-                <Chip
-                  label={voicePhaseLabel}
-                  size="small"
-                  color={voicePhase === 'speaking' ? 'secondary' : 'primary'}
-                  variant="outlined"
-                />
-              ) : null}
               <Tooltip title="Clear">
                 <span>
                   <IconButton
@@ -1085,25 +1136,6 @@ export function ChatPanel({
                   }}
                 />
               </Box>
-              <Tooltip title={attachmentLoading ? 'Reading files…' : 'Add attachment'}>
-                <span>
-                  <IconButton
-                    component="label"
-                    disabled={attachmentLoading || isStreaming}
-                    aria-label="Add attachment"
-                    sx={ICON_BUTTON_SX}
-                  >
-                    <AttachFileIcon />
-                    <input
-                      hidden
-                      multiple
-                      type="file"
-                      accept="image/*,.csv,.xlsx,.xls,.pdf,.txt"
-                      onChange={(event) => void handleAttachmentChange(event)}
-                    />
-                  </IconButton>
-                </span>
-              </Tooltip>
               <Tooltip title="Attach from page — selected cells or current page content">
                 <span>
                   <IconButton

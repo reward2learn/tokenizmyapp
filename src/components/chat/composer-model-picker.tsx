@@ -8,7 +8,6 @@ import InputLabel from '@mui/material/InputLabel';
 import MenuItem from '@mui/material/MenuItem';
 import Select from '@mui/material/Select';
 import Stack from '@mui/material/Stack';
-import Tooltip from '@mui/material/Tooltip';
 import Typography from '@mui/material/Typography';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import ErrorIcon from '@mui/icons-material/Error';
@@ -205,7 +204,7 @@ export function ComposerModelPicker() {
 
   if (loading) {
     return (
-      <Stack direction="row" spacing={1} sx={{ alignItems: 'center', minWidth: 180 }}>
+      <Stack direction="row" spacing={1} sx={{ alignItems: 'center', width: '100%', minWidth: 0 }}>
         <CircularProgress size={16} />
         <Typography variant="caption" color="text.secondary">
           Checking AI providers…
@@ -216,7 +215,7 @@ export function ComposerModelPicker() {
 
   if (error) {
     return (
-      <Typography variant="caption" color="error" sx={{ maxWidth: 260 }}>
+      <Typography variant="caption" color="error" sx={{ width: '100%' }}>
         {error}
       </Typography>
     );
@@ -224,23 +223,44 @@ export function ComposerModelPicker() {
 
   if (configuredProviders.length === 0) {
     return (
-      <Typography variant="caption" color="text.secondary" sx={{ maxWidth: 280 }}>
+      <Typography variant="caption" color="text.secondary" sx={{ width: '100%' }}>
         No AI provider configured. An admin must add a key in Config → AI Provider.
       </Typography>
     );
   }
 
+  // Stack provider + model full-width under 500px of *chat* width (container
+  // query); sit them on one row once the chat is wider. Viewport breakpoints
+  // would be wrong inside a narrow drawer on a wide screen.
+  const pickerFieldSx = {
+    width: '100%',
+    minWidth: 0,
+    flex: '1 1 100%',
+    '@container chat-composer (min-width: 500px)': {
+      flex: '1 1 0',
+    },
+  } as const;
+
   return (
-    <Stack spacing={0.5} sx={{ width: '100%' }}>
+    <Stack spacing={0.5} sx={{ width: '100%', containerType: 'inline-size', containerName: 'chat-composer' }}>
       <Stack
-        direction={{ xs: 'column', sm: 'row' }}
         spacing={1}
-        sx={{ alignItems: { sm: 'flex-start' }, flexWrap: 'wrap', minWidth: 0 }}
+        sx={{
+          width: '100%',
+          minWidth: 0,
+          flexDirection: 'column',
+          alignItems: 'stretch',
+          '@container chat-composer (min-width: 500px)': {
+            flexDirection: 'row',
+            alignItems: 'flex-start',
+            flexWrap: 'nowrap',
+          },
+        }}
       >
         <FormControl
           size="small"
-          sx={{ minWidth: 160 }}
           error={providerUnhealthy}
+          sx={pickerFieldSx}
         >
           <InputLabel id="chat-provider-label">Provider</InputLabel>
           <Select
@@ -273,9 +293,9 @@ export function ComposerModelPicker() {
 
         <FormControl
           size="small"
-          sx={{ minWidth: 180, maxWidth: 320 }}
           disabled={loadingModels || providerUnhealthy}
           error={modelUnhealthy}
+          sx={pickerFieldSx}
         >
           <InputLabel id="chat-model-label">Model</InputLabel>
           <Select
@@ -295,17 +315,15 @@ export function ComposerModelPicker() {
           ) : null}
         </FormControl>
 
-        {loadingModels ? <CircularProgress size={18} sx={{ alignSelf: 'center' }} /> : null}
-
-        {!providerUnhealthy && !modelUnhealthy && currentProviderHealth?.status === 'healthy' ? (
-          <Tooltip title="Provider and API key verified">
-            <Stack direction="row" spacing={0.5} sx={{ alignItems: 'center', color: 'success.main', pt: { sm: 1 } }}>
-              {healthIcon('healthy')}
-              <Typography variant="caption" color="success.main">
-                Ready
-              </Typography>
-            </Stack>
-          </Tooltip>
+        {loadingModels ? (
+          <CircularProgress
+            size={18}
+            sx={{
+              alignSelf: 'center',
+              flexShrink: 0,
+              '@container chat-composer (min-width: 500px)': { mt: 1 },
+            }}
+          />
         ) : null}
       </Stack>
     </Stack>
