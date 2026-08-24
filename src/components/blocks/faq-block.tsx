@@ -64,20 +64,27 @@ export function FaqBlock({ config }: { config: Record<string, unknown> }) {
         <Typography variant="h3" sx={{ textAlign: 'center', mb: 4 }}>
           {heading}
         </Typography>
-        <Box sx={{ maxWidth: 780, mx: 'auto' }}>
+        <Box sx={{ width: '100%' }}>
           {items.map((item, index) => (
             <BlockAnimateContainer key={item.question} index={1 + index}>
               <Accordion
                 disableGutters
                 elevation={0}
                 sx={{
+                  width: '100%',
                   border: '1px solid',
                   borderColor: 'divider',
                   '&:not(:last-child)': { borderBottom: 0 },
                   '&::before': { display: 'none' },
                 }}
               >
-                <AccordionSummary expandIcon={<ExpandMoreIcon />}>
+                <AccordionSummary
+                  expandIcon={<ExpandMoreIcon />}
+                  sx={{
+                    width: '100%',
+                    '& .MuiAccordionSummary-content': { flex: 1, mr: 1 },
+                  }}
+                >
                   <Typography sx={{ fontWeight: 600 }}>{item.question}</Typography>
                 </AccordionSummary>
                 <AccordionDetails>
