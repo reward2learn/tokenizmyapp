@@ -4,11 +4,17 @@
  * Enriches annual revenue estimates. Gracefully degrades when env keys are missing:
  *
  * - `SEC_USER_AGENT` (required for EDGAR) — SEC asks for a descriptive User-Agent
- *   like `TokenizMyApp Billing Bot admin@example.com`. Without it, SEC scrapes are skipped.
+ *   like `TokenizMyApp AI Credits Calculator admin@tokenizmyapp.com`. Without it,
+ *   SEC scrapes are skipped. The contact fragment is identification only (not email
+ *   delivery). Factory was seeded via Vercel CLI/API with
+ *   `TokenizMyApp AI Credits Calculator alex@tokenizin.com`; tenant projects can be
+ *   seeded from the calculator UI (`POST …/sec-user-agent`) using
+ *   `admin@{tenantSlug}.com`.
  * - `COMPANIES_HOUSE_API_KEY` (optional) — UK Companies House REST API key. Without it,
  *   UK filings are skipped; US/SEC and website analysis still work.
  *
- * Do not invent or commit secrets. Set these on the factory deployment / local env only.
+ * Do not invent or commit secrets. Set factory vars on the tokenizmyapp Vercel project;
+ * push tenant vars via the calculator button / upsertProjectEnvVar.
  * Caches payloads 24h in-memory (per process).
  */
 import { z } from 'zod';

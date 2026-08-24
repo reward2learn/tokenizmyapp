@@ -727,6 +727,30 @@ export const organizationApi = createApi({
       }),
       invalidatesTags: ['OrgRateCard', 'Credits', 'TenantOrg', 'Subscription'],
     }),
+
+    pushTenantSecUserAgent: builder.mutation<
+      ApiEnvelope<{
+        message: string;
+        tenantSlug: string;
+        secUserAgent: string;
+        organizationName: string;
+        updated: Array<{
+          projectId: string;
+          appId: string | null;
+          ok: boolean;
+          error?: string;
+        }>;
+        skippedNoProject: string[];
+        errors: string[];
+      }>,
+      { slug: string; confirm: true; organizationName?: string | null }
+    >({
+      query: ({ slug, ...body }) => ({
+        url: `admin/tenants/${slug}/sec-user-agent`,
+        method: 'POST',
+        body,
+      }),
+    }),
   }),
 });
 
@@ -763,4 +787,5 @@ export const {
   useUpdateCatalogPricesMutation,
   useSyncStripeCatalogPricesMutation,
   useSeedTenantAiCreditsMutation,
+  usePushTenantSecUserAgentMutation,
 } = organizationApi;

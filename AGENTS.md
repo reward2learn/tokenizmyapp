@@ -37,7 +37,7 @@ bun run dev          # Starts on localhost:3000
 | `ENCRYPTION_KEY` | JWT + AES-256-GCM encryption |
 | `GOOGLE_RELAY_SECRET` | Shared HMAC secret for the Google OAuth relay (factory + every tenant app). Enables dynamic per-app Google sign-in — Google removed the OAuth client API, so apps sign in via the factory's single registered callback instead of per-app redirect URIs |
 | `GOOGLE_RELAY_REDIRECT_URI` | Factory relay callback pushed to tenant apps (default `https://tokenizmyapp.vercel.app/api/auth/google-relay-callback`). Set to override the factory domain |
-| `SEC_USER_AGENT` | Descriptive User-Agent for SEC EDGAR filings (AI Credits Calculator). Example: `TokenizMyApp Billing Bot admin@example.com`. Without it, SEC scrapes are skipped |
+| `SEC_USER_AGENT` | Descriptive User-Agent for SEC EDGAR filings (AI Credits Calculator). Identification only (not a mailbox). Factory seeded via CLI: `TokenizMyApp AI Credits Calculator alex@tokenizin.com`. Tenants: calculator button → `POST /api/admin/tenants/[slug]/sec-user-agent` with `{OrgName} AI Credits Calculator admin@{slug}.com`. Without it, SEC scrapes are skipped |
 | `COMPANIES_HOUSE_API_KEY` | Optional Companies House API key for UK filings enrichment. Without it, UK filings are skipped |
 | `VERCEL_TOKEN` / `VERCEL_PROJECT_ID` | Factory Vercel API access — used to mirror `STRIPE_PRICE_*` after catalog Stripe sync (DB remains source of truth) |
 

@@ -47,6 +47,7 @@ import {
   useUpdateCatalogPricesMutation,
   useSyncStripeCatalogPricesMutation,
   useSeedTenantAiCreditsMutation,
+  usePushTenantSecUserAgentMutation,
 } from '@/store/apis/organization-api';
 import { useListTenantsQuery } from '@/store/apis/tenant-api';
 import { useAppDispatch, useAppSelector } from '@/store/hooks';
@@ -54,6 +55,7 @@ import {
   setWizardRateCardPrefill,
   setAdminCalculatorContext,
 } from '@/store/ui-slice';
+import { buildSecUserAgent } from '@/lib/billing/sec-user-agent';
 
 export function AiCreditsCalculatorTool() {
   const dispatch = useAppDispatch();
@@ -90,6 +92,7 @@ export function AiCreditsCalculatorTool() {
   const [catalogConfirmOpen, setCatalogConfirmOpen] = useState(false);
   const [stripeConfirmOpen, setStripeConfirmOpen] = useState(false);
   const [seedConfirmOpen, setSeedConfirmOpen] = useState(false);
+  const [secUaConfirmOpen, setSecUaConfirmOpen] = useState(false);
   const [editProMonthly, setEditProMonthly] = useState(9900);
   const [editBusinessMonthly, setEditBusinessMonthly] = useState(19900);
   const [editPack25, setEditPack25] = useState(2500);
@@ -119,6 +122,20 @@ export function AiCreditsCalculatorTool() {
     () => tenants.find((t) => t.slug === tenantSlug) ?? null,
     [tenants, tenantSlug],
   );
+
+  const selectedOrg = useMemo(
+    () => orgs.find((o) => o.id === orgId) ?? null,
+    [orgs, orgId],
+  );
+
+  const previewSecUserAgent = useMemo(() => {
+    if (!tenantSlug) return null;
+    return buildSecUserAgent({
+      tenantSlug,
+      organizationName: selectedOrg?.displayName || selectedOrg?.slug || null,
+      tenantDisplayName: selectedTenant?.displayName || null,
+    });
+  }, [tenantSlug, selectedOrg, selectedTenant]);
 
   const suiteApps = useMemo(() => {
     if (!selectedTenant) return [] as Array<{ appId: string; name: string }>;
@@ -173,6 +190,7 @@ export function AiCreditsCalculatorTool() {
   const [updateCatalog, catalogUpdateState] = useUpdateCatalogPricesMutation();
   const [syncStripe, syncState] = useSyncStripeCatalogPricesMutation();
   const [seedTenantCredits, seedState] = useSeedTenantAiCreditsMutation();
+  const [pushSecUserAgent, secUaState] = usePushTenantSecUserAgentMutation();
 
   const patchInput = (patch: Partial<TenantRateCardInputs>) => {
     setInputs((prev) => defaultRateCardInputs({ ...prev, ...patch }));
@@ -407,6 +425,24 @@ export function AiCreditsCalculatorTool() {
     }
   };
 
+  const onPushSecUserAgent = async () => {
+    if (!tenantSlug) {
+      setStatus('Select a tenant before pushing SEC_USER_AGENT.');
+      return;
+    }
+    try {
+      const res = await pushSecUserAgent({
+        slug: tenantSlug,
+        confirm: true,
+        organizationName: selectedOrg?.displayName || selectedOrg?.slug || null,
+      }).unwrap();
+      setSecUaConfirmOpen(false);
+      setStatus(res.data?.message ?? `SEC_USER_AGENT pushed for ${tenantSlug}.`);
+    } catch (err) {
+      setStatus(err instanceof Error ? err.message : 'SEC_USER_AGENT push failed');
+    }
+  };
+
   const copyJson = async () => {
     const payload = {
       inputs: liveReport.inputs,
@@ -543,6 +579,35 @@ export function AiCreditsCalculatorTool() {
                   onChange={(e) => setCompaniesHouseNumber(e.target.value)}
                   helperText="Optional COMPANIES_HOUSE_API_KEY"
                 />
+              </Stack>
+              <Stack
+                direction={{ xs: 'column', sm: 'row' }}
+                spacing={1}
+                sx={{ alignItems: { sm: 'center' }, flexWrap: 'wrap' }}
+                useFlexGap
+              >
+                <Button
+                  variant="outlined"
+                  size="small"
+                  onClick={() => setSecUaConfirmOpen(true)}
+                  disabled={!tenantSlug || secUaState.isLoading}
+                >
+                  {secUaState.isLoading ? (
+                    <CircularProgress size={18} />
+                  ) : (
+                    'Push SEC_USER_AGENT to tenant Vercel'
+                  )}
+                </Button>
+                {previewSecUserAgent ? (
+                  <Typography variant="caption" color="text.secondary" sx={{ maxWidth: 480 }}>
+                    Will set: {previewSecUserAgent}
+                  </Typography>
+                ) : (
+                  <Typography variant="caption" color="text.secondary">
+                    Select a tenant to enable SEC User-Agent push (identification only —
+                    not a mailbox).
+                  </Typography>
+                )}
               </Stack>
               <Button
                 variant="contained"
@@ -969,6 +1034,36 @@ export function AiCreditsCalculatorTool() {
             disabled={seedState.isLoading || !tenantSlug}
           >
             {seedState.isLoading ? <CircularProgress size={18} /> : 'Confirm seed'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      <Dialog open={secUaConfirmOpen} onClose={() => setSecUaConfirmOpen(false)}>
+        <DialogTitle>Push SEC_USER_AGENT to tenant Vercel?</DialogTitle>
+        <DialogContent>
+          <Typography variant="body2" sx={{ mb: 1 }}>
+            Upserts <code>SEC_USER_AGENT</code> on the tenant root project and every suite
+            app with a linked Vercel project id (production + preview + development).
+          </Typography>
+          <Typography variant="body2" sx={{ mb: 1 }}>
+            Value:{' '}
+            <strong>{previewSecUserAgent ?? '—'}</strong>
+          </Typography>
+          <Typography variant="body2" color="text.secondary">
+            SEC uses this as identification for EDGAR fair-access —{' '}
+            <code>admin@{'{slug}'}.com</code> is not required to be a real mailbox.
+            Factory was seeded separately via CLI with alex@tokenizin.com. Redeploy
+            tenant apps after push for runtime to pick up the var.
+          </Typography>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setSecUaConfirmOpen(false)}>Cancel</Button>
+          <Button
+            variant="contained"
+            onClick={() => void onPushSecUserAgent()}
+            disabled={secUaState.isLoading || !tenantSlug}
+          >
+            {secUaState.isLoading ? <CircularProgress size={18} /> : 'Confirm push'}
           </Button>
         </DialogActions>
       </Dialog>
