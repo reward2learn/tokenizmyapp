@@ -42,7 +42,7 @@ export class OrderService {
         paymentMethod: data.paymentMethod ?? null,
         shippingAddress: data.shippingAddress
           ? (data.shippingAddress as Prisma.InputJsonValue)
-          : Prisma.DbNull,
+          : undefined,
         paymentStatus: 'pending',
       },
     });
