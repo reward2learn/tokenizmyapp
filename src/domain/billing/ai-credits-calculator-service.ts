@@ -28,6 +28,11 @@ import { meterAiUsage } from '@/domain/billing/credit-service';
 
 type RawDb = ReturnType<typeof createRawClient>;
 
+/**
+ * OpenAI / Gateway structured outputs require every `properties` key to appear in
+ * `required`. Use `.nullable()` (not `.optional()`) so optional values are
+ * represented as `type: ["string","null"]` while still listed in `required`.
+ */
 export const AnalyzeAiSchema = z.object({
   businessSummary: z.string(),
   industry: z.string(),
@@ -41,28 +46,28 @@ export const AnalyzeAiSchema = z.object({
     z.object({
       source: z.enum(['website', 'sec', 'companies_house', 'admin_override', 'live_org', 'ai']),
       label: z.string(),
-      note: z.string().optional(),
+      note: z.string().nullable(),
     }),
   ),
   estimatedUsers: z.number().int().min(1).nullable(),
   growthSignals: z.array(z.string()),
   competitiveNotes: z.array(z.string()),
   suggestedRateCardInputs: z.object({
-    appCount: z.number().int().min(1).optional(),
-    userCount: z.number().int().min(1).optional(),
-    annualRevenueUsd: z.number().min(0).optional(),
-    macStudioCostUsd: z.number().min(0).optional(),
-    monthlyThirdPartyUsd: z.number().min(0).optional(),
+    appCount: z.number().int().min(1).nullable(),
+    userCount: z.number().int().min(1).nullable(),
+    annualRevenueUsd: z.number().min(0).nullable(),
+    macStudioCostUsd: z.number().min(0).nullable(),
+    monthlyThirdPartyUsd: z.number().min(0).nullable(),
   }),
   suggestedCatalogUsd: z
     .object({
-      proMonthlyCents: z.number().int().min(0).optional(),
-      businessMonthlyCents: z.number().int().min(0).optional(),
-      pack25Cents: z.number().int().min(0).optional(),
-      pack50Cents: z.number().int().min(0).optional(),
-      pack100Cents: z.number().int().min(0).optional(),
+      proMonthlyCents: z.number().int().min(0).nullable(),
+      businessMonthlyCents: z.number().int().min(0).nullable(),
+      pack25Cents: z.number().int().min(0).nullable(),
+      pack50Cents: z.number().int().min(0).nullable(),
+      pack100Cents: z.number().int().min(0).nullable(),
     })
-    .optional(),
+    .nullable(),
   risks: z.array(z.string()),
 });
 
@@ -152,6 +157,57 @@ async function resolveOrgIdFromTenant(
     tenantSlug,
   )) as { organization_id: string | null }[];
   return rows[0]?.organization_id ?? null;
+}
+
+/**
+ * Merge live org signals, client override, AI suggestions, and admin revenue.
+ *
+ * Scale / COGS: prefer the stronger of live org vs client override via Math.max
+ * so wizard defaults (appCount/userCount === 1, monthly3p === 0) do not clobber
+ * real live counts. AI suggestions participate in the same max for apps/users.
+ * Revenue: `adminAnnualRevenueUsd` always wins; otherwise override → AI mid →
+ * filings mid → AI suggested → 0. macStudioCostUsd: override only when set.
+ */
+export function mergeRecommendedRateCardInputs(args: {
+  inputsOverride?: Partial<TenantRateCardInputs>;
+  liveOrg: AnalyzeCalculatorResult['liveOrg'];
+  analysis: AnalyzeAiResult | null;
+  adminAnnualRevenueUsd?: number | null;
+  filingsRevenueMid?: number | null;
+}): TenantRateCardInputs {
+  const { inputsOverride: override, liveOrg, analysis } = args;
+  const suggested = analysis?.suggestedRateCardInputs;
+
+  return defaultRateCardInputs({
+    appCount:
+      Math.max(
+        liveOrg.appCount ?? 0,
+        override?.appCount ?? 0,
+        suggested?.appCount ?? 0,
+      ) || 1,
+    userCount:
+      Math.max(
+        liveOrg.userCount ?? 0,
+        override?.userCount ?? 0,
+        analysis?.estimatedUsers ?? 0,
+        suggested?.userCount ?? 0,
+      ) || 1,
+    // Admin-confirmed revenue always wins; otherwise override → AI/filings mid → AI suggested.
+    annualRevenueUsd:
+      args.adminAnnualRevenueUsd != null && args.adminAnnualRevenueUsd >= 0
+        ? args.adminAnnualRevenueUsd
+        : (override?.annualRevenueUsd ??
+          analysis?.estimatedAnnualRevenueUsd.mid ??
+          args.filingsRevenueMid ??
+          suggested?.annualRevenueUsd ??
+          0),
+    macStudioCostUsd: override?.macStudioCostUsd,
+    monthlyThirdPartyUsd: Math.max(
+      liveOrg.monthlyThirdPartyUsd ?? 0,
+      override?.monthlyThirdPartyUsd ?? 0,
+      suggested?.monthlyThirdPartyUsd ?? 0,
+    ),
+  });
 }
 
 export async function analyzeAiCreditsCalculator(
@@ -268,32 +324,12 @@ Respond with structured JSON only.`,
     );
   }
 
-  const revenueMid =
-    input.adminAnnualRevenueUsd != null && input.adminAnnualRevenueUsd >= 0
-      ? input.adminAnnualRevenueUsd
-      : analysis?.estimatedAnnualRevenueUsd.mid ??
-        mergedFilings.annualRevenueUsd.mid ??
-        0;
-
-  const recommendedInputs = defaultRateCardInputs({
-    appCount: input.inputsOverride?.appCount ?? liveOrg.appCount ?? analysis?.suggestedRateCardInputs.appCount ?? 1,
-    userCount:
-      input.inputsOverride?.userCount ??
-      liveOrg.userCount ??
-      analysis?.estimatedUsers ??
-      analysis?.suggestedRateCardInputs.userCount ??
-      1,
-    annualRevenueUsd:
-      input.inputsOverride?.annualRevenueUsd ??
-      revenueMid ??
-      analysis?.suggestedRateCardInputs.annualRevenueUsd ??
-      0,
-    macStudioCostUsd: input.inputsOverride?.macStudioCostUsd,
-    monthlyThirdPartyUsd:
-      input.inputsOverride?.monthlyThirdPartyUsd ??
-      liveOrg.monthlyThirdPartyUsd ??
-      analysis?.suggestedRateCardInputs.monthlyThirdPartyUsd ??
-      0,
+  const recommendedInputs = mergeRecommendedRateCardInputs({
+    inputsOverride: input.inputsOverride,
+    liveOrg,
+    analysis,
+    adminAnnualRevenueUsd: input.adminAnnualRevenueUsd,
+    filingsRevenueMid: mergedFilings.annualRevenueUsd.mid,
   });
 
   const report = buildAiCreditsCalculatorReport({
