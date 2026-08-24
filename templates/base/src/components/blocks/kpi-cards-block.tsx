@@ -7,6 +7,11 @@ import Typography from '@mui/material/Typography';
 import { MetricCard } from '@/components/ui/metric-card';
 import { MonthSelect } from '@/components/ui/month-select';
 import { parseBlockConfig } from '@/lib/schemas/block-config';
+import {
+  defaultContentGridForBlock,
+  itemGridTemplateColumns,
+  resolveContentGrid,
+} from '@/lib/schemas/block-grid';
 import { formatChartValue, pickActualSeriesForDefault, resolveMonthIndex } from '@/lib/chart-utils';
 import { useChartMonthSync } from '@/hooks/use-chart-month-sync';
 import { useGetChartOverviewQuery } from '@/store/apis/financial-api';
@@ -124,7 +129,9 @@ function KpiCardsBlockInner({ config }: { config: Record<string, unknown> }) {
       <Box
         sx={{
           display: 'grid',
-          gridTemplateColumns: { xs: '1fr 1fr', md: 'repeat(5, 1fr)' },
+          gridTemplateColumns: itemGridTemplateColumns(
+            resolveContentGrid(config.contentGrid, defaultContentGridForBlock('kpi_cards')),
+          ),
           gap: 1.75,
         }}
       >

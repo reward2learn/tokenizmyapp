@@ -2,10 +2,12 @@
 
 import { useLayoutEffect } from 'react';
 import Box from '@mui/material/Box';
+import Grid from '@mui/material/Grid';
 import { usePathname, useSearchParams } from 'next/navigation';
 import type { AuthTier, BlockType, PageDefinition } from '@/lib/page-catalog';
 import { BLOCKS_WITH_STAGGERED_CONTAINERS, getBlockComponent } from '@/lib/block-registry';
 import { parseBlockConfig } from '@/lib/schemas/block-config';
+import { gridSizeProps, resolveBlockGrid } from '@/lib/schemas/block-grid';
 import { AuthGate } from '@/components/auth/auth-gate';
 import { SignInPanelGate } from '@/components/auth/sign-in-panel';
 import { PdfExportButton } from '@/components/ui/pdf-export-button';
@@ -56,14 +58,22 @@ function BlockSection({
     </BlockScrollAnimate>
   );
 
+  const size = gridSizeProps(resolveBlockGrid(config.grid));
+
   if (!minTier || minTier === 'public') {
-    return <Box key={sectionKey}>{wrapped}</Box>;
+    return (
+      <Grid key={sectionKey} size={size}>
+        {wrapped}
+      </Grid>
+    );
   }
 
   return (
-    <AuthGate key={sectionKey} requiredTier={minTier} fallback={null}>
-      {wrapped}
-    </AuthGate>
+    <Grid key={sectionKey} size={size}>
+      <AuthGate requiredTier={minTier} fallback={null}>
+        {wrapped}
+      </AuthGate>
+    </Grid>
   );
 }
 
@@ -101,16 +111,18 @@ export function DynamicPage({ page }: DynamicPageProps) {
         </Box>
       ) : null}
 
-      {liveSections.map((section) => (
-        <BlockSection
-          key={sectionRenderKey(section, publishRevision)}
-          blockType={section.blockType}
-          config={section.config}
-          sectionKey={sectionRenderKey(section, publishRevision)}
-          animationKey={sectionAnimationKey(page.slug, section)}
-          animateDisabled={isPdf}
-        />
-      ))}
+      <Grid container spacing={0}>
+        {liveSections.map((section) => (
+          <BlockSection
+            key={sectionRenderKey(section, publishRevision)}
+            blockType={section.blockType}
+            config={section.config}
+            sectionKey={sectionRenderKey(section, publishRevision)}
+            animationKey={sectionAnimationKey(page.slug, section)}
+            animateDisabled={isPdf}
+          />
+        ))}
+      </Grid>
 
       {showSignIn ? <DashboardSignInPrompt /> : null}
     </Box>

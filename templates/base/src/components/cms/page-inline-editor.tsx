@@ -9,6 +9,7 @@ import Chip from '@mui/material/Chip';
 import CircularProgress from '@mui/material/CircularProgress';
 import Drawer from '@mui/material/Drawer';
 import FormControl from '@mui/material/FormControl';
+import Grid from '@mui/material/Grid';
 import IconButton from '@mui/material/IconButton';
 import InputLabel from '@mui/material/InputLabel';
 import MenuItem from '@mui/material/MenuItem';
@@ -30,10 +31,12 @@ import BuildIcon from '@mui/icons-material/Build';
 import type { AuthTier, BlockType, PageDefinition } from '@/lib/page-catalog';
 import { resolveBlockComponent } from '@/lib/block-registry';
 import { parseBlockConfig } from '@/lib/schemas/block-config';
+import { gridSizeProps, resolveBlockGrid } from '@/lib/schemas/block-grid';
 import { AuthGate } from '@/components/auth/auth-gate';
 import { CMS_ADDABLE_BLOCKS, defaultConfigForBlock } from '@/components/cms/cms-block-catalog';
 import { SectionConfigEditor } from '@/components/cms/section-config-editor';
 import { BlockAnimateSettings } from '@/components/cms/block-animate-settings';
+import { BlockGridSettings } from '@/components/cms/block-grid-settings';
 import {
   useCreatePageSectionMutation,
   useDeletePageSectionsMutation,
@@ -44,7 +47,7 @@ import {
 import { useAppDispatch } from '@/store/hooks';
 import { publishPageSections, setPageEditMode } from '@/store/ui-slice';
 import { contentApi } from '@/store/apis/content-api';
-import { cmsPageCacheKey, getCmsTenantAppScope } from '@shared/lib/cms-scope';
+import { cmsPageCacheKey, getCmsTenantAppScope } from '@shared/lib/cms-scope';  
 import { DrawerResizeHandle } from '@/components/shared/drawer-resize-handle';
 import { useResizableDrawerWidth } from '@/hooks/use-resizable-drawer-width';
 
@@ -383,100 +386,103 @@ export function PageInlineEditor({ page }: PageInlineEditorProps) {
         </Alert>
       ) : null}
 
-      <Stack spacing={2} sx={{ px: 1, pb: 4 }}>
+      <Box sx={{ px: 1, pb: 4 }}>
         {previewSections.length === 0 ? (
-          <Alert severity="info" sx={{ mx: 1 }}>
+          <Alert severity="info" sx={{ mx: 1, mb: 2 }}>
             This page has no blocks yet. Add one below.
           </Alert>
         ) : null}
 
-        {previewSections.map((section, index) => (
-          <Box
-            key={section.id}
-            sx={{
-              position: 'relative',
-              outline: '2px dashed',
-              outlineColor: editingId === section.id ? 'primary.main' : 'divider',
-              outlineOffset: 4,
-              borderRadius: 1,
-            }}
-          >
-            <Stack
-              direction="row"
-              spacing={0.5}
+        <Grid container spacing={2}>
+          {previewSections.map((section, index) => (
+            <Grid
+              key={section.id}
+              size={gridSizeProps(resolveBlockGrid(section.config.grid))}
               sx={{
-                position: 'absolute',
-                top: 8,
-                right: 8,
-                zIndex: 2,
-                bgcolor: 'background.paper',
+                position: 'relative',
+                outline: '2px dashed',
+                outlineColor: editingId === section.id ? 'primary.main' : 'divider',
+                outlineOffset: 4,
                 borderRadius: 1,
-                boxShadow: 1,
-                p: 0.25,
               }}
             >
-              <Tooltip title="Move up">
-                <span>
+              <Stack
+                direction="row"
+                spacing={0.5}
+                sx={{
+                  position: 'absolute',
+                  top: 8,
+                  right: 8,
+                  zIndex: 2,
+                  bgcolor: 'background.paper',
+                  borderRadius: 1,
+                  boxShadow: 1,
+                  p: 0.25,
+                }}
+              >
+                <Tooltip title="Move up">
+                  <span>
+                    <IconButton
+                      size="small"
+                      aria-label="Move block up"
+                      disabled={index === 0}
+                      onClick={() => moveSection(index, -1)}
+                    >
+                      <ArrowUpwardIcon fontSize="small" />
+                    </IconButton>
+                  </span>
+                </Tooltip>
+                <Tooltip title="Move down">
+                  <span>
+                    <IconButton
+                      size="small"
+                      aria-label="Move block down"
+                      disabled={index === previewSections.length - 1}
+                      onClick={() => moveSection(index, 1)}
+                    >
+                      <ArrowDownwardIcon fontSize="small" />
+                    </IconButton>
+                  </span>
+                </Tooltip>
+                <Tooltip title="Edit block settings">
                   <IconButton
                     size="small"
-                    aria-label="Move block up"
-                    disabled={index === 0}
-                    onClick={() => moveSection(index, -1)}
+                    aria-label={`Edit ${section.blockType} block`}
+                    onClick={() => setEditingId(section.id)}
                   >
-                    <ArrowUpwardIcon fontSize="small" />
+                    <SettingsIcon fontSize="small" />
                   </IconButton>
-                </span>
-              </Tooltip>
-              <Tooltip title="Move down">
-                <span>
-                  <IconButton
-                    size="small"
-                    aria-label="Move block down"
-                    disabled={index === previewSections.length - 1}
-                    onClick={() => moveSection(index, 1)}
-                  >
-                    <ArrowDownwardIcon fontSize="small" />
-                  </IconButton>
-                </span>
-              </Tooltip>
-              <Tooltip title="Edit block settings">
-                <IconButton
-                  size="small"
-                  aria-label={`Edit ${section.blockType} block`}
-                  onClick={() => setEditingId(section.id)}
-                >
-                  <SettingsIcon fontSize="small" />
-                </IconButton>
-              </Tooltip>
-              <Tooltip title="Delete block">
-                <span>
-                  <IconButton
-                    size="small"
-                    aria-label={`Delete ${section.blockType} block`}
-                    disabled={deleting}
-                    onClick={() => void handleDelete(section.id)}
-                  >
-                    <DeleteIcon fontSize="small" />
-                  </IconButton>
-                </span>
-              </Tooltip>
-            </Stack>
-            <Chip
-              label={section.blockType}
-              size="small"
-              sx={{ position: 'absolute', top: 8, left: 8, zIndex: 2 }}
-            />
-            <BlockPreview
-              blockType={section.blockType}
-              config={section.config}
-            />
-            <Typography variant="caption" color="text.disabled" sx={{ display: 'block', textAlign: 'right', pr: 1, pb: 0.5 }}>
-              #{index + 1}
-            </Typography>
-          </Box>
-        ))}
+                </Tooltip>
+                <Tooltip title="Delete block">
+                  <span>
+                    <IconButton
+                      size="small"
+                      aria-label={`Delete ${section.blockType} block`}
+                      disabled={deleting}
+                      onClick={() => void handleDelete(section.id)}
+                    >
+                      <DeleteIcon fontSize="small" />
+                    </IconButton>
+                  </span>
+                </Tooltip>
+              </Stack>
+              <Chip
+                label={section.blockType}
+                size="small"
+                sx={{ position: 'absolute', top: 8, left: 8, zIndex: 2 }}
+              />
+              <BlockPreview
+                blockType={section.blockType}
+                config={section.config}
+              />
+              <Typography variant="caption" color="text.disabled" sx={{ display: 'block', textAlign: 'right', pr: 1, pb: 0.5 }}>
+                #{index + 1}
+              </Typography>
+            </Grid>
+          ))}
+        </Grid>
 
-        <Paper variant="outlined" sx={{ mx: 1, p: 2 }}>
+        <Paper variant="outlined" sx={{ mx: 1, mt: 2, p: 2 }}>
           <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5} sx={{ alignItems: { sm: 'center' } }}>
             <FormControl size="small" sx={{ minWidth: 200, flex: 1 }}>
               <InputLabel id="inline-add-block">Add block</InputLabel>
@@ -501,7 +507,7 @@ export function PageInlineEditor({ page }: PageInlineEditorProps) {
             </Button>
           </Stack>
         </Paper>
-      </Stack>
+      </Box>
 
       <Drawer
         anchor="right"
@@ -531,6 +537,11 @@ export function PageInlineEditor({ page }: PageInlineEditorProps) {
               <Stack spacing={2}>
                 <BlockAnimateSettings
                   config={editingSection.config}
+                  onChange={(config) => updateDraftConfig(editingSection.id, config)}
+                />
+                <BlockGridSettings
+                  config={editingSection.config}
+                  blockType={editingSection.blockType}
                   onChange={(config) => updateDraftConfig(editingSection.id, config)}
                 />
                 <SectionConfigEditor

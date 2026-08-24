@@ -9,6 +9,11 @@ import Stack from '@mui/material/Stack';
 import Typography from '@mui/material/Typography';
 import { RADIUS, SHADOWS } from '@/theme/design-tokens';
 import { BlockAnimateContainer, BlockAnimateRoot } from '@/components/blocks/block-scroll-animate';
+import {
+  defaultContentGridForBlock,
+  gridSizeProps,
+  resolveContentGrid,
+} from '@/lib/schemas/block-grid';
 
 /**
  * Customer case-study cards — industry pill plus two hard metrics.
@@ -114,6 +119,10 @@ export function CustomerProofBlock({ config }: { config: Record<string, unknown>
   // worse than no strip, and invented logos are worse than either.
   if (items.length === 0) return null;
 
+  const itemSize = gridSizeProps(
+    resolveContentGrid(config.contentGrid, defaultContentGridForBlock('customer_proof')),
+  );
+
   return (
     <Box component="section" sx={{ py: { xs: 6, md: 10 }, px: 3 }}>
       <BlockAnimateRoot>
@@ -122,7 +131,7 @@ export function CustomerProofBlock({ config }: { config: Record<string, unknown>
         </Typography>
         <Grid container spacing={3} sx={{ maxWidth: 1100, mx: 'auto' }}>
           {items.map((item, index) => (
-            <Grid key={item.name} size={{ xs: 12, sm: 6, md: 4 }}>
+            <Grid key={item.name} size={itemSize}>
               <BlockAnimateContainer index={1 + index}>
                 <ProofCard item={item} />
               </BlockAnimateContainer>

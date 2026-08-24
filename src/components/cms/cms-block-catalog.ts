@@ -23,76 +23,80 @@ export type CmsAddableBlock = (typeof CMS_ADDABLE_BLOCKS)[number];
 
 import { DEFAULT_HERO_FALLBACK_ACCENT, DEFAULT_HERO_NAV_BUTTONS, getHeroFallbackTitle } from '@/lib/hero-config';
 import { DEFAULT_BLOCK_ANIMATE } from '@/lib/schemas/block-animate';
+import { DEFAULT_BLOCK_GRID, defaultContentGridForBlock } from '@/lib/schemas/block-grid';
 
 /** Default config when creating a new section of the given block type. */
 export function defaultConfigForBlock(blockType: string): Record<string, unknown> {
   const animate = { ...DEFAULT_BLOCK_ANIMATE };
+  const grid = { ...DEFAULT_BLOCK_GRID };
+  const contentGrid = { ...defaultContentGridForBlock(blockType) };
+  const base = { animate, grid, contentGrid };
 
   switch (blockType) {
     case 'hero':
       return {
-        animate,
+        ...base,
         headline: getHeroFallbackTitle(),
         accent: DEFAULT_HERO_FALLBACK_ACCENT,
         navButtons: DEFAULT_HERO_NAV_BUTTONS,
       };
     case 'faq':
-      return { animate, heading: 'Frequently asked questions', items: [] };
+      return { ...base, heading: 'Frequently asked questions', items: [] };
     case 'cta_banner':
-      return { animate, heading: 'Start building for free', ctaLabel: 'Start building', ctaHref: '/admin' };
+      return { ...base, heading: 'Start building for free', ctaLabel: 'Start building', ctaHref: '/admin' };
     case 'pricing_table':
       return {
-        animate,
+        ...base,
         heading: 'Pricing',
         subheading: 'Start for free and upgrade as you grow.',
         ctaHref: '/admin',
         highlightPlanId: 'business',
       };
     case 'capability_marquee':
-      return { animate, heading: 'Everything you need is built-in', rows: [] };
+      return { ...base, heading: 'Everything you need is built-in', rows: [] };
     case 'customer_proof':
-      return { animate, heading: 'Customer results', items: [] };
+      return { ...base, heading: 'Customer results', items: [] };
     case 'testimonials':
-      return { animate, heading: 'What customers say', items: [] };
+      return { ...base, heading: 'What customers say', items: [] };
     case 'product_showcase':
-      return { animate, heading: 'From idea to published app in minutes', items: [] };
+      return { ...base, heading: 'From idea to published app in minutes', items: [] };
     case 'feature_grid':
       return {
-        animate,
+        ...base,
         heading: 'Everything the business runs on, in one tenant',
         subheading:
           'Private AI for planning and analysis, department apps generated on demand, and access controlled down to the record.',
       };
     case 'lever_accordion':
-      return { animate, title: 'The 5 Levers' };
+      return { ...base, title: 'The 5 Levers' };
     case 'action_checklist':
       return {
-        animate,
+        ...base,
         heading: 'Step-by-Step Action Plan',
         subheading:
           'Three phases from survival to sustainable profitability. Click each phase to expand.',
       };
     case 'marketing_hero':
       return {
-        animate,
+        ...base,
         headline: 'Build software for your business',
         subheadline: 'Describe what you need and get a working app.',
       };
     case 'doc_markdown':
-      return { animate, source: 'executive-summary', title: 'Document' };
+      return { ...base, source: 'executive-summary', title: 'Document' };
     case 'sheet_viewer':
-      return { animate, sheet: '', title: '' };
+      return { ...base, sheet: '', title: '' };
     case 'pack_table':
-      return { animate, table: '', title: '' };
+      return { ...base, table: '', title: '' };
     case 'chat_panel':
-      return { animate, emptyStatePrompt: 'How can I help?', suggestedPrompts: [] };
+      return { ...base, emptyStatePrompt: 'How can I help?', suggestedPrompts: [] };
     case 'metric_grid':
-      return { animate, scenarios: [] };
+      return { ...base, scenarios: [] };
     case 'chart_financial':
-      return { animate, variant: 'dashboard', scenario: 'conservative' };
+      return { ...base, variant: 'dashboard', scenario: 'conservative' };
     case 'kpi_cards':
-      return { animate, variant: 'dashboard' };
+      return { ...base, variant: 'dashboard' };
     default:
-      return { animate };
+      return { ...base };
   }
 }

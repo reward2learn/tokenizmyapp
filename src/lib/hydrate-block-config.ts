@@ -18,6 +18,7 @@ import {
 } from '@/lib/block-display-defaults';
 import { hydrateHeroConfigForEdit } from '@/lib/hero-config';
 import { hydrateBlockAnimateForEdit } from '@/lib/schemas/block-animate';
+import { hydrateBlockGridForEdit } from '@/lib/schemas/block-grid';
 
 function isUnsetString(value: unknown): boolean {
   return typeof value !== 'string';
@@ -47,40 +48,41 @@ export function hydrateBlockConfigForEdit(
   config: Record<string, unknown>,
 ): Record<string, unknown> {
   const withAnimate = hydrateBlockAnimateForEdit(config);
+  const withGrid = hydrateBlockGridForEdit(withAnimate, blockType);
 
   switch (blockType) {
     case 'hero':
-      return hydrateHeroConfigForEdit(withAnimate);
+      return hydrateHeroConfigForEdit(withGrid);
 
     case 'marketing_hero':
-      return fillStrings(withAnimate, MARKETING_HERO_DEFAULTS);
+      return fillStrings(withGrid, MARKETING_HERO_DEFAULTS);
 
     case 'faq':
-      return fillStrings(withAnimate, FAQ_DEFAULTS);
+      return fillStrings(withGrid, FAQ_DEFAULTS);
 
     case 'cta_banner':
-      return fillStrings(withAnimate, CTA_BANNER_DEFAULTS);
+      return fillStrings(withGrid, CTA_BANNER_DEFAULTS);
 
     case 'pricing_table':
-      return fillStrings(withAnimate, PRICING_TABLE_DEFAULTS);
+      return fillStrings(withGrid, PRICING_TABLE_DEFAULTS);
 
     case 'capability_marquee':
-      return fillStrings(withAnimate, CAPABILITY_MARQUEE_DEFAULTS);
+      return fillStrings(withGrid, CAPABILITY_MARQUEE_DEFAULTS);
 
     case 'customer_proof':
-      return fillStrings(withAnimate, CUSTOMER_PROOF_DEFAULTS);
+      return fillStrings(withGrid, CUSTOMER_PROOF_DEFAULTS);
 
     case 'testimonials':
-      return fillStrings(withAnimate, TESTIMONIALS_DEFAULTS);
+      return fillStrings(withGrid, TESTIMONIALS_DEFAULTS);
 
     case 'product_showcase':
-      return fillStrings(withAnimate, PRODUCT_SHOWCASE_DEFAULTS);
+      return fillStrings(withGrid, PRODUCT_SHOWCASE_DEFAULTS);
 
     case 'feature_grid':
-      return fillStrings(withAnimate, FEATURE_GRID_DEFAULTS);
+      return fillStrings(withGrid, FEATURE_GRID_DEFAULTS);
 
     case 'doc_markdown': {
-      const next = fillStrings(withAnimate, DOC_MARKDOWN_DEFAULTS);
+      const next = fillStrings(withGrid, DOC_MARKDOWN_DEFAULTS);
       if (isUnsetString(next.title) && typeof next.source === 'string' && next.source.trim()) {
         const derived = next.source
           .replace(/\.(html|md)$/i, '')
@@ -94,7 +96,7 @@ export function hydrateBlockConfigForEdit(
     }
 
     case 'chat_panel': {
-      const next = { ...withAnimate };
+      const next = { ...withGrid };
       if (isUnsetString(next.emptyStatePrompt)) {
         next.emptyStatePrompt = getChatStarterPrompt();
       }
@@ -105,25 +107,25 @@ export function hydrateBlockConfigForEdit(
     }
 
     case 'lever_accordion':
-      return fillStrings(withAnimate, LEVER_ACCORDION_DEFAULTS);
+      return fillStrings(withGrid, LEVER_ACCORDION_DEFAULTS);
 
     case 'action_checklist':
-      return fillStrings(withAnimate, ACTION_CHECKLIST_DEFAULTS);
+      return fillStrings(withGrid, ACTION_CHECKLIST_DEFAULTS);
 
     case 'metric_grid':
-      return fillStrings(withAnimate, METRIC_GRID_DEFAULTS);
+      return fillStrings(withGrid, METRIC_GRID_DEFAULTS);
 
     case 'chart_financial':
-      return fillStrings(withAnimate, CHART_FINANCIAL_DEFAULTS);
+      return fillStrings(withGrid, CHART_FINANCIAL_DEFAULTS);
 
     case 'kpi_cards':
-      return fillStrings(withAnimate, KPI_CARDS_DEFAULTS);
+      return fillStrings(withGrid, KPI_CARDS_DEFAULTS);
 
     case 'sheet_viewer':
     case 'pack_table':
-      return { ...withAnimate };
+      return { ...withGrid };
 
     default:
-      return { ...withAnimate };
+      return { ...withGrid };
   }
 }

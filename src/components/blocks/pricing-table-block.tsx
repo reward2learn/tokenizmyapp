@@ -21,6 +21,11 @@ import {
 } from '@/lib/billing/plans';
 import { RADIUS, SHADOWS } from '@/theme/design-tokens';
 import { BlockAnimateContainer, BlockAnimateRoot } from '@/components/blocks/block-scroll-animate';
+import {
+  defaultContentGridForBlock,
+  gridSizeProps,
+  resolveContentGrid,
+} from '@/lib/schemas/block-grid';
 
 /**
  * Pricing table, generated from the plan catalog.
@@ -203,6 +208,9 @@ export function PricingTableBlock({ config }: { config: Record<string, unknown> 
     typeof config.highlightPlanId === 'string' ? config.highlightPlanId : 'business';
 
   const [interval, setInterval] = useState<'monthly' | 'yearly'>('monthly');
+  const itemSize = gridSizeProps(
+    resolveContentGrid(config.contentGrid, defaultContentGridForBlock('pricing_table')),
+  );
 
   return (
     <Box component="section" sx={{ py: { xs: 6, md: 10 }, px: 3 }}>
@@ -237,7 +245,7 @@ export function PricingTableBlock({ config }: { config: Record<string, unknown> 
 
         <Grid container spacing={3} sx={{ maxWidth: 1200, mx: 'auto', alignItems: 'stretch' }}>
           {PLANS.map((plan, i) => (
-            <Grid key={plan.id} size={{ xs: 12, sm: 6, md: 3 }}>
+            <Grid key={plan.id} size={itemSize}>
               <BlockAnimateContainer index={1 + i}>
                 <PlanCard
                   plan={plan}

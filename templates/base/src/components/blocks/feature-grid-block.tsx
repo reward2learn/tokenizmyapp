@@ -14,6 +14,11 @@ import VerifiedUserOutlinedIcon from '@mui/icons-material/VerifiedUserOutlined';
 import type { SvgIconComponent } from '@mui/icons-material';
 import { RADIUS } from '@/theme/design-tokens';
 import { BlockAnimateContainer, BlockAnimateRoot } from '@/components/blocks/block-scroll-animate';
+import {
+  defaultContentGridForBlock,
+  itemGridTemplateColumns,
+  resolveContentGrid,
+} from '@/lib/schemas/block-grid';
 
 export interface FeatureItem {
   icon: SvgIconComponent;
@@ -116,6 +121,7 @@ export interface FeatureGridBlockProps {
   heading?: string;
   subheading?: string;
   items?: FeatureItem[];
+  contentGrid?: unknown;
 }
 
 /** Capability grid — the "what you actually get" section. */
@@ -123,7 +129,12 @@ export function FeatureGrid({
   heading = 'Everything the business runs on, in one tenant',
   subheading = 'Private AI for planning and analysis, department apps generated on demand, and access controlled down to the record.',
   items = DEFAULT_FEATURES,
+  contentGrid,
 }: FeatureGridBlockProps) {
+  const columns = itemGridTemplateColumns(
+    resolveContentGrid(contentGrid, defaultContentGridForBlock('feature_grid')),
+  );
+
   return (
     <Box component="section" sx={{ py: { xs: 6, md: 10 }, px: 3 }}>
       <BlockAnimateRoot>
@@ -142,11 +153,7 @@ export function FeatureGrid({
             gap: 2.5,
             maxWidth: 1120,
             mx: 'auto',
-            gridTemplateColumns: {
-              xs: '1fr',
-              sm: 'repeat(2, minmax(0, 1fr))',
-              md: 'repeat(4, minmax(0, 1fr))',
-            },
+            gridTemplateColumns: columns,
           }}
         >
           {items.map((item, index) => (
@@ -166,6 +173,7 @@ export function FeatureGridBlock({ config }: { config: Record<string, unknown> }
     <FeatureGrid
       heading={typeof config.heading === 'string' ? config.heading : undefined}
       subheading={typeof config.subheading === 'string' ? config.subheading : undefined}
+      contentGrid={config.contentGrid}
     />
   );
 }

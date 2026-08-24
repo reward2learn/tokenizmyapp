@@ -12,6 +12,11 @@ import VerifiedUserIcon from '@mui/icons-material/VerifiedUser';
 import WidgetsIcon from '@mui/icons-material/Widgets';
 import { RADIUS, SHADOWS } from '@/theme/design-tokens';
 import { BlockAnimateContainer, BlockAnimateRoot } from '@/components/blocks/block-scroll-animate';
+import {
+  defaultContentGridForBlock,
+  gridSizeProps,
+  resolveContentGrid,
+} from '@/lib/schemas/block-grid';
 
 /**
  * "From idea to published app in minutes" — the capability argument.
@@ -69,6 +74,10 @@ export function ProductShowcaseBlock({ config }: { config: Record<string, unknow
 
   if (items.length === 0) return null;
 
+  const itemSize = gridSizeProps(
+    resolveContentGrid(config.contentGrid, defaultContentGridForBlock('product_showcase')),
+  );
+
   return (
     <Box component="section" sx={{ py: { xs: 6, md: 10 }, px: 3 }}>
       <BlockAnimateRoot>
@@ -85,7 +94,7 @@ export function ProductShowcaseBlock({ config }: { config: Record<string, unknow
           {items.map((item, index) => {
             const Icon = ICONS[item.icon];
             return (
-              <Grid key={item.title} size={{ xs: 12, sm: 6, md: 4 }}>
+              <Grid key={item.title} size={itemSize}>
                 <BlockAnimateContainer index={1 + index}>
                   <Paper
                     elevation={0}

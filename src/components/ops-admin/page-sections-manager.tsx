@@ -45,6 +45,7 @@ import { hasPagesWrite } from '@/lib/auth/admin-access';
 import { getCurrentAppId, getTenantConfig } from '@/lib/tenant-config';
 import { SectionConfigEditor } from '@/components/cms/section-config-editor';
 import { BlockAnimateSettings } from '@/components/cms/block-animate-settings';
+import { BlockGridSettings } from '@/components/cms/block-grid-settings';
 import { CMS_ADDABLE_BLOCKS, defaultConfigForBlock } from '@/components/cms/cms-block-catalog';
 
 interface PageSectionsManagerProps {
@@ -452,6 +453,12 @@ export function PageSectionsManager({ tenantSlug, appId, isSuite = false }: Page
                 <Stack spacing={2}>
                   <BlockAnimateSettings
                     config={section.config}
+                    readOnly={!canWrite}
+                    onChange={(config) => updateDraft(section.id, { config })}
+                  />
+                  <BlockGridSettings
+                    config={section.config}
+                    blockType={section.blockType}
                     readOnly={!canWrite}
                     onChange={(config) => updateDraft(section.id, { config })}
                   />
