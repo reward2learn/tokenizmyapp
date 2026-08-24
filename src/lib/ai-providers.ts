@@ -75,9 +75,8 @@ interface ResolvedProviderKey {
 
 /**
  * Resolve an API key for a provider: DB secret first, then its env var.
- * Returns the source alongside the key so callers can distinguish "tenant's
- * own key (BYOK)" from "platform key" — the credit-metering decision in
- * credit-service.ts depends on it (roadmap §5.1).
+ * Returns the source alongside the key for diagnostics. Credit metering
+ * always charges the org balance regardless of source.
  */
 async function resolveProviderKeyWithSource(
   provider: AiProviderDef,
@@ -146,7 +145,7 @@ export interface ActiveAiConfig {
   provider: AiProviderDef;
   apiKey: string;
   model: string;
-  /** 'db' = tenant's own BYOK key (do not charge credits); 'env' = platform key. */
+  /** Where the API key was resolved from — diagnostic only; usage is always metered. */
   keySource: ProviderKeySource;
 }
 

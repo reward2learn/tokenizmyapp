@@ -63,16 +63,14 @@ export async function POST(request: Request) {
     appId: body.appId ?? (getCurrentAppId() || undefined),
   });
 
-  if (ai.keySource === 'env') {
-    const gate = await requireCreditsForTenant(
-      cmsScope.deploymentSlug,
-      undefined,
-      auth.session.email,
-      CREDIT_FLOORS.contentGeneration,
-    );
-    if (!gate.ok) {
-      return gate.response;
-    }
+  const gate = await requireCreditsForTenant(
+    cmsScope.deploymentSlug,
+    undefined,
+    auth.session.email,
+    CREDIT_FLOORS.contentGeneration,
+  );
+  if (!gate.ok) {
+    return gate.response;
   }
 
   try {

@@ -60,17 +60,30 @@ describe('ChatCreditUsage', () => {
     }));
   });
 
-  it('shows BYOK label when last turn was not charged', () => {
+  it('shows Not billed when last turn was operator-exempt', () => {
     const state = chatStreamSlice.reducer(undefined, recordTurnUsage({
       promptTokens: 10,
       completionTokens: 5,
-      credits: 0,
+      credits: 1,
       consumed: 0,
       charged: false,
       balance: null,
+    }));
+    renderUsage(state);
+    expect(screen.getByLabelText('Chat credit usage')).toHaveTextContent('Not billed');
+  });
+
+  it('shows credits consumed even when byok flag is set', () => {
+    const state = chatStreamSlice.reducer(undefined, recordTurnUsage({
+      promptTokens: 100,
+      completionTokens: 50,
+      credits: 2,
+      consumed: 2,
+      charged: true,
+      balance: 48,
       byok: true,
     }));
     renderUsage(state);
-    expect(screen.getByLabelText('Chat credit usage')).toHaveTextContent('Not billed (BYOK)');
+    expect(screen.getByLabelText('Chat credit usage')).toHaveTextContent('2 credits this chat');
   });
 });

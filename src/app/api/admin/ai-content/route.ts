@@ -451,7 +451,16 @@ export async function POST(request: Request): Promise<Response> {
   if (wantsStream) {
     const stream = sseStream(async (emit) => {
       const db = createClient(dbSession);
-      await generateAndSave(db, emit, source, model, additionalContext, overridePrompt, getTenantConfig().slug);
+      await generateAndSave(
+        db,
+        emit,
+        source,
+        model,
+        additionalContext,
+        overridePrompt,
+        getTenantConfig().slug,
+        guard.session.email,
+      );
     });
 
     return new Response(stream, {
@@ -466,7 +475,16 @@ export async function POST(request: Request): Promise<Response> {
   // ── Blocking (legacy) mode ────────────────────────────
   try {
     const db = createClient(dbSession);
-    const result = await generateAndSave(db, undefined, source, model, additionalContext, overridePrompt, getTenantConfig().slug);
+    const result = await generateAndSave(
+      db,
+      undefined,
+      source,
+      model,
+      additionalContext,
+      overridePrompt,
+      getTenantConfig().slug,
+      guard.session.email,
+    );
 
     if (!result.success) {
       const isQuota = result.error?.includes(OPENAI_QUOTA_MARKER) ?? false;

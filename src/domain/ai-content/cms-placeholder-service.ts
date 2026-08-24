@@ -311,7 +311,7 @@ async function callAiForSectionMarkdown(
   const result = await response.json();
   const reply = result.choices?.[0]?.message?.content ?? '';
 
-  if (ai.keySource === 'env') {
+  {
     const usage = result.usage as { prompt_tokens?: number; completion_tokens?: number } | undefined;
     try {
       await meterAiUsage({

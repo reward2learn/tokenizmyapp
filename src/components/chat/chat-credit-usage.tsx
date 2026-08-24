@@ -44,7 +44,8 @@ export function ChatCreditUsage() {
   const [anchorEl, setAnchorEl] = useState<HTMLElement | null>(null);
 
   const turnCount = sessionUsage.turns.length;
-  const lastByok = lastTurnUsage?.byok === true || (lastTurnUsage != null && !lastTurnUsage.charged);
+  const lastExempt =
+    lastTurnUsage != null && !lastTurnUsage.charged && sessionUsage.consumed === 0;
   const hasActivity =
     turnCount > 0
     || sessionUsage.credits > 0
@@ -67,8 +68,8 @@ export function ChatCreditUsage() {
 
   if (!hasActivity) return null;
 
-  const chipLabel = lastByok && sessionUsage.consumed === 0
-    ? 'Not billed (BYOK)'
+  const chipLabel = lastExempt
+    ? 'Not billed'
     : `${sessionUsage.consumed || sessionUsage.credits} credit${(sessionUsage.consumed || sessionUsage.credits) === 1 ? '' : 's'} this chat`;
 
   const open = Boolean(anchorEl);
@@ -99,8 +100,8 @@ export function ChatCreditUsage() {
         slotProps={{ paper: { sx: { width: 280, p: 1.5 } } }}
       >
         <Typography variant="subtitle2" sx={{ mb: 0.5 }}>
-          {lastByok && sessionUsage.consumed === 0
-            ? 'Not billed — BYOK key'
+          {lastExempt
+            ? 'Not billed'
             : `~${sessionUsage.consumed || sessionUsage.credits} credits used this conversation`}
         </Typography>
         {lastTurnUsage?.balance != null && Number.isFinite(lastTurnUsage.balance) ? (
@@ -162,8 +163,8 @@ export function ChatCreditUsage() {
                     {formatTokens(turn.promptTokens + turn.completionTokens)} tok
                   </Typography>
                   <Typography variant="caption" sx={{ fontVariantNumeric: 'tabular-nums' }}>
-                    {turn.byok || !turn.charged
-                      ? 'BYOK'
+                    {!turn.charged
+                      ? 'Not billed'
                       : `${turn.consumed || turn.credits} cr`}
                   </Typography>
                 </Stack>

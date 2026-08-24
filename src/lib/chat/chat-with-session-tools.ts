@@ -266,14 +266,14 @@ export async function consumeOpenAiStream(
 }
 
 /**
- * Meter a chat round against the org's credit balance. BYOK (`keySource ===
- * 'db'`) is never charged; platform-key usage is metered non-blocking — a
- * metering failure must never break the chat reply (the pre-flight gate in
- * the route is the enforcement point).
+ * Meter a chat round against the org's credit balance. Always meters —
+ * tenant-stored keys are not an exemption. Non-blocking: a metering failure
+ * must never break the chat reply (the pre-flight gate in the route is the
+ * enforcement point).
  *
- * Returns the MeterResult (or a BYOK stub) so callers can aggregate and emit
- * a usage event to the client. Failure returns null for the meter but still
- * reports token counts when available.
+ * Returns the MeterResult so callers can aggregate and emit a usage event to
+ * the client. Failure returns null for the meter but still reports token
+ * counts when available.
  */
 async function meterChatUsage(
   options: {
@@ -290,22 +290,6 @@ async function meterChatUsage(
 ): Promise<{ meter: MeterResult | null; promptTokens: number; completionTokens: number }> {
   const promptTokens = usage?.promptTokens ?? 0;
   const completionTokens = usage?.completionTokens ?? 0;
-
-  if (options.keySource !== 'env') {
-    return {
-      meter: {
-        charged: false,
-        credits: 0,
-        consumed: 0,
-        shortfall: 0,
-        debt: 0,
-        writtenOff: 0,
-        balance: 0,
-      },
-      promptTokens,
-      completionTokens,
-    };
-  }
 
   try {
     const meter = await meterAiUsage({
@@ -333,13 +317,13 @@ async function meterChatUsage(
 function applyMeterRound(
   turnUsage: AiUsageSummary,
   metered: { meter: MeterResult | null; promptTokens: number; completionTokens: number },
-  options: { model: string; keySource: 'db' | 'env' },
+  options: { model: string },
 ): AiUsageSummary {
   return foldMeterIntoUsage(
     turnUsage,
     metered.meter,
     { promptTokens: metered.promptTokens, completionTokens: metered.completionTokens },
-    { model: options.model, byok: options.keySource === 'db' },
+    { model: options.model },
   );
 }
 
@@ -368,7 +352,7 @@ async function completeChatWithoutStreaming(options: {
   let currentMessages = [...options.messages];
   let turnUsage = options.priorUsage
     ? { ...options.priorUsage }
-    : emptyAiUsageSummary({ model: options.model, byok: options.keySource === 'db' });
+    : emptyAiUsageSummary({ model: options.model });
 
   for (let round = 0; round < MAX_TOOL_ROUNDS; round += 1) {
     const chatResp = await requestOpenAiCompletion(
@@ -485,7 +469,7 @@ async function completeChatWithStreaming(options: {
     let emittedError = false;
     let turnUsage = options.priorUsage
       ? { ...options.priorUsage }
-      : emptyAiUsageSummary({ model: options.model, byok: options.keySource === 'db' });
+      : emptyAiUsageSummary({ model: options.model });
 
     try {
       for (let round = 0; round < MAX_TOOL_ROUNDS; round += 1) {
@@ -577,15 +561,11 @@ async function completeChatWithStreaming(options: {
         || turnUsage.completionTokens > 0
         || turnUsage.credits > 0
         || turnUsage.consumed > 0
-        || options.keySource === 'db'
         || options.priorUsage
       ) {
         await writeLine({
           type: 'usage',
-          usage: {
-            ...turnUsage,
-            byok: options.keySource === 'db',
-          },
+          usage: turnUsage,
         });
       }
 

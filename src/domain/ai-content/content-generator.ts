@@ -151,6 +151,7 @@ async function callAiProviderForDocument(
   documentType: 'businessReview' | 'executiveSummary' | 'dashboardData',
   tenantSlug: string,
   onProgress?: ProgressCallback,
+  viewerEmail?: string | null,
 ): Promise<{ text: string; usage: AiUsageSummary | null }> {
   const docLabel = documentType === 'businessReview' ? 'Business Review' : documentType === 'executiveSummary' ? 'Executive Summary' : 'Dashboard Data';
 
@@ -199,25 +200,24 @@ async function callAiProviderForDocument(
   };
 
   let usage: AiUsageSummary | null = null;
-  // Meter platform-key usage (BYOK is never charged — the tenant pays the
-  // provider directly). Non-blocking: metering must never break generation;
-  // the pre-flight gate in generateAndSave() is the enforcement point.
-  if (ai.keySource === 'env') {
-    try {
-      const meter = await meterAiUsage({
-        tenantSlug,
-        model: ai.model,
-        promptTokens: tokens.promptTokens,
-        completionTokens: tokens.completionTokens,
-        keySource: ai.keySource,
-        refType: 'content_generation',
-        refId: documentType,
-      });
-      usage = toAiUsageSummary(meter, tokens, { model: ai.model });
-    } catch (err) {
-      console.warn('[content-generator] Metering failed (non-blocking):', err instanceof Error ? err.message : err);
-      usage = toAiUsageSummary(null, tokens, { model: ai.model });
-    }
+  // Meter every generation against org credits. Non-blocking: metering must
+  // never break generation; the pre-flight gate in generateAndSave() is the
+  // enforcement point.
+  try {
+    const meter = await meterAiUsage({
+      tenantSlug,
+      model: ai.model,
+      promptTokens: tokens.promptTokens,
+      completionTokens: tokens.completionTokens,
+      keySource: ai.keySource,
+      refType: 'content_generation',
+      refId: documentType,
+      viewerEmail,
+    });
+    usage = toAiUsageSummary(meter, tokens, { model: ai.model });
+  } catch (err) {
+    console.warn('[content-generator] Metering failed (non-blocking):', err instanceof Error ? err.message : err);
+    usage = toAiUsageSummary(null, tokens, { model: ai.model });
   }
 
   let parsed: Record<string, string>;
@@ -273,6 +273,7 @@ async function generateDashboardData(
   additionalContext: string | undefined,
   ai: ActiveAiConfig,
   tenantSlug: string,
+  viewerEmail?: string | null,
 ): Promise<{ data: DashboardData; usage: AiUsageSummary | null } | null> {
   const dashboardPrompt = buildDashboardPrompt(data, additionalContext);
 
@@ -313,25 +314,24 @@ async function generateDashboardData(
   };
 
   let usage: AiUsageSummary | null = null;
-  // Meter platform-key usage (BYOK is never charged). Non-blocking — the
-  // dashboard call is already best-effort (returns null on failure), and
-  // metering must never break generation.
-  if (ai.keySource === 'env') {
-    try {
-      const meter = await meterAiUsage({
-        tenantSlug,
-        model: ai.model,
-        promptTokens: tokens.promptTokens,
-        completionTokens: tokens.completionTokens,
-        keySource: ai.keySource,
-        refType: 'content_generation',
-        refId: 'dashboardData',
-      });
-      usage = toAiUsageSummary(meter, tokens, { model: ai.model });
-    } catch (err) {
-      console.warn('[content-generator] Dashboard metering failed (non-blocking):', err instanceof Error ? err.message : err);
-      usage = toAiUsageSummary(null, tokens, { model: ai.model });
-    }
+  // Meter every generation against org credits. Non-blocking — the dashboard
+  // call is already best-effort (returns null on failure), and metering must
+  // never break generation.
+  try {
+    const meter = await meterAiUsage({
+      tenantSlug,
+      model: ai.model,
+      promptTokens: tokens.promptTokens,
+      completionTokens: tokens.completionTokens,
+      keySource: ai.keySource,
+      refType: 'content_generation',
+      refId: 'dashboardData',
+      viewerEmail,
+    });
+    usage = toAiUsageSummary(meter, tokens, { model: ai.model });
+  } catch (err) {
+    console.warn('[content-generator] Dashboard metering failed (non-blocking):', err instanceof Error ? err.message : err);
+    usage = toAiUsageSummary(null, tokens, { model: ai.model });
   }
 
   const parsed = JSON.parse(reply);
@@ -439,6 +439,8 @@ async function saveBusinessReviewParts(
  * @param tenantSlug Optional tenant slug for credit metering/gating. Defaults to
  *                   NEXT_PUBLIC_TENANT_SLUG (the root config app is itself a
  *                   tenant in the registry) or 'tokenizmyapp' when unset.
+ * @param viewerEmail Optional signed-in email for operator exemption + metering
+ *                    identity. Must match the pre-flight gate and ledger write.
  */
 export async function generateAndSave(
   db: DbClient,
@@ -448,6 +450,7 @@ export async function generateAndSave(
   additionalContext?: string,
   overridePrompt?: string,
   tenantSlug?: string,
+  viewerEmail?: string | null,
 ): Promise<GenerationResult & { saved?: SavedResult; prompt?: string }> {
   const tenant = tenantSlug ?? process.env.NEXT_PUBLIC_TENANT_SLUG ?? 'tokenizmyapp';
   try {
@@ -534,16 +537,15 @@ export async function generateAndSave(
       return { success: false, error: errorMsg, prompt };
     }
 
-    // ── 3.5 Pre-flight credit gate (platform key only) ──
-    // BYOK tenants (keySource === 'db') pay their provider directly and are
-    // never gated. Platform-key usage is the enforcement point: an empty
-    // balance throws with OPENAI_QUOTA_MARKER so the route maps it to the
-    // existing 402 / ai_provider_no_credits SSE code path.
-    if (ai.keySource === 'env') {
+    // ── 3.5 Pre-flight credit gate ──
+    // Every generation draws from the org balance. An empty balance throws with
+    // OPENAI_QUOTA_MARKER so the route maps it to the existing 402 /
+    // ai_provider_no_credits SSE code path.
+    {
       const gate = await requireCreditsForTenant(
         tenant,
         undefined,
-        undefined,
+        viewerEmail,
         CREDIT_FLOORS.contentGeneration,
       );
       if (!gate.ok) {
@@ -566,7 +568,7 @@ export async function generateAndSave(
       pct: 40,
     });
 
-    const dashboardPromise = generateDashboardData(data, additionalContext, ai, tenant)
+    const dashboardPromise = generateDashboardData(data, additionalContext, ai, tenant, viewerEmail)
       .catch((err) => {
         // Non-critical — dashboard just shows hardcoded fallbacks if this fails.
         console.error('[content-generator] Dashboard data generation failed:', err);
@@ -574,8 +576,8 @@ export async function generateAndSave(
       });
 
     const [businessReviewResult, executiveSummaryResult] = await Promise.all([
-      callAiProviderForDocument(prompt, ai, 'businessReview', tenant, onProgress),
-      callAiProviderForDocument(prompt, ai, 'executiveSummary', tenant, onProgress),
+      callAiProviderForDocument(prompt, ai, 'businessReview', tenant, onProgress, viewerEmail),
+      callAiProviderForDocument(prompt, ai, 'executiveSummary', tenant, onProgress, viewerEmail),
     ]);
 
     const businessReview = businessReviewResult.text;

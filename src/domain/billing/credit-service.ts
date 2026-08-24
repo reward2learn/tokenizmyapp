@@ -15,9 +15,10 @@
  * issue. Hercules uses 28–31 days; we pick 30 and document it. Consumption is
  * oldest-expiring-first so nothing expires while newer credits are being spent.
  *
- * BYOK policy (roadmap §5.1): when a tenant supplies their own provider key
- * (`keySource === 'db'`), metering does NOT charge credits — they pay the
- * provider directly. Only platform-key usage is metered.
+ * Every app-user assistant call is metered against the org balance. The
+ * platform supplies API keys and pays providers; tenants top up credits.
+ * `keySource` is diagnostic only — tenant-stored keys are not an exemption.
+ * Identity exemption (`isCreditExemptEmail`) still records usage at zero cost.
  */
 import type { createRawClient } from '@/lib/db';
 import { getPlan, CREDIT_PACKS, type CreditPack } from '@/lib/billing/plans';
@@ -992,7 +993,7 @@ export async function resolvePlatformOrgId(db?: RawDb): Promise<string> {
 
 /** What metering actually did — `consumed` is authoritative, `credits` is the price. */
 export interface MeterResult {
-  /** False for BYOK, where the tenant pays the provider directly. */
+  /** False only for operator exemption — tenant keys are still charged. */
   charged: boolean;
   /** What the usage cost at the rate card. */
   credits: number;
@@ -1022,7 +1023,7 @@ export interface MeterAiUsageForOrgInput {
   model: string | null;
   promptTokens: number;
   completionTokens: number;
-  /** 'db' = tenant's own BYOK key; 'env' = platform key. */
+  /** Where the API key was resolved from — not a billing skip. */
   keySource: 'db' | 'env';
   refType?: string | null;
   refId?: string | null;
@@ -1072,6 +1073,7 @@ async function recordExemptUsage(
       viewerEmail: input.viewerEmail ?? null,
       viewerUserId: input.viewerUserId ?? null,
       provider: input.provider ?? null,
+      keySource: input.keySource,
     }),
   );
 
@@ -1094,9 +1096,6 @@ export async function meterAiUsageForOrg(
   db?: RawDb,
 ): Promise<MeterResult> {
   db ??= await getDb();
-  if (input.keySource === 'db') {
-    return { charged: false, credits: 0, consumed: 0, shortfall: 0, debt: 0, writtenOff: 0, balance: 0 };
-  }
 
   if (isCreditExemptEmail(input.viewerEmail)) {
     return recordExemptUsage(input, db);
@@ -1118,6 +1117,7 @@ export async function meterAiUsageForOrg(
         completionTokens: input.completionTokens,
         viewerUserId: input.viewerUserId ?? null,
         provider: input.provider ?? null,
+        keySource: input.keySource,
       },
       viewerUserId: input.viewerUserId,
       // The tokens are already spent by the time metering runs. Recording only
@@ -1166,7 +1166,7 @@ export interface MeterAiUsageInput {
   model: string | null;
   promptTokens: number;
   completionTokens: number;
-  /** 'db' = tenant's own BYOK key; 'env' = platform key. */
+  /** Where the API key was resolved from — not a billing skip. */
   keySource: 'db' | 'env';
   refType?: string | null;
   refId?: string | null;
@@ -1181,20 +1181,16 @@ export interface MeterAiUsageInput {
 /**
  * The single metering integration point for AI generation.
  *
- * Call this after every platform-key AI call with the usage record from the
- * provider response. BYOK calls (`keySource === 'db'`) are NOT charged — the
- * tenant pays the provider directly (roadmap §5.1); only platform-key usage
- * debits credits.
+ * Call this after every AI assistant call with the usage record from the
+ * provider response. Debits the org credit balance regardless of whether the
+ * key came from env or a tenant-stored secret. Operator emails matching
+ * `isCreditExemptEmail` are recorded but not charged.
  */
 export async function meterAiUsage(
   input: MeterAiUsageInput,
   db?: RawDb,
 ): Promise<MeterResult> {
   db ??= await getDb();
-  if (input.keySource === 'db') {
-    return { charged: false, credits: 0, consumed: 0, shortfall: 0, debt: 0, writtenOff: 0, balance: 0 };
-  }
-
   const orgId = await resolvePayingOrgId(input.tenantSlug, db);
   return meterAiUsageForOrg({ ...input, orgId }, db);
 }

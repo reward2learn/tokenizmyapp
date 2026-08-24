@@ -403,35 +403,33 @@ export async function generateCustomTemplate(
     usage?: { prompt_tokens?: number; completion_tokens?: number };
   };
 
-  // Meter platform-key usage. Charged to the platform org because a custom
-  // template belongs to no single tenant — see resolvePlatformOrgId(). BYOK is
-  // never charged (the tenant pays the provider directly).
+  // Meter against the platform org because a custom template belongs to no
+  // single tenant — see resolvePlatformOrgId(). Always metered regardless of
+  // key source.
   //
   // Non-blocking and metered AFTER the call: the tokens are already spent by
   // this point, so a failure to record them must not also destroy the result
   // the administrator paid for. The pre-flight gate in the route is where
   // generation is actually refused.
-  if (ai.keySource === 'env') {
-    try {
-      const { meterAiUsageForOrg, resolvePlatformOrgId } = await import(
-        '@/domain/billing/credit-service'
-      );
-      await meterAiUsageForOrg({
-        orgId: await resolvePlatformOrgId(),
-        model: ai.model,
-        promptTokens: payload.usage?.prompt_tokens ?? 0,
-        completionTokens: payload.usage?.completion_tokens ?? 0,
-        keySource: ai.keySource,
-        refType: 'custom_template_generation',
-        refId: input.sourceKind,
-        viewerEmail: input.viewerEmail,
-      });
-    } catch (err) {
-      console.warn(
-        '[custom-template-generator] Metering failed (non-blocking):',
-        err instanceof Error ? err.message : err,
-      );
-    }
+  try {
+    const { meterAiUsageForOrg, resolvePlatformOrgId } = await import(
+      '@/domain/billing/credit-service'
+    );
+    await meterAiUsageForOrg({
+      orgId: await resolvePlatformOrgId(),
+      model: ai.model,
+      promptTokens: payload.usage?.prompt_tokens ?? 0,
+      completionTokens: payload.usage?.completion_tokens ?? 0,
+      keySource: ai.keySource,
+      refType: 'custom_template_generation',
+      refId: input.sourceKind,
+      viewerEmail: input.viewerEmail,
+    });
+  } catch (err) {
+    console.warn(
+      '[custom-template-generator] Metering failed (non-blocking):',
+      err instanceof Error ? err.message : err,
+    );
   }
 
   const content = payload.choices?.[0]?.message?.content;

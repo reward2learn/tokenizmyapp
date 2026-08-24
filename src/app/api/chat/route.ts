@@ -312,10 +312,7 @@ async function mapReduceContext(
 
   // Map phase: extract relevant info from each chunk
   const extractedParts: string[] = [];
-  let usage = emptyAiUsageSummary({
-    model,
-    byok: meterOptions.keySource === 'db',
-  });
+  let usage = emptyAiUsageSummary({ model });
 
   for (let i = 0; i < chunks.length; i++) {
     const chunk = chunks[i];
@@ -358,7 +355,7 @@ async function mapReduceContext(
           completionTokens: result.usage?.completion_tokens ?? 0,
         };
 
-        if (meterOptions.keySource === 'env' && (tokens.promptTokens > 0 || tokens.completionTokens > 0)) {
+        if (tokens.promptTokens > 0 || tokens.completionTokens > 0) {
           try {
             const meter = await meterAiUsage({
               tenantSlug: meterOptions.tenantSlug,
@@ -380,11 +377,6 @@ async function mapReduceContext(
             );
             usage = foldMeterIntoUsage(usage, null, tokens, { model });
           }
-        } else if (tokens.promptTokens > 0 || tokens.completionTokens > 0) {
-          usage = foldMeterIntoUsage(usage, null, tokens, {
-            model,
-            byok: meterOptions.keySource === 'db',
-          });
         }
       }
     } catch {
@@ -493,17 +485,17 @@ async function handleChatPost(request: Request): Promise<Response> {
       );
     }
 
-    // ── Pre-flight credit gate (platform key only) ──
-    // BYOK tenants (keySource === 'db') pay their provider directly and are
-    // never gated. Platform-key usage with an empty balance degrades to a
-    // friendly reply instead of a hard error — chat must keep working.
+    // ── Pre-flight credit gate ──
+    // Every assistant call draws from the org balance (platform pays providers;
+    // tenants top up). Empty balance degrades to a friendly reply instead of a
+    // hard error — chat must keep working. Exempt operators skip the gate.
     let creditBalance: number | null = null;
     let billingOrgId: string | null = null;
     let planId: import('@/lib/billing/plans').PlanId = 'free';
     let agenticCatalogLive = false;
     let selfServeBillingEnabled = false;
 
-    if (ai.keySource === 'env') {
+    {
       const tenantSlug = process.env.NEXT_PUBLIC_TENANT_SLUG ?? 'tokenizmyapp';
       const viewerUserId =
         !isPlatformApp() && session?.sub ? await resolveViewerUserId(session.sub) : undefined;
@@ -541,7 +533,7 @@ async function handleChatPost(request: Request): Promise<Response> {
     const canPurchaseCredits =
       canPurchaseCreditPacks(planId) && (isPlatformApp() || selfServeBillingEnabled);
     const billingToolsEnabled = Boolean(
-      billingOrgId && ai.keySource === 'env' && canPurchaseCredits,
+      billingOrgId && canPurchaseCredits,
     );
     const sessionToolsEnabled = Boolean(activeTool) || isExplicitSessionRequest(message) || lowBalance;
 

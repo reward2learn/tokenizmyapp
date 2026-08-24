@@ -1,5 +1,9 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest';
-import { aiGenerateErrorMessage, AI_CREDITS_EMPTY_MESSAGE } from '@/hooks/use-ai-credit-feedback';
+import {
+  aiGenerateErrorMessage,
+  AI_CREDITS_EMPTY_MESSAGE,
+  formatUsageMessage,
+} from '@/hooks/use-ai-credit-feedback';
 
 describe('aiGenerateErrorMessage', () => {
   it('maps 402 gate errors to the billing CTA message', () => {
@@ -16,6 +20,48 @@ describe('aiGenerateErrorMessage', () => {
 
   it('falls back for unknown shapes', () => {
     expect(aiGenerateErrorMessage(null)).toBe('Generation failed');
+  });
+});
+
+describe('formatUsageMessage', () => {
+  it('shows credits used and remaining when charged', () => {
+    expect(
+      formatUsageMessage({
+        promptTokens: 100,
+        completionTokens: 50,
+        credits: 2,
+        consumed: 2,
+        charged: true,
+        balance: 48,
+      }),
+    ).toBe('Used 2 credits · 48 remaining');
+  });
+
+  it('does not treat byok as free when charged', () => {
+    expect(
+      formatUsageMessage({
+        promptTokens: 10,
+        completionTokens: 5,
+        credits: 1,
+        consumed: 1,
+        charged: true,
+        balance: 99,
+        byok: true,
+      }),
+    ).toBe('Used 1 credit · 99 remaining');
+  });
+
+  it('says Not billed only when charged is false (operator exemption)', () => {
+    expect(
+      formatUsageMessage({
+        promptTokens: 10,
+        completionTokens: 5,
+        credits: 1,
+        consumed: 0,
+        charged: false,
+        balance: 100,
+      }),
+    ).toBe('Not billed');
   });
 });
 

@@ -162,13 +162,21 @@ function ChartFinancialBlockInner({ config }: { config: Record<string, unknown> 
             : `Monthly ${KPI_LABELS[kpi]} — Actual vs Forecast`}
         </Typography>
 
-        <ButtonGroup size="small" sx={{ mb: variant === 'dashboard' ? 2 : 1 }}>
+        <ButtonGroup
+          size="small"
+          sx={{
+            mb: variant === 'dashboard' ? 2 : 1,
+            display: 'flex',
+            width: '100%',
+            '& .MuiButtonGroup-grouped': { flex: 1 },
+          }}
+        >
           {kpiFilters.map((key) => (
             <Button
               key={key}
               variant={kpi === key ? 'contained' : 'outlined'}
               onClick={() => handleKpiChange(key)}
-              sx={{ textTransform: 'none', fontSize: '0.82rem' }}
+              sx={{ textTransform: 'none', fontSize: '0.82rem', flex: 1 }}
             >
               {KPI_LABELS[key]}
             </Button>
@@ -176,7 +184,16 @@ function ChartFinancialBlockInner({ config }: { config: Record<string, unknown> 
         </ButtonGroup>
 
         {variant === 'ops' ? (
-          <ButtonGroup size="small" sx={{ mb: 2, display: 'flex', flexWrap: 'wrap' }}>
+          <ButtonGroup
+            size="small"
+            sx={{
+              mb: 2,
+              display: 'flex',
+              width: '100%',
+              flexWrap: 'wrap',
+              '& .MuiButtonGroup-grouped': { flex: 1 },
+            }}
+          >
             {SCENARIOS.map((s) => (
               <Button
                 key={s}

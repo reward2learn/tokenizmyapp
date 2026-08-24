@@ -421,7 +421,7 @@ describe('meterAiUsageForOrg', () => {
     expect(report.balanced).toBe(true);
   });
 
-  it('charges nothing on a BYOK key', async () => {
+  it('charges tenant-stored key (db) usage the same as platform-key usage', async () => {
     const db = makeDb();
     await service.grantCredits(ORG, { source: 'addon', amount: 100 }, db);
 
@@ -436,9 +436,10 @@ describe('meterAiUsageForOrg', () => {
       db,
     );
 
-    expect(result).toMatchObject({ charged: false, credits: 0, consumed: 0, shortfall: 0 });
-    expect(db.ledger.filter((l) => l.delta < 0)).toHaveLength(0);
-    expect(await service.getOutstandingDebt(ORG, db)).toBe(0);
+    expect(result.charged).toBe(true);
+    expect(result.credits).toBeGreaterThan(0);
+    expect(result.consumed).toBeGreaterThan(0);
+    expect(db.ledger.filter((l) => l.delta < 0).length).toBeGreaterThan(0);
   });
 });
 
@@ -480,10 +481,10 @@ describe('per-operation credit floors', () => {
 
 describe('debt ceiling', () => {
   it('caps debt at the plan allowance', async () => {
-    // Free grants 15 credits/month, so a Free org can never owe more than 15 —
+    // Free grants 50 credits/month, so a Free org can never owe more than 50 —
     // exactly what its next grant will settle.
     //
-    // Metering grants the monthly allowance first, so those 15 credits are
+    // Metering grants the monthly allowance first, so those 50 credits are
     // consumed by this very run; the assertions below account for that rather
     // than pretending the balance started empty.
     mockPlan.id = 'free';
@@ -491,9 +492,9 @@ describe('debt ceiling', () => {
     const result = await meterExpensiveRun(db);
 
     expect(result.credits).toBe(400);
-    expect(result.consumed).toBe(15);
-    expect(result.debt).toBe(15);
-    expect(result.writtenOff).toBe(400 - 15 - 15);
+    expect(result.consumed).toBe(50);
+    expect(result.debt).toBe(50);
+    expect(result.writtenOff).toBe(400 - 50 - 50);
     expect(result.shortfall).toBe(result.debt + result.writtenOff);
 
     // Outstanding debt is deliberately NOT asserted here. The fake's period
@@ -504,16 +505,16 @@ describe('debt ceiling', () => {
   });
 
   it('scales the ceiling with the plan', async () => {
-    // Pro grants 50/month and may therefore carry more — the ceiling tracks
+    // Pro grants 100/month and may therefore carry more — the ceiling tracks
     // what the org's own next grant can clear, not a flat platform number.
     mockPlan.id = 'pro';
     const db = makeDb();
     const pro = await meterExpensiveRun(db);
-    expect(pro.debt).toBe(50);
+    expect(pro.debt).toBe(100);
 
     mockPlan.id = 'free';
     const free = await meterExpensiveRun(makeDb());
-    expect(free.debt).toBe(15);
+    expect(free.debt).toBe(50);
     expect(pro.debt).toBeGreaterThan(free.debt);
   });
 
@@ -567,14 +568,14 @@ describe('debt ceiling', () => {
     mockPlan.id = 'free';
     const db = makeDb();
     const run = await meterExpensiveRun(db);
-    expect(run.debt).toBe(15);
+    expect(run.debt).toBe(50);
 
     // Switch off the lazy allowance so the grant under test is the only one —
     // otherwise the gate's own balance read tops the org up first.
     mockPlan.id = 'enterprise';
     expect((await service.requireCreditsForOrg(ORG, db)).ok).toBe(false);
 
-    await service.grantCredits(ORG, { source: 'plan', amount: 15 }, db);
+    await service.grantCredits(ORG, { source: 'plan', amount: 50 }, db);
     expect(await service.getOutstandingDebt(ORG, db)).toBe(0);
     expect((await service.requireCreditsForOrg(ORG, db)).ok).toBe(true);
   });
@@ -676,6 +677,27 @@ describe('credit exemption', () => {
 
     expect(result.charged).toBe(true);
     expect(result.consumed).toBe(100);
+  });
+
+  it('still exempts operator email even when keySource is db', async () => {
+    const db = makeDb();
+    await service.grantCredits(ORG, { source: 'addon', amount: 100 }, db);
+
+    const result = await service.meterAiUsageForOrg(
+      {
+        orgId: ORG,
+        model: 'gpt-4o',
+        promptTokens: 50_000,
+        completionTokens: 50_000,
+        keySource: 'db',
+        viewerEmail: EXEMPT,
+      },
+      db,
+    );
+
+    expect(result).toMatchObject({ charged: false, consumed: 0 });
+    expect(result.credits).toBeGreaterThan(0);
+    expect(db.ledger.filter((l) => l.delta < 0)).toHaveLength(0);
   });
 });
 

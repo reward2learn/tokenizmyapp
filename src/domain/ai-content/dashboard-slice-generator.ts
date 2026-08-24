@@ -140,7 +140,7 @@ export interface GenerateDashboardSliceResult {
   slice: DashboardSliceKey;
   value: unknown;
   document: DashboardDataDocument;
-  /** Null for BYOK — platform credits were not touched. */
+  /** Null only when metering failed; charged usage always returned when possible. */
   usage: AiUsageSummary | null;
 }
 
@@ -205,21 +205,19 @@ export async function generateAndSaveDashboardSlice(
   };
 
   let usage: AiUsageSummary | null = null;
-  if (input.ai.keySource === 'env') {
-    try {
-      const meter = await meterAiUsage({
-        tenantSlug: input.tenantSlug,
-        model: input.ai.model,
-        promptTokens: tokens.promptTokens,
-        completionTokens: tokens.completionTokens,
-        keySource: input.ai.keySource,
-        refType: 'content_generation',
-        refId: `dashboard_slice:${input.slice}:${input.pageSlug}`,
-      });
-      usage = toAiUsageSummary(meter, tokens, { model: input.ai.model });
-    } catch {
-      usage = toAiUsageSummary(null, tokens, { model: input.ai.model });
-    }
+  try {
+    const meter = await meterAiUsage({
+      tenantSlug: input.tenantSlug,
+      model: input.ai.model,
+      promptTokens: tokens.promptTokens,
+      completionTokens: tokens.completionTokens,
+      keySource: input.ai.keySource,
+      refType: 'content_generation',
+      refId: `dashboard_slice:${input.slice}:${input.pageSlug}`,
+    });
+    usage = toAiUsageSummary(meter, tokens, { model: input.ai.model });
+  } catch {
+    usage = toAiUsageSummary(null, tokens, { model: input.ai.model });
   }
 
   let parsed: Record<string, unknown>;

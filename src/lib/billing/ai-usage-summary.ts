@@ -2,7 +2,7 @@ import type { MeterResult } from '@/domain/billing/credit-service';
 
 /**
  * Client-facing summary of one AI metering event (or an aggregate of several).
- * Built from `MeterResult` plus provider token counts after each platform-key call.
+ * Built from `MeterResult` plus provider token counts after each AI call.
  */
 export interface AiUsageSummary {
   promptTokens: number;
@@ -11,12 +11,15 @@ export interface AiUsageSummary {
   credits: number;
   /** Actually deducted from the balance (may be less than `credits` under debt). */
   consumed: number;
-  /** False for BYOK / exempt — nothing was taken from platform credits. */
+  /** False only for operator exemption — nothing was taken from platform credits. */
   charged: boolean;
   /** Remaining spendable balance after this call, when known. */
   balance: number | null;
   model?: string | null;
-  /** True when the tenant's own API key was used (never billed on platform credits). */
+  /**
+   * True when a tenant-stored API key was used. Informational only — does not
+   * mean the turn was free.
+   */
   byok?: boolean;
 }
 

@@ -24,7 +24,7 @@ export interface GenerateCmsFieldInput {
 
 export interface GenerateCmsFieldResult {
   value: unknown;
-  /** Null for BYOK — platform credits were not touched. */
+  /** Null only when metering failed; charged usage always returned when possible. */
   usage: AiUsageSummary | null;
 }
 
@@ -151,22 +151,20 @@ export async function generateCmsFieldValue(input: GenerateCmsFieldInput): Promi
   };
 
   let usage: AiUsageSummary | null = null;
-  if (input.ai.keySource === 'env') {
-    try {
-      const meter = await meterAiUsage({
-        tenantSlug: input.tenantSlug,
-        model: input.ai.model,
-        promptTokens: tokens.promptTokens,
-        completionTokens: tokens.completionTokens,
-        keySource: input.ai.keySource,
-        refType: 'content_generation',
-        refId: `cms_field:${input.pageSlug}:${input.blockType}:${input.fieldKey}`,
-      });
-      usage = toAiUsageSummary(meter, tokens, { model: input.ai.model });
-    } catch {
-      // non-blocking — still return token counts so the client can show activity
-      usage = toAiUsageSummary(null, tokens, { model: input.ai.model });
-    }
+  try {
+    const meter = await meterAiUsage({
+      tenantSlug: input.tenantSlug,
+      model: input.ai.model,
+      promptTokens: tokens.promptTokens,
+      completionTokens: tokens.completionTokens,
+      keySource: input.ai.keySource,
+      refType: 'content_generation',
+      refId: `cms_field:${input.pageSlug}:${input.blockType}:${input.fieldKey}`,
+    });
+    usage = toAiUsageSummary(meter, tokens, { model: input.ai.model });
+  } catch {
+    // non-blocking — still return token counts so the client can show activity
+    usage = toAiUsageSummary(null, tokens, { model: input.ai.model });
   }
 
   let parsed: { value?: unknown };

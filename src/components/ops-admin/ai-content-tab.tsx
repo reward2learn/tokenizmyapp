@@ -685,7 +685,7 @@ export function AiContentTab() {
                     sx={{ fontVariantNumeric: 'tabular-nums' }}
                   />
                 ) : result.usage && !result.usage.charged ? (
-                  <Chip label="Not billed — BYOK" size="small" variant="outlined" />
+                  <Chip label="Not billed" size="small" variant="outlined" />
                 ) : null}
               </Stack>
               {result.saved ? (

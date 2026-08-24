@@ -217,7 +217,7 @@ const PLATFORM_PAGE_OVERRIDES: Record<string, PageDefinition> = {
             {
               question: 'Can I use my own AI provider key?',
               answer:
-                'Yes, on paid plans. Usage against your own key is not charged in AI credits — you pay your provider directly.',
+                'Yes, on paid plans. You can bring your own provider key; AI credit usage is still metered against your plan balance so spend stays visible and capped.',
             },
           ],
           minTier: 'public',

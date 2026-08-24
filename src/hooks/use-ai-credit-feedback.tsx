@@ -26,9 +26,9 @@ export function aiGenerateErrorMessage(err: unknown, fallback = 'Generation fail
   return fallback;
 }
 
-function formatUsageMessage(usage: AiUsageSummary): string {
-  if (usage.byok || !usage.charged) {
-    return 'Not billed — BYOK key';
+export function formatUsageMessage(usage: AiUsageSummary): string {
+  if (!usage.charged) {
+    return 'Not billed';
   }
   const used = usage.consumed || usage.credits;
   const creditWord = used === 1 ? 'credit' : 'credits';
