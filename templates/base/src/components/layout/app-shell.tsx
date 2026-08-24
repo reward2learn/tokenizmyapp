@@ -316,16 +316,16 @@ export function AppShell({ children }: { children: ReactNode }) {
             <MenuIcon />
           </IconButton>
 
-          {/* Logo mark always; brand text only from sm+ (hidden on mobile to free icon space) */}
-          <Link href="/dashboard" style={{ ...linkSx, alignItems: 'center', gap: 1, flexShrink: 0 }}>
-            {brandLogoUrl ? (
+          {/* Logo image always; brand label hidden on xs when a logo mark is present */}
+          <Link href="/dashboard" style={{ ...linkSx, alignItems: 'center', gap: 1 }}>
+            {brandLogoUrl && (
               <Box
                 component="img"
                 src={brandLogoUrl}
                 alt={brandText}
-                sx={{ height: 28, width: 'auto', maxWidth: { xs: 36, sm: 120 }, objectFit: 'contain', display: 'block' }}
+                sx={{ height: 28, width: 'auto', maxWidth: 120, objectFit: 'contain', display: 'block' }}
               />
-            ) : null}
+            )}
             <Typography
               variant="subtitle1"
               sx={{
@@ -333,8 +333,6 @@ export function AppShell({ children }: { children: ReactNode }) {
                 fontWeight: 800,
                 color: 'text.primary',
                 whiteSpace: 'nowrap',
-                // Keep the wordmark when there is no logo image, otherwise the
-                // header would be hamburger-only on phones.
                 display: brandLogoUrl ? { xs: 'none', sm: 'block' } : 'block',
               }}
             >
@@ -342,15 +340,11 @@ export function AppShell({ children }: { children: ReactNode }) {
             </Typography>
           </Link>
 
-          {/* Breadcrumbs trail — desktop only; on phones the header is icon-dense */}
+          {/* Breadcrumbs trail */}
           {breadcrumbs.length > 0 && (
             <Breadcrumbs
               separator={<NavigateNextIcon fontSize="small" sx={{ color: 'text.disabled' }} />}
-              sx={{
-                ml: 2,
-                display: { xs: 'none', md: 'flex' },
-                '& .MuiBreadcrumbs-ol': { flexWrap: 'nowrap' },
-              }}
+              sx={{ ml: 2, '& .MuiBreadcrumbs-ol': { flexWrap: 'nowrap' } }}
             >
               {breadcrumbs.map((crumb, idx) => {
                 const isLast = idx === breadcrumbs.length - 1;

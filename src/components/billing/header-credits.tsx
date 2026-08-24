@@ -52,7 +52,7 @@ export function HeaderCredits() {
   const expiring = !inDebt && balance.expiringSoon > 0;
 
   return (
-    <Box sx={{ display: 'flex', alignItems: 'center', gap: { xs: 0, sm: 0.5 }, mr: { xs: 0, sm: 0.5 } }}>
+    <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, mr: 0.5 }}>
       <Tooltip
         title={
           inDebt
@@ -73,20 +73,13 @@ export function HeaderCredits() {
           onClick={open}
           color={inDebt ? 'error' : expiring ? 'warning' : 'default'}
           variant={inDebt || expiring ? 'filled' : 'outlined'}
-          sx={{
-            fontVariantNumeric: 'tabular-nums',
-            cursor: 'pointer',
-            // Slimmer chip on phones so the header icon row stays one line.
-            height: { xs: 24, sm: 32 },
-            '& .MuiChip-label': { px: { xs: 0.75, sm: 1 } },
-          }}
+          sx={{ fontVariantNumeric: 'tabular-nums', cursor: 'pointer' }}
         />
       </Tooltip>
       <Tooltip title={canTopUp ? 'Add AI credits' : 'Request more AI credits'}>
         <IconButton
           aria-label={canTopUp ? 'Add AI credits' : 'Request more AI credits'}
           onClick={open}
-          size="small"
           sx={{ color: 'text.secondary' }}
         >
           <AddCardIcon />
