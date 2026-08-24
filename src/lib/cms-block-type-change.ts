@@ -25,6 +25,12 @@ export const CMS_SWITCHABLE_BLOCK_TYPES = [
   'lever_accordion',
   'action_checklist',
   'pnl_table',
+  'ops_admin_tabs',
+  'z_report_form',
+  'costs_form',
+  'calendar_import',
+  'review_blocks',
+  'reports_rollup',
 ] as const;
 
 export type CmsSwitchableBlockType = (typeof CMS_SWITCHABLE_BLOCK_TYPES)[number];
@@ -108,6 +114,54 @@ const CHAT_FROM_DATA_BLOCK: Record<
       'Which records need attention?',
     ],
   },
+  ops_admin_tabs: {
+    emptyStatePrompt: 'Ask about ops admin tasks and data entry on this page.',
+    suggestedPrompts: [
+      'What can I do in ops admin?',
+      'Walk me through daily data entry',
+      'Which tab should I use first?',
+    ],
+  },
+  z_report_form: {
+    emptyStatePrompt: 'Ask about Z-report / day POS entry.',
+    suggestedPrompts: [
+      'How do I enter today’s Z-report?',
+      'What fields are required?',
+      'Explain common Z-report mistakes',
+    ],
+  },
+  costs_form: {
+    emptyStatePrompt: 'Ask about costs and payroll entry.',
+    suggestedPrompts: [
+      'How do I log payroll costs?',
+      'Which cost categories should I track?',
+      'Summarize recent cost entries',
+    ],
+  },
+  calendar_import: {
+    emptyStatePrompt: 'Ask about calendar import and missing-day fill.',
+    suggestedPrompts: [
+      'How do I import calendar data?',
+      'Fill missing days for this month',
+      'What format does the import expect?',
+    ],
+  },
+  review_blocks: {
+    emptyStatePrompt: 'Ask about the business review sections on this page.',
+    suggestedPrompts: [
+      'Summarize the business review',
+      'What are the key findings?',
+      'Which review part should I read first?',
+    ],
+  },
+  reports_rollup: {
+    emptyStatePrompt: 'Ask about ops reports and rollups.',
+    suggestedPrompts: [
+      'Summarize the latest ops reports',
+      'Which reports need attention?',
+      'Explain the rollup for this period',
+    ],
+  },
 };
 
 function pickPreservedConfig(config: Record<string, unknown>): Record<string, unknown> {
@@ -123,7 +177,7 @@ function pickSourceBlockConfig(
   config: Record<string, unknown>,
 ): Record<string, unknown> {
   const { animate: _a, grid: _g, contentGrid: _c, minTier: _m, ...rest } = config;
-  if (blockType === 'kpi_cards' || blockType === 'chart_financial') {
+  if (blockType === 'kpi_cards' || blockType === 'chart_financial' || blockType === 'pnl_table') {
     const subset: Record<string, unknown> = {};
     if (rest.period !== undefined) subset.period = rest.period;
     if (rest.variant !== undefined) subset.variant = rest.variant;
@@ -152,10 +206,9 @@ function chatPanelFromSourceBlock(
   fromConfig: Record<string, unknown>,
 ): Record<string, unknown> {
   const chatDefaults = CHAT_FROM_DATA_BLOCK[fromType];
-  const dataContext =
-    DATA_BACKED_BLOCKS.has(fromType) && fromType !== 'chat_panel'
-      ? { blockType: fromType, config: pickSourceBlockConfig(fromType, fromConfig) }
-      : undefined;
+  const dataContext = DATA_BACKED_BLOCKS.has(fromType)
+    ? { blockType: fromType, config: pickSourceBlockConfig(fromType, fromConfig) }
+    : undefined;
 
   if (!chatDefaults) {
     return dataContext ? { dataContext } : {};
@@ -166,6 +219,18 @@ function chatPanelFromSourceBlock(
     suggestedPrompts: chatDefaults.suggestedPrompts,
     ...(dataContext ? { dataContext } : {}),
   };
+}
+
+function restoreFromChatDataContext(
+  toType: string,
+  fromConfig: Record<string, unknown>,
+  merged: Record<string, unknown>,
+): Record<string, unknown> {
+  const raw = fromConfig.dataContext;
+  if (!raw || typeof raw !== 'object') return merged;
+  const ctx = raw as { blockType?: string; config?: Record<string, unknown> };
+  if (ctx.blockType !== toType || !ctx.config) return merged;
+  return { ...merged, ...ctx.config };
 }
 
 /** Shared fields worth carrying between related dashboard blocks. */
@@ -185,6 +250,22 @@ function carryCompatibleFields(
   }
   if (fromConfig.scenario !== undefined && toType === 'chart_financial') {
     next.scenario = fromConfig.scenario;
+  }
+  if (fromConfig.sheet !== undefined && toType === 'sheet_viewer') {
+    next.sheet = fromConfig.sheet;
+  }
+  if (fromConfig.table !== undefined && toType === 'pack_table') {
+    next.table = fromConfig.table;
+  }
+  if (fromConfig.title !== undefined && (toType === 'sheet_viewer' || toType === 'pack_table')) {
+    next.title = fromConfig.title;
+  }
+  for (const key of ['heading', 'subheading', 'title'] as const) {
+    if (fromConfig[key] !== undefined) {
+      if (toType === 'metric_grid' || toType === 'lever_accordion' || toType === 'action_checklist') {
+        next[key] = fromConfig[key];
+      }
+    }
   }
   return next;
 }
@@ -207,6 +288,8 @@ export function migrateConfigForBlockTypeChange(
 
   if (toType === 'chat_panel') {
     merged = { ...merged, ...chatPanelFromSourceBlock(fromType, config) };
+  } else if (fromType === 'chat_panel') {
+    merged = restoreFromChatDataContext(toType, config, merged);
   } else {
     merged = carryCompatibleFields(fromType, toType, config, merged);
   }

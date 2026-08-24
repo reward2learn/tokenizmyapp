@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { migrateConfigForBlockTypeChange } from '@/lib/cms-block-type-change';
+import {
+  CMS_SWITCHABLE_BLOCK_TYPES,
+  migrateConfigForBlockTypeChange,
+} from '@/lib/cms-block-type-change';
 
 describe('migrateConfigForBlockTypeChange', () => {
   it('preserves layout keys when switching block type', () => {
@@ -46,5 +49,24 @@ describe('migrateConfigForBlockTypeChange', () => {
     const config = { period: '2025-01' };
     const next = migrateConfigForBlockTypeChange('kpi_cards', 'kpi_cards', config);
     expect(next).toEqual(config);
+  });
+
+  it('includes admin shell types as switch targets', () => {
+    expect(CMS_SWITCHABLE_BLOCK_TYPES).toContain('ops_admin_tabs');
+    expect(CMS_SWITCHABLE_BLOCK_TYPES).toContain('review_blocks');
+  });
+
+  it('seeds chat prompts when switching from ops_admin_tabs', () => {
+    const next = migrateConfigForBlockTypeChange('ops_admin_tabs', 'chat_panel', {});
+    expect(next.emptyStatePrompt).toContain('ops admin');
+    expect(next.dataContext).toBeUndefined();
+  });
+
+  it('restores kpi_cards settings from chat dataContext', () => {
+    const next = migrateConfigForBlockTypeChange('chat_panel', 'kpi_cards', {
+      dataContext: { blockType: 'kpi_cards', config: { period: '2025-06', variant: 'ops' } },
+    });
+    expect(next.period).toBe('2025-06');
+    expect(next.variant).toBe('ops');
   });
 });
