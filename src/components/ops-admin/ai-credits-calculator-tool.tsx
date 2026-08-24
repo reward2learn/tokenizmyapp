@@ -23,6 +23,7 @@ import DialogTitle from '@mui/material/DialogTitle';
 import DialogContent from '@mui/material/DialogContent';
 import DialogActions from '@mui/material/DialogActions';
 import CircularProgress from '@mui/material/CircularProgress';
+import Snackbar from '@mui/material/Snackbar';
 import {
   buildAiCreditsCalculatorReport,
   staticCatalogFaceAmounts,
@@ -57,6 +58,8 @@ import {
 } from '@/store/ui-slice';
 import { buildSecUserAgent } from '@/lib/billing/sec-user-agent';
 
+type FeedbackSnack = { message: string; severity: 'success' | 'info' | 'warning' | 'error' };
+
 export function AiCreditsCalculatorTool() {
   const dispatch = useAppDispatch();
   const calcContext = useAppSelector((s) => s.ui.adminCalculatorContext);
@@ -74,15 +77,21 @@ export function AiCreditsCalculatorTool() {
     calcContext?.tenantSlug ?? adminTenantSlug ?? '',
   );
   const [appId, setAppId] = useState(calcContext?.appId ?? adminAppId ?? '');
-  const [websiteUrl, setWebsiteUrl] = useState('');
+  const [websiteUrl, setWebsiteUrl] = useState(calcContext?.websiteUrl ?? '');
   const [secCikOrTicker, setSecCikOrTicker] = useState('');
   const [companiesHouseNumber, setCompaniesHouseNumber] = useState('');
-  const [adminRevenue, setAdminRevenue] = useState<number | ''>('');
+  const [adminRevenue, setAdminRevenue] = useState<number | ''>(
+    calcContext?.rateCardInputs?.annualRevenueUsd ?? '',
+  );
   const [inputs, setInputs] = useState<TenantRateCardInputs>(
-    defaultRateCardInputs({ macStudioCostUsd: DEFAULT_MAC_STUDIO_ULTRA_256_USD }),
+    defaultRateCardInputs({
+      macStudioCostUsd: DEFAULT_MAC_STUDIO_ULTRA_256_USD,
+      ...(calcContext?.rateCardInputs ?? {}),
+    }),
   );
   const [analyzeResult, setAnalyzeResult] = useState<Record<string, unknown> | null>(null);
   const [status, setStatus] = useState<string | null>(null);
+  const [snackbar, setSnackbar] = useState<FeedbackSnack | null>(null);
   const [threadId, setThreadId] = useState<string | null>(null);
   const [chatText, setChatText] = useState('');
   const [streamingText, setStreamingText] = useState('');
@@ -113,9 +122,22 @@ export function AiCreditsCalculatorTool() {
   }, [catalogData]);
 
   useEffect(() => {
-    if (calcContext?.orgId) setOrgId(calcContext.orgId);
-    if (calcContext?.tenantSlug) setTenantSlug(calcContext.tenantSlug);
-    if (calcContext?.appId !== undefined) setAppId(calcContext.appId ?? '');
+    if (!calcContext) return;
+    if (calcContext.orgId) setOrgId(calcContext.orgId);
+    if (calcContext.tenantSlug) setTenantSlug(calcContext.tenantSlug);
+    if (calcContext.appId !== undefined) setAppId(calcContext.appId ?? '');
+    if (calcContext.websiteUrl) setWebsiteUrl(calcContext.websiteUrl);
+    if (calcContext.rateCardInputs) {
+      setInputs((prev) =>
+        defaultRateCardInputs({
+          ...prev,
+          ...calcContext.rateCardInputs,
+        }),
+      );
+      if (calcContext.rateCardInputs.annualRevenueUsd != null) {
+        setAdminRevenue(calcContext.rateCardInputs.annualRevenueUsd);
+      }
+    }
   }, [calcContext]);
 
   const selectedTenant = useMemo(
@@ -247,15 +269,36 @@ export function AiCreditsCalculatorTool() {
     }
   };
 
+  const resolvedRateCardInputs = (): TenantRateCardInputs =>
+    defaultRateCardInputs({
+      ...inputs,
+      annualRevenueUsd:
+        adminRevenue === '' ? inputs.annualRevenueUsd : Number(adminRevenue),
+    });
+
   const onUseInWizard = () => {
+    const prefill = resolvedRateCardInputs();
+    dispatch(setWizardRateCardPrefill(prefill));
+    setSnackbar({
+      message:
+        'Prefill saved — open Create Tenant wizard → AI Rate Card step to use these inputs.',
+      severity: 'success',
+    });
+  };
+
+  const onRememberContext = () => {
+    const rateCardInputs = resolvedRateCardInputs();
     dispatch(
-      setWizardRateCardPrefill({
-        ...inputs,
-        annualRevenueUsd:
-          adminRevenue === '' ? inputs.annualRevenueUsd : Number(adminRevenue),
+      setAdminCalculatorContext({
+        orgId: orgId || null,
+        tenantSlug: tenantSlug || null,
+        appId: appId || null,
+        websiteUrl: websiteUrl || null,
+        rateCardInputs,
       }),
     );
-    setStatus('Prefill saved — open Create Tenant wizard to use these rate-card inputs.');
+    const label = tenantSlug || selectedOrg?.displayName || selectedOrg?.slug || orgId || 'session';
+    setSnackbar({ message: `Context saved for ${label}`, severity: 'success' });
   };
 
   const onEnsureThread = async () => {
@@ -503,6 +546,16 @@ export function AiCreditsCalculatorTool() {
               <Typography variant="subtitle2" sx={{ fontWeight: 700 }}>
                 Tenant / org context
               </Typography>
+              {calcContext?.orgId || calcContext?.tenantSlug ? (
+                <Chip
+                  size="small"
+                  color="success"
+                  variant="outlined"
+                  label={`Remembered: ${calcContext.tenantSlug || calcContext.orgId}${
+                    calcContext.appId ? ` · ${calcContext.appId}` : ''
+                  }`}
+                />
+              ) : null}
               <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
                 <TextField
                   select
@@ -759,18 +812,7 @@ export function AiCreditsCalculatorTool() {
                 <Button variant="text" onClick={() => void copyJson()}>
                   Copy JSON
                 </Button>
-                <Button
-                  variant="text"
-                  onClick={() =>
-                    dispatch(
-                      setAdminCalculatorContext({
-                        orgId: orgId || null,
-                        tenantSlug: tenantSlug || null,
-                        appId: appId || null,
-                      }),
-                    )
-                  }
-                >
+                <Button variant="text" onClick={onRememberContext}>
                   Remember context
                 </Button>
               </Stack>
@@ -1067,6 +1109,23 @@ export function AiCreditsCalculatorTool() {
           </Button>
         </DialogActions>
       </Dialog>
+
+      <Snackbar
+        open={Boolean(snackbar)}
+        autoHideDuration={5000}
+        onClose={() => setSnackbar(null)}
+        anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
+      >
+        {snackbar ? (
+          <Alert
+            severity={snackbar.severity}
+            onClose={() => setSnackbar(null)}
+            sx={{ maxWidth: 520 }}
+          >
+            {snackbar.message}
+          </Alert>
+        ) : undefined}
+      </Snackbar>
     </Stack>
   );
 }

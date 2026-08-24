@@ -152,10 +152,12 @@ export function TenantWizard() {
   const [scrapeError, setScrapeError] = useState<string | null>(null);
   const [createTenant, { isLoading, isError, error, isSuccess, data }] = useCreateTenantMutation();
   const [scrapeTenant] = useScrapeTenantMutation();
+  const [rateCardPrefillApplied, setRateCardPrefillApplied] = useState(false);
 
   const handleOpen = () => {
     setOpen(true);
     setStep(0);
+    const hadPrefill = Boolean(rateCardPrefill);
     setState({
       ...INITIAL_STATE,
       rateCard: {
@@ -165,6 +167,7 @@ export function TenantWizard() {
     });
     setScraped(null);
     setScrapeError(null);
+    setRateCardPrefillApplied(hadPrefill);
     if (rateCardPrefill) {
       dispatch(setWizardRateCardPrefill(null));
     }
@@ -947,17 +950,24 @@ export function TenantWizard() {
 
           {/* Step 4: AI Rate Card */}
           {step === 4 ? (
-            <TenantRateCardStep
-              value={state.rateCard}
-              suggestedAppCount={
-                state.templateMode === 'suite' && state.templates.length > 0
-                  ? state.templates.length
-                  : 1
-              }
-              onChange={(patch) =>
-                setState((s) => ({ ...s, rateCard: { ...s.rateCard, ...patch } }))
-              }
-            />
+            <Stack spacing={2}>
+              {rateCardPrefillApplied ? (
+                <Alert severity="success">
+                  Rate-card inputs were prefilled from the AI Credits Calculator.
+                </Alert>
+              ) : null}
+              <TenantRateCardStep
+                value={state.rateCard}
+                suggestedAppCount={
+                  state.templateMode === 'suite' && state.templates.length > 0
+                    ? state.templates.length
+                    : 1
+                }
+                onChange={(patch) =>
+                  setState((s) => ({ ...s, rateCard: { ...s.rateCard, ...patch } }))
+                }
+              />
+            </Stack>
           ) : null}
 
           {/* Step 5: Review */}

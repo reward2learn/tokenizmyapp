@@ -53,6 +53,10 @@ export interface AdminCalculatorContext {
   tenantSlug?: string | null;
   /** Optional suite app slug for UI scope; seed still applies to all apps. */
   appId?: string | null;
+  /** Optional website URL remembered with org/tenant context. */
+  websiteUrl?: string | null;
+  /** Optional rate-card draft inputs remembered with context. */
+  rateCardInputs?: WizardRateCardPrefill | null;
 }
 
 export interface UiState {
