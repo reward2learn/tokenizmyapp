@@ -144,6 +144,11 @@ export const BLOCK_FIELD_SPECS: Record<string, Record<string, CmsFieldSpec>> = {
   chart_financial: {
     scenario: { label: 'scenario', type: 'enum', enumValues: ['conservative', 'realistic', 'aspirational', 'actual'], description: 'Financial scenario to chart.' },
     variant: { label: 'variant', type: 'enum', enumValues: ['dashboard', 'ops'], description: 'Chart layout variant.' },
+    height: {
+      label: 'height',
+      type: 'text',
+      description: 'Chart height as px number (e.g. 300) or CSS length. Percent is treated as viewport height (50% → 50vh).',
+    },
   },
   kpi_cards: {
     period: { label: 'period', ...COMMON_STRING, description: 'Period label e.g. 2025-01.' },

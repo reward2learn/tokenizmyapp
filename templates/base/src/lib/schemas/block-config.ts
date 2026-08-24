@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import type { BlockType } from '@/lib/page-catalog';
 import { heroConfigSchema } from '@/lib/hero-config';
+import { cssLengthSchema } from '@/lib/schemas/css-length';
 
 const minTierSchema = z.enum(['public', 'pin', 'google']).optional();
 
@@ -25,7 +26,8 @@ export const chartFinancialConfigSchema = z.object({
   scenario: z
     .enum(['conservative', 'realistic', 'aspirational', 'actual'])
     .optional(),
-  height: z.number().optional(),
+  /** Chart container height — number (px) or CSS length e.g. "50%", "40vh", "300px". */
+  height: cssLengthSchema,
   variant: z.enum(['dashboard', 'ops']).optional(),
   minTier: minTierSchema,
 });
@@ -72,6 +74,13 @@ export const chatPanelConfigSchema = z.object({
   /** Overrides the template-stamped chat starter when set on the page section. */
   emptyStatePrompt: z.string().max(300).optional(),
   suggestedPrompts: z.array(z.string().max(200)).max(5).optional(),
+  /** When converted from another block type, records the original data source. */
+  dataContext: z
+    .object({
+      blockType: z.string(),
+      config: z.record(z.unknown()).optional(),
+    })
+    .optional(),
   minTier: minTierSchema,
 });
 export const reviewBlocksConfigSchema = z.object({});

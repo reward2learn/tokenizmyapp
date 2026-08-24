@@ -110,7 +110,7 @@ function KpiCardsBlockInner({ config }: { config: Record<string, unknown> }) {
   });
 
   return (
-    <Box component="section" sx={{ maxWidth: 900, mx: 'auto', px: 3, pt: 3 }}>
+    <Box component="section" sx={{ width: '100%', maxWidth: '100%', px: { xs: 2, md: 3 }, pt: 3 }}>
       <Box
         sx={{
           display: 'flex',

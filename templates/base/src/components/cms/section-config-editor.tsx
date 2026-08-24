@@ -586,9 +586,27 @@ export function SectionConfigEditor({
   }
 
   if (blockType === 'chat_panel') {
+    const dataContext =
+      displayConfig.dataContext &&
+      typeof displayConfig.dataContext === 'object' &&
+      displayConfig.dataContext !== null
+        ? (displayConfig.dataContext as { blockType?: string; config?: Record<string, unknown> })
+        : null;
+
     return ctxWrap(
       <Box component="fieldset" disabled={readOnly} sx={{ border: 0, m: 0, p: 0, minWidth: 0 }}>
         <Stack spacing={1.5}>
+          {dataContext?.blockType ? (
+            <Typography variant="body2" color="text.secondary">
+              Data context: <strong>{dataContext.blockType}</strong>
+              {dataContext.config && Object.keys(dataContext.config).length > 0
+                ? ` (${Object.entries(dataContext.config)
+                    .map(([k, v]) => `${k}: ${String(v)}`)
+                    .join(', ')})`
+                : ''}
+              . Chat uses this to anchor prompts about the block&apos;s live data.
+            </Typography>
+          ) : null}
           <CmsAiTextField
             label="emptyStatePrompt"
             fieldKey="emptyStatePrompt"
@@ -699,18 +717,29 @@ export function SectionConfigEditor({
             ) : null}
           </Stack>
           <CmsAiTextField
-            label="height (px)"
+            label="height (px or %)"
             fieldKey="height"
             size="small"
-            type="number"
             fullWidth
-            value={typeof displayConfig.height === 'number' ? String(displayConfig.height) : ''}
-            onChange={(v) =>
-              onChange({
-                ...config,
-                height: v ? Number(v) : undefined,
-              })
+            value={
+              typeof displayConfig.height === 'number' || typeof displayConfig.height === 'string'
+                ? String(displayConfig.height)
+                : ''
             }
+            onChange={(v) => {
+              const trimmed = v.trim();
+              if (!trimmed) {
+                onChange({ ...config, height: undefined });
+                return;
+              }
+              if (/^\d+(\.\d+)?$/.test(trimmed)) {
+                onChange({ ...config, height: Number(trimmed) });
+                return;
+              }
+              onChange({ ...config, height: trimmed });
+            }}
+            placeholder="e.g. 300, 50%, 40vh"
+            helperText="Bare number = px. Percent maps to viewport height (50% → 50vh). Also 40vh, 300px."
             readOnly={readOnly}
           />
         </Stack>

@@ -43,7 +43,7 @@ export interface FinancialChartProps {
     aspirational?: (number | null)[];
   };
   variant?: 'dashboard' | 'ops';
-  height?: number;
+  height?: number | string;
   selectedIndex?: number | null;
   onMonthClick?: (index: number | null, label: string | null) => void;
   isLoading?: boolean;

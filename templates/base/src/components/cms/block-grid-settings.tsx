@@ -1,15 +1,21 @@
 'use client';
 
 import Box from '@mui/material/Box';
+import FormControl from '@mui/material/FormControl';
+import InputLabel from '@mui/material/InputLabel';
+import MenuItem from '@mui/material/MenuItem';
+import Select from '@mui/material/Select';
 import Stack from '@mui/material/Stack';
 import TextField from '@mui/material/TextField';
 import Typography from '@mui/material/Typography';
 import {
+  BLOCK_GRID_ALIGNS,
   defaultContentGridForBlock,
   mergeContentGridIntoConfig,
   mergeGridIntoConfig,
   resolveBlockGrid,
   resolveContentGrid,
+  type BlockGridAlign,
   type ResolvedBlockGrid,
 } from '@/lib/schemas/block-grid';
 
@@ -49,7 +55,7 @@ function SpanRow({
   onPatch,
   readOnly,
 }: {
-  values: ResolvedBlockGrid;
+  values: Pick<ResolvedBlockGrid, 'xs' | 'md' | 'lg'>;
   onPatch: (patch: Partial<ResolvedBlockGrid>) => void;
   readOnly?: boolean;
 }) {
@@ -88,8 +94,24 @@ export function BlockGridSettings({
         <Stack spacing={1.5}>
           <Typography variant="subtitle2">Block width (page grid)</Typography>
           <SpanRow values={grid} onPatch={patchGrid} readOnly={readOnly} />
+          <FormControl size="small" fullWidth disabled={readOnly}>
+            <InputLabel id="block-grid-align">Alignment</InputLabel>
+            <Select
+              labelId="block-grid-align"
+              label="Alignment"
+              value={grid.align}
+              onChange={(e) => patchGrid({ align: e.target.value as BlockGridAlign })}
+            >
+              {BLOCK_GRID_ALIGNS.map((align) => (
+                <MenuItem key={align} value={align}>
+                  {align}
+                </MenuItem>
+              ))}
+            </Select>
+          </FormControl>
           <Typography variant="caption" color="text.secondary">
-            xs defaults to 12 (full width). Spans are out of 12.
+            Spans are out of 12. Alignment centers (default), left-aligns, or right-aligns the block when
+            the span is less than 12 — e.g. md:6 + center sits in the middle of the page.
           </Typography>
         </Stack>
 

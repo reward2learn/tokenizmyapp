@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef } from 'react';
 import Box from '@mui/material/Box';
 import CircularProgress from '@mui/material/CircularProgress';
 import Typography from '@mui/material/Typography';
+import { useTheme } from '@mui/material/styles';
 import {
   Chart as ChartJS,
   CategoryScale,
@@ -42,7 +43,7 @@ export interface FinancialChartProps {
     aspirational?: (number | null)[];
   };
   variant?: 'dashboard' | 'ops';
-  height?: number;
+  height?: number | string;
   selectedIndex?: number | null;
   onMonthClick?: (index: number | null, label: string | null) => void;
   isLoading?: boolean;
@@ -86,6 +87,24 @@ export function FinancialChart({
   isError = false,
 }: FinancialChartProps) {
   const chartRef = useRef<ChartInstance<'bar'> | null>(null);
+
+  // Chart.js draws to a canvas and cannot inherit CSS, so every axis, grid and
+  // tooltip colour has to be handed to it explicitly. Pulling them from the
+  // theme is what lets the chart follow the surface mode instead of assuming
+  // a dark background.
+  const theme = useTheme();
+  const chartColors = useMemo(() => {
+    const { palette } = theme;
+    return {
+      axis: palette.text.secondary,
+      grid: palette.divider,
+      tooltipBg: palette.background.paper,
+      tooltipTitle: palette.text.primary,
+      tooltipBody: palette.text.secondary,
+      /** Column highlight behind the current month. */
+      currentMonth: palette.action.hover,
+    };
+  }, [theme]);
 
   useEffect(() => {
     if (!chartJsRegistered) {
@@ -224,13 +243,13 @@ export function FinancialChart({
         if (!yScale) return;
         const ctx = chart.ctx;
         ctx.save();
-        ctx.fillStyle = 'rgba(255,255,255,0.04)';
+        ctx.fillStyle = chartColors.currentMonth;
         const barWidth = 'width' in bar && typeof bar.width === 'number' ? bar.width : 12;
         ctx.fillRect(bar.x - barWidth, yScale.top, barWidth * 2, yScale.bottom - yScale.top);
         ctx.restore();
       },
     }),
-    [currentMonthIdx],
+    [currentMonthIdx, chartColors],
   );
 
   const handleClick = useCallback(
@@ -255,13 +274,13 @@ export function FinancialChart({
       plugins: {
         legend: {
           display: variant === 'ops',
-          labels: { color: '#888', boxWidth: 14, padding: 12, font: { size: 11 } },
+          labels: { color: chartColors.axis, boxWidth: 14, padding: 12, font: { size: 11 } },
         },
         tooltip: {
-          backgroundColor: '#1a1a22',
-          titleColor: '#f0f0f5',
-          bodyColor: '#888',
-          borderColor: 'rgba(255,255,255,0.08)',
+          backgroundColor: chartColors.tooltipBg,
+          titleColor: chartColors.tooltipTitle,
+          bodyColor: chartColors.tooltipBody,
+          borderColor: chartColors.grid,
           borderWidth: 1,
           padding: 10,
           cornerRadius: 6,
@@ -279,13 +298,13 @@ export function FinancialChart({
       scales: {
         x: {
           grid: { display: false },
-          ticks: { color: '#8888a0', font: { size: 9 }, maxRotation: 45 },
+          ticks: { color: chartColors.axis, font: { size: 9 }, maxRotation: 45 },
         },
         y: {
           position: 'left' as const,
-          grid: { color: 'rgba(255,255,255,0.04)' },
+          grid: { color: chartColors.grid },
           ticks: {
-            color: '#8888a0',
+            color: chartColors.axis,
             font: { size: 9 },
             callback: (val: number | string) => axisTickCallback(kpi, val),
           },
@@ -294,14 +313,14 @@ export function FinancialChart({
           position: 'right' as const,
           grid: { display: false },
           ticks: {
-            color: '#8888a0',
+            color: chartColors.axis,
             font: { size: 9 },
             callback: (val: number | string) => axisTickCallback(kpi, val),
           },
         },
       },
     }),
-    [handleClick, kpi, variant],
+    [handleClick, kpi, variant, chartColors],
   );
 
   if (isLoading) {

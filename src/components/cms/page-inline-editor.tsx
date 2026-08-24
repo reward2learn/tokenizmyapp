@@ -31,7 +31,7 @@ import BuildIcon from '@mui/icons-material/Build';
 import type { AuthTier, BlockType, PageDefinition } from '@/lib/page-catalog';
 import { resolveBlockComponent } from '@/lib/block-registry';
 import { parseBlockConfig } from '@/lib/schemas/block-config';
-import { gridSizeProps, resolveBlockGrid } from '@/lib/schemas/block-grid';
+import { gridOffsetProps, gridSizeProps, resolveBlockGrid } from '@/lib/schemas/block-grid';
 import { AuthGate } from '@/components/auth/auth-gate';
 import { CMS_ADDABLE_BLOCKS, defaultConfigForBlock } from '@/components/cms/cms-block-catalog';
 import { SectionConfigEditor } from '@/components/cms/section-config-editor';
@@ -424,6 +424,7 @@ export function PageInlineEditor({ page }: PageInlineEditorProps) {
             <Grid
               key={section.id}
               size={gridSizeProps(resolveBlockGrid(section.config.grid))}
+              offset={gridOffsetProps(resolveBlockGrid(section.config.grid))}
               sx={{
                 position: 'relative',
                 outline: '2px dashed',

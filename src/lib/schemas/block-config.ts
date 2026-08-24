@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import type { BlockType } from '@/lib/page-catalog';
 import { heroConfigSchema } from '@/lib/hero-config';
+import { cssLengthSchema } from '@/lib/schemas/css-length';
 
 const minTierSchema = z.enum(['public', 'pin', 'google']).optional();
 
@@ -25,7 +26,8 @@ export const chartFinancialConfigSchema = z.object({
   scenario: z
     .enum(['conservative', 'realistic', 'aspirational', 'actual'])
     .optional(),
-  height: z.number().optional(),
+  /** Chart container height — number (px) or CSS length e.g. "50%", "40vh", "300px". */
+  height: cssLengthSchema,
   variant: z.enum(['dashboard', 'ops']).optional(),
   minTier: minTierSchema,
 });

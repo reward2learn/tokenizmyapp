@@ -31,12 +31,14 @@ import BuildIcon from '@mui/icons-material/Build';
 import type { AuthTier, BlockType, PageDefinition } from '@/lib/page-catalog';
 import { resolveBlockComponent } from '@/lib/block-registry';
 import { parseBlockConfig } from '@/lib/schemas/block-config';
-import { gridSizeProps, resolveBlockGrid } from '@/lib/schemas/block-grid';
+import { gridOffsetProps, gridSizeProps, resolveBlockGrid } from '@/lib/schemas/block-grid';
 import { AuthGate } from '@/components/auth/auth-gate';
 import { CMS_ADDABLE_BLOCKS, defaultConfigForBlock } from '@/components/cms/cms-block-catalog';
 import { SectionConfigEditor } from '@/components/cms/section-config-editor';
 import { BlockAnimateSettings } from '@/components/cms/block-animate-settings';
 import { BlockGridSettings } from '@/components/cms/block-grid-settings';
+import { BlockTypeSelect } from '@/components/cms/block-type-select';
+import { migrateConfigForBlockTypeChange } from '@/lib/cms-block-type-change';
 import {
   useCreatePageSectionMutation,
   useDeletePageSectionsMutation,
@@ -230,6 +232,30 @@ export function PageInlineEditor({ page }: PageInlineEditorProps) {
     setDirty(true);
   }, []);
 
+  const changeEditingBlockType = useCallback(
+    (nextBlockType: string) => {
+      if (!editingSection || editingSection.blockType === nextBlockType) return;
+      const confirmed = window.confirm(
+        `Switch this block from "${editingSection.blockType}" to "${nextBlockType}"? ` +
+          'Layout and access tier are preserved; type-specific settings reset.',
+      );
+      if (!confirmed) return;
+      setDrafts((prev) =>
+        prev.map((s) =>
+          s.id === editingSection.id
+            ? {
+                ...s,
+                blockType: nextBlockType,
+                config: migrateConfigForBlockTypeChange(s.blockType, nextBlockType, s.config),
+              }
+            : s,
+        ),
+      );
+      setDirty(true);
+    },
+    [editingSection],
+  );
+
   const moveSection = useCallback((index: number, dir: -1 | 1) => {
     const next = index + dir;
     setDrafts((prev) => {
@@ -398,6 +424,7 @@ export function PageInlineEditor({ page }: PageInlineEditorProps) {
             <Grid
               key={section.id}
               size={gridSizeProps(resolveBlockGrid(section.config.grid))}
+              offset={gridOffsetProps(resolveBlockGrid(section.config.grid))}
               sx={{
                 position: 'relative',
                 outline: '2px dashed',
@@ -532,7 +559,10 @@ export function PageInlineEditor({ page }: PageInlineEditorProps) {
                 <CloseIcon />
               </IconButton>
             </Stack>
-            <Chip label={editingSection.blockType} size="small" sx={{ alignSelf: 'flex-start' }} />
+            <BlockTypeSelect
+              value={editingSection.blockType}
+              onChange={changeEditingBlockType}
+            />
             <Box sx={{ flex: 1, overflow: 'auto' }}>
               <Stack spacing={2}>
                 <BlockAnimateSettings

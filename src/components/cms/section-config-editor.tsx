@@ -717,18 +717,29 @@ export function SectionConfigEditor({
             ) : null}
           </Stack>
           <CmsAiTextField
-            label="height (px)"
+            label="height (px or %)"
             fieldKey="height"
             size="small"
-            type="number"
             fullWidth
-            value={typeof displayConfig.height === 'number' ? String(displayConfig.height) : ''}
-            onChange={(v) =>
-              onChange({
-                ...config,
-                height: v ? Number(v) : undefined,
-              })
+            value={
+              typeof displayConfig.height === 'number' || typeof displayConfig.height === 'string'
+                ? String(displayConfig.height)
+                : ''
             }
+            onChange={(v) => {
+              const trimmed = v.trim();
+              if (!trimmed) {
+                onChange({ ...config, height: undefined });
+                return;
+              }
+              if (/^\d+(\.\d+)?$/.test(trimmed)) {
+                onChange({ ...config, height: Number(trimmed) });
+                return;
+              }
+              onChange({ ...config, height: trimmed });
+            }}
+            placeholder="e.g. 300, 50%, 40vh"
+            helperText="Bare number = px. Percent maps to viewport height (50% → 50vh). Also 40vh, 300px."
             readOnly={readOnly}
           />
         </Stack>

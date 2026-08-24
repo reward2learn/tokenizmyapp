@@ -7,7 +7,7 @@ import { usePathname, useSearchParams } from 'next/navigation';
 import type { AuthTier, BlockType, PageDefinition } from '@/lib/page-catalog';
 import { BLOCKS_WITH_STAGGERED_CONTAINERS, getBlockComponent } from '@/lib/block-registry';
 import { parseBlockConfig } from '@/lib/schemas/block-config';
-import { gridSizeProps, resolveBlockGrid } from '@/lib/schemas/block-grid';
+import { gridOffsetProps, gridSizeProps, resolveBlockGrid } from '@/lib/schemas/block-grid';
 import { AuthGate } from '@/components/auth/auth-gate';
 import { SignInPanelGate } from '@/components/auth/sign-in-panel';
 import { PdfExportButton } from '@/components/ui/pdf-export-button';
@@ -58,18 +58,20 @@ function BlockSection({
     </BlockScrollAnimate>
   );
 
-  const size = gridSizeProps(resolveBlockGrid(config.grid));
+  const resolvedGrid = resolveBlockGrid(config.grid);
+  const size = gridSizeProps(resolvedGrid);
+  const offset = gridOffsetProps(resolvedGrid);
 
   if (!minTier || minTier === 'public') {
     return (
-      <Grid key={sectionKey} size={size}>
+      <Grid key={sectionKey} size={size} offset={offset}>
         {wrapped}
       </Grid>
     );
   }
 
   return (
-    <Grid key={sectionKey} size={size}>
+    <Grid key={sectionKey} size={size} offset={offset}>
       <AuthGate requiredTier={minTier} fallback={null}>
         {wrapped}
       </AuthGate>

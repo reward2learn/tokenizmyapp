@@ -10,6 +10,7 @@ import Paper from '@mui/material/Paper';
 import Typography from '@mui/material/Typography';
 import { FinancialChart } from '@/components/charts/financial-chart';
 import { parseBlockConfig } from '@/lib/schemas/block-config';
+import { cssLengthToChartSx } from '@/lib/schemas/css-length';
 import {
   CHART_KPIS,
   KPI_LABELS,
@@ -52,7 +53,7 @@ export function ChartFinancialBlock({ config }: { config: Record<string, unknown
 function ChartFinancialBlockInner({ config }: { config: Record<string, unknown> }) {
   const parsed = parseBlockConfig('chart_financial', config);
   const variant = parsed.variant ?? 'dashboard';
-  const height = parsed.height ?? (variant === 'ops' ? 320 : 300);
+  const height = cssLengthToChartSx(parsed.height, variant === 'ops' ? 320 : 300);
   const dispatch = useAppDispatch();
   const searchParams = useSearchParams();
 
@@ -150,7 +151,7 @@ function ChartFinancialBlockInner({ config }: { config: Record<string, unknown> 
   const kpiFilters = variant === 'dashboard' ? CHART_KPIS : VALID_KPIS;
 
   return (
-    <Box component="section" sx={{ maxWidth: 900, mx: 'auto', px: 3, py: 2 }}>
+    <Box component="section" sx={{ width: '100%', maxWidth: '100%', px: { xs: 2, md: 3 }, py: 2 }}>
       <Box sx={{ mb: 2 }}>
         <Typography variant="h6" sx={{ fontWeight: 700, mb: 0.5 }}>
           {variant === 'ops' ? 'Financial Projections' : 'Profitability Overview'}
@@ -200,7 +201,7 @@ function ChartFinancialBlockInner({ config }: { config: Record<string, unknown> 
                 flex: 1,
                 minWidth: 130,
                 p: 1.5,
-                bgcolor: 'rgba(255,255,255,0.03)',
+                bgcolor: 'action.hover',
                 border: '1px solid',
                 borderColor: 'divider',
                 borderRadius: 2,
@@ -233,8 +234,9 @@ function ChartFinancialBlockInner({ config }: { config: Record<string, unknown> 
         elevation={0}
         sx={{
           p: 2,
-          bgcolor: '#1a1a22',
-          border: '1px solid rgba(255,255,255,0.05)',
+          bgcolor: 'background.paper',
+          border: '1px solid',
+          borderColor: 'divider',
           borderRadius: 2,
           mb: 1,
         }}
@@ -267,7 +269,7 @@ function ChartFinancialBlockInner({ config }: { config: Record<string, unknown> 
         <LegendDot color="#22c55e" label="Actual" />
         <LegendDot color="#f59e0b" label="Forecast" />
         <LegendDot color="#3b82f6" label="Cumulative" />
-        <LegendDot color="rgba(255,255,255,0.08)" label="Current month" />
+        <LegendDot color="rgba(128,128,128,0.25)" label="Current month" />
         {selectedMonthLabel ? (
           <Typography
             component="span"
