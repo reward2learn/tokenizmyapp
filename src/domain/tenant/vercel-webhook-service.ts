@@ -44,6 +44,8 @@ interface WebhookResult {
   tenantSlug?: string;
   action?: string;
   error?: string;
+  /** True when Neon/Postgres was temporarily unreachable — caller should 503 so Vercel retries. */
+  dbUnavailable?: boolean;
 }
 
 /**
@@ -90,30 +92,66 @@ function verifySignature(rawBody: string, signature: string | null, secret: stri
   }
 }
 
+function isPrismaUnreachable(err: unknown): boolean {
+  if (err && typeof err === 'object' && 'code' in err) {
+    const code = (err as { code?: string }).code;
+    return code === 'P1001' || code === 'P1002' || code === 'P2024';
+  }
+  const msg = err instanceof Error ? err.message : String(err);
+  return (
+    msg.includes("Can't reach database server")
+    || msg.includes('connection pool')
+    || msg.includes('Timed out fetching a new connection')
+  );
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => {
+    setTimeout(resolve, ms);
+  });
+}
+
 async function findTenantByVercelId(
   projectId: string | undefined,
   projectName: string | undefined,
-): Promise<string | null> {
-  if (!projectId && !projectName) return null;
+): Promise<{ slug: string | null; dbUnavailable: boolean }> {
+  if (!projectId && !projectName) return { slug: null, dbUnavailable: false };
 
-  const db = createBaseClient();
-  try {
-    const tenant = await db.tenant.findFirst({
-      where: projectId
-        ? { vercelProjectId: projectId }
-        : {
-            OR: [
-              { slug: projectName },
-              { metadata: { path: ['vercelProjectName'], equals: projectName } },
-            ],
-          },
-      select: { slug: true },
-    });
-    return tenant?.slug ?? null;
-  } catch (err) {
-    console.error('[vercel-webhook] Tenant lookup failed:', err);
-    return null;
+  const maxAttempts = 5;
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    const db = createBaseClient();
+    try {
+      const tenant = await db.tenant.findFirst({
+        where: projectId
+          ? { vercelProjectId: projectId }
+          : {
+              OR: [
+                { slug: projectName },
+                { metadata: { path: ['vercelProjectName'], equals: projectName } },
+              ],
+            },
+        select: { slug: true },
+      });
+      return { slug: tenant?.slug ?? null, dbUnavailable: false };
+    } catch (err) {
+      if (isPrismaUnreachable(err) && attempt < maxAttempts) {
+        const delayMs = 3000 * attempt;
+        console.warn(
+          `[vercel-webhook] DB unreachable (attempt ${attempt}/${maxAttempts}), retrying in ${delayMs}ms…`,
+        );
+        await sleep(delayMs);
+        continue;
+      }
+      if (isPrismaUnreachable(err)) {
+        console.error('[vercel-webhook] Tenant lookup failed — database still unreachable:', err);
+        return { slug: null, dbUnavailable: true };
+      }
+      console.error('[vercel-webhook] Tenant lookup failed:', err);
+      return { slug: null, dbUnavailable: false };
+    }
   }
+
+  return { slug: null, dbUnavailable: true };
 }
 
 async function recordWebhookEvent(
@@ -205,7 +243,20 @@ export async function handleVercelWebhook(
   }
 
   const { projectId, projectName } = extractProjectRef(type, payload);
-  tenantSlug = await findTenantByVercelId(projectId, projectName);
+  const tenantLookup = await findTenantByVercelId(projectId, projectName);
+  tenantSlug = tenantLookup.slug;
+
+  if (tenantLookup.dbUnavailable) {
+    const errorMsg = 'Database temporarily unreachable (Neon cold start)';
+    console.error(`[vercel-webhook] ${errorMsg} — returning failure so Vercel retries`);
+    await recordWebhookEvent(type, payload, 'failed', errorMsg);
+    return {
+      success: false,
+      eventType: type,
+      error: errorMsg,
+      dbUnavailable: true,
+    };
+  }
 
   if (!tenantSlug) {
     console.warn(`[vercel-webhook] No tenant found for project ${projectId || projectName}`);

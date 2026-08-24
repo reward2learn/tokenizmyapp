@@ -158,7 +158,7 @@ export async function ensureVercelProject(input: { slug: string; projectId?: str
           name: slug,
           framework: 'nextjs',
           gitRepository: { type: 'github' as const, repo: GIT_REPO },
-          buildCommand: 'zenstack generate --schema zenstack/schema.zmodel && npx prisma db push --schema=zenstack/prisma/schema.prisma --skip-generate --accept-data-loss && next build',
+          buildCommand: TENANT_BUILD_COMMAND,
           installCommand: 'bun install',
           outputDirectory: '.next',
         },
@@ -995,6 +995,13 @@ export async function getVercelProjectKnowledge(
 
 const GIT_REPO = process.env.VERCEL_GIT_REPO || 'reward2learn/tokenizmyapp';
 
+/** Tenant Vercel build — survives Neon cold starts via wait-for-postgres.mjs. */
+const TENANT_BUILD_COMMAND =
+  'npx zenstack generate --schema zenstack/schema.zmodel'
+  + ' && (node scripts/wait-for-postgres.mjs zenstack/prisma/schema.prisma'
+  + ' && npx prisma db push --schema=zenstack/prisma/schema.prisma --skip-generate --accept-data-loss || true)'
+  + ' && npx next build';
+
 /**
  * Ensure a Vercel project exists and is linked to the GitHub repo.
  * Creates the project if not found, and links it to the Git repository
@@ -1049,7 +1056,7 @@ export async function ensureVercelProjectWithGit(input: { slug: string; projectI
           name: slug,
           framework: 'nextjs',
           gitRepository: { type: 'github' as const, repo: REPO },
-          buildCommand: 'zenstack generate --schema zenstack/schema.zmodel && npx prisma db push --schema=zenstack/prisma/schema.prisma --skip-generate --accept-data-loss && next build',
+          buildCommand: TENANT_BUILD_COMMAND,
           installCommand: 'bun install',
           outputDirectory: '.next',
         },

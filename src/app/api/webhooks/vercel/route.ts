@@ -41,6 +41,10 @@ export async function POST(request: NextRequest) {
 
     if (!result.success) {
       console.warn(`[vercel-webhook-route] ${requestId} - Handled with issues: ${result.eventType}`, result.error);
+      if (result.dbUnavailable) {
+        // Neon scale-to-zero: wake the DB and let Vercel retry the webhook.
+        return new Response('Database temporarily unavailable', { status: 503 });
+      }
       // Still ACK with 200 to prevent Vercel retries for non-fatal errors
     } else {
       console.log(`[vercel-webhook-route] ${requestId} - Successfully processed ${result.eventType} for ${result.tenantSlug || 'unknown'}`);
