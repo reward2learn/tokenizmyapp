@@ -28,6 +28,17 @@ export function aiGenerateErrorMessage(err: unknown, fallback = 'Generation fail
 
 export function formatUsageMessage(usage: AiUsageSummary): string {
   if (!usage.charged) {
+    // Successful exemption still returns a finite balance. Null balance with
+    // tokens means metering never completed (threw / org unresolved) — not a
+    // clean "waived" turn.
+    if (
+      usage.balance == null
+      && (usage.promptTokens > 0 || usage.completionTokens > 0)
+    ) {
+      return usage.credits > 0
+        ? `Not billed · metering incomplete (~${usage.credits} credits)`
+        : 'Not billed · metering incomplete';
+    }
     return 'Not billed';
   }
   const used = usage.consumed || usage.credits;

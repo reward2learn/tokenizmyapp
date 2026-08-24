@@ -67,6 +67,20 @@ describe('ChatCreditUsage', () => {
     }));
   });
 
+  it('shows Metering incomplete when last turn had tokens but no balance', () => {
+    const state = chatStreamSlice.reducer(undefined, recordTurnUsage({
+      promptTokens: 9153,
+      completionTokens: 523,
+      credits: 5,
+      consumed: 0,
+      charged: false,
+      balance: null,
+      model: 'gpt-4.1',
+    }));
+    renderUsage(state);
+    expect(screen.getByLabelText('Chat credit usage')).toHaveTextContent('Metering incomplete');
+  });
+
   it('shows Not billed when last turn was operator-exempt', () => {
     const state = chatStreamSlice.reducer(undefined, recordTurnUsage({
       promptTokens: 10,
@@ -74,7 +88,7 @@ describe('ChatCreditUsage', () => {
       credits: 1,
       consumed: 0,
       charged: false,
-      balance: null,
+      balance: 100,
     }));
     renderUsage(state);
     expect(screen.getByLabelText('Chat credit usage')).toHaveTextContent('Not billed');

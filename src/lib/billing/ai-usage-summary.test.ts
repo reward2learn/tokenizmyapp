@@ -56,4 +56,19 @@ describe('ai-usage-summary', () => {
     expect(aggregateAiUsageSummaries([])).toBeNull();
     expect(aggregateAiUsageSummaries([null, undefined])).toBeNull();
   });
+
+  it('still reports rate-card credits when meter is null', () => {
+    const summary = toAiUsageSummary(null, { promptTokens: 9153, completionTokens: 523 }, {
+      model: 'gpt-4.1',
+    });
+    expect(summary.credits).toBeGreaterThan(0);
+    expect(summary).toMatchObject({
+      promptTokens: 9153,
+      completionTokens: 523,
+      consumed: 0,
+      charged: false,
+      balance: null,
+      model: 'gpt-4.1',
+    });
+  });
 });

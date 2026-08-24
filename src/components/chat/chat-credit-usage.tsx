@@ -66,13 +66,20 @@ export function ChatCreditUsage({
 
   const turnCount = sessionUsage.turns.length;
   const sessionCharged = sessionUsage.consumed;
-  const lastExempt =
+  const lastUncharged =
     lastTurnUsage != null && !lastTurnUsage.charged && sessionCharged === 0;
+  /** Null balance + tokens = metering threw / never linked an org balance. */
+  const meteringIncomplete =
+    lastUncharged
+    && lastTurnUsage.balance == null
+    && (lastTurnUsage.promptTokens > 0 || lastTurnUsage.completionTokens > 0);
+  const lastExempt = lastUncharged && !meteringIncomplete;
+  const unchargedLabel = meteringIncomplete ? 'Metering incomplete' : 'Not billed';
   const creditsChargedDisplay =
     sessionCharged > 0
       ? String(sessionCharged)
       : sessionUsage.turns.every((turn) => !turn.charged)
-        ? 'Not billed'
+        ? unchargedLabel
         : '0';
   const hasActivity =
     turnCount > 0
@@ -110,12 +117,12 @@ export function ChatCreditUsage({
 
   if (!hasActivity) return null;
 
-  const chipLabel = lastExempt
-    ? 'Not billed'
+  const chipLabel = lastExempt || meteringIncomplete
+    ? unchargedLabel
     : `${sessionCharged} credit${sessionCharged === 1 ? '' : 's'} this chat`;
 
-  const title = lastExempt
-    ? 'Not billed'
+  const title = lastExempt || meteringIncomplete
+    ? unchargedLabel
     : `~${sessionCharged} credits used this conversation`;
 
   const handleChipClick = (event: MouseEvent<HTMLElement>) => {
@@ -258,7 +265,10 @@ export function ChatCreditUsage({
                     </Typography>
                     <Typography variant="caption" sx={{ fontVariantNumeric: 'tabular-nums' }}>
                       {!turn.charged
-                        ? 'Not billed'
+                        ? (turn.balance == null
+                            && (turn.promptTokens > 0 || turn.completionTokens > 0)
+                          ? 'Incomplete'
+                          : 'Not billed')
                         : `${turn.consumed} cr`}
                     </Typography>
                   </Stack>

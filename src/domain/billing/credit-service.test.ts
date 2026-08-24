@@ -604,12 +604,19 @@ describe('credit exemption', () => {
   const EXEMPT = 'reward2learn@gmail.com';
 
   beforeEach(() => {
-    // Exemption applies only on tenant deployments, not the factory.
+    // Exemption is opt-in and only applies on tenant deployments.
     vi.stubEnv('NEXT_PUBLIC_TENANT_SLUG', 'redrubybali');
+    vi.stubEnv('CREDIT_EXEMPT_ENABLED', 'true');
   });
 
   afterEach(() => {
     vi.unstubAllEnvs();
+  });
+
+  it('does not exempt anyone when CREDIT_EXEMPT_ENABLED is unset', () => {
+    vi.stubEnv('CREDIT_EXEMPT_ENABLED', '');
+    expect(service.isCreditExemptEmail(EXEMPT)).toBe(false);
+    expect(service.isCreditExemptionEnabled()).toBe(false);
   });
 
   it('recognises the platform owner on tenant apps regardless of case or padding', () => {
@@ -620,10 +627,32 @@ describe('credit exemption', () => {
     expect(service.isCreditExemptEmail('')).toBe(false);
   });
 
-  it('does not exempt anyone on the factory (tokenizmyapp)', () => {
+  it('does not exempt anyone on the factory (tokenizmyapp) even when exemption is enabled', () => {
     vi.stubEnv('NEXT_PUBLIC_TENANT_SLUG', 'tokenizmyapp');
     expect(service.isCreditExemptEmail(EXEMPT)).toBe(false);
     expect(service.isCreditExemptEmail('  Reward2Learn@Gmail.com  ')).toBe(false);
+  });
+
+  it('charges the platform owner on a tenant app when exemption is disabled', async () => {
+    vi.stubEnv('CREDIT_EXEMPT_ENABLED', 'false');
+    const db = makeDb();
+    await service.grantCredits(ORG, { source: 'addon', amount: 100 }, db);
+
+    const result = await service.meterAiUsageForOrg(
+      {
+        orgId: ORG,
+        model: 'gpt-4o',
+        promptTokens: 200_000,
+        completionTokens: 200_000,
+        keySource: 'env',
+        viewerEmail: EXEMPT,
+      },
+      db,
+    );
+
+    expect(result.charged).toBe(true);
+    expect(result.consumed).toBe(100);
+    expect(db.ledger.find((l) => l.reason === 'ai_generation_exempt')).toBeUndefined();
   });
 
   it('lets an exempt viewer through a gate with a zero balance', async () => {

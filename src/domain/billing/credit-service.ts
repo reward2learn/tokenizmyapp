@@ -18,8 +18,8 @@
  * Every app-user assistant call is metered against the org balance. The
  * platform supplies API keys and pays providers; tenants top up credits.
  * `keySource` is diagnostic only — tenant-stored keys are not an exemption.
- * On tenant apps, identity exemption (`isCreditExemptEmail`) still records
- * usage at zero cost; on the factory, everyone is charged.
+ * Identity exemption (`isCreditExemptEmail`) is opt-in via
+ * `CREDIT_EXEMPT_ENABLED=true` and only on tenant apps; default is charge everyone.
  */
 import type { createRawClient } from '@/lib/db';
 import { getPlan, CREDIT_PACKS, type CreditPack } from '@/lib/billing/plans';
@@ -35,18 +35,18 @@ export const CREDIT_EXPIRY_DAYS = 30;
 const EXEMPT_USAGE_REASON = 'ai_generation_exempt';
 
 /**
- * Operators who are never gated or charged for AI usage on **tenant** apps.
+ * Operators who may skip gating/charging when exemption is explicitly enabled.
  *
- * On the factory (`tokenizmyapp` / `isPlatformApp()`), nobody is exempt — the
- * platform admin is billed like any other user so the full Stripe credit flow
- * can be exercised end-to-end.
+ * Exemption is **opt-in** via `CREDIT_EXEMPT_ENABLED=true` (default off) so
+ * Stripe / credit-balance testing works for platform admins on every deployment
+ * — factory and tenant apps alike.
  *
- * On tenant deployments, the listed emails skip gating/charging so an operator
- * debugging inside a customer's app does not spend that customer's credits.
+ * When enabled, it still only applies on **tenant** apps (`!isPlatformApp()`):
+ * the listed emails skip gating/charging so an operator debugging inside a
+ * customer's app does not spend that customer's credits.
  * `CREDIT_EXEMPT_EMAILS` (comma-separated) adds to the default.
  *
- * This is an *identity* exemption on tenant apps — it follows the signed-in
- * person, not the org.
+ * This is an *identity* exemption — it follows the signed-in person, not the org.
  */
 export function creditExemptEmails(): string[] {
   const extra = (process.env.CREDIT_EXEMPT_EMAILS ?? '')
@@ -56,16 +56,25 @@ export function creditExemptEmails(): string[] {
   return [DEFAULT_PLATFORM_ADMIN_EMAIL.toLowerCase(), ...extra];
 }
 
+/** Opt-in switch — unset / anything other than `"true"` means nobody is exempt. */
+export function isCreditExemptionEnabled(): boolean {
+  return process.env.CREDIT_EXEMPT_ENABLED === 'true';
+}
+
 /**
  * Is this viewer exempt from credit gating and charging?
  *
- * Always `false` on the factory (`NEXT_PUBLIC_TENANT_SLUG=tokenizmyapp`).
- * On tenant apps, keyed on email rather than the platform-admin *role*: every
- * tenant seeds its own admin accounts, so exempting the role would hand a free
- * unmetered AI budget to every customer's administrator.
+ * Default: never. Set `CREDIT_EXEMPT_ENABLED=true` to allow the operator email
+ * list on tenant apps only. Always `false` on the factory
+ * (`NEXT_PUBLIC_TENANT_SLUG=tokenizmyapp`) and when the flag is off.
+ *
+ * Keyed on email rather than the platform-admin *role*: every tenant seeds its
+ * own admin accounts, so exempting the role would hand a free unmetered AI
+ * budget to every customer's administrator.
  */
 export function isCreditExemptEmail(email?: string | null): boolean {
   if (!email) return false;
+  if (!isCreditExemptionEnabled()) return false;
   // Factory must charge platform admins so Stripe test billing can be verified.
   if (isPlatformApp()) return false;
   return creditExemptEmails().includes(email.trim().toLowerCase());
@@ -1328,9 +1337,9 @@ export interface MeterAiUsageInput {
  *
  * Call this after every AI assistant call with the usage record from the
  * provider response. Debits the org credit balance regardless of whether the
- * key came from env or a tenant-stored secret. On tenant apps, operator emails
- * matching `isCreditExemptEmail` are recorded but not charged; on the factory
- * everyone is charged.
+ * key came from env or a tenant-stored secret. When
+ * `CREDIT_EXEMPT_ENABLED=true` on a tenant app, operator emails matching
+ * `isCreditExemptEmail` are recorded but not charged; otherwise everyone is charged.
  */
 export async function meterAiUsage(
   input: MeterAiUsageInput,

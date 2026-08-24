@@ -63,6 +63,20 @@ describe('formatUsageMessage', () => {
       }),
     ).toBe('Not billed');
   });
+
+  it('flags metering incomplete when uncharged with no balance', () => {
+    expect(
+      formatUsageMessage({
+        promptTokens: 9153,
+        completionTokens: 523,
+        credits: 5,
+        consumed: 0,
+        charged: false,
+        balance: null,
+        model: 'gpt-4.1',
+      }),
+    ).toBe('Not billed · metering incomplete (~5 credits)');
+  });
 });
 
 describe('CMS generate usage payload shape', () => {

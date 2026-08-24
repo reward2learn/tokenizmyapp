@@ -1,4 +1,5 @@
 import type { MeterResult } from '@/domain/billing/credit-service';
+import { creditsForUsage } from '@/lib/billing/credit-rates';
 
 /**
  * Client-facing summary of one AI metering event (or an aggregate of several).
@@ -13,7 +14,11 @@ export interface AiUsageSummary {
   consumed: number;
   /** False only for operator exemption — nothing was taken from platform credits. */
   charged: boolean;
-  /** Remaining spendable balance after this call, when known. */
+  /**
+   * Remaining spendable balance after this call, when known.
+   * `null` means metering did not return a balance (failure, or exempt gate
+   * with no org read) — not the same as zero credits remaining.
+   */
   balance: number | null;
   model?: string | null;
   /**
@@ -32,10 +37,16 @@ export function toAiUsageSummary(
   options?: { model?: string | null; byok?: boolean },
 ): AiUsageSummary {
   if (!meter) {
+    // Metering threw or was skipped — still report rate-card cost so the client
+    // does not read `credits: 0` as "this turn was free / waived".
+    const credits =
+      tokens.promptTokens > 0 || tokens.completionTokens > 0
+        ? creditsForUsage(options?.model, tokens.promptTokens, tokens.completionTokens)
+        : 0;
     return {
       promptTokens: tokens.promptTokens,
       completionTokens: tokens.completionTokens,
-      credits: 0,
+      credits,
       consumed: 0,
       charged: false,
       balance: null,

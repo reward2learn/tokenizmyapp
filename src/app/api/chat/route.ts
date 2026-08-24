@@ -3,7 +3,7 @@
  */
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
-import { createClient, createRawClient } from '@/lib/db';
+import { createClient, createBillingRawClient } from '@/lib/db';
 import { resolveOpenAiKey } from '@/lib/openai';
 import { resolveActiveAiConfig } from '@/lib/ai-providers';
 import { KnowledgeService } from '@/domain/knowledge/knowledge-service';
@@ -488,8 +488,8 @@ async function handleChatPost(request: Request): Promise<Response> {
     // ── Pre-flight credit gate ──
     // Every assistant call draws from the org balance (platform pays providers;
     // tenants top up). Empty balance degrades to a friendly reply instead of a
-    // hard error — chat must keep working. On tenant apps, exempt operators
-    // (isCreditExemptEmail) skip the gate; on the factory everyone is gated.
+    // hard error — chat must keep working. Operator exemption is opt-in
+    // (`CREDIT_EXEMPT_ENABLED=true` on tenant apps only); default is charge all.
     let creditBalance: number | null = null;
     let billingOrgId: string | null = null;
     let planId: import('@/lib/billing/plans').PlanId = 'free';
@@ -514,14 +514,17 @@ async function handleChatPost(request: Request): Promise<Response> {
         );
       }
       creditBalance = gate.balance === Infinity ? null : gate.balance;
-      const rawDb = createRawClient();
-      billingOrgId = await resolvePayingOrgId(tenantSlug, rawDb);
-      const sub = await getSubscription(billingOrgId, rawDb);
+      // Credits / orgs live on the platform control-plane DB (PLATFORM_POSTGRES_URL
+      // on tenant deploys). Never use the tenant data-plane client here — that
+      // resolves the wrong org or creates orphan credit tables on the tenant DB.
+      const billingDb = createBillingRawClient();
+      billingOrgId = await resolvePayingOrgId(tenantSlug, billingDb);
+      const sub = await getSubscription(billingOrgId, billingDb);
       planId = sub.planId;
-      const agentic = await resolveTenantAgenticCommerce(billingOrgId, rawDb);
+      const agentic = await resolveTenantAgenticCommerce(billingOrgId, billingDb);
       agenticCatalogLive = isAgenticCatalogLive(agentic.config);
       if (billingOrgId) {
-        const selfServe = await resolveTenantSelfServeBilling(billingOrgId, rawDb);
+        const selfServe = await resolveTenantSelfServeBilling(billingOrgId, billingDb);
         selfServeBillingEnabled = selfServe.enabled;
       }
     }
