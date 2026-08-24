@@ -356,78 +356,104 @@ export function AppShell({ children }: { children: ReactNode }) {
           drawer opens — push, never overlay) */}
       <Box sx={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', minHeight: '100dvh' }}>
       <AppBar position="sticky" elevation={0} color="transparent">
-        <Toolbar sx={{ minHeight: 52, pt: 'env(safe-area-inset-top, 0px)' }}>
+        <Toolbar
+          sx={{
+            minHeight: 52,
+            pt: 'env(safe-area-inset-top, 0px)',
+            // Compact gutters on phones so action icons use the freed brand-text space.
+            px: { xs: 0.5, sm: 2 },
+            gap: { xs: 0, sm: 0.5 },
+          }}
+        >
           {/* Hamburger toggle — left aligned */}
           <IconButton
             aria-label="Open navigation"
             onClick={toggleDrawer}
-            sx={{ color: 'text.secondary', mr: 1 }}
+            size="small"
+            sx={{ color: 'text.secondary', mr: { xs: 0.25, sm: 1 } }}
           >
             <MenuIcon />
           </IconButton>
 
-          {/* Logo image + brand text always visible side by side */}
-          <Link href={logoHref} style={{ ...linkSx, alignItems: 'center', gap: 1 }}>
-            {brandLogoUrl && (
+          {/* Logo mark always; brand text only from sm+ (hidden on mobile to free icon space) */}
+          <Link href={logoHref} style={{ ...linkSx, alignItems: 'center', gap: 1, flexShrink: 0 }}>
+            {brandLogoUrl ? (
               <Box
                 component="img"
                 src={brandLogoUrl}
                 alt={brandText}
-                sx={{ height: 28, width: 'auto', maxWidth: 120, objectFit: 'contain', display: 'block' }}
+                sx={{ height: 28, width: 'auto', maxWidth: { xs: 36, sm: 120 }, objectFit: 'contain', display: 'block' }}
               />
-            )}
+            ) : null}
             <Typography
               variant="subtitle1"
-              sx={{ pl: 1, fontWeight: 800, color: 'text.primary', whiteSpace: 'nowrap' }}
+              sx={{
+                pl: brandLogoUrl ? 1 : 0,
+                fontWeight: 800,
+                color: 'text.primary',
+                whiteSpace: 'nowrap',
+                // Keep the wordmark when there is no logo image, otherwise the
+                // header would be hamburger-only on phones.
+                display: brandLogoUrl ? { xs: 'none', sm: 'block' } : 'block',
+              }}
             >
               {brandText}
             </Typography>
           </Link>
 
-          {/* Theme mode menu */}
-          <Tooltip title={`Theme: ${themeModeLabel(themeMode)}`}>
-            <IconButton
-              aria-label="Change theme"
-              aria-haspopup="menu"
-              aria-expanded={themeMenuAnchor ? 'true' : undefined}
-              onClick={(e) => setThemeMenuAnchor(e.currentTarget)}
-              sx={{ color: 'text.secondary', mr: 1 }}
-            >
-              <ThemeModeIcon mode={themeMode} />
-            </IconButton>
-          </Tooltip>
-          <Menu
-            anchorEl={themeMenuAnchor}
-            open={Boolean(themeMenuAnchor)}
-            onClose={() => setThemeMenuAnchor(null)}
-            slotProps={{ paper: { sx: { minWidth: 160 } } }}
-          >
-            {THEME_MODE_OPTIONS.map((option) => (
-              <MenuItem
-                key={option.mode}
-                selected={themeMode === option.mode}
-                onClick={() => {
-                  setThemeMode(option.mode);
-                  setThemeMenuAnchor(null);
-                }}
-              >
-                {option.label}
-              </MenuItem>
-            ))}
-          </Menu>
-
           {/* Spacer */}
-          <Box sx={{ flex: 1 }} />
+          <Box sx={{ flex: 1, minWidth: 0 }} />
 
-          {/* Right-aligned controls */}
-          <Box sx={{ display: 'flex', alignItems: 'center' }}>
+          {/* Right-aligned controls — theme → edit → credits → history → chat */}
+          <Box
+            sx={{
+              display: 'flex',
+              alignItems: 'center',
+              flexShrink: 0,
+              // Slightly denser on xs so the full icon set fits one row.
+              gap: { xs: 0, sm: 0.25 },
+              '& .MuiIconButton-root': { p: { xs: 0.75, sm: 1 } },
+            }}
+          >
+            <Tooltip title={`Theme: ${themeModeLabel(themeMode)}`}>
+              <IconButton
+                aria-label="Change theme"
+                aria-haspopup="menu"
+                aria-expanded={themeMenuAnchor ? 'true' : undefined}
+                onClick={(e) => setThemeMenuAnchor(e.currentTarget)}
+                size="small"
+                sx={{ color: 'text.secondary' }}
+              >
+                <ThemeModeIcon mode={themeMode} />
+              </IconButton>
+            </Tooltip>
+            <Menu
+              anchorEl={themeMenuAnchor}
+              open={Boolean(themeMenuAnchor)}
+              onClose={() => setThemeMenuAnchor(null)}
+              slotProps={{ paper: { sx: { minWidth: 160 } } }}
+            >
+              {THEME_MODE_OPTIONS.map((option) => (
+                <MenuItem
+                  key={option.mode}
+                  selected={themeMode === option.mode}
+                  onClick={() => {
+                    setThemeMode(option.mode);
+                    setThemeMenuAnchor(null);
+                  }}
+                >
+                  {option.label}
+                </MenuItem>
+              ))}
+            </Menu>
             {canEditPages && pageSlug ? (
               <Tooltip title={pageEditActive ? 'Exit page edit mode' : 'Edit this page'}>
                 <IconButton
                   aria-label={pageEditActive ? 'Exit page edit mode' : 'Edit this page'}
                   aria-pressed={pageEditActive}
                   onClick={() => dispatch(togglePageEditMode({ slug: pageSlug }))}
-                  sx={{ color: pageEditActive ? 'primary.main' : 'text.secondary', mr: 0.5 }}
+                  size="small"
+                  sx={{ color: pageEditActive ? 'primary.main' : 'text.secondary' }}
                 >
                   {pageEditActive ? <EditOffIcon /> : <EditIcon />}
                 </IconButton>
@@ -442,12 +468,12 @@ export function AppShell({ children }: { children: ReactNode }) {
                 aria-label={chatDrawerOpen ? 'Close AI chat drawer' : 'Open AI chat drawer'}
                 aria-pressed={chatDrawerOpen}
                 onClick={() => dispatch(toggleChatDrawer())}
-                sx={{ color: chatDrawerOpen ? 'primary.main' : 'text.secondary', mr: 0.5 }}
+                size="small"
+                sx={{ color: chatDrawerOpen ? 'primary.main' : 'text.secondary' }}
               >
                 <ChatIcon />
               </IconButton>
             </Tooltip>
-            
           </Box>
         </Toolbar>
       </AppBar>
