@@ -2,11 +2,10 @@
 /**
  * Probe Postgres until Neon (or any host) accepts connections.
  *
- * Neon scale-to-zero: the pooler often returns P1001 instantly while compute
- * is suspended. The direct (non-pooling) endpoint wakes compute reliably — try
- * it first, then fall back to pooled URLs.
- *
- * Exit 0 when reachable; exit 1 after all probes fail.
+ * Exit codes:
+ *   0 — reachable
+ *   1 — timed out (retryable errors exhausted)
+ *   2 — non-retryable (quota, auth, deleted DB) — do not retry
  */
 import pg from 'pg';
 
@@ -26,6 +25,14 @@ function redactUrl(url) {
   }
 }
 
+function isPoolerHost(url) {
+  try {
+    return new URL(url).hostname.includes('-pooler.');
+  } catch {
+    return false;
+  }
+}
+
 function withConnectTimeout(url) {
   if (url.includes('connect_timeout=')) return url;
   return `${url}${url.includes('?') ? '&' : '?'}connect_timeout=${Math.ceil(connectTimeoutMs / 1000)}`;
@@ -33,14 +40,39 @@ function withConnectTimeout(url) {
 
 /** Derive a direct Neon host from a pooler URL when no unpooled env is set. */
 function poolerToDirect(url) {
+  if (!url || !isPoolerHost(url)) return null;
   try {
     const parsed = new URL(url);
-    if (!parsed.hostname.includes('-pooler.')) return null;
     parsed.hostname = parsed.hostname.replace('-pooler.', '.');
     return parsed.toString();
   } catch {
     return null;
   }
+}
+
+/** Errors where retrying wastes build minutes (quota, auth, missing DB). */
+function classifyError(message) {
+  const lower = message.toLowerCase();
+  if (
+    lower.includes('data transfer quota')
+    || lower.includes('exceeded the data transfer')
+    || lower.includes('quota')
+    || lower.includes('billing')
+    || lower.includes('plan limit')
+  ) {
+    return { retryable: false, kind: 'quota', hint: 'Neon data transfer quota exceeded — upgrade Neon or wait for reset.' };
+  }
+  if (
+    lower.includes('password authentication failed')
+    || lower.includes('authentication failed')
+    || lower.includes('invalid authorization')
+  ) {
+    return { retryable: false, kind: 'auth', hint: 'Database credentials rejected — check POSTGRES_URL on Vercel.' };
+  }
+  if (lower.includes('does not exist') && lower.includes('database')) {
+    return { retryable: false, kind: 'missing', hint: 'Database not found — Neon project may have been deleted.' };
+  }
+  return { retryable: true, kind: 'transient', hint: '' };
 }
 
 function candidateUrls() {
@@ -53,13 +85,17 @@ function candidateUrls() {
     urls.push(withConnectTimeout(raw));
   };
 
-  // Direct first — best for waking suspended Neon compute + schema sync.
-  add(process.env.POSTGRES_URL_NON_POOLING);
-  add(process.env.DATABASE_URL_UNPOOLED);
-  add(poolerToDirect(process.env.POSTGRES_URL ?? ''));
-  add(process.env.POSTGRES_PRISMA_URL);
-  add(process.env.POSTGRES_URL);
-  add(process.env.DATABASE_URL);
+  const pooled = process.env.POSTGRES_URL ?? process.env.DATABASE_URL ?? '';
+  const nonPooling = process.env.POSTGRES_URL_NON_POOLING;
+  const unpooled = process.env.DATABASE_URL_UNPOOLED;
+
+  // Direct endpoints first. Skip NON_POOLING when it incorrectly points at the pooler host.
+  if (nonPooling && !isPoolerHost(nonPooling)) add(nonPooling);
+  if (unpooled && !isPoolerHost(unpooled)) add(unpooled);
+  add(poolerToDirect(pooled));
+  add(poolerToDirect(process.env.POSTGRES_PRISMA_URL ?? ''));
+  if (process.env.POSTGRES_PRISMA_URL) add(process.env.POSTGRES_PRISMA_URL);
+  if (pooled) add(pooled);
 
   return urls;
 }
@@ -76,7 +112,7 @@ async function probeUrl(url) {
     return { ok: true };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    return { ok: false, message };
+    return { ok: false, message, ...classifyError(message) };
   } finally {
     await client.end().catch(() => {});
   }
@@ -100,13 +136,13 @@ console.log(
 console.log(`[wait-for-postgres] Primary: ${redactUrl(urls[0])}`);
 
 let lastError = '';
+let lastKind = 'transient';
 
 for (let i = 1; i <= warmAttempts; i += 1) {
   for (const url of urls) {
     const result = await probeUrl(url);
     if (result.ok) {
       console.log(`[wait-for-postgres] Database reachable (probe ${i}, ${redactUrl(url)}).`);
-      // Tell vercel-build.sh which URL worked so db push uses the same one.
       if (process.env.WAIT_FOR_POSTGRES_RESULT_FILE) {
         const { writeFileSync } = await import('node:fs');
         writeFileSync(process.env.WAIT_FOR_POSTGRES_RESULT_FILE, url, 'utf8');
@@ -114,6 +150,13 @@ for (let i = 1; i <= warmAttempts; i += 1) {
       process.exit(0);
     }
     lastError = result.message ?? 'unknown error';
+    lastKind = result.kind ?? 'transient';
+
+    if (!result.retryable) {
+      console.error(`[wait-for-postgres] Non-retryable error (${result.kind}): ${lastError}`);
+      if (result.hint) console.error(`[wait-for-postgres] ${result.hint}`);
+      process.exit(2);
+    }
   }
 
   if (i === 1 || i === warmAttempts) {
@@ -122,14 +165,13 @@ for (let i = 1; i <= warmAttempts; i += 1) {
 
   if (i === warmAttempts) {
     console.error(
-      `[wait-for-postgres] Database unreachable after ${warmAttempts} probes (~${warmAttempts * sleepSec}s).`,
+      `[wait-for-postgres] Database unreachable after ${warmAttempts} probes (~${warmAttempts * sleepSec}s). Last: ${lastError}`,
     );
-    console.error('[wait-for-postgres] Check Neon dashboard: compute may be suspended or POSTGRES_URL env vars missing on Vercel.');
     process.exit(1);
   }
 
   console.log(
-    `[wait-for-postgres] Not reachable yet (probe ${i}/${warmAttempts}) — retrying in ${sleepSec}s…`,
+    `[wait-for-postgres] Not reachable yet (probe ${i}/${warmAttempts}, ${lastKind}) — retrying in ${sleepSec}s…`,
   );
   await sleep(sleepSec * 1000);
 }
