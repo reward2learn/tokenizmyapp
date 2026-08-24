@@ -6,7 +6,7 @@ import Stack from '@mui/material/Stack';
 import Skeleton from '@mui/material/Skeleton';
 import { useGetTenantOrganizationQuery } from '@/store/apis/organization-api';
 import { BillingPanel } from '@/components/billing/billing-panel';
-import { useAppDispatch } from '@/store/hooks';
+import { useAppDispatch, useAppSelector } from '@/store/hooks';
 import { setAdminCalculatorContext } from '@/store/ui-slice';
 
 /**
@@ -19,6 +19,7 @@ import { setAdminCalculatorContext } from '@/store/ui-slice';
  */
 export function TenantBillingTab({ tenantSlug }: { tenantSlug: string }) {
   const dispatch = useAppDispatch();
+  const adminAppId = useAppSelector((s) => s.ui.adminSelectedAppId);
   const { data, isLoading, isError } = useGetTenantOrganizationQuery(tenantSlug, {
     skip: !tenantSlug,
   });
@@ -38,7 +39,7 @@ export function TenantBillingTab({ tenantSlug }: { tenantSlug: string }) {
 
   return (
     <Stack spacing={2}>
-      <Stack direction="row" sx={{ justifyContent: 'flex-end' }}>
+      <Stack direction="row" spacing={1} sx={{ justifyContent: 'flex-end', flexWrap: 'wrap' }} useFlexGap>
         <Button
           size="small"
           variant="outlined"
@@ -47,6 +48,7 @@ export function TenantBillingTab({ tenantSlug }: { tenantSlug: string }) {
               setAdminCalculatorContext({
                 orgId,
                 tenantSlug,
+                appId: adminAppId,
               }),
             )
           }
@@ -56,7 +58,8 @@ export function TenantBillingTab({ tenantSlug }: { tenantSlug: string }) {
       </Stack>
       <Alert severity="info">
         Calculator context saved — open the <strong>AI Credits Calculator</strong> tab to
-        analyze and apply this org&apos;s rate card.
+        analyze, apply the org rate card, or <strong>Seed / sync AI credits for all apps</strong>
+        under this tenant.
       </Alert>
       <BillingPanel orgId={orgId} />
     </Stack>

@@ -280,3 +280,59 @@ export async function ensureRateCardForTenantSlug(
     db,
   );
 }
+
+/**
+ * Recompute plan/pack credit grants on an org rate card from resolved catalog
+ * USD faces × the card's secured markup. Does not invent a second price —
+ * catalog overrides + existing markup are the only inputs.
+ */
+export async function refreshOrgRateCardCreditsFromCatalog(
+  orgId: string,
+  db?: RawDb,
+): Promise<TenantRateCardRecord> {
+  db = await ensureOrgRateCardTable(db);
+  let card = await getOrgRateCard(orgId, db);
+  if (!card) {
+    card = await recalculateOrgRateCard(orgId, db);
+  }
+
+  const { getBillingCatalog } = await import('@/domain/billing/catalog-price-service');
+  const { catalog } = await getBillingCatalog(db);
+  const markup = card.markupPercent;
+
+  // Free trial stays a conceptual ~$20 AI allotment even when list price is $0.
+  const planCredits = {
+    free: purchasedCreditsForUsdAtMarkup(20, markup),
+    pro: purchasedCreditsForUsdAtMarkup(catalog.plans.pro.monthlyCents / 100, markup),
+    business: purchasedCreditsForUsdAtMarkup(
+      catalog.plans.business.monthlyCents / 100,
+      markup,
+    ),
+  };
+  const packCredits = {
+    'pack-25': purchasedCreditsForUsdAtMarkup(catalog.packs['pack-25'] / 100, markup),
+    'pack-50': purchasedCreditsForUsdAtMarkup(catalog.packs['pack-50'] / 100, markup),
+    'pack-100': purchasedCreditsForUsdAtMarkup(catalog.packs['pack-100'] / 100, markup),
+  };
+
+  const now = new Date();
+  await db.$executeRawUnsafe(
+    `UPDATE org_billing_rate_cards
+     SET plan_credits = $2::jsonb,
+         pack_credits = $3::jsonb,
+         updated_at = $4
+     WHERE org_id = $1;`,
+    orgId,
+    JSON.stringify(planCredits),
+    JSON.stringify(packCredits),
+    now,
+  );
+
+  return {
+    ...card,
+    planCredits,
+    packCredits,
+    creditsPerUsd: purchasedCreditsForUsdAtMarkup(1, markup),
+    updatedAt: now.toISOString(),
+  };
+}

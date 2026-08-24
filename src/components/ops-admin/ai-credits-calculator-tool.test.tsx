@@ -13,6 +13,7 @@ vi.mock('@/store/apis/organization-api', () => ({
   useGetBillingCatalogQuery: () => ({ data: undefined }),
   useUpdateCatalogPricesMutation: () => [vi.fn(), { isLoading: false }],
   useSyncStripeCatalogPricesMutation: () => [vi.fn(), { isLoading: false }],
+  useSeedTenantAiCreditsMutation: () => [vi.fn(), { isLoading: false }],
 }));
 
 vi.mock('@/store/apis/tenant-api', () => ({
@@ -40,6 +41,8 @@ describe('AiCreditsCalculatorTool', () => {
     expect(screen.getByText(/Preview markup/i)).toBeTruthy();
     const apply = screen.getByRole('button', { name: /Apply to organization/i });
     expect(apply).toHaveProperty('disabled', true);
+    const seed = screen.getByRole('button', { name: /Seed \/ sync AI credits for all apps/i });
+    expect(seed).toHaveProperty('disabled', true);
     expect(screen.getByPlaceholderText(/Message the calculator assistant/i)).toBeTruthy();
   });
 });

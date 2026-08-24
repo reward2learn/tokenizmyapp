@@ -51,6 +51,8 @@ export interface WizardRateCardPrefill {
 export interface AdminCalculatorContext {
   orgId?: string | null;
   tenantSlug?: string | null;
+  /** Optional suite app slug for UI scope; seed still applies to all apps. */
+  appId?: string | null;
 }
 
 export interface UiState {

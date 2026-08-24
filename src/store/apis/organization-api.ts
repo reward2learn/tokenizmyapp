@@ -693,6 +693,40 @@ export const organizationApi = createApi({
       }),
       invalidatesTags: ['BillingCatalog'],
     }),
+
+    seedTenantAiCredits: builder.mutation<
+      ApiEnvelope<{
+        message: string;
+        tenantSlug: string;
+        orgId: string;
+        scopedAppId: string | null;
+        apps: Array<{ appId: string; name: string; vercelProjectId: string | null }>;
+        planCredits: Record<string, number>;
+        packCredits: Record<string, number>;
+        planAllowance: {
+          action: string;
+          targetCredits: number;
+          delta: number;
+          planId: string;
+          grantId: string | null;
+        };
+        billingIdentity: {
+          orgId: string | null;
+          appsTouched: number;
+          envVarsPushed: number;
+          skippedNoProject: string[];
+          errors: string[];
+        };
+      }>,
+      { slug: string; confirm: true; appId?: string | null }
+    >({
+      query: ({ slug, ...body }) => ({
+        url: `admin/tenants/${slug}/seed-ai-credits`,
+        method: 'POST',
+        body,
+      }),
+      invalidatesTags: ['OrgRateCard', 'Credits', 'TenantOrg', 'Subscription'],
+    }),
   }),
 });
 
@@ -728,4 +762,5 @@ export const {
   useGetBillingCatalogQuery,
   useUpdateCatalogPricesMutation,
   useSyncStripeCatalogPricesMutation,
+  useSeedTenantAiCreditsMutation,
 } = organizationApi;

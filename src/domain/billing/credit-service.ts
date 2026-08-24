@@ -883,20 +883,6 @@ export async function hasSufficientCredits(
 }
 
 /**
- * Grant the monthly plan allowance if it is due for the current billing period.
- *
- * Idempotent per billing period: a `source='plan'` grant for the subscription's
- * planId must already exist with `granted_at` inside the subscription's
- * [currentPeriodStart, currentPeriodEnd]. Uses the subscription's ACTUAL
- * planId (not getPlanForOrg) even when past_due — the allowance is for the
- * period the customer paid for, and a successful recovery should not lose it.
- *
- * Expiry is now + 30 days (CREDIT_EXPIRY_DAYS), not tied to the period end:
- * simpler, matches the documented 30-day rule, and a customer who pays late
- * still gets a full 30 days of use. Skipped entirely when the plan grants no
- * credits (enterprise — volume deals are negotiated separately).
- */
-/**
  * Most debt this org may carry: its own monthly allowance.
  *
  * Chosen so arrears always **self-heal**. Debt blocks the next generation, and
@@ -928,6 +914,20 @@ export async function debtCeilingForOrg(orgId: string, db?: RawDb): Promise<numb
   }
 }
 
+/**
+ * Grant the monthly plan allowance if it is due for the current billing period.
+ *
+ * Idempotent per billing period: a `source='plan'` grant for the subscription's
+ * planId must already exist with `granted_at` inside the subscription's
+ * [currentPeriodStart, currentPeriodEnd]. Uses the subscription's ACTUAL
+ * planId (not getPlanForOrg) even when past_due — the allowance is for the
+ * period the customer paid for, and a successful recovery should not lose it.
+ *
+ * Expiry is now + 30 days (CREDIT_EXPIRY_DAYS), not tied to the period end:
+ * simpler, matches the documented 30-day rule, and a customer who pays late
+ * still gets a full 30 days of use. Skipped entirely when the plan grants no
+ * credits (enterprise — volume deals are negotiated separately).
+ */
 export async function grantMonthlyAllowanceIfDue(
   orgId: string,
   db?: RawDb,
@@ -973,6 +973,122 @@ export async function grantMonthlyAllowanceIfDue(
     },
     db,
   );
+}
+
+export type SyncPlanAllowanceAction =
+  | 'granted'
+  | 'topped_up'
+  | 'already_synced'
+  | 'skipped';
+
+export interface SyncPlanAllowanceResult {
+  action: SyncPlanAllowanceAction;
+  targetCredits: number;
+  delta: number;
+  planId: string;
+  grantId: string | null;
+  reason?: string;
+}
+
+/**
+ * Align the current period's plan grant with the org rate card (after catalog
+ * refresh). Never claws back already-issued credits — only grants or tops up.
+ */
+export async function syncCurrentPeriodPlanAllowance(
+  orgId: string,
+  db?: RawDb,
+): Promise<SyncPlanAllowanceResult> {
+  db ??= await getDb();
+  await ensureCreditTables(db);
+
+  const { getSubscription } = await import('@/domain/billing/entitlement-service');
+  const sub = await getSubscription(orgId, db);
+  const plan = getPlan(sub.planId);
+  const { resolvePlanAiCredits } = await import('@/domain/billing/org-rate-card-service');
+  const target = await resolvePlanAiCredits(
+    orgId,
+    sub.planId,
+    plan.aiCreditsPerMonth,
+    db,
+  );
+
+  if (target <= 0) {
+    return {
+      action: 'skipped',
+      targetCredits: 0,
+      delta: 0,
+      planId: sub.planId,
+      grantId: null,
+      reason: 'Plan grants no monthly AI credits',
+    };
+  }
+
+  const existing = (await db.$queryRawUnsafe(
+    `SELECT * FROM credit_grants
+     WHERE org_id = $1 AND source = 'plan' AND plan_id = $2
+       AND granted_at >= $3 AND granted_at <= $4
+     LIMIT 1;`,
+    orgId,
+    sub.planId,
+    new Date(sub.currentPeriodStart),
+    new Date(sub.currentPeriodEnd),
+  )) as Record<string, unknown>[];
+
+  if (existing.length === 0) {
+    const grant = await grantMonthlyAllowanceIfDue(orgId, db);
+    return {
+      action: grant ? 'granted' : 'skipped',
+      targetCredits: target,
+      delta: grant?.amount ?? 0,
+      planId: sub.planId,
+      grantId: grant?.id ?? null,
+      reason: grant ? undefined : 'Grant skipped',
+    };
+  }
+
+  const grant = mapCreditGrant(existing[0]);
+  if (grant.amount >= target) {
+    return {
+      action: 'already_synced',
+      targetCredits: target,
+      delta: 0,
+      planId: sub.planId,
+      grantId: grant.id,
+    };
+  }
+
+  const delta = target - grant.amount;
+  await db.$executeRawUnsafe(
+    `UPDATE credit_grants
+     SET amount = amount + $1, remaining = remaining + $1
+     WHERE id = $2;`,
+    delta,
+    grant.id,
+  );
+  await db.$executeRawUnsafe(
+    `INSERT INTO credit_ledger (id, org_id, grant_id, delta, reason, metadata)
+     VALUES (gen_random_uuid()::TEXT, $1, $2, $3, $4, $5::jsonb);`,
+    orgId,
+    grant.id,
+    delta,
+    SOURCE_REASONS.plan,
+    JSON.stringify({
+      rateCardSync: true,
+      previousAmount: grant.amount,
+      targetCredits: target,
+      periodStart: sub.currentPeriodStart,
+      periodEnd: sub.currentPeriodEnd,
+    }),
+  );
+  await settleDebt(orgId, db);
+
+  return {
+    action: 'topped_up',
+    targetCredits: target,
+    delta,
+    planId: sub.planId,
+    grantId: grant.id,
+  };
 }
 
 /**

@@ -46,6 +46,7 @@ import {
   useGetBillingCatalogQuery,
   useUpdateCatalogPricesMutation,
   useSyncStripeCatalogPricesMutation,
+  useSeedTenantAiCreditsMutation,
 } from '@/store/apis/organization-api';
 import { useListTenantsQuery } from '@/store/apis/tenant-api';
 import { useAppDispatch, useAppSelector } from '@/store/hooks';
@@ -59,6 +60,7 @@ export function AiCreditsCalculatorTool() {
   const calcContext = useAppSelector((s) => s.ui.adminCalculatorContext);
   const adminOrgId = useAppSelector((s) => s.ui.adminSelectedOrgId);
   const adminTenantSlug = useAppSelector((s) => s.ui.adminSelectedTenantSlug);
+  const adminAppId = useAppSelector((s) => s.ui.adminSelectedAppId);
 
   const { data: orgsData } = useListOrganizationsQuery();
   const { data: tenantsData } = useListTenantsQuery();
@@ -69,6 +71,7 @@ export function AiCreditsCalculatorTool() {
   const [tenantSlug, setTenantSlug] = useState(
     calcContext?.tenantSlug ?? adminTenantSlug ?? '',
   );
+  const [appId, setAppId] = useState(calcContext?.appId ?? adminAppId ?? '');
   const [websiteUrl, setWebsiteUrl] = useState('');
   const [secCikOrTicker, setSecCikOrTicker] = useState('');
   const [companiesHouseNumber, setCompaniesHouseNumber] = useState('');
@@ -86,6 +89,7 @@ export function AiCreditsCalculatorTool() {
   const [toolHints, setToolHints] = useState<string[]>([]);
   const [catalogConfirmOpen, setCatalogConfirmOpen] = useState(false);
   const [stripeConfirmOpen, setStripeConfirmOpen] = useState(false);
+  const [seedConfirmOpen, setSeedConfirmOpen] = useState(false);
   const [editProMonthly, setEditProMonthly] = useState(9900);
   const [editBusinessMonthly, setEditBusinessMonthly] = useState(19900);
   const [editPack25, setEditPack25] = useState(2500);
@@ -108,7 +112,32 @@ export function AiCreditsCalculatorTool() {
   useEffect(() => {
     if (calcContext?.orgId) setOrgId(calcContext.orgId);
     if (calcContext?.tenantSlug) setTenantSlug(calcContext.tenantSlug);
+    if (calcContext?.appId !== undefined) setAppId(calcContext.appId ?? '');
   }, [calcContext]);
+
+  const selectedTenant = useMemo(
+    () => tenants.find((t) => t.slug === tenantSlug) ?? null,
+    [tenants, tenantSlug],
+  );
+
+  const suiteApps = useMemo(() => {
+    if (!selectedTenant) return [] as Array<{ appId: string; name: string }>;
+    const pack = selectedTenant.appPack;
+    if (pack?.apps && pack.apps.length > 0) {
+      return pack.apps.map((a) => ({ appId: a.appId, name: a.name || a.appId }));
+    }
+    return [{ appId: selectedTenant.slug, name: selectedTenant.displayName || selectedTenant.slug }];
+  }, [selectedTenant]);
+
+  useEffect(() => {
+    if (!tenantSlug) {
+      setAppId('');
+      return;
+    }
+    if (!appId) return;
+    if (suiteApps.some((a) => a.appId === appId)) return;
+    setAppId('');
+  }, [tenantSlug, suiteApps, appId]);
 
   const liveReport: AiCreditsCalculatorReport = useMemo(
     () =>
@@ -143,6 +172,7 @@ export function AiCreditsCalculatorTool() {
   });
   const [updateCatalog, catalogUpdateState] = useUpdateCatalogPricesMutation();
   const [syncStripe, syncState] = useSyncStripeCatalogPricesMutation();
+  const [seedTenantCredits, seedState] = useSeedTenantAiCreditsMutation();
 
   const patchInput = (patch: Partial<TenantRateCardInputs>) => {
     setInputs((prev) => defaultRateCardInputs({ ...prev, ...patch }));
@@ -345,6 +375,38 @@ export function AiCreditsCalculatorTool() {
     }
   };
 
+  const onSeedAiCredits = async () => {
+    if (!tenantSlug) {
+      setStatus('Select a tenant before seeding AI credits.');
+      return;
+    }
+    try {
+      const res = await seedTenantCredits({
+        slug: tenantSlug,
+        confirm: true,
+        appId: appId || null,
+      }).unwrap();
+      setSeedConfirmOpen(false);
+      const d = res.data;
+      if (d?.orgId) {
+        setOrgId(d.orgId);
+        dispatch(
+          setAdminCalculatorContext({
+            orgId: d.orgId,
+            tenantSlug,
+            appId: appId || null,
+          }),
+        );
+      }
+      setStatus(
+        d?.message ??
+          `AI credits seeded for ${d?.apps?.length ?? 0} app(s) on org ${d?.orgId ?? ''}.`,
+      );
+    } catch (err) {
+      setStatus(err instanceof Error ? err.message : 'Seed AI credits failed');
+    }
+  };
+
   const copyJson = async () => {
     const payload = {
       inputs: liveReport.inputs,
@@ -427,12 +489,32 @@ export function AiCreditsCalculatorTool() {
                   fullWidth
                   label="Tenant"
                   value={tenantSlug}
-                  onChange={(e) => setTenantSlug(e.target.value)}
+                  onChange={(e) => {
+                    setTenantSlug(e.target.value);
+                    setAppId('');
+                  }}
                 >
                   <MenuItem value="">— none —</MenuItem>
                   {tenants.map((t) => (
                     <MenuItem key={t.slug} value={t.slug}>
                       {t.displayName || t.slug}
+                    </MenuItem>
+                  ))}
+                </TextField>
+                <TextField
+                  select
+                  size="small"
+                  fullWidth
+                  label="App (suite slug)"
+                  value={appId}
+                  onChange={(e) => setAppId(e.target.value)}
+                  disabled={!tenantSlug || suiteApps.length === 0}
+                  helperText="Optional scope — seed still updates all apps under the tenant org"
+                >
+                  <MenuItem value="">— all apps —</MenuItem>
+                  {suiteApps.map((a) => (
+                    <MenuItem key={a.appId} value={a.appId}>
+                      {a.name} ({a.appId})
                     </MenuItem>
                   ))}
                 </TextField>
@@ -598,6 +680,14 @@ export function AiCreditsCalculatorTool() {
                 >
                   Apply to organization
                 </Button>
+                <Button
+                  variant="contained"
+                  color="secondary"
+                  onClick={() => setSeedConfirmOpen(true)}
+                  disabled={!tenantSlug || seedState.isLoading}
+                >
+                  Seed / sync AI credits for all apps
+                </Button>
                 <Button variant="outlined" onClick={onUseInWizard}>
                   Use in tenant wizard
                 </Button>
@@ -611,6 +701,7 @@ export function AiCreditsCalculatorTool() {
                       setAdminCalculatorContext({
                         orgId: orgId || null,
                         tenantSlug: tenantSlug || null,
+                        appId: appId || null,
                       }),
                     )
                   }
@@ -621,6 +712,8 @@ export function AiCreditsCalculatorTool() {
               <Typography variant="caption" color="text.secondary">
                 Apply persists rate-card inputs server-side; markup / credits / charge
                 authority are computed on the server (client markupPercent is never trusted).
+                Seed recalculates the org rate card from catalog faces, syncs the plan
+                grant, and pushes billing identity to every suite app.
               </Typography>
             </Stack>
           </Paper>
@@ -839,6 +932,43 @@ export function AiCreditsCalculatorTool() {
             disabled={syncState.isLoading}
           >
             Confirm sync
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      <Dialog open={seedConfirmOpen} onClose={() => setSeedConfirmOpen(false)}>
+        <DialogTitle>Seed / sync AI credits for all apps?</DialogTitle>
+        <DialogContent>
+          <Typography variant="body2" sx={{ mb: 1 }}>
+            Tenant <strong>{tenantSlug || '—'}</strong>
+            {appId ? (
+              <>
+                {' '}
+                (scoped app <strong>{appId}</strong> for context only)
+              </>
+            ) : null}
+            . This will:
+          </Typography>
+          <Typography variant="body2" component="ul" sx={{ pl: 2, m: 0 }}>
+            <li>Recalculate the org rate card from live app/user/spend counts</li>
+            <li>Set plan + top-up pack credits from catalog USD faces × secured markup</li>
+            <li>Grant or top up the current period plan allowance (never claw back)</li>
+            <li>Push ORGANIZATION_ID to every suite app Vercel project</li>
+          </Typography>
+          <Typography variant="body2" color="text.secondary" sx={{ mt: 1.5 }}>
+            Credits are org-level — all {suiteApps.length || 1} app(s) share the same
+            entitlements after billing identity is propagated. Platform admin only.
+          </Typography>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setSeedConfirmOpen(false)}>Cancel</Button>
+          <Button
+            variant="contained"
+            color="secondary"
+            onClick={() => void onSeedAiCredits()}
+            disabled={seedState.isLoading || !tenantSlug}
+          >
+            {seedState.isLoading ? <CircularProgress size={18} /> : 'Confirm seed'}
           </Button>
         </DialogActions>
       </Dialog>
