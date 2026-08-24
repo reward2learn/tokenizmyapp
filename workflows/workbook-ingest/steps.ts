@@ -7,7 +7,13 @@
  */
 import { FatalError, RetryableError, sleep } from 'workflow';
 import { extractSheetsWithStats, type ExtractedSheet } from '../../src/domain/ai-workbook/extract-sheets';
-import { analyzeSheets, type AnalysisHints } from '../../src/domain/ai-workbook/sheet-analysis';
+import {
+  analyzeSheet,
+  aggregateSheetHints,
+  formatSheetAnalyzingDetail,
+  type AnalysisHints,
+  type SheetHints,
+} from '../../src/domain/ai-workbook/sheet-analysis';
 import {
   comprehendOnce,
   ComprehendHttpError,
@@ -163,11 +169,68 @@ export async function extractSheetsStep(
   return all;
 }
 
-/** ANALYZE: deterministic pre-pass producing structured hints. */
-export async function analyzeSheetsStep(sheets: ExtractedSheet[]): Promise<AnalysisHints> {
+/**
+ * ANALYZE: deterministic pre-pass producing structured hints.
+ * Emits per-sheet progress when `writable` is provided (same pattern as EXTRACT).
+ */
+export async function analyzeSheetsStep(
+  sheets: ExtractedSheet[],
+  writable?: WritableStream<ProgressChunk | string>,
+): Promise<AnalysisHints> {
   'use step';
 
-  return analyzeSheets(sheets);
+  let sheetStatuses: SheetSeedStatus[] = sheetStatusesFromNames(sheets.map((s) => s.tabName));
+  const sheetHints: SheetHints[] = [];
+  const total = Math.max(sheets.length, 1);
+
+  for (let i = 0; i < sheets.length; i++) {
+    const sheet = sheets[i]!;
+    sheetStatuses = patchSheetStatus(sheetStatuses, sheet.tabName, {
+      status: 'active',
+      phase: 'analyzing',
+      detail: `${sheet.stats.rowCount} rows × ${sheet.stats.colCount} cols`,
+    });
+
+    if (writable) {
+      await writeProgressChunk(writable, {
+        step: 'analyzing',
+        message: `Analyzing sheet ${i + 1}/${sheets.length}: ${sheet.tabName}`,
+        pct: Math.min(69, 46 + Math.round(((i + 1) / total) * 23)),
+        detail: {
+          sheets: sheets.length,
+          tabNames: sheetStatuses.map((s) => s.name),
+          currentSheet: sheet.tabName,
+          sheetStatuses,
+        },
+      });
+    }
+
+    const hint = analyzeSheet(sheet);
+    sheetHints.push(hint);
+
+    const detail = formatSheetAnalyzingDetail(hint);
+    sheetStatuses = patchSheetStatus(sheetStatuses, sheet.tabName, {
+      status: 'completed',
+      phase: 'analyzing',
+      detail,
+    });
+
+    if (writable) {
+      await writeProgressChunk(writable, {
+        step: 'analyzing',
+        message: `Analyzed ${i + 1}/${sheets.length}: ${sheet.tabName} — ${detail}`,
+        pct: Math.min(69, 46 + Math.round(((i + 1) / total) * 23)),
+        detail: {
+          sheets: sheets.length,
+          tabNames: sheetStatuses.map((s) => s.name),
+          currentSheet: sheet.tabName,
+          sheetStatuses,
+        },
+      });
+    }
+  }
+
+  return aggregateSheetHints(sheets, sheetHints);
 }
 
 /**

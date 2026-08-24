@@ -22,7 +22,7 @@
 
 import { NextResponse } from 'next/server';
 import { PrismaClient } from '@/generated/prisma';
-import { canonicalWorkbookAppId } from '@/lib/workbook-cache';
+import { canonicalWorkbookAppId, buildWorkbookCacheMeta, WORKBOOK_META_KEY } from '@/lib/workbook-cache';
 import { requireWriteAuth, requireCapability } from '@/lib/auth/guards';
 import { jsonError, jsonOk } from '@/lib/api/response';
 import { extractExcelData } from '@/domain/excel/excel-extractor';
@@ -112,7 +112,25 @@ export async function POST(request: Request): Promise<NextResponse> {
       },
     });
 
-    const sizeKB = Math.round((Buffer.from(base64Content, 'base64').length / 1024));
+    const sizeBytes = Buffer.from(base64Content, 'base64').length;
+    const meta = buildWorkbookCacheMeta([
+      { fileName: filename || 'workbook.xlsx', sizeBytes },
+    ]);
+    await prisma.knowledgeSnippet.upsert({
+      where: { key_appId: { key: WORKBOOK_META_KEY, appId } },
+      create: {
+        key: WORKBOOK_META_KEY,
+        category: 'cache',
+        content: JSON.stringify(meta),
+        appId,
+      },
+      update: {
+        content: JSON.stringify(meta),
+        category: 'cache',
+      },
+    });
+
+    const sizeKB = Math.round(sizeBytes / 1024);
 
     return jsonOk({
       success: true,

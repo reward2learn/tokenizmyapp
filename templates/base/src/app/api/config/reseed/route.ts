@@ -119,6 +119,8 @@ export async function POST(request: Request): Promise<NextResponse> {
       uploaded.push('executiveSummary');
     }
 
+    const excelFileNames = excelFiles.map((f) => f.name);
+
     if (mode === 'ai' && overrides.excel && overrides.excel.length > 0) {
       // ── AI + deterministic: always seed projections from the workbook parser
       // so /ops-tracking is populated even if the durable AI workflow is slow
@@ -127,11 +129,12 @@ export async function POST(request: Request): Promise<NextResponse> {
         overrides,
         persistOverrides: true,
         skipFinancialProjections: false,
+        excelFileNames,
       });
 
       const input: WorkbookIngestInput = {
-        files: overrides.excel.map((buf) => ({
-          name: 'workbook.xlsx',
+        files: overrides.excel.map((buf, i) => ({
+          name: excelFileNames[i] || 'workbook.xlsx',
           data: new Uint8Array(buf),
           size: buf.byteLength,
         })),
@@ -165,6 +168,7 @@ export async function POST(request: Request): Promise<NextResponse> {
     const result = await seedFromSources({
       overrides,
       persistOverrides: true,
+      excelFileNames: excelFileNames.length > 0 ? excelFileNames : undefined,
     });
 
     const payload: ReseedResponse = {

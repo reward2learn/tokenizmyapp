@@ -124,22 +124,26 @@ function bestGuess<T>(values: string[]): T | null {
 
 // ── Public API ───────────────────────────────────────────────────────
 
-/** Analyze extracted sheets (EXTRACT output) into deterministic hints. */
-export function analyzeSheets(sheets: ExtractedSheet[]): AnalysisHints {
-  const sheetHints: SheetHints[] = sheets.map((s) => {
-    const { currency, periods, labels } = collectHints(s.text);
-    return {
-      tabName: s.tabName,
-      rowCount: s.stats.rowCount,
-      colCount: s.stats.colCount,
-      numericRatio: s.stats.numericRatio,
-      currencyHints: currency,
-      periodHints: periods,
-      labelHints: labels,
-      likelyCategory: guessCategory(labels),
-    };
-  });
+/** Analyze a single extracted sheet into structural hints. */
+export function analyzeSheet(sheet: ExtractedSheet): SheetHints {
+  const { currency, periods, labels } = collectHints(sheet.text);
+  return {
+    tabName: sheet.tabName,
+    rowCount: sheet.stats.rowCount,
+    colCount: sheet.stats.colCount,
+    numericRatio: sheet.stats.numericRatio,
+    currencyHints: currency,
+    periodHints: periods,
+    labelHints: labels,
+    likelyCategory: guessCategory(labels),
+  };
+}
 
+/** Roll up per-sheet hints into workbook-level AnalysisHints. */
+export function aggregateSheetHints(
+  sheets: ExtractedSheet[],
+  sheetHints: SheetHints[],
+): AnalysisHints {
   const totalRows = sheetHints.reduce((acc, s) => acc + s.rowCount, 0);
   const totalNonEmptyCells = sheets.reduce((acc, s) => acc + s.stats.nonEmptyCells, 0);
   const weightedNumeric = sheets.reduce(
@@ -161,6 +165,28 @@ export function analyzeSheets(sheets: ExtractedSheet[]): AnalysisHints {
     },
     sheets: sheetHints,
   };
+}
+
+/** Human-readable one-liner for analyzing progress (includes currency/period when found). */
+export function formatSheetAnalyzingDetail(hint: SheetHints): string {
+  const parts: string[] = [
+    `${hint.rowCount} rows`,
+    `${Math.round(hint.numericRatio * 100)}% numeric`,
+  ];
+  if (hint.likelyCategory) parts.push(hint.likelyCategory);
+  const currency = hint.currencyHints[0];
+  if (currency) parts.push(currency);
+  const period = hint.periodHints[0];
+  if (period) parts.push(period);
+  return parts.join(', ');
+}
+
+/** Analyze extracted sheets (EXTRACT output) into deterministic hints. */
+export function analyzeSheets(sheets: ExtractedSheet[]): AnalysisHints {
+  return aggregateSheetHints(
+    sheets,
+    sheets.map((s) => analyzeSheet(s)),
+  );
 }
 
 export { SHEET_CATEGORIES };

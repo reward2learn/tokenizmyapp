@@ -8,7 +8,11 @@ import {
   type Prisma,
   type TaskStatus,
 } from '@/generated/prisma';
-import { getFullCatalog, PAGE_CATALOG, REVIEW_PART_CATALOG } from '@/lib/page-catalog';
+import { getCurrentAppId } from '@shared/lib/config/tenant';
+import { resolveRegistryTenantSlug } from '@shared/lib/cms-scope';
+import { toStoragePageSlug } from '@shared/lib/page-slug';
+import { addTenantColumnsIfMissing } from '@/domain/tenant/tenant-seed-service';
+import { getFullCatalog, REVIEW_PART_CATALOG } from '@/lib/page-catalog';
 import type { DbClient } from '@/lib/db';
 import { FUNCTIONAL_ROLES } from '@/domain/security/functional-roles';
 import { parseBusinessReviewParts } from '@/lib/parse-business-review';
@@ -23,10 +27,12 @@ import {
   readSourceFile,
   readSourceText,
   sourceFileExists,
+  SOURCE_FILENAMES,
   TERMS_HTML_PATH,
   writeSourceFile,
   type SourceFileKey,
 } from '@/domain/seed/source-files';
+import { buildWorkbookCacheMeta, WORKBOOK_META_KEY } from '@/lib/workbook-cache';
 import {
   BUSINESS_NAME,
   CURRENT_METRICS,
@@ -85,6 +91,11 @@ export interface SeedOptions {
    * take precedence); deterministic values remain the fallback.
    */
   skipFinancialProjections?: boolean;
+  /**
+   * Original Excel upload filenames (same order as `overrides.excel` buffers).
+   * Stored in knowledge_snippets.workbook_meta for the Upload & Seed UI.
+   */
+  excelFileNames?: string[];
 }
 
 export interface SeedResult {
@@ -112,12 +123,14 @@ CREATE TABLE IF NOT EXISTS daily_metrics (
 const MONTHLY_TARGETS_DDL = `
 CREATE TABLE IF NOT EXISTS monthly_targets (
   id SERIAL PRIMARY KEY,
-  month TEXT NOT NULL UNIQUE,
+  month TEXT NOT NULL,
   target_revenue NUMERIC(12,2) NOT NULL,
   target_ebitda NUMERIC(12,2) NOT NULL,
   target_guests INTEGER NOT NULL,
   target_avg_spend NUMERIC(10,2) NOT NULL,
-  target_staff_cost_pct NUMERIC(5,2) NOT NULL
+  target_staff_cost_pct NUMERIC(5,2) NOT NULL,
+  app_id TEXT NOT NULL DEFAULT '',
+  UNIQUE (month, app_id)
 );`;
 
 const CONTENT_ENUM_STATEMENTS = [
@@ -132,6 +145,16 @@ const BLOCK_TYPE_ALTER_STATEMENTS = [
   `ALTER TYPE "BlockType" ADD VALUE IF NOT EXISTS 'review_blocks'`,
   `ALTER TYPE "BlockType" ADD VALUE IF NOT EXISTS 'reports_rollup'`,
   `ALTER TYPE "BlockType" ADD VALUE IF NOT EXISTS 'sheet_viewer'`,
+  `ALTER TYPE "BlockType" ADD VALUE IF NOT EXISTS 'pack_table'`,
+  `ALTER TYPE "BlockType" ADD VALUE IF NOT EXISTS 'feature_grid'`,
+  `ALTER TYPE "BlockType" ADD VALUE IF NOT EXISTS 'testimonials'`,
+  `ALTER TYPE "BlockType" ADD VALUE IF NOT EXISTS 'marketing_hero'`,
+  `ALTER TYPE "BlockType" ADD VALUE IF NOT EXISTS 'capability_marquee'`,
+  `ALTER TYPE "BlockType" ADD VALUE IF NOT EXISTS 'product_showcase'`,
+  `ALTER TYPE "BlockType" ADD VALUE IF NOT EXISTS 'customer_proof'`,
+  `ALTER TYPE "BlockType" ADD VALUE IF NOT EXISTS 'faq'`,
+  `ALTER TYPE "BlockType" ADD VALUE IF NOT EXISTS 'cta_banner'`,
+  `ALTER TYPE "BlockType" ADD VALUE IF NOT EXISTS 'pricing_table'`,
 ];
 
 const CONTENT_TABLE_STATEMENTS = [
@@ -161,10 +184,12 @@ const CONTENT_TABLE_STATEMENTS = [
   )`,
   `CREATE TABLE IF NOT EXISTS levers (
     id TEXT PRIMARY KEY,
-    num INTEGER NOT NULL UNIQUE,
+    num INTEGER NOT NULL,
     name TEXT NOT NULL,
     impact TEXT NOT NULL,
-    description TEXT NOT NULL
+    description TEXT NOT NULL,
+    app_id TEXT NOT NULL DEFAULT '',
+    UNIQUE (num, app_id)
   )`,
   `CREATE TABLE IF NOT EXISTS action_items (
     id TEXT PRIMARY KEY,
@@ -175,9 +200,11 @@ const CONTENT_TABLE_STATEMENTS = [
   )`,
   `CREATE TABLE IF NOT EXISTS knowledge_snippets (
     id TEXT PRIMARY KEY,
-    key TEXT NOT NULL UNIQUE,
+    key TEXT NOT NULL,
     content TEXT NOT NULL,
-    category TEXT NOT NULL
+    category TEXT NOT NULL,
+    app_id TEXT NOT NULL DEFAULT '',
+    UNIQUE (key, app_id)
   )`,
   `CREATE TABLE IF NOT EXISTS google_oauth_config (
     id TEXT PRIMARY KEY DEFAULT 'default',
@@ -375,6 +402,51 @@ const KNOWN_ROLES: { code: string; name: string; isPlatformAdmin?: boolean }[] =
   }));
 
 /**
+ * Legacy person / label aliases → functional role codes.
+ * Older PRIORITY_ACTIONS labels may use person names or display labels.
+ * Map those onto role codes so task assignments land on real roles.
+ */
+const OWNER_CODE_ALIASES: Record<string, string> = {
+  // Functional role codes and display labels (case variants)
+  finance: 'finance',
+  ceo: 'ceo',
+  manager: 'manager',
+  operations: 'operations',
+  compliance: 'compliance',
+  entertainment: 'entertainment',
+  'platform-admin': 'platform-admin',
+  'platform admin': 'platform-admin',
+  // Legacy person-name prefixes in older seeded task labels
+  ama: 'finance',
+  graham: 'ceo',
+  james: 'entertainment',
+  lukas: 'operations',
+  lucas: 'operations',
+  made: 'compliance',
+};
+
+/**
+ * Normalize an owner token (person name, display label, or role code) to a
+ * known functional role code. Returns null when unmapped (caller decides
+ * whether to fall back to all individual roles).
+ */
+function normalizeOwnerCode(raw: string): string | null {
+  const token = raw.trim();
+  if (!token) return null;
+  const lower = token.toLowerCase();
+
+  const direct = KNOWN_ROLES.find((r) => r.code.toLowerCase() === lower);
+  if (direct) return direct.code;
+
+  const aliased = OWNER_CODE_ALIASES[lower];
+  if (!aliased) return null;
+
+  const role = KNOWN_ROLES.find((r) => r.code.toLowerCase() === aliased.toLowerCase());
+  return role?.code ?? null;
+}
+
+/** Resolve a known role by email (case-insensitive). Used by Google sign-in. */
+/**
  * Resolve a known role by email from the roles DB table.
  * Replaces the old PERSONS-registry lookup with a live DB query.
  */
@@ -450,41 +522,7 @@ export function listKnownAccounts(): { sub: string; name: string; tier: string; 
   }));
 }
 
-/**
- * Legacy label aliases → functional role codes (older task labels used person names).
- */
-const OWNER_CODE_ALIASES: Record<string, string> = {
-  finance: 'finance',
-  ceo: 'ceo',
-  manager: 'manager',
-  operations: 'operations',
-  compliance: 'compliance',
-  entertainment: 'entertainment',
-  'platform-admin': 'platform-admin',
-  ama: 'finance',
-  graham: 'ceo',
-  james: 'entertainment',
-  lukas: 'operations',
-  lucas: 'operations',
-  made: 'compliance',
-};
-
-function normalizeOwnerCode(raw: string): string | null {
-  const token = raw.trim();
-  if (!token) return null;
-  const lower = token.toLowerCase();
-
-  const direct = KNOWN_ROLES.find((r) => r.code.toLowerCase() === lower);
-  if (direct) return direct.code;
-
-  const aliased = OWNER_CODE_ALIASES[lower];
-  if (!aliased) return null;
-
-  const role = KNOWN_ROLES.find((r) => r.code.toLowerCase() === aliased.toLowerCase());
-  return role?.code ?? null;
-}
-
-/** Parse "finance: do the thing" → { ownerCodes: ['finance'], title: 'do the thing' }. */
+/** Parse "Ama: do the thing" → { ownerCodes: ['finance'], title: 'do the thing' }. */
 function parseTaskLabel(label: string): { ownerCodes: string[]; title: string } {
   const match = label.match(/^([A-Za-z][A-Za-z+& ]*?):\s*(.+)$/);
   if (!match) {
@@ -492,9 +530,12 @@ function parseTaskLabel(label: string): { ownerCodes: string[]; title: string } 
   }
   const ownerPart = match[1].trim();
   const title = match[2].trim();
+  // "All:" → empty owners → resolveOwnerCodes expands to every individual role.
   if (ownerPart.toLowerCase() === 'all') {
     return { ownerCodes: [], title };
   }
+  // Split on + & , / to support "Lukas + Made", "Ama & Graham", "Finance + CEO", etc.
+  // Person names and display labels are mapped through OWNER_CODE_ALIASES.
   const ownerCodes = ownerPart
     .split(/[+&,/]/)
     .map((s) => normalizeOwnerCode(s))
@@ -559,6 +600,158 @@ function buildTasks(): BuiltTask[] {
 export async function ensureLegacyTables(prisma: PrismaClient): Promise<void> {
   await prisma.$executeRawUnsafe(DAILY_METRICS_DDL);
   await prisma.$executeRawUnsafe(MONTHLY_TARGETS_DDL);
+  // Older DBs may have monthly_targets without app_id — Prisma upserts need it.
+  try {
+    await prisma.$executeRawUnsafe(
+      `ALTER TABLE monthly_targets ADD COLUMN IF NOT EXISTS app_id TEXT NOT NULL DEFAULT ''`,
+    );
+  } catch {
+    // ignore — table may not exist yet / already migrated
+  }
+  try {
+    await prisma.$executeRawUnsafe(
+      `CREATE UNIQUE INDEX IF NOT EXISTS monthly_targets_month_app_id_key ON monthly_targets (month, app_id)`,
+    );
+  } catch {
+    // ignore duplicate / conflict with legacy UNIQUE(month)
+  }
+
+  // financial_projections: suite seeds write app_id = NEXT_PUBLIC_APP_ID, but many
+  // production DBs still have UNIQUE(period, data_type, scenario) without app_id.
+  // ON CONFLICT (... app_id) then does not fire and INSERT raises 23505.
+  await ensureFinancialProjectionAppScope(prisma);
+}
+
+/**
+ * Ensure financial_projections is app-scoped (column + unique key) so suite
+ * reseed can upsert without colliding with legacy app_id='' rows.
+ */
+export async function ensureFinancialProjectionAppScope(
+  prisma: PrismaClient,
+): Promise<void> {
+  try {
+    await prisma.$executeRawUnsafe(
+      `ALTER TABLE financial_projections ADD COLUMN IF NOT EXISTS app_id TEXT NOT NULL DEFAULT ''`,
+    );
+  } catch {
+    // table missing — nothing to migrate
+    return;
+  }
+
+  // Drop legacy UNIQUE(period, data_type, scenario) whether it is a constraint
+  // or a standalone unique index (prisma db push used both historically).
+  await prisma.$executeRawUnsafe(`
+    DO $$
+    DECLARE
+      r record;
+    BEGIN
+      FOR r IN
+        SELECT c.conname AS name, 'constraint' AS kind
+        FROM pg_constraint c
+        JOIN pg_class t ON t.oid = c.conrelid
+        WHERE t.relname = 'financial_projections'
+          AND c.contype = 'u'
+          AND (
+            SELECT array_agg(a.attname::text ORDER BY u.ord)
+            FROM unnest(c.conkey) WITH ORDINALITY AS u(attnum, ord)
+            JOIN pg_attribute a ON a.attrelid = c.conrelid AND a.attnum = u.attnum
+          ) = ARRAY['period','data_type','scenario']::text[]
+      LOOP
+        EXECUTE format('ALTER TABLE financial_projections DROP CONSTRAINT IF EXISTS %I', r.name);
+      END LOOP;
+
+      FOR r IN
+        SELECT i.relname AS name
+        FROM pg_index x
+        JOIN pg_class t ON t.oid = x.indrelid
+        JOIN pg_class i ON i.oid = x.indexrelid
+        WHERE t.relname = 'financial_projections'
+          AND x.indisunique
+          AND NOT x.indisprimary
+          AND NOT EXISTS (
+            SELECT 1 FROM pg_constraint c WHERE c.conindid = x.indexrelid
+          )
+          AND (
+            SELECT array_agg(a.attname::text ORDER BY u.ord)
+            FROM unnest(x.indkey) WITH ORDINALITY AS u(attnum, ord)
+            JOIN pg_attribute a ON a.attrelid = x.indrelid AND a.attnum = u.attnum
+          ) = ARRAY['period','data_type','scenario']::text[]
+      LOOP
+        EXECUTE format('DROP INDEX IF EXISTS %I', r.name);
+      END LOOP;
+    END $$;
+  `);
+
+  try {
+    await prisma.$executeRawUnsafe(
+      `CREATE UNIQUE INDEX IF NOT EXISTS financial_projections_period_data_type_scenario_app_id_key
+       ON financial_projections (period, data_type, scenario, app_id)`,
+    );
+  } catch (err) {
+    console.warn(
+      '[seed] Could not create app-scoped financial_projections unique index:',
+      err instanceof Error ? err.message : err,
+    );
+  }
+}
+
+/**
+ * When this deployment has a non-empty app id, adopt orphan rows left by older
+ * seeds that hard-coded app_id='' so Review Data / KPIs see them immediately.
+ */
+export async function reclaimOrphanAppScopedRows(
+  prisma: PrismaClient,
+  appId: string,
+): Promise<void> {
+  if (!appId) return;
+
+  await prisma.$executeRaw`
+    UPDATE financial_projections AS fp
+    SET app_id = ${appId}
+    WHERE fp.app_id = ''
+      AND NOT EXISTS (
+        SELECT 1 FROM financial_projections o
+        WHERE o.period = fp.period
+          AND o.data_type = fp.data_type
+          AND o.scenario = fp.scenario
+          AND o.app_id = ${appId}
+      )
+  `;
+
+  await prisma.$executeRaw`
+    UPDATE monthly_targets AS mt
+    SET app_id = ${appId}
+    WHERE mt.app_id = ''
+      AND NOT EXISTS (
+        SELECT 1 FROM monthly_targets o WHERE o.month = mt.month AND o.app_id = ${appId}
+      )
+  `;
+
+  await prisma.$executeRaw`
+    UPDATE levers AS l
+    SET app_id = ${appId}
+    WHERE l.app_id = ''
+      AND NOT EXISTS (
+        SELECT 1 FROM levers o WHERE o.num = l.num AND o.app_id = ${appId}
+      )
+  `;
+
+  await prisma.$executeRaw`
+    UPDATE action_items SET app_id = ${appId} WHERE app_id = ''
+  `;
+
+  await prisma.$executeRaw`
+    UPDATE tasks SET app_id = ${appId} WHERE app_id = ''
+  `;
+
+  await prisma.$executeRaw`
+    UPDATE knowledge_snippets AS ks
+    SET app_id = ${appId}
+    WHERE ks.app_id = ''
+      AND NOT EXISTS (
+        SELECT 1 FROM knowledge_snippets o WHERE o.key = ks.key AND o.app_id = ${appId}
+      )
+  `;
 }
 
 export async function ensureContentTables(prisma: PrismaClient): Promise<void> {
@@ -613,13 +806,18 @@ export async function seedTaskTracking(prisma: DbClient): Promise<void> {
     roleIdByCode.set(created.code, created.id);
   }
 
-  const existingTasks = await prisma.task.findMany({ take: 1 });
+  const existingTasks = await prisma.task.findMany({
+    where: { appId: getCurrentAppId() },
+    take: 1,
+  });
   if (existingTasks.length > 0) {
     // Tasks already exist — backfill any missing descriptions from the playbook
     // without disturbing status/progress. Then ensure assignments are intact.
     const builtAll = buildTasks();
     for (const built of builtAll) {
-      const existing = await prisma.task.findFirst({ where: { title: built.title } });
+      const existing = await prisma.task.findFirst({
+        where: { title: built.title, appId: getCurrentAppId() },
+      });
       if (existing && !existing.description?.trim() && built.description) {
         await prisma.task.update({
           where: { id: existing.id },
@@ -630,8 +828,11 @@ export async function seedTaskTracking(prisma: DbClient): Promise<void> {
     return;
   }
 
-  await prisma.taskAssignment.deleteMany();
-  await prisma.task.deleteMany();
+  const appId = getCurrentAppId();
+  await prisma.taskAssignment.deleteMany({
+    where: { task: { appId } },
+  });
+  await prisma.task.deleteMany({ where: { appId } });
 
   let taskOrder = 0;
   const now = Date.now();
@@ -645,6 +846,7 @@ export async function seedTaskTracking(prisma: DbClient): Promise<void> {
         status: 'pending',
         dueDate,
         sortOrder: taskOrder++,
+        appId,
       },
     });
     const ownerCodes = built.ownerCodes.length > 0 ? built.ownerCodes : [];
@@ -659,12 +861,13 @@ export async function seedTaskTracking(prisma: DbClient): Promise<void> {
 async function upsertFinancialProjectionRaw(
   prisma: PrismaClient,
   row: FinancialProjectionRow,
+  appId: string,
 ): Promise<void> {
   const pnlJson = JSON.stringify(row.pnlLines);
   await prisma.$executeRaw`
-    INSERT INTO financial_projections (period, year, month, data_type, scenario, revenue, ebitda, net_income, guests, staff_cost, pnl_lines)
-    VALUES (${row.period}, ${row.year}, ${row.month}, ${row.dataType}, ${row.scenario}, ${row.revenue}, ${row.ebitda}, ${row.netIncome}, ${row.guests}, ${row.staffCost}, ${pnlJson}::jsonb)
-    ON CONFLICT (period, data_type, scenario)
+    INSERT INTO financial_projections (period, year, month, data_type, scenario, revenue, ebitda, net_income, guests, staff_cost, pnl_lines, app_id)
+    VALUES (${row.period}, ${row.year}, ${row.month}, ${row.dataType}, ${row.scenario}, ${row.revenue}, ${row.ebitda}, ${row.netIncome}, ${row.guests}, ${row.staffCost}, ${pnlJson}::jsonb, ${appId})
+    ON CONFLICT (period, data_type, scenario, app_id)
     DO UPDATE SET
       year = EXCLUDED.year,
       month = EXCLUDED.month,
@@ -758,6 +961,104 @@ function resolveSources(options: SeedOptions): ResolvedSources {
 
   return { excel, businessReview, executiveSummary, filesUsed };
 }
+
+export type AiSeedTask = {
+  title: string;
+  priority?: 'P0' | 'P1' | 'P2' | string;
+  ownerCodes?: string[];
+  dueOffsetDays?: number;
+  description?: string | null;
+};
+
+/**
+ * Seed / replace tracked tasks from AI Content Generation output.
+ * Always syncs roles. When `tasks` is non-empty, replaces the task table
+ * so Home/Tasks reflect the latest AI diagnostic (unlike seedTaskTracking
+ * which is a no-op when tasks already exist).
+ */
+export async function seedTasksFromAi(
+  prisma: DbClient,
+  tasks: AiSeedTask[],
+): Promise<number> {
+  const roleIdByCode = new Map<string, string>();
+  for (const role of KNOWN_ROLES) {
+    const created = await prisma.role.upsert({
+      where: { code: role.code },
+      create: {
+        code: role.code,
+        name: role.name,
+        isPlatformAdmin: role.isPlatformAdmin ?? false,
+      },
+      update: {
+        name: role.name,
+        isPlatformAdmin: role.isPlatformAdmin ?? false,
+      },
+    });
+    roleIdByCode.set(created.code, created.id);
+  }
+
+  const normalized = (tasks ?? [])
+    .map((t) => ({
+      title: String(t.title ?? '').trim(),
+      priority: (['P0', 'P1', 'P2'].includes(String(t.priority)) ? t.priority : 'P1') as ActionPriority,
+      ownerCodes: Array.isArray(t.ownerCodes)
+        ? t.ownerCodes.map((c) => String(c).trim()).filter(Boolean)
+        : [],
+      dueOffsetDays: typeof t.dueOffsetDays === 'number' && t.dueOffsetDays > 0 ? t.dueOffsetDays : 14,
+      description: t.description ? String(t.description) : null,
+    }))
+    .filter((t) => t.title.length > 0);
+
+  if (normalized.length === 0) {
+    await seedTaskTracking(prisma);
+    return 0;
+  }
+
+  const appId = getCurrentAppId();
+  await prisma.taskAssignment.deleteMany({
+    where: { task: { appId } },
+  });
+  await prisma.task.deleteMany({ where: { appId } });
+
+  let taskOrder = 0;
+  const now = Date.now();
+
+  for (const built of normalized) {
+    const dueDate = new Date(now + built.dueOffsetDays * 24 * 60 * 60 * 1000);
+    const task = await prisma.task.create({
+      data: {
+        title: built.title,
+        description: built.description,
+        priority: built.priority,
+        status: 'pending',
+        dueDate,
+        sortOrder: taskOrder++,
+        appId,
+      },
+    });
+
+    // Map person names / display labels (Ama, Made, Finance, …) → functional role codes.
+    // Explicit "All" (any casing) means assign to every individual role.
+    const wantsAll = built.ownerCodes.some((c) => c.trim().toLowerCase() === 'all');
+    const owners = wantsAll
+      ? []
+      : built.ownerCodes
+          .map((c) => normalizeOwnerCode(c))
+          .filter((c): c is string => Boolean(c));
+    // Deduplicate while preserving order
+    const uniqueOwners = [...new Set(owners)];
+
+    const assignCodes = uniqueOwners.length > 0 ? uniqueOwners : resolveOwnerCodes([]);
+    for (const code of assignCodes) {
+      const roleId = roleIdByCode.get(code);
+      if (!roleId) continue;
+      await prisma.taskAssignment.create({ data: { taskId: task.id, roleId, assigned: true } });
+    }
+  }
+
+  return normalized.length;
+}
+
 
 export async function seedFromSources(options: SeedOptions = {}): Promise<SeedResult> {
   const dryRun = options.dryRun ?? false;
@@ -904,6 +1205,19 @@ export async function seedFromSources(options: SeedOptions = {}): Promise<SeedRe
       });
     }
 
+    const names = options.excelFileNames ?? [];
+    const meta = buildWorkbookCacheMeta(
+      allExcelBuffers.map((buf, i) => ({
+        fileName: names[i] || (i === 0 ? SOURCE_FILENAMES.excel : `workbook_${i}.xlsx`),
+        sizeBytes: buf.byteLength,
+      })),
+    );
+    knowledgeSnippets.push({
+      key: WORKBOOK_META_KEY,
+      category: 'cache',
+      content: JSON.stringify(meta),
+    });
+
     // Import-time formula inventory: find every formula cell in the workbook
     // and map its references to the DB-sheet coordinates (column key + data
     // row offset) the sheet viewer serves, so formulas can be computed against
@@ -965,14 +1279,28 @@ export async function seedFromSources(options: SeedOptions = {}): Promise<SeedRe
   }
 
   const prisma = new PrismaClient({ datasources: { db: { url: connStr } } });
+  // Suite deployments (e.g. tokenizmyapp-finance) set NEXT_PUBLIC_APP_ID —
+  // seed must write the same app_id that seed-details / chart APIs filter on.
+  const appId = getCurrentAppId();
 
   try {
     await ensureLegacyTables(prisma);
     await ensureContentTables(prisma);
+    // Migrate UNIQUE keys to include app_id (same helper used for tenant provision).
+    try {
+      await addTenantColumnsIfMissing(prisma);
+    } catch (err) {
+      console.warn(
+        '[seed] addTenantColumnsIfMissing warning (non-fatal):',
+        err instanceof Error ? err.message : err,
+      );
+    }
+    // Adopt prior seeds that wrote app_id='' before suite scoping was fixed.
+    await reclaimOrphanAppScopedRows(prisma, appId);
 
     if (projections && !options.skipFinancialProjections) {
       for (const row of projections) {
-        await upsertFinancialProjectionRaw(prisma, row);
+        await upsertFinancialProjectionRaw(prisma, row, appId);
       }
     } else if (options.skipFinancialProjections) {
       console.log('[seed] skipFinancialProjections=true — financial projections left to the AI workbook pipeline');
@@ -982,7 +1310,7 @@ export async function seedFromSources(options: SeedOptions = {}): Promise<SeedRe
       const catalog = REVIEW_PART_CATALOG[part.slug];
       const authTier = (catalog?.authTier ?? 'google') as AuthTier;
       await prisma.businessReviewPart.upsert({
-        where: { slug: part.slug },
+        where: { slug_appId: { slug: part.slug, appId } },
         create: {
           partKey: part.partKey,
           slug: part.slug,
@@ -990,6 +1318,7 @@ export async function seedFromSources(options: SeedOptions = {}): Promise<SeedRe
           sortOrder: part.sortOrder,
           authTier,
           markdown: part.markdown,
+          appId,
         },
         update: {
           partKey: part.partKey,
@@ -1009,12 +1338,13 @@ export async function seedFromSources(options: SeedOptions = {}): Promise<SeedRe
         ...lever.actions.map((a) => `- ${a}`),
       ].join('\n');
       await prisma.lever.upsert({
-        where: { num: lever.num },
+        where: { num_appId: { num: lever.num, appId } },
         create: {
           num: lever.num,
           name: lever.name,
           impact: lever.impact,
           description,
+          appId,
         },
         update: {
           name: lever.name,
@@ -1024,13 +1354,14 @@ export async function seedFromSources(options: SeedOptions = {}): Promise<SeedRe
       });
     }
 
-    await prisma.actionItem.deleteMany();
+    await prisma.actionItem.deleteMany({ where: { appId } });
     await prisma.actionItem.createMany({
       data: actionItems.map((item) => ({
         priority: item.priority,
         label: item.label,
         sortOrder: item.sortOrder,
         completed: false,
+        appId,
       })),
     });
 
@@ -1053,8 +1384,8 @@ export async function seedFromSources(options: SeedOptions = {}): Promise<SeedRe
     }
 
     // Recreate tasks from the current priority actions (idempotent by title+sortOrder).
-    await prisma.taskAssignment.deleteMany();
-    await prisma.task.deleteMany();
+    await prisma.taskAssignment.deleteMany({ where: { task: { appId } } });
+    await prisma.task.deleteMany({ where: { appId } });
 
     let taskOrder = 0;
     const now = Date.now();
@@ -1068,6 +1399,7 @@ export async function seedFromSources(options: SeedOptions = {}): Promise<SeedRe
           status: 'pending' as TaskStatus,
           dueDate,
           sortOrder: taskOrder++,
+          appId,
         },
       });
       const ownerCodes = built.ownerCodes.length > 0 ? built.ownerCodes : [];
@@ -1082,7 +1414,7 @@ export async function seedFromSources(options: SeedOptions = {}): Promise<SeedRe
 
     for (const target of MONTHLY_TARGETS) {
       await prisma.monthlyTarget.upsert({
-        where: { month: target.month },
+        where: { month_appId: { month: target.month, appId } },
         create: {
           month: target.month,
           targetRevenue: target.revenue,
@@ -1090,6 +1422,7 @@ export async function seedFromSources(options: SeedOptions = {}): Promise<SeedRe
           targetGuests: target.guests,
           targetAvgSpend: target.spend,
           targetStaffCostPct: target.staffPct,
+          appId,
         },
         update: {
           targetRevenue: target.revenue,
@@ -1103,26 +1436,41 @@ export async function seedFromSources(options: SeedOptions = {}): Promise<SeedRe
 
     for (const snippet of knowledgeSnippets) {
       await prisma.knowledgeSnippet.upsert({
-        where: { key: snippet.key },
-        create: snippet,
+        where: { key_appId: { key: snippet.key, appId } },
+        create: { ...snippet, appId },
         update: { category: snippet.category, content: snippet.content },
       });
     }
 
     let pageSort = 0;
+    const tenantSlugForPages =
+      process.env.NEXT_PUBLIC_TENANT_SLUG?.trim() || null;
+    const registryTenantSlug = tenantSlugForPages
+      ? resolveRegistryTenantSlug(tenantSlugForPages, appId)
+      : null;
+
     for (const page of pageEntries) {
+      const storageSlug = appId ? toStoragePageSlug(page.slug, appId) : page.slug;
       const appPage = await prisma.appPage.upsert({
-        where: { slug: page.slug },
+        where: { slug: storageSlug },
         create: {
-          slug: page.slug,
+          slug: storageSlug,
           title: page.title,
           authTier: page.authTier as AuthTier,
           sortOrder: pageSort++,
+          navLabel: page.navLabel ?? page.title,
+          showInNav: page.showInNav !== false,
+          tenantSlug: registryTenantSlug,
+          appId: appId || null,
         },
         update: {
           title: page.title,
           authTier: page.authTier as AuthTier,
           sortOrder: pageSort - 1,
+          navLabel: page.navLabel ?? page.title,
+          showInNav: page.showInNav !== false,
+          tenantSlug: registryTenantSlug ?? undefined,
+          appId: appId || null,
         },
       });
 
@@ -1135,6 +1483,21 @@ export async function seedFromSources(options: SeedOptions = {}): Promise<SeedRe
           config: section.config as Prisma.InputJsonValue,
         })),
       });
+    }
+
+    // Keep drawer nav idempotent after every reseed (collapse Excel/sheet dupes).
+    try {
+      const { reconcileNavigationDuplicates, syncSheetPagesIntoNavigation } = await import(
+        '@/lib/navigation/db'
+      );
+      const tenantSlug = process.env.NEXT_PUBLIC_TENANT_SLUG?.trim() || null;
+      await reconcileNavigationDuplicates(prisma, { tenantSlug, appId });
+      await syncSheetPagesIntoNavigation(prisma, { tenantSlug, appId });
+    } catch (err) {
+      console.warn(
+        '[seed] Navigation reconcile skipped:',
+        err instanceof Error ? err.message : err,
+      );
     }
 
     return { counts, filesUsed };

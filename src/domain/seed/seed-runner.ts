@@ -27,10 +27,12 @@ import {
   readSourceFile,
   readSourceText,
   sourceFileExists,
+  SOURCE_FILENAMES,
   TERMS_HTML_PATH,
   writeSourceFile,
   type SourceFileKey,
 } from '@/domain/seed/source-files';
+import { buildWorkbookCacheMeta, WORKBOOK_META_KEY } from '@/lib/workbook-cache';
 import {
   BUSINESS_NAME,
   CURRENT_METRICS,
@@ -89,6 +91,11 @@ export interface SeedOptions {
    * take precedence); deterministic values remain the fallback.
    */
   skipFinancialProjections?: boolean;
+  /**
+   * Original Excel upload filenames (same order as `overrides.excel` buffers).
+   * Stored in knowledge_snippets.workbook_meta for the Upload & Seed UI.
+   */
+  excelFileNames?: string[];
 }
 
 export interface SeedResult {
@@ -1197,6 +1204,19 @@ export async function seedFromSources(options: SeedOptions = {}): Promise<SeedRe
         content: allExcelBuffers[i]!.toString('base64'),
       });
     }
+
+    const names = options.excelFileNames ?? [];
+    const meta = buildWorkbookCacheMeta(
+      allExcelBuffers.map((buf, i) => ({
+        fileName: names[i] || (i === 0 ? SOURCE_FILENAMES.excel : `workbook_${i}.xlsx`),
+        sizeBytes: buf.byteLength,
+      })),
+    );
+    knowledgeSnippets.push({
+      key: WORKBOOK_META_KEY,
+      category: 'cache',
+      content: JSON.stringify(meta),
+    });
 
     // Import-time formula inventory: find every formula cell in the workbook
     // and map its references to the DB-sheet coordinates (column key + data

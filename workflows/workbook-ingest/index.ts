@@ -75,7 +75,22 @@ export async function handleWorkbookIngest(
   });
 
   // ── 3. ANALYZE (deterministic pre-pass) ────────────────────
-  const hints = await analyzeSheetsStep(sheets);
+  await emitProgressStep(writable, {
+    step: 'analyzing',
+    message: `Analyzing structure of ${sheets.length} sheet(s)…`,
+    pct: 46,
+    detail: {
+      sheets: sheets.length,
+      tabNames: sheets.map((s) => s.tabName),
+      sheetStatuses: sheets.map((s) => ({
+        name: s.tabName,
+        status: 'pending' as const,
+        phase: 'analyzing' as const,
+      })),
+    },
+  });
+
+  const hints = await analyzeSheetsStep(sheets, writable);
 
   await emitProgressStep(writable, {
     step: 'analyzing',
@@ -89,6 +104,18 @@ export async function handleWorkbookIngest(
       overallNumericRatio: hints.workbook.overallNumericRatio,
       currencyGuess: hints.workbook.currencyGuess,
       periodGuess: hints.workbook.periodGuess,
+      sheets: hints.sheets.length,
+      tabNames: hints.sheets.map((s) => s.tabName),
+      sheetStatuses: hints.sheets.map((s) => ({
+        name: s.tabName,
+        status: 'completed' as const,
+        phase: 'analyzing' as const,
+        detail:
+          `${s.rowCount} rows, ${Math.round(s.numericRatio * 100)}% numeric` +
+          (s.likelyCategory ? `, ${s.likelyCategory}` : '') +
+          (s.currencyHints[0] ? `, ${s.currencyHints[0]}` : '') +
+          (s.periodHints[0] ? `, ${s.periodHints[0]}` : ''),
+      })),
     },
   });
 

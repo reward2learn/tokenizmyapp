@@ -23,6 +23,8 @@ import CloudUploadIcon from '@mui/icons-material/CloudUpload';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import DescriptionIcon from '@mui/icons-material/Description';
 import SummarizeIcon from '@mui/icons-material/Summarize';
+import TableChartIcon from '@mui/icons-material/TableChart';
+import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import {
   ProcessStepTimeline,
   RESEED_SYNC_STEPS,
@@ -40,7 +42,14 @@ import {
   validateExcelUpload,
   validateMarkdownUpload,
 } from '@/lib/config/upload-validation';
-import { useReseedFromSourcesMutation, useReprocessFromCacheMutation, useGetSeedDetailsQuery, useLazyGetReseedWorkflowStatusQuery, configApi } from '@/store/apis/config-api';
+import {
+  useReseedFromSourcesMutation,
+  useReprocessFromCacheMutation,
+  useGetSeedDetailsQuery,
+  useGetCachedWorkbookQuery,
+  useLazyGetReseedWorkflowStatusQuery,
+  configApi,
+} from '@/store/apis/config-api';
 import type { ReseedResponse } from '@/app/api/config/reseed/route';
 import { useDispatch } from 'react-redux';
 import type { AppDispatch } from '@/store';
@@ -105,6 +114,15 @@ function formatBytes(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
+function formatUploadedAt(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return iso;
+  return d.toLocaleString(undefined, {
+    dateStyle: 'medium',
+    timeStyle: 'short',
+  });
+}
+
 /**
  * Reseed POST returns either:
  *   - jsonOk envelope: { success, data: ReseedResponse | WorkflowAcceptedResponse }
@@ -152,8 +170,14 @@ export function SourceUploadForm({ showSummaryOnly }: { showSummaryOnly?: boolea
   const dispatch = useDispatch<AppDispatch>();
   const [reseed, { isLoading, isError, error, isSuccess, data, reset: resetMutation }] =
     useReseedFromSourcesMutation();
-  const [reprocess, { isLoading: isReprocessing, isError: isReprocessError, error: reprocessError, isSuccess: isReprocessSuccess, data: reprocessData, reset: resetReprocess }] =
+  const [reprocess, { isLoading: isReprocessing, isError: isReprocessError, error: reprocessError, reset: resetReprocess }] =
     useReprocessFromCacheMutation();
+  const { data: cachedWorkbookEnvelope } = useGetCachedWorkbookQuery();
+  const cachedWorkbook =
+    cachedWorkbookEnvelope?.success && cachedWorkbookEnvelope.data?.cached === true
+      ? cachedWorkbookEnvelope.data
+      : null;
+  const [useCachedSelected, setUseCachedSelected] = useState(false);
   const [fieldStatus, setFieldStatus] = useState<Record<FileField, string | null>>({
     excel: null,
     businessReview: null,
@@ -177,7 +201,7 @@ export function SourceUploadForm({ showSummaryOnly }: { showSummaryOnly?: boolea
   const [triggerStatus] = useLazyGetReseedWorkflowStatusQuery();
 
   const refreshSeedDetails = useCallback(() => {
-    dispatch(configApi.util.invalidateTags(['SeedDetails']));
+    dispatch(configApi.util.invalidateTags(['SeedDetails', 'CachedWorkbook']));
   }, [dispatch]);
   const {
     register,
@@ -203,83 +227,31 @@ export function SourceUploadForm({ showSummaryOnly }: { showSummaryOnly?: boolea
     }),
     [watched.businessReview, watched.executiveSummary, watched.excel],
   );
+  const selectedFilesRef = useRef(selectedFiles);
+  selectedFilesRef.current = selectedFiles;
 
-  const onSubmit = async (values: SourceUploadFormValues) => {
-    const files = {
-      excel: filesFromList(values.excel),
-      businessReview: fileFromList(values.businessReview),
-      executiveSummary: fileFromList(values.executiveSummary),
-    };
+  // Prefer the last successful cache when available (deselect if user picks new files).
+  useEffect(() => {
+    if (cachedWorkbook && !hasAnyUpload(selectedFilesRef.current)) {
+      setUseCachedSelected(true);
+    }
+  }, [cachedWorkbook]);
 
-    if (!hasAnyUpload(files)) {
-      return;
+  useEffect(() => {
+    if (hasAnyUpload(selectedFiles)) {
+      setUseCachedSelected(false);
     }
+  }, [selectedFiles]);
 
-    const formData = new FormData();
-    if (files.excel.length > 0) {
-      for (const f of files.excel) {
-        formData.append(CONFIG_UPLOAD_FIELD_NAMES.excel, f);
-      }
-    }
-    if (files.businessReview) {
-      formData.append(CONFIG_UPLOAD_FIELD_NAMES.businessReview, files.businessReview);
-    }
-    if (files.executiveSummary) {
-      formData.append(CONFIG_UPLOAD_FIELD_NAMES.executiveSummary, files.executiveSummary);
-    }
-
-    resetMutation();
+  const beginPipelineTracking = useCallback((start: 'uploading' | 'seeding' = 'uploading') => {
     setWorkflowRunId(null);
     setWorkflowProgress(null);
     setSheetStatuses([]);
     setWorkflowComplete(false);
     setAcceptedSummary(null);
-    setSyncStep('uploading');
+    setSyncStep(start);
     setSyncError(false);
-
-    try {
-      setSyncStep('seeding');
-      const raw = await reseed(formData).unwrap();
-      const { summary, workflowRunId: runId } = normalizeReseedMutationResult(raw);
-      if (summary) setAcceptedSummary(summary);
-      // Sync seed already wrote rows — refresh Review Data immediately.
-      refreshSeedDetails();
-
-      if (runId) {
-        setSyncStep('accepted');
-        setWorkflowRunId(runId);
-        startProgressStream(runId);
-      } else {
-        setSyncStep('accepted');
-        setWorkflowComplete(true);
-      }
-    } catch {
-      setSyncError(true);
-      // error handled by mutation state
-    }
-
-    reset();
-    setFieldStatus({ excel: null, businessReview: null, executiveSummary: null });
-  };
-
-  const updateFieldStatus = (field: FileField, file: File | string | null) => {
-    let message: string | null = null;
-    if (typeof file === 'string') {
-      message = file; // e.g. "3 file(s) selected"
-    } else if (file) {
-      if (field === 'excel') {
-        message = validateExcelUpload(file);
-      } else if (field === 'businessReview') {
-        message = validateMarkdownUpload(file, 'Business Review');
-      } else {
-        message = validateMarkdownUpload(file, 'Executive Summary');
-      }
-      if (!message) {
-        message = `Ready — ${file.name} (${formatBytes(file.size)})`;
-      }
-    }
-    setFieldStatus((prev) => ({ ...prev, [field]: message }));
-  };
+  }, []);
 
   function startProgressStream(runId: string) {
     if (eventSourceRef.current) {
@@ -308,7 +280,6 @@ export function SourceUploadForm({ showSummaryOnly }: { showSummaryOnly?: boolea
         if (chunk.pct === 100) {
           es.close();
           setWorkflowComplete(true);
-          // AI workflow may have added pages/snippets beyond the sync seed.
           refreshSeedDetails();
         }
       } catch {
@@ -333,6 +304,94 @@ export function SourceUploadForm({ showSummaryOnly }: { showSummaryOnly?: boolea
     }, 2000);
   }
 
+  const finishSyncWithRunId = useCallback(
+    (summary: ReseedResponse | null, runId: string | null) => {
+      if (summary) setAcceptedSummary(summary);
+      refreshSeedDetails();
+      if (runId) {
+        setSyncStep('accepted');
+        setWorkflowRunId(runId);
+        startProgressStream(runId);
+      } else {
+        setSyncStep('accepted');
+        setWorkflowComplete(true);
+      }
+    },
+    [refreshSeedDetails],
+  );
+
+  const onSubmit = async (values: SourceUploadFormValues) => {
+    const files = {
+      excel: filesFromList(values.excel),
+      businessReview: fileFromList(values.businessReview),
+      executiveSummary: fileFromList(values.executiveSummary),
+    };
+
+    if (!hasAnyUpload(files)) {
+      return;
+    }
+
+    const formData = new FormData();
+    if (files.excel.length > 0) {
+      for (const f of files.excel) {
+        formData.append(CONFIG_UPLOAD_FIELD_NAMES.excel, f);
+      }
+    }
+    if (files.businessReview) {
+      formData.append(CONFIG_UPLOAD_FIELD_NAMES.businessReview, files.businessReview);
+    }
+    if (files.executiveSummary) {
+      formData.append(CONFIG_UPLOAD_FIELD_NAMES.executiveSummary, files.executiveSummary);
+    }
+
+    resetMutation();
+    beginPipelineTracking();
+
+    try {
+      setSyncStep('seeding');
+      const raw = await reseed(formData).unwrap();
+      const { summary, workflowRunId: runId } = normalizeReseedMutationResult(raw);
+      finishSyncWithRunId(summary, runId);
+    } catch {
+      setSyncError(true);
+    }
+
+    reset();
+    setFieldStatus({ excel: null, businessReview: null, executiveSummary: null });
+  };
+
+  const onReseedFromCache = async () => {
+    if (!cachedWorkbook) return;
+    resetReprocess();
+    beginPipelineTracking('seeding');
+    try {
+      const raw = await reprocess().unwrap();
+      const { summary, workflowRunId: runId } = normalizeReseedMutationResult(raw);
+      finishSyncWithRunId(summary, runId);
+    } catch {
+      setSyncError(true);
+    }
+  };
+
+  const updateFieldStatus = (field: FileField, file: File | string | null) => {
+    let message: string | null = null;
+    if (typeof file === 'string') {
+      message = file; // e.g. "3 file(s) selected"
+    } else if (file) {
+      if (field === 'excel') {
+        message = validateExcelUpload(file);
+      } else if (field === 'businessReview') {
+        message = validateMarkdownUpload(file, 'Business Review');
+      } else {
+        message = validateMarkdownUpload(file, 'Executive Summary');
+      }
+      if (!message) {
+        message = `Ready — ${file.name} (${formatBytes(file.size)})`;
+      }
+    }
+    setFieldStatus((prev) => ({ ...prev, [field]: message }));
+  };
+
   const normalizedMutation = normalizeReseedMutationResult(data);
   const result: ReseedResponse | undefined =
     acceptedSummary ?? normalizedMutation.summary ?? undefined;
@@ -351,9 +410,89 @@ export function SourceUploadForm({ showSummaryOnly }: { showSummaryOnly?: boolea
             Workbook &amp; source files
           </Typography>
           <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
-            Upload one or more source files to replace on disk and re-run the database seed pipeline.
-            Omitted files keep their existing copies. After seeding finishes, continue to Review Data.
+            Use the last successfully cached workbook, or upload new source files to replace it and
+            re-run the database seed pipeline. After seeding finishes, continue to Review Data.
           </Typography>
+
+          {cachedWorkbook ? (
+            <Paper
+              variant="outlined"
+              sx={{
+                p: 2,
+                mb: 3,
+                borderColor: useCachedSelected ? 'primary.main' : undefined,
+                bgcolor: useCachedSelected ? 'action.selected' : undefined,
+              }}
+              data-testid="cached-workbook-card"
+            >
+              <Stack spacing={1.5}>
+                <Typography variant="subtitle2" sx={{ fontWeight: 700 }}>
+                  Last successful upload
+                </Typography>
+                <Box
+                  component="button"
+                  type="button"
+                  onClick={() => {
+                    setUseCachedSelected(true);
+                    reset();
+                    setFieldStatus({ excel: null, businessReview: null, executiveSummary: null });
+                  }}
+                  sx={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 1.5,
+                    width: '100%',
+                    textAlign: 'left',
+                    cursor: 'pointer',
+                    border: 1,
+                    borderColor: useCachedSelected ? 'primary.main' : 'divider',
+                    borderRadius: 1,
+                    bgcolor: 'background.paper',
+                    px: 1.5,
+                    py: 1.25,
+                    font: 'inherit',
+                    color: 'inherit',
+                  }}
+                  data-testid="cached-workbook-select"
+                >
+                  <TableChartIcon color={useCachedSelected ? 'primary' : 'action'} sx={{ fontSize: 36 }} />
+                  <Box sx={{ minWidth: 0, flex: 1 }}>
+                    <Typography variant="body2" sx={{ fontWeight: 700, wordBreak: 'break-all' }}>
+                      {cachedWorkbook.fileName}
+                    </Typography>
+                    <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
+                      {formatBytes(cachedWorkbook.sizeBytes)}
+                      {cachedWorkbook.meta.uploadedAt
+                        ? ` · uploaded ${formatUploadedAt(cachedWorkbook.meta.uploadedAt)}`
+                        : ''}
+                      {cachedWorkbook.meta.files.length > 1
+                        ? ` · ${cachedWorkbook.meta.files.length} files`
+                        : ''}
+                    </Typography>
+                  </Box>
+                  {useCachedSelected ? (
+                    <CheckCircleIcon color="primary" fontSize="small" />
+                  ) : null}
+                </Box>
+                <Button
+                  variant="contained"
+                  disabled={!useCachedSelected || isLoading || isReprocessing}
+                  startIcon={
+                    isReprocessing ? <CircularProgress size={18} color="inherit" /> : undefined
+                  }
+                  onClick={() => void onReseedFromCache()}
+                  data-testid="reseed-from-cache-btn"
+                >
+                  {isReprocessing ? 'Reseeding from cache…' : 'Reseed with cached workbook'}
+                </Button>
+                {isReprocessError && reprocessError && 'data' in reprocessError ? (
+                  <Alert severity="error" role="alert">
+                    {String((reprocessError.data as { error?: string })?.error ?? 'Reseed from cache failed')}
+                  </Alert>
+                ) : null}
+              </Stack>
+            </Paper>
+          ) : null}
 
           <Paper variant="outlined" sx={{ p: 3, mb: 3 }}>
             <Stack
@@ -362,6 +501,9 @@ export function SourceUploadForm({ showSummaryOnly }: { showSummaryOnly?: boolea
               onSubmit={handleSubmit(onSubmit)}
               data-testid="source-upload-form"
             >
+              <Typography variant="subtitle2" sx={{ fontWeight: 700 }}>
+                {cachedWorkbook ? 'Or upload a new workbook' : 'Upload workbook & sources'}
+              </Typography>
               {FILE_FIELDS.map((field) => {
                 const file = selectedFiles[field.key];
                 const status = fieldStatus[field.key];
@@ -391,6 +533,7 @@ export function SourceUploadForm({ showSummaryOnly }: { showSummaryOnly?: boolea
                     {...register(field.formName, {
                       onChange: (event) => {
                         const input = event.target as HTMLInputElement;
+                        setUseCachedSelected(false);
                         if (field.multiple) {
                           updateFieldStatus(field.key, input.files?.length ? `${input.files.length} file(s) selected` : null);
                         } else {
@@ -422,7 +565,7 @@ export function SourceUploadForm({ showSummaryOnly }: { showSummaryOnly?: boolea
           <Button
             type="submit"
             variant="contained"
-            disabled={isLoading || !hasAnyUpload(selectedFiles)}
+            disabled={isLoading || isReprocessing || !hasAnyUpload(selectedFiles)}
             startIcon={isLoading ? <CircularProgress size={18} color="inherit" /> : undefined}
             data-testid="reseed-submit"
           >
@@ -431,52 +574,70 @@ export function SourceUploadForm({ showSummaryOnly }: { showSummaryOnly?: boolea
         </Stack>
       </Paper>
 
-          {/* ── Reprocess from cached workbook ───────────────── */}
-          <Paper variant="outlined" sx={{ p: 3, mb: 3, borderColor: isReprocessSuccess ? 'success.main' : undefined }}>
-            <Stack spacing={2}>
-              <Box>
-                <Typography variant="subtitle1" sx={{ fontWeight: 700 }}>
-                  Reprocess from cached workbook
+          {/* Progress sits directly under Upload & Seed so status stays in view */}
+          {syncStep && !workflowRunId ? (
+            <Paper variant="outlined" sx={{ p: 2, mb: 3 }} data-testid="reseed-sync-progress">
+              <Typography variant="subtitle2" sx={{ fontWeight: 700, mb: 1.5 }}>
+                Upload &amp; reseed progress
+              </Typography>
+              <ProcessStepTimeline
+                steps={RESEED_SYNC_STEPS}
+                currentStep={syncStep}
+                activeMessage={
+                  syncStep === 'uploading'
+                    ? 'Sending workbooks and markdown to the server…'
+                    : syncStep === 'seeding'
+                      ? 'Parsing sources and writing projections, pages, and snippets…'
+                      : 'Seed finished — waiting for sheet ingest…'
+                }
+                complete={workflowComplete && !syncError}
+                errored={syncError}
+              />
+              {(isLoading || isReprocessing) && !syncError ? (
+                <LinearProgress sx={{ mt: 2 }} />
+              ) : null}
+            </Paper>
+          ) : null}
+
+          {workflowRunId && !workflowComplete ? (
+            <Paper variant="outlined" sx={{ p: 2, mb: 3, bgcolor: 'rgba(10,249,254,0.04)' }} data-testid="reseed-workflow-progress">
+              <Stack spacing={1.5}>
+                <Typography variant="subtitle2" sx={{ fontWeight: 700 }}>
+                  Upload &amp; reseed progress
                 </Typography>
+                <Typography variant="caption" sx={{ fontFamily: 'monospace', color: 'text.secondary' }}>
+                  Run: {workflowRunId}
+                </Typography>
+                <LinearProgress variant="determinate" value={workflowProgress?.pct ?? 0} />
                 <Typography variant="body2" color="text.secondary">
-                  Re-run the seed pipeline using the previously uploaded workbook stored in the database.
-                  No file re-upload required. This will refresh dynamic pages, sheet metadata, and knowledge snippets.
+                  {workflowProgress?.message ?? 'Starting workflow…'}
                 </Typography>
-              </Box>
-              <Button
-                variant="contained"
-                color="secondary"
-                disabled={isReprocessing}
-                startIcon={isReprocessing ? <CircularProgress size={18} color="inherit" /> : undefined}
-                onClick={async () => {
-                  resetReprocess();
-                  setSyncStep('seeding');
-                  setSyncError(false);
-                  setWorkflowComplete(false);
-                  try {
-                    await reprocess().unwrap();
-                    setSyncStep('accepted');
-                    setWorkflowComplete(true);
-                  } catch {
-                    setSyncError(true);
+                <ProcessStepTimeline
+                  steps={RESEED_WORKFLOW_STEPS}
+                  currentStep={workflowProgress?.step ?? 'started'}
+                  activeMessage={workflowProgress?.message}
+                  activeExtra={
+                    sheetStatuses.length > 0 &&
+                    (workflowProgress?.step === 'extracting' ||
+                      workflowProgress?.step === 'analyzing' ||
+                      workflowProgress?.step === 'populating') ? (
+                      <SheetSeedProgressList sheets={sheetStatuses} />
+                    ) : null
                   }
-                }}
-                data-testid="reprocess-btn"
-              >
-                {isReprocessing ? 'Reprocessing…' : 'Reprocess from cache'}
-              </Button>
-              {isReprocessError && reprocessError && 'data' in reprocessError ? (
-                <Alert severity="error" role="alert">
-                  {String((reprocessError.data as { error?: string })?.error ?? 'Reprocess failed')}
-                </Alert>
-              ) : null}
-              {isReprocessSuccess && reprocessData?.success && reprocessData.data ? (
-                <Alert severity="success" role="status">
-                  Reprocessed successfully from cached workbook.
-                </Alert>
-              ) : null}
-            </Stack>
-          </Paper>
+                  complete={false}
+                  errored={false}
+                />
+              </Stack>
+            </Paper>
+          ) : null}
+
+          {workflowComplete && (workflowRunId || syncStep) ? (
+            <Alert severity="success" sx={{ mb: 3 }} role="status" data-testid="reseed-complete">
+              {workflowRunId
+                ? 'Workbook ingest completed. Continue to Review Data — inventory refreshes automatically.'
+                : 'Database reseeded successfully.'}
+            </Alert>
+          ) : null}
         </>
       ) : null}
 
@@ -493,84 +654,6 @@ export function SourceUploadForm({ showSummaryOnly }: { showSummaryOnly?: boolea
       ) : null}
 
       {result ? <SeedSummary result={result} /> : null}
-
-      {isReprocessSuccess && reprocessData?.success && reprocessData.data ? (
-        <SeedSummary result={reprocessData.data} />
-      ) : null}
-
-      {/* ── Upload / sync phase timeline ──────────────────── */}
-      {syncStep && !workflowRunId ? (
-        <Paper variant="outlined" sx={{ p: 2, mb: 2 }} data-testid="reseed-sync-progress">
-          <Typography variant="subtitle2" sx={{ fontWeight: 700, mb: 1.5 }}>
-            Upload &amp; reseed progress
-          </Typography>
-          <ProcessStepTimeline
-            steps={RESEED_SYNC_STEPS}
-            currentStep={syncStep}
-            activeMessage={
-              syncStep === 'uploading'
-                ? 'Sending workbooks and markdown to the server…'
-                : syncStep === 'seeding'
-                  ? 'Parsing sources and writing projections, pages, and snippets…'
-                  : 'Seed finished — waiting for sheet ingest…'
-            }
-            complete={workflowComplete && !syncError}
-            errored={syncError}
-          />
-          {(isLoading || isReprocessing) && !syncError ? (
-            <LinearProgress sx={{ mt: 2 }} />
-          ) : null}
-        </Paper>
-      ) : null}
-
-      {/* ── Durable workbook ingest step timeline (SSE) ───── */}
-      {workflowRunId && !workflowComplete ? (
-        <Paper variant="outlined" sx={{ p: 2, mb: 2, bgcolor: 'rgba(10,249,254,0.04)' }} data-testid="reseed-workflow-progress">
-          <Stack spacing={1.5}>
-            <Typography variant="subtitle2" sx={{ fontWeight: 700 }}>
-              Workbook ingest — per-step status
-            </Typography>
-            <Typography variant="caption" sx={{ fontFamily: 'monospace', color: 'text.secondary' }}>
-              Run: {workflowRunId}
-            </Typography>
-            <LinearProgress variant="determinate" value={workflowProgress?.pct ?? 0} />
-            <Typography variant="body2" color="text.secondary">
-              {workflowProgress?.message ?? 'Starting workflow…'}
-            </Typography>
-            <SheetSeedProgressList sheets={sheetStatuses} />
-            <ProcessStepTimeline
-              steps={RESEED_WORKFLOW_STEPS}
-              currentStep={workflowProgress?.step ?? 'started'}
-              activeMessage={workflowProgress?.message}
-              complete={false}
-              errored={false}
-            />
-            {Array.isArray(workflowProgress?.detail?.tabNames) && workflowProgress.detail.tabNames.length > 0 ? (
-              <Stack direction="row" spacing={0.75} sx={{ flexWrap: 'wrap', gap: 0.75 }}>
-                <Typography variant="caption" color="text.secondary" sx={{ width: '100%' }}>
-                  Sheets detected
-                </Typography>
-                {workflowProgress.detail.tabNames.map((name) => (
-                  <Chip
-                    key={name}
-                    size="small"
-                    label={name}
-                    color={workflowProgress.step === 'extracting' || workflowProgress.step === 'analyzing' ? 'primary' : 'default'}
-                    variant={workflowProgress.step === 'extracting' ? 'filled' : 'outlined'}
-                  />
-                ))}
-              </Stack>
-            ) : null}
-          </Stack>
-        </Paper>
-      ) : null}
-      {workflowComplete && (workflowRunId || syncStep) ? (
-        <Alert severity="success" sx={{ mb: 2 }} role="status" data-testid="reseed-complete">
-          {workflowRunId
-            ? 'Workbook ingest completed. Continue to Review Data — inventory refreshes automatically.'
-            : 'Database reseeded successfully.'}
-        </Alert>
-      ) : null}
     </Box>
   );
 }

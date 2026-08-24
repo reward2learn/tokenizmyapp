@@ -87,7 +87,7 @@ export interface SeedDetailsResponse {
 export const configApi = createApi({
   reducerPath: 'configApi',
   baseQuery,
-  tagTypes: ['OpenAiKey', 'ChatSettings', 'SeedDetails', 'VercelToken', 'AiProvider'],
+  tagTypes: ['OpenAiKey', 'ChatSettings', 'SeedDetails', 'VercelToken', 'AiProvider', 'CachedWorkbook'],
   endpoints: (builder) => ({
     reseedFromSources: builder.mutation<ApiEnvelope<ReseedResponse | WorkflowAcceptedResponse>, FormData>({
       query: (body) => ({
@@ -97,7 +97,7 @@ export const configApi = createApi({
       }),
       // Sync seed finishes before 202; invalidate so Review Data / wizard see new counts.
       // Workflow completion also invalidates from the upload form.
-      invalidatesTags: ['SeedDetails'],
+      invalidatesTags: ['SeedDetails', 'CachedWorkbook'],
       async onQueryStarted(_arg, { dispatch, queryFulfilled }) {
         try {
           await queryFulfilled;
@@ -113,7 +113,7 @@ export const configApi = createApi({
         url: 'config/reprocess',
         method: 'POST',
       }),
-      invalidatesTags: ['SeedDetails'],
+      invalidatesTags: ['SeedDetails', 'CachedWorkbook'],
       async onQueryStarted(_arg, { dispatch, queryFulfilled }) {
         try {
           await queryFulfilled;
@@ -123,6 +123,23 @@ export const configApi = createApi({
           // reprocess failed
         }
       },
+    }),
+    /** GET /api/config/cached-workbook — last successful workbook cache metadata */
+    getCachedWorkbook: builder.query<
+      ApiEnvelope<
+        | {
+            cached: true;
+            appId: string;
+            sizeBytes: number;
+            fileName: string;
+            meta: { files: Array<{ fileName: string; sizeBytes: number }>; uploadedAt: string };
+          }
+        | { cached: false }
+      >,
+      void
+    >({
+      query: () => 'config/cached-workbook',
+      providesTags: ['CachedWorkbook'],
     }),
     getOpenAiKeyStatus: builder.query<ApiEnvelope<OpenAiKeyStatus>, void>({
       query: () => 'config/openai-key',
@@ -215,6 +232,7 @@ export const configApi = createApi({
 export const {
   useReseedFromSourcesMutation,
   useReprocessFromCacheMutation,
+  useGetCachedWorkbookQuery,
   useGetOpenAiKeyStatusQuery,
   useSaveOpenAiKeyMutation,
   useClearOpenAiKeyMutation,
