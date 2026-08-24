@@ -29,7 +29,8 @@ import { meterAiUsage } from '@/domain/billing/credit-service';
 
 type RawDb = ReturnType<typeof createRawClient>;
 
-const THREAD_DDL = `
+/** One statement per call — Prisma prepared statements reject multi-command SQL (42601). */
+const THREADS_DDL = `
 CREATE TABLE IF NOT EXISTS ai_credits_calculator_threads (
   id TEXT PRIMARY KEY,
   org_id TEXT,
@@ -38,8 +39,9 @@ CREATE TABLE IF NOT EXISTS ai_credits_calculator_threads (
   title TEXT NOT NULL DEFAULT 'Calculator chat',
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
-);
+)`;
 
+const MESSAGES_DDL = `
 CREATE TABLE IF NOT EXISTS ai_credits_calculator_messages (
   id TEXT PRIMARY KEY,
   thread_id TEXT NOT NULL REFERENCES ai_credits_calculator_threads(id) ON DELETE CASCADE,
@@ -47,18 +49,20 @@ CREATE TABLE IF NOT EXISTS ai_credits_calculator_messages (
   content TEXT NOT NULL,
   tool_calls JSONB,
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
-);
+)`;
 
+const MESSAGES_THREAD_IDX = `
 CREATE INDEX IF NOT EXISTS idx_ai_calc_messages_thread
-  ON ai_credits_calculator_messages (thread_id, created_at);
-`;
+  ON ai_credits_calculator_messages (thread_id, created_at)`;
 
 let ensured = false;
 
 export async function ensureCalculatorChatTables(db?: RawDb): Promise<RawDb> {
   db ??= createRawClient();
   if (!ensured) {
-    await db.$executeRawUnsafe(THREAD_DDL);
+    await db.$executeRawUnsafe(THREADS_DDL);
+    await db.$executeRawUnsafe(MESSAGES_DDL);
+    await db.$executeRawUnsafe(MESSAGES_THREAD_IDX);
     ensured = true;
   }
   return db;

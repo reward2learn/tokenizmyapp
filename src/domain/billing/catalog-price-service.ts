@@ -36,7 +36,8 @@ import { MARKUP_FLOOR, purchasedCreditsForUsdAtMarkup } from '@/lib/billing/tena
 
 type RawDb = ReturnType<typeof createRawClient>;
 
-const DDL = `
+/** One statement per call — Prisma prepared statements reject multi-command SQL (42601). */
+const OVERRIDES_DDL = `
 CREATE TABLE IF NOT EXISTS billing_catalog_overrides (
   id TEXT PRIMARY KEY DEFAULT 'global',
   plan_prices JSONB NOT NULL DEFAULT '{}'::jsonb,
@@ -45,22 +46,24 @@ CREATE TABLE IF NOT EXISTS billing_catalog_overrides (
   notes TEXT,
   updated_by TEXT,
   updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
-);
+)`;
 
+const AUDIT_DDL = `
 CREATE TABLE IF NOT EXISTS billing_catalog_audit (
   id TEXT PRIMARY KEY,
   action TEXT NOT NULL,
   payload JSONB NOT NULL DEFAULT '{}'::jsonb,
   actor TEXT,
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
-);`;
+)`;
 
 let ensured = false;
 
 export async function ensureCatalogTables(db?: RawDb): Promise<RawDb> {
   db ??= createRawClient();
   if (!ensured) {
-    await db.$executeRawUnsafe(DDL);
+    await db.$executeRawUnsafe(OVERRIDES_DDL);
+    await db.$executeRawUnsafe(AUDIT_DDL);
     ensured = true;
   }
   return db;

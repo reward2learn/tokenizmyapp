@@ -32,6 +32,27 @@ describe('catalog-price-service confirm gates', () => {
     vi.resetModules();
   });
 
+  it('ensureCatalogTables runs one DDL statement per executeRawUnsafe call', async () => {
+    const executeRawUnsafe = vi.fn().mockResolvedValue(0);
+    vi.doMock('@/lib/db', () => ({
+      createRawClient: () => ({
+        $executeRawUnsafe: executeRawUnsafe,
+        $queryRawUnsafe: vi.fn().mockResolvedValue([]),
+      }),
+    }));
+    const { ensureCatalogTables } = await import('@/domain/billing/catalog-price-service');
+    await ensureCatalogTables();
+    expect(executeRawUnsafe).toHaveBeenCalledTimes(2);
+    for (const [sql] of executeRawUnsafe.mock.calls) {
+      const statements = String(sql)
+        .split(';')
+        .map((s) => s.trim())
+        .filter(Boolean);
+      expect(statements).toHaveLength(1);
+      expect(statements[0]).toMatch(/^CREATE TABLE IF NOT EXISTS/i);
+    }
+  });
+
   it('upsertCatalogPrices rejects without confirm', async () => {
     vi.mock('@/lib/db', () => ({
       createRawClient: () => ({
