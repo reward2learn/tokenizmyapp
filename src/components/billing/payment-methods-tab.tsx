@@ -56,7 +56,31 @@ function stripeFor(publishableKey: string): Promise<Stripe | null> {
   return promise;
 }
 
-function SetupForm({ onDone, onCancel }: { onDone: () => void; onCancel: () => void }) {
+/**
+ * Whether a newly saved card should become the customer's invoice default.
+ *
+ * Stripe attaches the PaymentMethod on SetupIntent success but does NOT set
+ * `invoice_settings.default_payment_method`. Without promoting one card, the
+ * Billing tab has nothing marked "Default" and renewals have nothing to charge.
+ *
+ * TODO: Implement your product rule (see learning prompt in chat).
+ *  - `existingCardCount === 0` → only the first card becomes default
+ *  - `true`                    → every newly saved card becomes default
+ *  - `false`                   → never auto-promote (user clicks "Make default")
+ */
+function shouldBecomeDefault(existingCardCount: number): boolean {
+  // Safe starter: first card must become default so renewals have something to charge.
+  return existingCardCount === 0;
+}
+
+function SetupForm({
+  onDone,
+  onCancel,
+}: {
+  /** paymentMethodId from the succeeded SetupIntent — null if Stripe omitted it. */
+  onDone: (paymentMethodId: string | null) => void;
+  onCancel: () => void;
+}) {
   const stripe = useStripe();
   const elements = useElements();
   const [submitting, setSubmitting] = useState(false);
@@ -68,16 +92,26 @@ function SetupForm({ onDone, onCancel }: { onDone: () => void; onCancel: () => v
     setError(null);
 
     // `redirect: 'if_required'` keeps cards inline and navigates away only for
-    // methods that genuinely need it (3DS, bank redirects).
-    const result = await stripe.confirmSetup({ elements, redirect: 'if_required' });
+    // methods that genuinely need it (3DS). return_url is still required by
+    // Stripe.js for those redirect cases.
+    const result = await stripe.confirmSetup({
+      elements,
+      redirect: 'if_required',
+      confirmParams: {
+        return_url: typeof window !== 'undefined' ? window.location.href : '/',
+      },
+    });
 
     if (result.error) {
       setError(result.error.message ?? 'The card could not be saved.');
       setSubmitting(false);
       return;
     }
+
+    const pm = result.setupIntent?.payment_method;
+    const paymentMethodId = typeof pm === 'string' ? pm : (pm?.id ?? null);
     setSubmitting(false);
-    onDone();
+    onDone(paymentMethodId);
   };
 
   return (
@@ -132,9 +166,25 @@ export function PaymentMethodsTab({ orgId }: { orgId: string }) {
     }
   };
 
-  const finishSetup = () => {
+  const finishSetup = async (paymentMethodId: string | null) => {
     setSetup(null);
-    // The card exists at Stripe now, but the list came from our own cache.
+
+    // SetupIntent attaches the card to the customer but does NOT set
+    // invoice_settings.default_payment_method — without this PATCH the tab
+    // either shows no "Default" chip or renewals still have nothing to charge.
+    if (paymentMethodId) {
+      const makeDefault = shouldBecomeDefault(methods.length);
+      if (makeDefault) {
+        try {
+          await setDefault({ orgId, paymentMethodId }).unwrap();
+          return;
+        } catch {
+          setError('Card saved, but it could not be set as the default.');
+        }
+      }
+    }
+
+    // Fallback: refetch the list even when we did not (or could not) set default.
     dispatch(organizationApi.util.invalidateTags(['PaymentMethods']));
   };
 

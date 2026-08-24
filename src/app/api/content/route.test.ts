@@ -10,14 +10,22 @@ import { describe, it, expect } from 'vitest';
 // Replicate the resolveSource logic here since it's not exported from the route.
 // This also serves as documentation of the expected mapping behaviour.
 type SourceResolved =
-  | { type: 'snippet'; key: string }
+  | { type: 'snippet'; key: string; fileFallback?: string }
   | { type: 'part'; slug: string }
   | { type: 'file'; filename: string };
 
 const SOURCE_ALIASES: Record<string, SourceResolved> = {
   'executive-summary': { type: 'snippet', key: 'executive_summary' },
-  'terms-of-service.html': { type: 'file', filename: 'terms-of-service.html' },
-  'privacy-policy.html': { type: 'file', filename: 'privacy-policy.html' },
+  'terms-of-service.html': {
+    type: 'snippet',
+    key: 'terms_of_service',
+    fileFallback: 'terms-of-service.html',
+  },
+  'privacy-policy.html': {
+    type: 'snippet',
+    key: 'privacy_policy',
+    fileFallback: 'privacy-policy.html',
+  },
   'part-o': { type: 'part', slug: 'part-o' },
 };
 
@@ -56,9 +64,22 @@ describe('resolveSource', () => {
     expect(result).toEqual({ type: 'snippet', key: 'executive_summary' });
   });
 
-  it('resolves "terms-of-service.html" to a file', () => {
+  it('resolves "terms-of-service.html" to the seed-generated terms snippet', () => {
     const result = resolveSource('terms-of-service.html');
-    expect(result).toEqual({ type: 'file', filename: 'terms-of-service.html' });
+    expect(result).toEqual({
+      type: 'snippet',
+      key: 'terms_of_service',
+      fileFallback: 'terms-of-service.html',
+    });
+  });
+
+  it('resolves "privacy-policy.html" to the seed-generated privacy snippet', () => {
+    const result = resolveSource('privacy-policy.html');
+    expect(result).toEqual({
+      type: 'snippet',
+      key: 'privacy_policy',
+      fileFallback: 'privacy-policy.html',
+    });
   });
 
   it('resolves "part-o" to a review part', () => {

@@ -144,15 +144,46 @@ export async function orgIdForCustomer(
 }
 
 /**
+ * Find a Stripe customer previously tagged with this org id.
+ *
+ * Used to heal the silent-UPDATE bug in saveStripeLinkage: a customer can
+ * exist at Stripe with metadata.orgId while subscriptions.stripe_customer_id
+ * is still null. Search can be unavailable on some accounts — null is fine.
+ */
+async function findStripeCustomerIdByOrgMetadata(
+  stripe: Stripe,
+  orgId: string,
+): Promise<string | null> {
+  try {
+    const safe = orgId.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+    const found = await stripe.customers.search({
+      query: `metadata['orgId']:'${safe}'`,
+      limit: 1,
+    });
+    return found.data[0]?.id ?? null;
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Get or create the Stripe customer for an org.
  *
  * The org id goes into customer metadata as well as into our own column: it is
  * the only way to recover the mapping if the subscriptions row is ever lost,
  * and webhook payloads carry the customer, not the org.
+ *
+ * `saveStripeLinkage` is an UPDATE on `subscriptions`, so the Free row must
+ * exist first — otherwise the customer id is created at Stripe and then
+ * silently dropped, and Payment Methods forever lists an empty set.
  */
 export async function ensureStripeCustomer(orgId: string, db?: RawDb, stripe?: Stripe): Promise<string> {
   db = await getDb(db);
   stripe = stripe ?? requireStripe();
+
+  // Ensures the subscriptions row that saveStripeLinkage UPDATEs.
+  const { getSubscription } = await import('@/domain/billing/entitlement-service');
+  await getSubscription(orgId, db);
 
   const existing = await getStripeLinkage(orgId, db);
   if (existing.customerId) return existing.customerId;
@@ -160,12 +191,32 @@ export async function ensureStripeCustomer(orgId: string, db?: RawDb, stripe?: S
   const { getOrganization } = await import('@/domain/billing/organization-service');
   const org = await getOrganization(db, orgId);
 
+  // Heal orgs that created a Stripe customer then lost the DB link (UPDATE
+  // matched 0 rows). Prefer the existing customer over minting a second one —
+  // otherwise cards already on file stay invisible forever.
+  const orphanedId = await findStripeCustomerIdByOrgMetadata(stripe, orgId);
+  if (orphanedId) {
+    await saveStripeLinkage(orgId, { customerId: orphanedId }, db);
+    const healed = await getStripeLinkage(orgId, db);
+    if (healed.customerId === orphanedId) return orphanedId;
+  }
+
   const customer = await stripe.customers.create({
     name: org?.displayName ?? orgId,
     metadata: { orgId },
   });
 
   await saveStripeLinkage(orgId, { customerId: customer.id }, db);
+
+  // Fail loudly if the UPDATE matched nothing — an orphaned Stripe customer
+  // with no DB link is exactly "I saved a card and Settings stayed empty".
+  const verified = await getStripeLinkage(orgId, db);
+  if (verified.customerId !== customer.id) {
+    throw new Error(
+      `Failed to persist Stripe customer ${customer.id} for org ${orgId} — subscriptions row missing or not updated.`,
+    );
+  }
+
   return customer.id;
 }
 
@@ -712,10 +763,12 @@ export async function createSetupIntent(
   stripe = stripe ?? requireStripe();
   const customerId = await ensureStripeCustomer(orgId, db, stripe);
 
+  // Cards only — listPaymentMethods filters `type: 'card'`. automatic_payment_methods
+  // would let Link / bank debits succeed in Elements and then vanish from the tab.
   const intent = await stripe.setupIntents.create({
     customer: customerId,
     usage: 'off_session',
-    automatic_payment_methods: { enabled: true },
+    payment_method_types: ['card'],
     metadata: { orgId, kind: 'payment_method' },
   });
 
@@ -741,7 +794,18 @@ export async function listPaymentMethods(
   db = await getDb(db);
   stripe = stripe ?? requireStripe();
 
-  const linkage = await getStripeLinkage(orgId, db);
+  let linkage = await getStripeLinkage(orgId, db);
+  if (!linkage.customerId) {
+    // Heal without creating: a lost DB link should not invent a blank customer
+    // just because someone opened the Payment Methods tab.
+    const orphanedId = await findStripeCustomerIdByOrgMetadata(stripe, orgId);
+    if (orphanedId) {
+      const { getSubscription } = await import('@/domain/billing/entitlement-service');
+      await getSubscription(orgId, db);
+      await saveStripeLinkage(orgId, { customerId: orphanedId }, db);
+      linkage = await getStripeLinkage(orgId, db);
+    }
+  }
   if (!linkage.customerId) return [];
 
   const customer = await stripe.customers.retrieve(linkage.customerId);

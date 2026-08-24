@@ -4,11 +4,17 @@
  * GET /api/content?source=<source>
  *
  * Source resolution order:
- *   1. Known aliases:
+ *   1. review:part-a      → BusinessReviewPart table
+ *   2. review/part-a      → BusinessReviewPart table
+ *   3. Known aliases:
  *        executive-summary  → knowledge_snippets (key: executive_summary)
- *        terms-of-service.html → legal/ HTML file
- *        privacy-policy.html   → legal/ HTML file
- *   2. Everything else     → knowledge_snippets (key: source with [.-] → _)
+ *        terms-of-service.html → knowledge_snippets (terms_of_service),
+ *                                 then legal/ HTML file fallback
+ *        privacy-policy.html   → knowledge_snippets (privacy_policy),
+ *                                 then legal/ HTML file fallback
+ *        part-o               → BusinessReviewPart
+ *   4. part-[a-o]          → BusinessReviewPart
+ *   5. Everything else     → knowledge_snippets (key: source with [.-] → _)
  *        e.g. sheet-month-on-month → key: sheet_month_on_month
  *        e.g. workbook-summary     → key: workbook_summary
  *
@@ -17,22 +23,63 @@
  */
 
 import { NextResponse } from 'next/server';
+import { z } from 'zod';
+import { ZodError } from 'zod';
 import { PrismaClient } from '@/generated/prisma';
 import { readFileSync, existsSync } from 'node:fs';
 import { resolve } from 'node:path';
+import { getCurrentAppId } from '@shared/lib/config/tenant';
+import { requireWrite } from '@/lib/auth/guards';
+import { jsonError, jsonOk } from '@/lib/api/response';
+import { resolveReviewPart } from '@/lib/page-catalog';
 
 // ── Source resolution ───────────────────────────────────
 
-const SOURCE_ALIASES: Record<string, { type: 'snippet'; key: string } | { type: 'file'; filename: string }> = {
+type ResolvedSource =
+  | { type: 'snippet'; key: string; fileFallback?: string }
+  | { type: 'part'; slug: string }
+  | { type: 'file'; filename: string };
+
+const SOURCE_ALIASES: Record<string, ResolvedSource> = {
   'executive-summary': { type: 'snippet', key: 'executive_summary' },
-  'terms-of-service.html': { type: 'file', filename: 'terms-of-service.html' },
-  'privacy-policy.html': { type: 'file', filename: 'privacy-policy.html' },
+  // Prefer seed-generated tenant/workbook legal docs; fall back to bundled HTML.
+  'terms-of-service.html': {
+    type: 'snippet',
+    key: 'terms_of_service',
+    fileFallback: 'terms-of-service.html',
+  },
+  'privacy-policy.html': {
+    type: 'snippet',
+    key: 'privacy_policy',
+    fileFallback: 'privacy-policy.html',
+  },
+  'terms-of-service': {
+    type: 'snippet',
+    key: 'terms_of_service',
+    fileFallback: 'terms-of-service.html',
+  },
+  'privacy-policy': {
+    type: 'snippet',
+    key: 'privacy_policy',
+    fileFallback: 'privacy-policy.html',
+  },
+  'part-o': { type: 'part', slug: 'part-o' },
 };
 
-function resolveSource(source: string): { type: 'snippet'; key: string } | { type: 'file'; filename: string } {
+function resolveSource(source: string): ResolvedSource {
   const normalized = source.trim();
+  if (normalized.startsWith('review:')) {
+    return { type: 'part', slug: normalized.slice('review:'.length).trim().toLowerCase() };
+  }
+  if (normalized.startsWith('review/')) {
+    return { type: 'part', slug: normalized.slice('review/'.length).trim().toLowerCase() };
+  }
   const alias = SOURCE_ALIASES[normalized];
   if (alias) return alias;
+  const lower = normalized.toLowerCase();
+  if (/^part-[a-o]$/.test(lower)) {
+    return { type: 'part', slug: lower };
+  }
   return { type: 'snippet', key: normalized.replace(/[.-]/g, '_') };
 }
 
@@ -91,6 +138,22 @@ export async function GET(request: Request): Promise<NextResponse> {
   try {
     const resolved = resolveSource(source);
 
+    if (resolved.type === 'part') {
+      const row = await prisma.businessReviewPart.findUnique({
+        where: { slug_appId: { slug: resolved.slug, appId: getCurrentAppId() } },
+      });
+      if (!row) {
+        return NextResponse.json({ source, markdown: '', title: '', contentType: 'markdown', found: false });
+      }
+      return NextResponse.json({
+        source,
+        title: row.title,
+        markdown: row.markdown,
+        contentType: 'markdown',
+        found: true,
+      });
+    }
+
     if (resolved.type === 'file') {
       const html = readBundledHtml(resolved.filename);
       if (!html) {
@@ -105,23 +168,122 @@ export async function GET(request: Request): Promise<NextResponse> {
       });
     }
 
-    // Snippet lookup — uses direct PrismaClient (no ZenStack policy filtering)
-    const row = await prisma.knowledgeSnippet.findUnique({
-      where: { key: resolved.key },
-    });
-    if (!row) {
-      return NextResponse.json({ source, markdown: '', title: '', contentType: 'markdown', found: false });
+    // Snippet lookup — uses direct PrismaClient (no ZenStack policy filtering).
+    // Try the normalized key first (legacy [.-] → _ convention), then the exact
+    // key (app-pack snippet keys contain hyphens, e.g. `packId-policy-key`).
+    // Legal aliases may also declare fileFallback for pre-seed deployments.
+    const normalizedKey = resolved.key;
+    const row =
+      (await prisma.knowledgeSnippet.findUnique({
+        where: { key_appId: { key: normalizedKey, appId: getCurrentAppId() } },
+      })) ??
+      (await prisma.knowledgeSnippet.findUnique({
+        where: { key_appId: { key: source.trim(), appId: getCurrentAppId() } },
+      }));
+    if (row?.content?.trim()) {
+      return NextResponse.json({
+        source,
+        title: row.key,
+        markdown: row.content,
+        contentType: row.category === 'document' ? 'markdown' : 'text',
+        found: true,
+      });
     }
-    return NextResponse.json({
-      source,
-      title: row.key,
-      markdown: row.content,
-      contentType: row.category === 'document' ? 'markdown' : 'text',
-      found: true,
-    });
+
+    if (resolved.fileFallback) {
+      const html = readBundledHtml(resolved.fileFallback);
+      if (html) {
+        return NextResponse.json({
+          source,
+          title: resolved.fileFallback.replace(/\.html$/, '').replace(/-/g, ' '),
+          markdown: htmlToMarkdownish(html),
+          contentType: 'markdown',
+          found: true,
+        });
+      }
+    }
+
+    return NextResponse.json({ source, markdown: '', title: '', contentType: 'markdown', found: false });
   } catch (err) {
     console.error('[content]', source, err);
     return NextResponse.json({ error: 'Content unavailable', source }, { status: 500 });
+  } finally {
+    await prisma.$disconnect();
+  }
+}
+
+// ── PATCH handler — update review part markdown ─────────
+
+const patchSchema = z.object({
+  source: z.string().min(1),
+  markdown: z.string(),
+  title: z.string().min(1).optional(),
+});
+
+function partSortOrder(partKey: string): number {
+  const upper = partKey.trim().toUpperCase();
+  if (upper.length === 1 && upper >= 'A' && upper <= 'Z') {
+    return upper.charCodeAt(0) - 'A'.charCodeAt(0);
+  }
+  return 0;
+}
+
+export async function PATCH(request: Request): Promise<NextResponse> {
+  const auth = await requireWrite('pages', request);
+  if (!auth.ok) return auth.response;
+
+  let body: z.infer<typeof patchSchema>;
+  try {
+    body = patchSchema.parse(await request.json());
+  } catch (err) {
+    if (err instanceof ZodError) {
+      return jsonError(err.errors.map((e) => e.message).join('; '), 400);
+    }
+    return jsonError('Invalid request body', 400);
+  }
+
+  const resolved = resolveSource(body.source);
+  if (resolved.type !== 'part') {
+    return jsonError('Only review part sources (review:part-*) can be edited via this endpoint', 400);
+  }
+
+  const catalog = resolveReviewPart(resolved.slug);
+  if (!catalog) {
+    return jsonError(`Unknown review part: ${resolved.slug}`, 404);
+  }
+
+  const prisma = getClient();
+  const appId = getCurrentAppId();
+
+  try {
+    const row = await prisma.businessReviewPart.upsert({
+      where: { slug_appId: { slug: resolved.slug, appId } },
+      create: {
+        slug: resolved.slug,
+        partKey: catalog.partKey,
+        title: body.title ?? catalog.title,
+        sortOrder: partSortOrder(catalog.partKey),
+        authTier: catalog.authTier,
+        markdown: body.markdown,
+        appId,
+      },
+      update: {
+        markdown: body.markdown,
+        ...(body.title !== undefined ? { title: body.title } : {}),
+      },
+    });
+
+    return jsonOk({
+      source: body.source,
+      slug: row.slug,
+      title: row.title,
+      markdown: row.markdown,
+      contentType: 'markdown',
+      found: true,
+    });
+  } catch (err) {
+    console.error('[content] PATCH', body.source, err);
+    return jsonError('Failed to save review part content', 500);
   } finally {
     await prisma.$disconnect();
   }

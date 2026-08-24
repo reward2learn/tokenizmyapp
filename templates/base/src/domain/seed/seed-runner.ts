@@ -52,6 +52,7 @@ import {
   generateAnalysisMarkdown,
   generateSheetMarkdown,
 } from '@/domain/excel/workbook-analyzer';
+import { generateLegalDocuments } from '@/domain/legal/legal-doc-generator';
 import { read } from 'xlsx';
 import { buildWorkbookFormulaMap } from '@/lib/workbook-formulas';
 import { setDynamicPages, setDynamicReviewParts } from '@/lib/page-catalog';
@@ -1161,13 +1162,33 @@ export async function seedFromSources(options: SeedOptions = {}): Promise<SeedRe
     );
   }
 
+  // Generate Terms + Privacy from tenant, template capabilities, page catalog,
+  // and workbook analysis (falls back to bundled HTML only if generation fails).
   let termsMd = '';
   let privacyMd = '';
   try {
-    termsMd = htmlToMarkdownish(readUtf8(TERMS_HTML_PATH));
-    privacyMd = htmlToMarkdownish(readUtf8(PRIVACY_HTML_PATH));
+    const primaryAnalysis = allAnalyses[0] ?? null;
+    const legal = generateLegalDocuments(primaryAnalysis);
+    termsMd = legal.termsMarkdown;
+    privacyMd = legal.privacyMarkdown;
+    console.log(
+      `[seed] Generated Terms + Privacy for "${legal.context.businessName}" ` +
+        `(${legal.context.pages.length} catalog pages, workbook=${legal.context.workbook?.fileName ?? 'none'})`,
+    );
   } catch (err) {
-    console.warn('[seed] Could not read legal HTML files (serverless deployment?):', err instanceof Error ? err.message : err);
+    console.warn(
+      '[seed] Legal doc generation failed; falling back to bundled HTML:',
+      err instanceof Error ? err.message : err,
+    );
+    try {
+      termsMd = htmlToMarkdownish(readUtf8(TERMS_HTML_PATH));
+      privacyMd = htmlToMarkdownish(readUtf8(PRIVACY_HTML_PATH));
+    } catch (htmlErr) {
+      console.warn(
+        '[seed] Could not read legal HTML files (serverless deployment?):',
+        htmlErr instanceof Error ? htmlErr.message : htmlErr,
+      );
+    }
   }
   const knowledgeSnippets = buildKnowledgeSnippets(executiveSummary ?? '', termsMd, privacyMd);
 

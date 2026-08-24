@@ -62,7 +62,8 @@ export const BYPASS_ADMIN_SLUGS = new Set([
  * - sheet      → sheet-* workbook pages
  * - live-data  → workbook / KPI backed UI (no new markdown)
  * - admin      → interactive admin / chat UI (bypassed — not populated)
- * - static     → legal / fixed copy (skip generation)
+ * - static     → legal pages (Terms / Privacy) — content refreshed during seed
+ *                from tenant + workbook + template capabilities; not AI-rewritten
  */
 const KIND_SETS: Record<PageContentKind, Set<string>> = {
   narrative: new Set(['home', 'summary', 'review']),

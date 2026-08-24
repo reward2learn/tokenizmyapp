@@ -8,8 +8,10 @@
  *   2. review/part-a      → BusinessReviewPart table
  *   3. Known aliases:
  *        executive-summary  → knowledge_snippets (key: executive_summary)
- *        terms-of-service.html → legal/ HTML file
- *        privacy-policy.html   → legal/ HTML file
+ *        terms-of-service.html → knowledge_snippets (terms_of_service),
+ *                                 then legal/ HTML file fallback
+ *        privacy-policy.html   → knowledge_snippets (privacy_policy),
+ *                                 then legal/ HTML file fallback
  *        part-o               → BusinessReviewPart
  *   4. part-[a-o]          → BusinessReviewPart
  *   5. Everything else     → knowledge_snippets (key: source with [.-] → _)
@@ -33,14 +35,38 @@ import { resolveReviewPart } from '@/lib/page-catalog';
 
 // ── Source resolution ───────────────────────────────────
 
-const SOURCE_ALIASES: Record<string, { type: 'snippet'; key: string } | { type: 'part'; slug: string } | { type: 'file'; filename: string }> = {
+type ResolvedSource =
+  | { type: 'snippet'; key: string; fileFallback?: string }
+  | { type: 'part'; slug: string }
+  | { type: 'file'; filename: string };
+
+const SOURCE_ALIASES: Record<string, ResolvedSource> = {
   'executive-summary': { type: 'snippet', key: 'executive_summary' },
-  'terms-of-service.html': { type: 'file', filename: 'terms-of-service.html' },
-  'privacy-policy.html': { type: 'file', filename: 'privacy-policy.html' },
+  // Prefer seed-generated tenant/workbook legal docs; fall back to bundled HTML.
+  'terms-of-service.html': {
+    type: 'snippet',
+    key: 'terms_of_service',
+    fileFallback: 'terms-of-service.html',
+  },
+  'privacy-policy.html': {
+    type: 'snippet',
+    key: 'privacy_policy',
+    fileFallback: 'privacy-policy.html',
+  },
+  'terms-of-service': {
+    type: 'snippet',
+    key: 'terms_of_service',
+    fileFallback: 'terms-of-service.html',
+  },
+  'privacy-policy': {
+    type: 'snippet',
+    key: 'privacy_policy',
+    fileFallback: 'privacy-policy.html',
+  },
   'part-o': { type: 'part', slug: 'part-o' },
 };
 
-function resolveSource(source: string): { type: 'snippet'; key: string } | { type: 'part'; slug: string } | { type: 'file'; filename: string } {
+function resolveSource(source: string): ResolvedSource {
   const normalized = source.trim();
   if (normalized.startsWith('review:')) {
     return { type: 'part', slug: normalized.slice('review:'.length).trim().toLowerCase() };
@@ -145,6 +171,7 @@ export async function GET(request: Request): Promise<NextResponse> {
     // Snippet lookup — uses direct PrismaClient (no ZenStack policy filtering).
     // Try the normalized key first (legacy [.-] → _ convention), then the exact
     // key (app-pack snippet keys contain hyphens, e.g. `packId-policy-key`).
+    // Legal aliases may also declare fileFallback for pre-seed deployments.
     const normalizedKey = resolved.key;
     const row =
       (await prisma.knowledgeSnippet.findUnique({
@@ -153,16 +180,30 @@ export async function GET(request: Request): Promise<NextResponse> {
       (await prisma.knowledgeSnippet.findUnique({
         where: { key_appId: { key: source.trim(), appId: getCurrentAppId() } },
       }));
-    if (!row) {
-      return NextResponse.json({ source, markdown: '', title: '', contentType: 'markdown', found: false });
+    if (row?.content?.trim()) {
+      return NextResponse.json({
+        source,
+        title: row.key,
+        markdown: row.content,
+        contentType: row.category === 'document' ? 'markdown' : 'text',
+        found: true,
+      });
     }
-    return NextResponse.json({
-      source,
-      title: row.key,
-      markdown: row.content,
-      contentType: row.category === 'document' ? 'markdown' : 'text',
-      found: true,
-    });
+
+    if (resolved.fileFallback) {
+      const html = readBundledHtml(resolved.fileFallback);
+      if (html) {
+        return NextResponse.json({
+          source,
+          title: resolved.fileFallback.replace(/\.html$/, '').replace(/-/g, ' '),
+          markdown: htmlToMarkdownish(html),
+          contentType: 'markdown',
+          found: true,
+        });
+      }
+    }
+
+    return NextResponse.json({ source, markdown: '', title: '', contentType: 'markdown', found: false });
   } catch (err) {
     console.error('[content]', source, err);
     return NextResponse.json({ error: 'Content unavailable', source }, { status: 500 });

@@ -28,6 +28,9 @@ import { getCurrentAppId } from '@shared/lib/config/tenant';
 import { parseReviewParts } from '@/domain/ai-content/parse-review-parts';
 import type { ReviewPart } from '@/domain/ai-content/parse-review-parts';
 import { meterAiUsage, requireCreditsForTenant, CREDIT_FLOORS } from '@/domain/billing/credit-service';
+import { analyzeWorkbook } from '@/domain/excel/workbook-analyzer';
+import { generateLegalDocuments } from '@/domain/legal/legal-doc-generator';
+import { resolveWorkbookBuffers } from '@/domain/ai-content/ensure-sheet-pages';
 
 // ── Progress reporting ──────────────────────────────────
 
@@ -648,6 +651,39 @@ export async function generateAndSave(
     } catch (err) {
       console.warn(
         '[content-generator] Sheet page creation failed (non-fatal):',
+        err instanceof Error ? err.message : err,
+      );
+    }
+
+    // ── 7b2. Refresh Terms + Privacy from tenant / workbook / catalog ──
+    try {
+      const buffers = resolveWorkbookBuffers(source);
+      const analysis = buffers[0] ? analyzeWorkbook(buffers[0]) : null;
+      const legal = generateLegalDocuments(analysis);
+      const appId = getCurrentAppId();
+      await db.knowledgeSnippet.upsert({
+        where: { key_appId: { key: 'terms_of_service', appId } },
+        create: {
+          key: 'terms_of_service',
+          category: 'document',
+          content: legal.termsMarkdown,
+          appId,
+        },
+        update: { content: legal.termsMarkdown },
+      });
+      await db.knowledgeSnippet.upsert({
+        where: { key_appId: { key: 'privacy_policy', appId } },
+        create: {
+          key: 'privacy_policy',
+          category: 'document',
+          content: legal.privacyMarkdown,
+          appId,
+        },
+        update: { content: legal.privacyMarkdown },
+      });
+    } catch (err) {
+      console.warn(
+        '[content-generator] Legal doc generation failed (non-fatal):',
         err instanceof Error ? err.message : err,
       );
     }
