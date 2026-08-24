@@ -12,6 +12,7 @@ import { jsonError, jsonOk } from '@/lib/api/response';
 import { ensureTenantsTable } from '@/domain/tenant/tenant-service';
 import { templateExists } from '@/domain/tenant/custom-template-service';
 import { ensureCeoOverviewInPack } from '@/domain/app-pack/app-pack-tenant-materializer';
+import { recalculateOrgRateCard } from '@/domain/billing/org-rate-card-service';
 import type { AppPackConfig, SuiteAppInstance } from '@/store/apis/tenant-api';
 
 export const dynamic = 'force-dynamic';
@@ -124,6 +125,22 @@ export async function POST(
         (ensured.addedApp ? ` (+ ${ensured.addedApp.appId})` : ''),
     );
 
+    try {
+      const orgRows = (await db.$queryRawUnsafe(
+        `SELECT organization_id FROM tenants WHERE slug = $1 LIMIT 1;`,
+        slug,
+      )) as { organization_id: string | null }[];
+      const orgId = orgRows[0]?.organization_id;
+      if (orgId) {
+        await recalculateOrgRateCard(orgId, db);
+      }
+    } catch (rateErr) {
+      console.warn(
+        '[suite-apps] Rate card recalc failed:',
+        rateErr instanceof Error ? rateErr.message : String(rateErr),
+      );
+    }
+
     return jsonOk({
       added: true,
       app: newApp,
@@ -178,6 +195,22 @@ export async function DELETE(
     await saveAppPack(db, slug, appPack);
 
     console.log(`[suite-apps] Removed app "${appId}" from suite "${slug}"`);
+
+    try {
+      const orgRows = (await db.$queryRawUnsafe(
+        `SELECT organization_id FROM tenants WHERE slug = $1 LIMIT 1;`,
+        slug,
+      )) as { organization_id: string | null }[];
+      const orgId = orgRows[0]?.organization_id;
+      if (orgId) {
+        await recalculateOrgRateCard(orgId, db);
+      }
+    } catch (rateErr) {
+      console.warn(
+        '[suite-apps] Rate card recalc failed:',
+        rateErr instanceof Error ? rateErr.message : String(rateErr),
+      );
+    }
 
     return jsonOk({
       removed: true,

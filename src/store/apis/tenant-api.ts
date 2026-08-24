@@ -210,6 +210,14 @@ export const tenantApi = createApi({
       secondaryColor?: string;
       metadata?: Record<string, unknown>;
       prompt?: string;
+      /** Platform-admin rate-card seed — server recomputes markup; never trust client markup. */
+      rateCardInputs?: {
+        appCount?: number;
+        userCount?: number;
+        annualRevenueUsd?: number;
+        macStudioCostUsd?: number;
+        monthlyThirdPartyUsd?: number;
+      };
     }>({
       query: (body) => ({
         url: 'admin/tenants',

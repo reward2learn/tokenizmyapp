@@ -1,9 +1,13 @@
 'use client';
 
 import Alert from '@mui/material/Alert';
+import Button from '@mui/material/Button';
+import Stack from '@mui/material/Stack';
 import Skeleton from '@mui/material/Skeleton';
 import { useGetTenantOrganizationQuery } from '@/store/apis/organization-api';
 import { BillingPanel } from '@/components/billing/billing-panel';
+import { useAppDispatch } from '@/store/hooks';
+import { setAdminCalculatorContext } from '@/store/ui-slice';
 
 /**
  * Resolves a tenant to its paying organization, then renders Billing for it.
@@ -14,6 +18,7 @@ import { BillingPanel } from '@/components/billing/billing-panel';
  * organization bar above issues the same one — so this costs no extra request.
  */
 export function TenantBillingTab({ tenantSlug }: { tenantSlug: string }) {
+  const dispatch = useAppDispatch();
   const { data, isLoading, isError } = useGetTenantOrganizationQuery(tenantSlug, {
     skip: !tenantSlug,
   });
@@ -29,5 +34,31 @@ export function TenantBillingTab({ tenantSlug }: { tenantSlug: string }) {
     );
   }
 
-  return <BillingPanel orgId={data.data.organization.id} />;
+  const orgId = data.data.organization.id;
+
+  return (
+    <Stack spacing={2}>
+      <Stack direction="row" sx={{ justifyContent: 'flex-end' }}>
+        <Button
+          size="small"
+          variant="outlined"
+          onClick={() =>
+            dispatch(
+              setAdminCalculatorContext({
+                orgId,
+                tenantSlug,
+              }),
+            )
+          }
+        >
+          Open AI Credits Calculator
+        </Button>
+      </Stack>
+      <Alert severity="info">
+        Calculator context saved — open the <strong>AI Credits Calculator</strong> tab to
+        analyze and apply this org&apos;s rate card.
+      </Alert>
+      <BillingPanel orgId={orgId} />
+    </Stack>
+  );
 }

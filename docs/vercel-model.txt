@@ -1,0 +1,366 @@
+Model
+Regional Inference
+amazon logo
+ama
+zon/
+nova-pro
+
+300K	
+0.4s
+$0.80/M
+$3.20/M
+—	
+bedrock logo
+EU
+12/03/2024	
+moonshotai logo
+moo
+nshotai/kimi-k
+2.7-code
+
+262K	
+0.5s
+186tps
+$0.74/M
+Fast $1.90/M
+$3.50/M
+Fast $8/M
+Read:
+$0.15/M
+Write:
+—
+—	
++2
+baseten logo
+deepinfra logo
+fireworks logo
++1
+US
+06/12/2026	
+alibaba logo
+ali
+baba/qwen3.8-2
+.4t-a95b
+
+262K	
+1.0s
+162tps
+$1.65/M
+$4.95/M
+Read:
+$0.12/M
+Write:
+$2.5/M
+—	
+deepinfra logo
+fireworks logo
+gmicloud logo
++3
+08/03/2026	
+moonshotai logo
+moo
+nshotai/k
+imi-k2.6
+
+262K	
+0.3s
+197tps
+$0.95/M
+$4/M
+Read:
+$0.16/M
+Write:
+—
+—	
++1
+baseten logo
+fireworks logo
+moonshotai logo
++2
+US
+04/20/2026	
+tencent logo
+tencent/hy3
+
+262K	
+1.1s
+72tps
+$0.13/M
+$0.52/M
+Read:
+$0.03/M
+Write:
+—
+—	
+deepinfra logo
+gmicloud logo
+novita logo
++1
+07/06/2026	
+moonshotai logo
+moo
+nshotai/k
+imi-k2.5
+
+262K	
+0.5s
+104tps
+$0.60/M
+$3/M
+Read:
+$0.1/M
+Write:
+—
+—	
++1
+bedrock logo
+moonshotai logo
+novita logo
+01/26/2026	
+alibaba logo
+ali
+baba/qwen3-vl-235b-a22b-
+instruct
+
+262K	
+0.9s
+50tps
+$0.20/M
+$0.88/M
+Read:
+$0.11/M
+Write:
+—
+—	
+alibaba logo
+deepinfra logo
+09/23/2025	
+moonshotai logo
+moo
+nshotai/kimi-k2.7-code-h
+ighspeed
+
+262K	
+0.4s
+200tps
+$1.90/M
+$8/M
+Read:
+$0.38/M
+Write:
+—
+—	
++2
+fireworks logo
+moonshotai logo
+06/15/2026	
+alibaba logo
+ali
+baba/qwen3-vl-
+instruct
+
+262K	
+0.4s
+50tps
+$0.20/M
+$0.88/M
+Read:
+$0.11/M
+Write:
+—
+—	
+alibaba logo
+deepinfra logo
+novita logo
+09/23/2025	
+thinkingmachines logo
+thi
+nkingmachines
+/inkling
+
+262K	
+0.3s
+224tps
+$1/M
+$4.05/M
+Read:
+$0.17/M
+Write:
+—
+—	
++1
+baseten logo
+modal logo
+thinkingmachines logo
++1
+US
+07/15/2026	
+alibaba logo
+ali
+baba/qwe
+n3-coder
+
+262K	
+0.3s
+108tps
+$0.22/M
+$1.80/M
+Read:
+$0.02/M
+Write:
+—
+—	
+alibaba logo
+deepinfra logo
+novita logo
++1
+07/22/2025	
+alibaba logo
+ali
+baba/q
+wen3-max
+
+262K	
+1.0s
+67tps
+$1.20/M
++2 more
+$6/M
++2 more
+Read:
+$0.24/M
++2 more
+Write:
+—
+—	
+alibaba logo
+novita logo
+09/23/2025	
+alibaba logo
+ali
+baba/qwen3-coder
+-30b-a3b
+
+262K	
+0.2s
+118tps
+$0.15/M
+$0.60/M
+—	
+bedrock logo
+novita logo
+07/31/2025	
+alibaba logo
+ali
+baba/qwen3-next-80b-a3b-
+instruct
+
+262K	
+0.4s
+241tps
+$0.15/M
+$1.20/M
+—	
+alibaba logo
+deepinfra logo
+novita logo
++1
+09/11/2025	
+alibaba logo
+ali
+baba/qwe
+n-3-235b
+
+262K	
+0.3s
+51tps
+$0.09/M
+$0.10/M
+—	
+deepinfra logo
+novita logo
+vertex logo
+04/28/2025	
+alibaba logo
+ali
+baba/qwen3-next-80b-a3b-
+thinking
+
+262K	
+0.3s
+334tps
+$0.15/M
+$1.20/M
+—	
+alibaba logo
+vertex logo
+09/11/2025	
+nvidia logo
+nvi
+dia/nemotron-3-nano
+-30b-a3b
+
+262K	
+0.3s
+229tps
+$0.05/M
+$0.24/M
+—	
+deepinfra logo
+12/15/2025	
+alibaba logo
+ali
+baba/qwen3-max
+-preview
+
+262K	
+1.0s
+59tps
+$1.20/M
++2 more
+$6/M
++2 more
+Read:
+$0.24/M
++2 more
+Write:
+—
+—	
+alibaba logo
+09/05/2025	
+stepfun logo
+ste
+pfun/step-3
+.5-flash
+
+262K	
+0.2s
+163tps
+$0.09/M
+$0.30/M
+Read:
+$0.02/M
+Write:
+—
+—	
++1
+deepinfra logo
+01/29/2026	
+alibaba logo
+ali
+baba/qwen3-235b-a22b-
+thinking
+
+262K	
+0.3s
+122tps
+$0.23/M
+$2.30/M
+Read:
+$0.2/M
+Write:
+—
+—	
+alibaba logo
+deepinfra logo
+novita logo

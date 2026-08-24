@@ -1078,6 +1078,13 @@ export interface PriceMismatch {
  */
 export async function findPriceMismatches(
   config?: StripeEnvConfig,
+  /**
+   * Optional resolved catalog faces (from billing_catalog_overrides).
+   * When provided, drift is measured against overrides rather than static PLANS.
+   */
+  catalogFaces?: Partial<
+    Record<PlanId, { priceMonthly: number | null; priceYearly: number | null }>
+  >,
 ): Promise<PriceMismatch[]> {
   const stripe = getStripeFor(config);
   if (!stripe) return [];
@@ -1089,7 +1096,11 @@ export async function findPriceMismatches(
       const priceId = resolvePriceId(plan.id, interval, config);
       if (!priceId) continue;
 
-      const catalogCents = interval === 'yearly' ? plan.priceYearly : plan.priceMonthly;
+      const override = catalogFaces?.[plan.id];
+      const catalogCents =
+        interval === 'yearly'
+          ? (override?.priceYearly ?? plan.priceYearly)
+          : (override?.priceMonthly ?? plan.priceMonthly);
       if (catalogCents === null) continue;
 
       let price: Stripe.Price;

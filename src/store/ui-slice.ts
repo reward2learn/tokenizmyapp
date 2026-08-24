@@ -40,6 +40,19 @@ export type AdminTenantSubtab =
   | 'app-pack'
   | 'billing';
 
+export interface WizardRateCardPrefill {
+  appCount?: number;
+  userCount?: number;
+  annualRevenueUsd?: number;
+  macStudioCostUsd?: number;
+  monthlyThirdPartyUsd?: number;
+}
+
+export interface AdminCalculatorContext {
+  orgId?: string | null;
+  tenantSlug?: string | null;
+}
+
 export interface UiState {
   drawerOpen: boolean;
   /** Right-side AI chat drawer (persistent — pushes content, never overlays). */
@@ -95,6 +108,10 @@ export interface UiState {
   >;
   /** Bumped on publish so live blocks remount with fresh config. */
   pageSectionsRevision: Record<string, number>;
+  /** Prefill for create-tenant wizard rate-card step (from AI Credits Calculator). */
+  wizardRateCardPrefill: WizardRateCardPrefill | null;
+  /** Deep-link context when opening the calculator from Billing. */
+  adminCalculatorContext: AdminCalculatorContext | null;
 }
 
 const initialState: UiState = {
@@ -119,6 +136,8 @@ const initialState: UiState = {
   pageEditSlug: null,
   publishedPageSections: {},
   pageSectionsRevision: {},
+  wizardRateCardPrefill: null,
+  adminCalculatorContext: null,
 };
 
 export const uiSlice = createSlice({
@@ -248,6 +267,18 @@ export const uiSlice = createSlice({
       state.publishedPageSections[key] = sections;
       state.pageSectionsRevision[key] = (state.pageSectionsRevision[key] ?? 0) + 1;
     },
+    setWizardRateCardPrefill(
+      state,
+      action: { payload: WizardRateCardPrefill | null },
+    ) {
+      state.wizardRateCardPrefill = action.payload;
+    },
+    setAdminCalculatorContext(
+      state,
+      action: { payload: AdminCalculatorContext | null },
+    ) {
+      state.adminCalculatorContext = action.payload;
+    },
   },
 });
 
@@ -272,4 +303,6 @@ export const {
   setPageEditMode,
   togglePageEditMode,
   publishPageSections,
+  setWizardRateCardPrefill,
+  setAdminCalculatorContext,
 } = uiSlice.actions;

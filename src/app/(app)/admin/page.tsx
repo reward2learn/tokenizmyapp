@@ -41,6 +41,7 @@ import { PageSectionsManager } from '@/components/ops-admin/page-sections-manage
 import { TenantInfoTab } from '@/components/ops-admin/tenant-info-tab';
 import { TenantAdminPanel } from '@/components/ops-admin/tenant-admin-panel';
 import { AppPackTab } from '@/components/ops-admin/app-pack-tab';
+import { AiCreditsCalculatorTool } from '@/components/ops-admin/ai-credits-calculator-tool';
 import { getClientTenantConfig } from '@shared/lib/config/tenant';
 import {
   useListRoleConfigsQuery,
@@ -1043,7 +1044,7 @@ export default function AdminPage() {
     ];
     if (isTokenizmyapp) {
       return isFactoryPlatformAdmin
-        ? ['Tenants', ...core, 'Unified App Bundle']
+        ? ['Tenants', 'AI Credits Calculator', ...core, 'Unified App Bundle']
         : core;
     }
     return core;
@@ -1091,6 +1092,7 @@ export default function AdminPage() {
             </Tabs>
           )}
           {activeTab === 'Tenants' ? <TenantAdminPanel /> : null}
+          {activeTab === 'AI Credits Calculator' ? <AiCreditsCalculatorTool /> : null}
           {activeTab === 'Tenant Info' ? <TenantInfoTab /> : null}
           {activeTab === 'Navigation' ? <NavigationManager /> : null}
           {activeTab === 'Page Content' ? <PageSectionsManager /> : null}

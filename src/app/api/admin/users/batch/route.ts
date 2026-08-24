@@ -8,6 +8,7 @@ import { setSecret } from '@/lib/secrets';
 import { FUNCTIONAL_ROLES } from '@/domain/security/functional-roles';
 import { resolveDedicatedTenantDbUrl } from '@/domain/tenant/tenant-db-resolver';
 import { addTenantColumnsIfMissing } from '@/domain/tenant/tenant-seed-service';
+import { recalculateOrgRateCard } from '@/domain/billing/org-rate-card-service';
 
 export const maxDuration = 30;
 
@@ -166,5 +167,23 @@ export async function POST(request: Request): Promise<NextResponse> {
   const created = results.filter((r) => r.status === 'created').length;
   const updated = results.filter((r) => r.status === 'updated').length;
   const skipped = results.filter((r) => r.status === 'skipped').length;
+
+  if (scopeTenantSlug && (created > 0 || updated > 0)) {
+    try {
+      const platformDb = createRawClient();
+      const orgRows = (await platformDb.$queryRawUnsafe(
+        `SELECT organization_id FROM tenants WHERE slug = $1 LIMIT 1;`,
+        scopeTenantSlug,
+      )) as { organization_id: string | null }[];
+      const orgId = orgRows[0]?.organization_id;
+      if (orgId) await recalculateOrgRateCard(orgId, platformDb);
+    } catch (rateErr) {
+      console.warn(
+        '[admin/users/batch] Rate card recalc failed:',
+        rateErr instanceof Error ? rateErr.message : String(rateErr),
+      );
+    }
+  }
+
   return jsonOk<BatchUsersResponse>({ results, created, updated, skipped });
 }

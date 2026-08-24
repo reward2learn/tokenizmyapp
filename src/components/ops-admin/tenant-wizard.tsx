@@ -54,8 +54,15 @@ import {
   useCreateTenantMutation,
   useScrapeTenantMutation,
 } from '@/store/apis/tenant-api';
+import { TenantRateCardStep } from '@/components/ops-admin/tenant-rate-card-step';
+import {
+  DEFAULT_MAC_STUDIO_ULTRA_256_USD,
+  type TenantRateCardInputs,
+} from '@/lib/billing/tenant-rate-card';
+import { useAppDispatch, useAppSelector } from '@/store/hooks';
+import { setWizardRateCardPrefill } from '@/store/ui-slice';
 
-const STEPS = ['Business Info', 'Template', 'AI Description', 'Branding', 'Review'];
+const STEPS = ['Business Info', 'Template', 'AI Description', 'Branding', 'AI Rate Card', 'Review'];
 
 interface ScrapedData {
   businessName: string;
@@ -95,6 +102,8 @@ interface WizardState {
   secondaryColor: string;
   logoBase64: string | null;
   scrapeUrl: string;
+  /** Secured billing rate-card inputs — locked in by platform admin at create time. */
+  rateCard: TenantRateCardInputs;
 }
 
 const INITIAL_STATE: WizardState = {
@@ -110,6 +119,13 @@ const INITIAL_STATE: WizardState = {
   secondaryColor: '#0af9fe',
   logoBase64: null,
   scrapeUrl: '',
+  rateCard: {
+    appCount: 1,
+    userCount: 1,
+    annualRevenueUsd: 0,
+    macStudioCostUsd: DEFAULT_MAC_STUDIO_ULTRA_256_USD,
+    monthlyThirdPartyUsd: 0,
+  },
 };
 
 export const PIPELINE_STEPS = [
@@ -125,6 +141,8 @@ export function TenantWizard() {
   const theme = useTheme();
   // Mobile: vertical stepper layout; non-mobile keeps the current horizontal layout.
   const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
+  const dispatch = useAppDispatch();
+  const rateCardPrefill = useAppSelector((s) => s.ui.wizardRateCardPrefill);
   const [open, setOpen] = useState(false);
   const [step, setStep] = useState(0);
   const [state, setState] = useState<WizardState>(INITIAL_STATE);
@@ -135,7 +153,22 @@ export function TenantWizard() {
   const [createTenant, { isLoading, isError, error, isSuccess, data }] = useCreateTenantMutation();
   const [scrapeTenant] = useScrapeTenantMutation();
 
-  const handleOpen = () => { setOpen(true); setStep(0); setState(INITIAL_STATE); setScraped(null); setScrapeError(null); };
+  const handleOpen = () => {
+    setOpen(true);
+    setStep(0);
+    setState({
+      ...INITIAL_STATE,
+      rateCard: {
+        ...INITIAL_STATE.rateCard,
+        ...(rateCardPrefill ?? {}),
+      },
+    });
+    setScraped(null);
+    setScrapeError(null);
+    if (rateCardPrefill) {
+      dispatch(setWizardRateCardPrefill(null));
+    }
+  };
   const handleClose = () => { if (!isLoading) { setOpen(false); setStep(0); } };
 
   const update = useCallback((patch: Partial<WizardState>) => {
@@ -308,6 +341,8 @@ export function TenantWizard() {
 
   const handleCreate = async () => {
     const isSuite = state.templateMode === 'suite';
+    const suggestedApps =
+      isSuite && state.templates.length > 0 ? state.templates.length : 1;
     const result = await createTenant({
       slug: state.slug,
       displayName: state.displayName.trim(),
@@ -318,9 +353,13 @@ export function TenantWizard() {
       primaryColor: state.primaryColor,
       secondaryColor: state.secondaryColor,
       prompt: state.prompt.trim() || undefined,
+      rateCardInputs: {
+        ...state.rateCard,
+        appCount: state.rateCard.appCount || suggestedApps,
+      },
     }).unwrap();
     if (result.success) {
-      setStep(5);
+      setStep(6);
     }
   };
 
@@ -906,8 +945,23 @@ export function TenantWizard() {
             </Stack>
           ) : null}
 
-          {/* Step 4: Review */}
+          {/* Step 4: AI Rate Card */}
           {step === 4 ? (
+            <TenantRateCardStep
+              value={state.rateCard}
+              suggestedAppCount={
+                state.templateMode === 'suite' && state.templates.length > 0
+                  ? state.templates.length
+                  : 1
+              }
+              onChange={(patch) =>
+                setState((s) => ({ ...s, rateCard: { ...s.rateCard, ...patch } }))
+              }
+            />
+          ) : null}
+
+          {/* Step 5: Review */}
+          {step === 5 ? (
             <Stack spacing={2}>
               <Typography variant="body2" color="text.secondary">
                 Review your tenant configuration before creating. The AI pipeline will run automatically.
@@ -963,6 +1017,15 @@ export function TenantWizard() {
                     <Chip size="small" label={`Primary: ${state.primaryColor}`} sx={{ bgcolor: state.primaryColor, color: '#fff' }} />
                     <Chip size="small" label={`Secondary: ${state.secondaryColor}`} sx={{ bgcolor: state.secondaryColor, color: '#000' }} />
                   </Stack>
+                  <Box>
+                    <Typography variant="caption" color="text.secondary">AI Rate Card</Typography>
+                    <Typography variant="body2" sx={{ mt: 0.5 }}>
+                      {state.rateCard.appCount} apps · {state.rateCard.userCount} users · $
+                      {state.rateCard.annualRevenueUsd.toLocaleString()} turnover · Mac Studio $
+                      {state.rateCard.macStudioCostUsd.toLocaleString()} · $
+                      {state.rateCard.monthlyThirdPartyUsd.toLocaleString()}/mo 3rd-party
+                    </Typography>
+                  </Box>
                   {scraped ? (
                     <Box>
                       <Typography variant="caption" color="text.secondary">Scraped Data</Typography>
@@ -1065,8 +1128,8 @@ export function TenantWizard() {
               </Paper>
             </Stack>
           ) : null}
-          {/* Step 5: Success */}
-          {step === 5 ? (
+          {/* Step 6: Success */}
+          {step === 6 ? (
             <Stack spacing={2} sx={{ textAlign: 'center', py: 3 }}>
               <CheckCircleIcon color="success" sx={{ fontSize: 64, mx: 'auto' }} />
               <Typography variant="h6" sx={{ fontWeight: 700 }}>Tenant Created!</Typography>
@@ -1102,11 +1165,11 @@ export function TenantWizard() {
           ) : null}
         </DialogContent>
 
-        {step < 5 ? (
+        {step < 6 ? (
           <DialogActions>
             {step > 0 ? <Button onClick={handleBack} disabled={isLoading}>Back</Button> : <Button onClick={handleClose} disabled={isLoading}>Cancel</Button>}
             <Box sx={{ flex: 1 }} />
-            {step < 4 ? (
+            {step < 5 ? (
               <Button variant="contained" onClick={handleNext}>Continue</Button>
             ) : (
               <Button variant="contained" color="primary" onClick={() => void handleCreate()} disabled={isLoading} startIcon={isLoading ? <CircularProgress size={18} color="inherit" /> : <AutoFixHighIcon />}>

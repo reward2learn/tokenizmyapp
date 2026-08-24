@@ -153,7 +153,16 @@ export interface CreditAdminAnalytics {
 export const organizationApi = createApi({
   reducerPath: 'organizationApi',
   baseQuery,
-  tagTypes: ['Organization', 'TenantOrg', 'Credits', 'Subscription', 'PaymentMethods'],
+  tagTypes: [
+    'Organization',
+    'TenantOrg',
+    'Credits',
+    'Subscription',
+    'PaymentMethods',
+    'OrgRateCard',
+    'AiCreditsCalculator',
+    'BillingCatalog',
+  ],
   endpoints: (builder) => ({
     listOrganizations: builder.query<
       // `assigned` reports how many tenants the read's backfill just repaired.
@@ -514,6 +523,171 @@ export const organizationApi = createApi({
         body,
       }),
     }),
+
+    getOrgRateCard: builder.query<
+      ApiEnvelope<{
+        inputs: {
+          appCount: number;
+          userCount: number;
+          annualRevenueUsd: number;
+          macStudioCostUsd: number;
+          monthlyThirdPartyUsd: number;
+        };
+        markupPercent: number;
+        creditsPerUsd: number;
+        planCredits: Record<string, number>;
+        packCredits: Record<string, number>;
+        manualMarkupPercent: number | null;
+        persisted?: boolean;
+      }>,
+      string
+    >({
+      query: (orgId) => ({ url: `admin/organizations/${orgId}/rate-card` }),
+      providesTags: (_r, _e, orgId) => [{ type: 'OrgRateCard', id: orgId }],
+    }),
+
+    upsertOrgRateCard: builder.mutation<
+      ApiEnvelope<Record<string, unknown>>,
+      {
+        orgId: string;
+        inputs?: Partial<{
+          appCount: number;
+          userCount: number;
+          annualRevenueUsd: number;
+          macStudioCostUsd: number;
+          monthlyThirdPartyUsd: number;
+        }>;
+        manualMarkupPercent?: number | null;
+        recalculate?: boolean;
+      }
+    >({
+      query: ({ orgId, ...body }) => ({
+        url: `admin/organizations/${orgId}/rate-card`,
+        method: 'PUT',
+        body,
+      }),
+      invalidatesTags: (_r, _e, { orgId }) => [
+        { type: 'OrgRateCard', id: orgId },
+        'Credits',
+      ],
+    }),
+
+    analyzeAiCreditsCalculator: builder.mutation<
+      ApiEnvelope<Record<string, unknown>>,
+      {
+        websiteUrl?: string | null;
+        secCikOrTicker?: string | null;
+        companiesHouseNumber?: string | null;
+        orgId?: string | null;
+        tenantSlug?: string | null;
+        adminAnnualRevenueUsd?: number | null;
+        inputsOverride?: Record<string, number>;
+      }
+    >({
+      query: (body) => ({
+        url: 'admin/ai-credits-calculator/analyze',
+        method: 'POST',
+        body,
+      }),
+    }),
+
+    listCalculatorThreads: builder.query<
+      ApiEnvelope<{ threads: Array<{ id: string; title: string; updatedAt: string }> }>,
+      void
+    >({
+      query: () => ({ url: 'admin/ai-credits-calculator/threads' }),
+      providesTags: ['AiCreditsCalculator'],
+    }),
+
+    createCalculatorThread: builder.mutation<
+      ApiEnvelope<{ thread: { id: string; title: string } }>,
+      { title?: string; orgId?: string | null; tenantSlug?: string | null }
+    >({
+      query: (body) => ({
+        url: 'admin/ai-credits-calculator/threads',
+        method: 'POST',
+        body,
+      }),
+      invalidatesTags: ['AiCreditsCalculator'],
+    }),
+
+    getCalculatorThread: builder.query<
+      ApiEnvelope<{
+        thread: { id: string; title: string };
+        messages: Array<{ id: string; role: string; content: string; createdAt: string }>;
+      }>,
+      string
+    >({
+      query: (id) => ({ url: `admin/ai-credits-calculator/threads/${id}` }),
+      providesTags: (_r, _e, id) => [{ type: 'AiCreditsCalculator', id }],
+    }),
+
+    sendCalculatorChatMessage: builder.mutation<
+      ApiEnvelope<{
+        assistantMessage: { id: string; content: string };
+        toolResults: unknown[];
+      }>,
+      {
+        threadId: string;
+        message: string;
+        draftInputs?: Record<string, number>;
+        websiteUrl?: string | null;
+        secCikOrTicker?: string | null;
+        companiesHouseNumber?: string | null;
+      }
+    >({
+      query: ({ threadId, ...body }) => ({
+        url: `admin/ai-credits-calculator/threads/${threadId}/messages`,
+        method: 'POST',
+        body,
+      }),
+      invalidatesTags: (_r, _e, { threadId }) => [{ type: 'AiCreditsCalculator', id: threadId }],
+    }),
+
+    getBillingCatalog: builder.query<
+      ApiEnvelope<{
+        catalog: {
+          plans: Record<string, { monthlyCents: number; yearlyCents: number }>;
+          packs: Record<string, number>;
+        };
+        stripePriceIds: Record<string, string>;
+        stripeDrift: string[];
+        hasOverrides: boolean;
+      }>,
+      void
+    >({
+      query: () => ({ url: 'admin/billing/catalog-prices' }),
+      providesTags: ['BillingCatalog'],
+    }),
+
+    updateCatalogPrices: builder.mutation<
+      ApiEnvelope<Record<string, unknown>>,
+      {
+        confirm: true;
+        plans?: Record<string, { monthlyCents: number; yearlyCents: number }>;
+        packs?: Record<string, number>;
+        notes?: string | null;
+      }
+    >({
+      query: (body) => ({
+        url: 'admin/billing/catalog-prices',
+        method: 'PUT',
+        body,
+      }),
+      invalidatesTags: ['BillingCatalog'],
+    }),
+
+    syncStripeCatalogPrices: builder.mutation<
+      ApiEnvelope<{ message: string; created: string[]; dryRun: boolean }>,
+      { confirm: true; dryRun?: boolean }
+    >({
+      query: (body) => ({
+        url: 'admin/billing/catalog-prices/sync-stripe',
+        method: 'POST',
+        body,
+      }),
+      invalidatesTags: ['BillingCatalog'],
+    }),
   }),
 });
 
@@ -539,4 +713,14 @@ export const {
   useCreateTopUpIntentMutation,
   useConfirmTopUpPaymentMutation,
   useCreateAgenticTopUpMutation,
+  useGetOrgRateCardQuery,
+  useUpsertOrgRateCardMutation,
+  useAnalyzeAiCreditsCalculatorMutation,
+  useListCalculatorThreadsQuery,
+  useCreateCalculatorThreadMutation,
+  useGetCalculatorThreadQuery,
+  useSendCalculatorChatMessageMutation,
+  useGetBillingCatalogQuery,
+  useUpdateCatalogPricesMutation,
+  useSyncStripeCatalogPricesMutation,
 } = organizationApi;

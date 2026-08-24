@@ -19,6 +19,11 @@ import {
 } from '@/domain/billing/organization-service';
 import { getPlanForOrg, getSubscription } from '@/domain/billing/entitlement-service';
 import { resolveTenantSelfServeBilling } from '@/domain/billing/self-serve-billing-service';
+import {
+  ensureRateCardForTenantSlug,
+  recalculateOrgRateCard,
+} from '@/domain/billing/org-rate-card-service';
+import { defaultRateCardInputs } from '@/lib/billing/tenant-rate-card';
 
 export const dynamic = 'force-dynamic';
 
@@ -82,6 +87,28 @@ export async function PUT(
 
     const moved = await assignTenantToOrg(db, slug, orgId);
     if (!moved) return jsonError('Tenant not found', 404);
+
+    // Apply wizard-seeded rate card inputs, then refresh live apps/users/spend.
+    try {
+      const metaRows = (await db.$queryRawUnsafe(
+        `SELECT metadata FROM tenants WHERE slug = $1 LIMIT 1;`,
+        slug,
+      )) as { metadata: unknown }[];
+      const meta = (metaRows[0]?.metadata ?? {}) as Record<string, unknown>;
+      const billing = (meta.billing ?? {}) as Record<string, unknown>;
+      const seed = defaultRateCardInputs(
+        (billing.rateCardInputs ?? {}) as Partial<
+          import('@/lib/billing/tenant-rate-card').TenantRateCardInputs
+        >,
+      );
+      await ensureRateCardForTenantSlug(slug, seed, db);
+      await recalculateOrgRateCard(orgId, db);
+    } catch (rateErr) {
+      console.error(
+        '[tenant-org] Rate card apply failed:',
+        rateErr instanceof Error ? rateErr.message : String(rateErr),
+      );
+    }
 
     return jsonOk({ tenantSlug: slug, organization });
   } catch (err) {

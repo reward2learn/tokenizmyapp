@@ -29,6 +29,8 @@ import { materializeAppPackForTenant, buildSuitePrompt, ensureCeoOverviewInPack 
 import type { AppPackConfig } from '@/store/apis/tenant-api';
 import { provisionSuiteApps } from '@/domain/workflow/suite-provisioning';
 import { CREDIT_FLOORS, requireCreditsForTenant } from '@/domain/billing/credit-service';
+import { ensureRateCardForTenantSlug } from '@/domain/billing/org-rate-card-service';
+import { defaultRateCardInputs } from '@/lib/billing/tenant-rate-card';
 
 export const dynamic = 'force-dynamic';
 
@@ -85,6 +87,16 @@ const createSchema = z.object({
   primaryColor: z.string().regex(/^#[0-9a-fA-F]{6}$/).optional().default('#eb3d28'),
   secondaryColor: z.string().regex(/^#[0-9a-fA-F]{6}$/).optional().default('#0af9fe'),
   metadata: z.record(z.unknown()).optional().default({}),
+  /** Platform-admin seed for secured AI markup; server recomputes charge authority. */
+  rateCardInputs: z
+    .object({
+      appCount: z.number().int().min(1).optional(),
+      userCount: z.number().int().min(1).optional(),
+      annualRevenueUsd: z.number().min(0).optional(),
+      macStudioCostUsd: z.number().min(0).optional(),
+      monthlyThirdPartyUsd: z.number().min(0).optional(),
+    })
+    .optional(),
 });
 
 // ── Helper: snake_case DB rows → camelCase TenantEntry ──
@@ -195,6 +207,23 @@ export async function POST(request: Request): Promise<Response> {
     }
 
     const tenantId = `tn_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+    const suiteAppHint =
+      parsed.data.templateMode === 'suite' && parsed.data.templates?.length
+        ? parsed.data.templates.length
+        : 1;
+    const rateCardSeed = defaultRateCardInputs({
+      appCount: suiteAppHint,
+      ...parsed.data.rateCardInputs,
+    });
+    const existingMeta = (parsed.data.metadata ?? {}) as Record<string, unknown>;
+    const metadataWithRateCard = {
+      ...existingMeta,
+      billing: {
+        ...((existingMeta.billing as Record<string, unknown>) ?? {}),
+        rateCardInputs: rateCardSeed,
+      },
+    };
+
     await db.$executeRawUnsafe(
       `INSERT INTO tenants (id, slug, display_name, template, status, primary_color, secondary_color, metadata, created_by, created_at, updated_at)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP);`,
@@ -205,10 +234,20 @@ export async function POST(request: Request): Promise<Response> {
       'deploying',
       parsed.data.primaryColor,
       parsed.data.secondaryColor,
-      JSON.stringify(parsed.data.metadata),
+      JSON.stringify(metadataWithRateCard),
       guard.session.sub ?? guard.session.email ?? null,
     );
     const tenant = { id: tenantId, slug: parsed.data.slug, status: 'deploying' } as const;
+
+    // Seed secured rate card when an organization is already linked (often later).
+    try {
+      await ensureRateCardForTenantSlug(parsed.data.slug, rateCardSeed, db);
+    } catch (rateErr) {
+      console.error(
+        '[tenants] Rate card seed failed:',
+        rateErr instanceof Error ? rateErr.message : String(rateErr),
+      );
+    }
 
     // ── Phase 4: Neon database provisioning (if API key available) ──
     // Runs BEFORE suite provisioning below — provisionSuiteApps() reads

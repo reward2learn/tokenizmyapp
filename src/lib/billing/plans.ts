@@ -17,6 +17,10 @@
  * Changing `aiCreditsPerMonth` is not display-only: it is the amount
  * `grantMonthlyAllowanceIfDue` mints at the start of each period, and it
  * applies to existing organizations from their next period onward.
+ *
+ * AI credit sizing (plans + top-ups) targets ~30% markup on OpenAI gpt-4o list
+ * COGS while keeping the gpt-4o-class RATE_CARD (0.4 / 1.6 cr per 1K). Cheaper
+ * Vercel Gateway models then yield additional margin at the same burn.
  */
 
 export type PlanId = 'free' | 'pro' | 'business' | 'enterprise';
@@ -72,6 +76,26 @@ export function yearlyMonthlyPrice(priceMonthly: number): number {
   return Math.round(priceMonthly * (1 - YEARLY_DISCOUNT));
 }
 
+/**
+ * Credit economics for a ~30% platform margin on gpt-4o list COGS (catalog default).
+ * Per-tenant overrides live in org_billing_rate_cards — see tenant-rate-card.ts.
+ */
+import {
+  AI_CREDIT_RATE_INPUT_PER_1K,
+  AI_CREDIT_REF_INPUT_USD_PER_M,
+  purchasedCreditsForUsdAtMarkup,
+  MARKUP_FLOOR,
+} from '@/lib/billing/tenant-rate-card';
+
+/** Catalog default markup floor (30%). Per-org cards may be higher. */
+export const AI_CREDIT_TARGET_MARKUP = MARKUP_FLOOR;
+export { AI_CREDIT_REF_INPUT_USD_PER_M, AI_CREDIT_RATE_INPUT_PER_1K };
+
+/** Purchased (non-promo) credits granted per USD at the catalog floor markup. */
+export function purchasedCreditsForUsd(usd: number, markupPercent: number = MARKUP_FLOOR): number {
+  return purchasedCreditsForUsdAtMarkup(usd, markupPercent);
+}
+
 export const PLANS: PlanDef[] = [
   {
     id: 'free',
@@ -79,7 +103,8 @@ export const PLANS: PlanDef[] = [
     tagline: 'Build and preview one app.',
     priceMonthly: 0,
     priceYearly: 0,
-    aiCreditsPerMonth: 50,
+    // Competitive trial allotment (~$20 of AI at the +30% credit face).
+    aiCreditsPerMonth: purchasedCreditsForUsd(20),
     cloudMultiplier: 1,
     maxTenants: 1,
     maxAppsPerTenant: 1,
@@ -91,7 +116,8 @@ export const PLANS: PlanDef[] = [
     tagline: 'Publish on your own domain.',
     priceMonthly: 9900,
     priceYearly: yearlyMonthlyPrice(9900),
-    aiCreditsPerMonth: 100,
+    // Same density as top-ups: ~123 credits per subscription dollar.
+    aiCreditsPerMonth: purchasedCreditsForUsd(99),
     cloudMultiplier: 20,
     maxTenants: 3,
     maxAppsPerTenant: 5,
@@ -103,7 +129,7 @@ export const PLANS: PlanDef[] = [
     tagline: 'Departments, roles and access control.',
     priceMonthly: 19900,
     priceYearly: yearlyMonthlyPrice(19900),
-    aiCreditsPerMonth: 250,
+    aiCreditsPerMonth: purchasedCreditsForUsd(199),
     cloudMultiplier: 20,
     maxTenants: 10,
     maxAppsPerTenant: null,
@@ -179,16 +205,12 @@ export function lowestPlanWithFeature(feature: Feature): PlanDef | null {
 }
 
 /**
- * AI credit top-up packs — editable data rows, NOT a computed rate.
+ * AI credit top-up packs — purchased credits only (no promo bonus).
  *
- * The observed bonus curve (2.0× → 1.75× → 1.47× of base) runs *backwards*:
- * total value per dollar DECREASES as basket size grows ($6.00 → $5.50 → $5.24
- * of credit per dollar). That is a first-purchase acquisition lever, not a
- * volume discount — front-loaded to convert the smallest, most hesitant buyer,
- * tapering so it doesn't bleed margin on whales. Treat these numbers as a
- * promo snapshot: change them before charging anyone, and keep `bonusCredits`
- * on a separate `source='promo'` grant so promo generosity is measurable and
- * can be withdrawn without touching purchased credits (roadmap §1.9 / §3.7).
+ * Bonus credits previously diluted ARPU and broke the +30% COGS floor when burned
+ * like paid credits. Size packs with `purchasedCreditsForUsd` so $1 ≈ 123 credits
+ * at the gpt-4o binding rate. Reintroduce promo via a separate `source='promo'`
+ * campaign if needed — do not bake it into these base amounts.
  */
 export interface CreditPack {
   id: string;
@@ -200,9 +222,27 @@ export interface CreditPack {
 }
 
 export const CREDIT_PACKS: CreditPack[] = [
-  { id: 'pack-25', label: '$25', priceCents: 2500, baseCredits: 50, bonusCredits: 100 },
-  { id: 'pack-50', label: '$50', priceCents: 5000, baseCredits: 100, bonusCredits: 175 },
-  { id: 'pack-100', label: '$100', priceCents: 10000, baseCredits: 212, bonusCredits: 312 },
+  {
+    id: 'pack-25',
+    label: '$25',
+    priceCents: 2500,
+    baseCredits: purchasedCreditsForUsd(25),
+    bonusCredits: 0,
+  },
+  {
+    id: 'pack-50',
+    label: '$50',
+    priceCents: 5000,
+    baseCredits: purchasedCreditsForUsd(50),
+    bonusCredits: 0,
+  },
+  {
+    id: 'pack-100',
+    label: '$100',
+    priceCents: 10000,
+    baseCredits: purchasedCreditsForUsd(100),
+    bonusCredits: 0,
+  },
 ];
 
 /**

@@ -544,9 +544,21 @@ export async function redeemCreditPack(
 
   const ownerUserId = options.ownerUserId ?? null;
 
+  const { resolvePackBaseCredits } = await import('@/domain/billing/org-rate-card-service');
+  const baseCredits = await resolvePackBaseCredits(orgId, pack.id, pack.baseCredits, db);
+
   const baseGrant = await grantCredits(
     orgId,
-    { source: 'addon', amount: pack.baseCredits, metadata, ownerUserId },
+    {
+      source: 'addon',
+      amount: baseCredits,
+      metadata: {
+        ...metadata,
+        catalogBaseCredits: pack.baseCredits,
+        rateCardResolved: baseCredits !== pack.baseCredits,
+      },
+      ownerUserId,
+    },
     db,
   );
 
@@ -905,10 +917,12 @@ export async function hasSufficientCredits(
 export async function debtCeilingForOrg(orgId: string, db?: RawDb): Promise<number> {
   db ??= await getDb();
   try {
-    const { getSubscription } = await import('@/domain/billing/entitlement-service');
-    const sub = await getSubscription(orgId, db);
-    const monthly = getPlan(sub.planId).aiCreditsPerMonth;
-    return monthly > 0 ? monthly : DEFAULT_DEBT_CEILING;
+  const { getSubscription } = await import('@/domain/billing/entitlement-service');
+  const sub = await getSubscription(orgId, db);
+  const plan = getPlan(sub.planId);
+  const { resolvePlanAiCredits } = await import('@/domain/billing/org-rate-card-service');
+  const monthly = await resolvePlanAiCredits(orgId, sub.planId, plan.aiCreditsPerMonth, db);
+  return monthly > 0 ? monthly : DEFAULT_DEBT_CEILING;
   } catch {
     return DEFAULT_DEBT_CEILING;
   }
@@ -924,7 +938,14 @@ export async function grantMonthlyAllowanceIfDue(
   const { getSubscription } = await import('@/domain/billing/entitlement-service');
   const sub = await getSubscription(orgId, db);
   const plan = getPlan(sub.planId);
-  if (plan.aiCreditsPerMonth <= 0) return null;
+  const { resolvePlanAiCredits } = await import('@/domain/billing/org-rate-card-service');
+  const monthlyAllowance = await resolvePlanAiCredits(
+    orgId,
+    sub.planId,
+    plan.aiCreditsPerMonth,
+    db,
+  );
+  if (monthlyAllowance <= 0) return null;
 
   const existing = (await db.$queryRawUnsafe(
     `SELECT * FROM credit_grants
@@ -942,11 +963,12 @@ export async function grantMonthlyAllowanceIfDue(
     orgId,
     {
       source: 'plan',
-      amount: plan.aiCreditsPerMonth,
+      amount: monthlyAllowance,
       planId: sub.planId,
       metadata: {
         periodStart: sub.currentPeriodStart,
         periodEnd: sub.currentPeriodEnd,
+        rateCardResolved: monthlyAllowance !== plan.aiCreditsPerMonth,
       },
     },
     db,

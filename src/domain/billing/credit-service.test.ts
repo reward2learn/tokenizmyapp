@@ -1,4 +1,5 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest';
+import { getPlan } from '@/lib/billing/plans';
 
 /**
  * In-memory stand-in for the two credit tables.
@@ -256,22 +257,27 @@ beforeEach(async () => {
 });
 
 describe('redeemCreditPack', () => {
-  it('splits a pack into a purchased grant and a separate promo grant', async () => {
+  it('grants purchased credits as an addon grant (promo bonus only when configured)', async () => {
     const db = makeDb();
     const { CREDIT_PACKS } = await import('@/lib/billing/plans');
     const pack = CREDIT_PACKS[0];
 
     const result = await service.redeemCreditPack(ORG, pack.id, { ownerUserId: 'user_buyer' }, db);
 
-    // The whole point of the split: a refund or withdrawn promotion must be
-    // able to claw back the bonus without touching paid-for credits.
     expect(result.baseGrant.source).toBe('addon');
     expect(result.baseGrant.amount).toBe(pack.baseCredits);
-    expect(result.bonusGrant?.source).toBe('promo');
-    expect(result.bonusGrant?.amount).toBe(pack.bonusCredits);
-    expect(db.grants).toHaveLength(2);
     expect(result.baseGrant.ownerUserId).toBe('user_buyer');
-    expect(result.bonusGrant?.ownerUserId).toBe('user_buyer');
+    if (pack.bonusCredits > 0) {
+      // Promo must stay on a separate grant so it can be clawed back without
+      // touching paid-for credits.
+      expect(result.bonusGrant?.source).toBe('promo');
+      expect(result.bonusGrant?.amount).toBe(pack.bonusCredits);
+      expect(result.bonusGrant?.ownerUserId).toBe('user_buyer');
+      expect(db.grants).toHaveLength(2);
+    } else {
+      expect(result.bonusGrant).toBeNull();
+      expect(db.grants).toHaveLength(1);
+    }
   });
 
   it('records the price on both grants so revenue can be attributed', async () => {
@@ -389,6 +395,24 @@ async function meterExpensiveRun(db: ReturnType<typeof makeDb>) {
   );
 }
 
+/** Meter a gpt-4o job sized to cost approximately `credits` (input-only). */
+async function meterRunCostingAbout(
+  db: ReturnType<typeof makeDb>,
+  credits: number,
+) {
+  const promptTokens = Math.ceil((credits / 0.4) * 1000);
+  return service.meterAiUsageForOrg(
+    {
+      orgId: ORG,
+      model: 'gpt-4o',
+      promptTokens,
+      completionTokens: 0,
+      keySource: 'env',
+    },
+    db,
+  );
+}
+
 describe('meterAiUsageForOrg', () => {
   it('records the full cost as debt when the run outruns the balance', async () => {
     const db = makeDb();
@@ -481,40 +505,32 @@ describe('per-operation credit floors', () => {
 
 describe('debt ceiling', () => {
   it('caps debt at the plan allowance', async () => {
-    // Free grants 50 credits/month, so a Free org can never owe more than 50 —
-    // exactly what its next grant will settle.
-    //
-    // Metering grants the monthly allowance first, so those 50 credits are
-    // consumed by this very run; the assertions below account for that rather
-    // than pretending the balance started empty.
+    // Debt ceiling equals the plan's monthly AI grant so the next allowance
+    // can always clear arrears. Job cost is 2×allowance + write-off headroom.
     mockPlan.id = 'free';
+    const allowance = getPlan('free').aiCreditsPerMonth;
     const db = makeDb();
-    const result = await meterExpensiveRun(db);
+    const result = await meterRunCostingAbout(db, allowance * 2 + 300);
 
-    expect(result.credits).toBe(400);
-    expect(result.consumed).toBe(50);
-    expect(result.debt).toBe(50);
-    expect(result.writtenOff).toBe(400 - 50 - 50);
+    expect(result.credits).toBeGreaterThanOrEqual(allowance * 2 + 300);
+    expect(result.consumed).toBe(allowance);
+    expect(result.debt).toBe(allowance);
+    expect(result.writtenOff).toBe(result.credits - allowance - allowance);
     expect(result.shortfall).toBe(result.debt + result.writtenOff);
-
-    // Outstanding debt is deliberately NOT asserted here. The fake's period
-    // window is degenerate, so the lazy monthly allowance re-grants on every
-    // balance read and immediately settles what was just recorded. That is a
-    // fixture artifact, not behaviour worth pinning — the persistence of debt
-    // is covered by the enterprise cases below, where no allowance interferes.
   });
 
   it('scales the ceiling with the plan', async () => {
-    // Pro grants 100/month and may therefore carry more — the ceiling tracks
-    // what the org's own next grant can clear, not a flat platform number.
+    // Larger monthly grants may carry more debt — the ceiling tracks what the
+    // org's own next grant can clear, not a flat platform number.
     mockPlan.id = 'pro';
-    const db = makeDb();
-    const pro = await meterExpensiveRun(db);
-    expect(pro.debt).toBe(100);
+    const proAllowance = getPlan('pro').aiCreditsPerMonth;
+    const pro = await meterRunCostingAbout(makeDb(), proAllowance * 2 + 300);
+    expect(pro.debt).toBe(proAllowance);
 
     mockPlan.id = 'free';
-    const free = await meterExpensiveRun(makeDb());
-    expect(free.debt).toBe(50);
+    const freeAllowance = getPlan('free').aiCreditsPerMonth;
+    const free = await meterRunCostingAbout(makeDb(), freeAllowance * 2 + 300);
+    expect(free.debt).toBe(freeAllowance);
     expect(pro.debt).toBeGreaterThan(free.debt);
   });
 
@@ -529,8 +545,9 @@ describe('debt ceiling', () => {
   it('records the write-off instead of swallowing it', async () => {
     // An unrecorded write-off is indistinguishable from a metering bug.
     mockPlan.id = 'free';
+    const allowance = getPlan('free').aiCreditsPerMonth;
     const db = makeDb();
-    await meterExpensiveRun(db);
+    await meterRunCostingAbout(db, allowance * 2 + 300);
 
     const entry = db.ledger.find((l) => l.reason === 'ai_generation_written_off');
     expect(entry).toBeDefined();
@@ -540,8 +557,9 @@ describe('debt ceiling', () => {
 
   it('keeps the books balanced after a write-off', async () => {
     mockPlan.id = 'free';
+    const allowance = getPlan('free').aiCreditsPerMonth;
     const db = makeDb();
-    await meterExpensiveRun(db);
+    await meterRunCostingAbout(db, allowance * 2 + 300);
     const report = await service.reconcileCredits(ORG, db);
     expect(report.balanced).toBe(true);
   });
@@ -566,16 +584,17 @@ describe('debt ceiling', () => {
     // self-heal. A higher ceiling would let an org owe more than a grant can
     // clear, leaving it blocked indefinitely — which in practice means gone.
     mockPlan.id = 'free';
+    const allowance = getPlan('free').aiCreditsPerMonth;
     const db = makeDb();
-    const run = await meterExpensiveRun(db);
-    expect(run.debt).toBe(50);
+    const run = await meterRunCostingAbout(db, allowance * 2 + 300);
+    expect(run.debt).toBe(allowance);
 
     // Switch off the lazy allowance so the grant under test is the only one —
     // otherwise the gate's own balance read tops the org up first.
     mockPlan.id = 'enterprise';
     expect((await service.requireCreditsForOrg(ORG, db)).ok).toBe(false);
 
-    await service.grantCredits(ORG, { source: 'plan', amount: 50 }, db);
+    await service.grantCredits(ORG, { source: 'plan', amount: allowance }, db);
     expect(await service.getOutstandingDebt(ORG, db)).toBe(0);
     expect((await service.requireCreditsForOrg(ORG, db)).ok).toBe(true);
   });
