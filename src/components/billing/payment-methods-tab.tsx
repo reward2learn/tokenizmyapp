@@ -60,17 +60,12 @@ function stripeFor(publishableKey: string): Promise<Stripe | null> {
  * Whether a newly saved card should become the customer's invoice default.
  *
  * Stripe attaches the PaymentMethod on SetupIntent success but does NOT set
- * `invoice_settings.default_payment_method`. Without promoting one card, the
- * Billing tab has nothing marked "Default" and renewals have nothing to charge.
- *
- * TODO: Implement your product rule (see learning prompt in chat).
- *  - `existingCardCount === 0` → only the first card becomes default
- *  - `true`                    → every newly saved card becomes default
- *  - `false`                   → never auto-promote (user clicks "Make default")
+ * `invoice_settings.default_payment_method`. Policy: always promote the newly
+ * saved card so "current" in Billing matches what the user just entered.
  */
-function shouldBecomeDefault(existingCardCount: number): boolean {
-  // Safe starter: first card must become default so renewals have something to charge.
-  return existingCardCount === 0;
+function shouldBecomeDefault(_existingCardCount: number): boolean {
+  // Every newly saved card becomes the invoice default.
+  return true;
 }
 
 function SetupForm({
