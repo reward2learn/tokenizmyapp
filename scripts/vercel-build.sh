@@ -12,16 +12,19 @@ node scripts/enforce-required-columns.mjs
 npx zenstack generate --schema zenstack/schema.zmodel
 
 if [ -n "$POSTGRES_URL" ]; then
-  # Neon scale-to-zero: cold starts can take 30-90s (Prisma P1001). Probe for
-  # up to ~3 minutes; if still unreachable, skip schema sync but continue the
-  # build — db push is best-effort (|| true) and the schema is usually already
-  # in sync from a prior deploy.
-  case "$POSTGRES_URL" in
-    *\?*) export POSTGRES_URL="${POSTGRES_URL}&connect_timeout=30" ;;
-    *)    export POSTGRES_URL="${POSTGRES_URL}?connect_timeout=30" ;;
-  esac
+  # Prefer direct Neon URL for build-time schema sync (pooler refuses connections
+  # while compute is waking). Fall back to pooled POSTGRES_URL.
+  BUILD_DB_URL="${POSTGRES_URL_NON_POOLING:-${DATABASE_URL_UNPOOLED:-$POSTGRES_URL}}"
+  export POSTGRES_URL="$BUILD_DB_URL"
+
+  RESULT_FILE="$(mktemp)"
+  export WAIT_FOR_POSTGRES_RESULT_FILE="$RESULT_FILE"
 
   if node scripts/wait-for-postgres.mjs zenstack/prisma/schema.prisma; then
+    if [ -s "$RESULT_FILE" ]; then
+      export POSTGRES_URL="$(cat "$RESULT_FILE")"
+    fi
+    rm -f "$RESULT_FILE"
     echo "ALTER TABLE roles DROP CONSTRAINT IF EXISTS roles_email_key;" | \
       npx prisma db execute --stdin --schema=zenstack/prisma/schema.prisma
     echo "ALTER TABLE knowledge_snippets DROP CONSTRAINT IF EXISTS knowledge_snippets_key_key;" | \
@@ -29,6 +32,7 @@ if [ -n "$POSTGRES_URL" ]; then
     npx prisma db push --schema=zenstack/prisma/schema.prisma --skip-generate --accept-data-loss || true
     echo "Database schema in sync."
   else
+    rm -f "$RESULT_FILE"
     echo "WARNING: Database unreachable — skipping schema sync, continuing build."
   fi
 fi
