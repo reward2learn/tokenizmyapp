@@ -214,11 +214,26 @@ export function coerceComprehensionPayload(
   const title =
     typeof workbookRaw.title === 'string' ? workbookRaw.title.trim() : '';
   if (!title) {
-    // TODO(user): improve default title when the model omits workbook.title —
-    // e.g. prefer company, period guess, or first sheet tab name.
+    const company =
+      typeof workbookRaw.company === 'string' ? workbookRaw.company.trim() : '';
+    const period = hints?.workbook.periodGuess?.trim() || '';
+    const firstSheetTab = Array.isArray(root.sheets)
+      ? root.sheets
+          .map((entry) =>
+            entry && typeof entry === 'object' && !Array.isArray(entry)
+              ? (entry as Record<string, unknown>).tabName
+              : null,
+          )
+          .find((name): name is string => typeof name === 'string' && name.trim().length > 0)
+          ?.trim()
+      : undefined;
+    const hintTab = hints?.sheets[0]?.tabName?.trim() || '';
+
     workbookRaw.title =
-      (typeof workbookRaw.company === 'string' && workbookRaw.company.trim()) ||
-      hints?.workbook.periodGuess ||
+      company ||
+      (period ? `${period} Workbook` : '') ||
+      firstSheetTab ||
+      hintTab ||
       'Financial Workbook';
   }
 

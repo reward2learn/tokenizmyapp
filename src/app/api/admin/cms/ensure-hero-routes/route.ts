@@ -50,7 +50,7 @@ export async function POST(request: Request) {
 
   const cmsScope = normalizeCmsScope({
     tenantSlug: body.tenantSlug ?? getTenantConfig().slug,
-    appId: body.appId ?? getCurrentAppId() || undefined,
+    appId: body.appId ?? (getCurrentAppId() || undefined),
   });
   const dbUrl = await resolveTenantDbUrl(cmsScope.tenantSlug, cmsScope.appId);
   const prisma = getClient(dbUrl);
