@@ -80,6 +80,32 @@ describe('ChatCreditUsage', () => {
     expect(screen.getByLabelText('Chat credit usage')).toHaveTextContent('Not billed');
   });
 
+  it('does not show rate-card credits as charged when operator-exempt', () => {
+    let state = chatStreamSlice.reducer(undefined, recordTurnUsage({
+      promptTokens: 1000,
+      completionTokens: 500,
+      credits: 4,
+      consumed: 0,
+      charged: false,
+      balance: 28741,
+    }));
+    state = chatStreamSlice.reducer(state, recordTurnUsage({
+      promptTokens: 800,
+      completionTokens: 400,
+      credits: 3,
+      consumed: 0,
+      charged: false,
+      balance: 28734,
+    }));
+    renderUsage(state);
+    fireEvent.click(screen.getByLabelText('Chat credit usage'));
+    expect(screen.getByText('Credits charged')).toBeInTheDocument();
+    expect(screen.getByRole('dialog')).toHaveTextContent('Not billed');
+    expect(screen.getByRole('dialog')).not.toHaveTextContent('Credits charged7');
+    expect(screen.getByText('Turns')).toBeInTheDocument();
+    expect(screen.getByRole('dialog')).toHaveTextContent('28734');
+  });
+
   it('shows credits consumed even when byok flag is set', () => {
     const state = chatStreamSlice.reducer(undefined, recordTurnUsage({
       promptTokens: 100,

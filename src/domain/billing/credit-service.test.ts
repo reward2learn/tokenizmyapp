@@ -1,4 +1,4 @@
-import { describe, expect, it, vi, beforeEach } from 'vitest';
+import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
 import { getPlan } from '@/lib/billing/plans';
 
 /**
@@ -603,12 +603,27 @@ describe('debt ceiling', () => {
 describe('credit exemption', () => {
   const EXEMPT = 'reward2learn@gmail.com';
 
-  it('recognises the platform owner regardless of case or padding', () => {
+  beforeEach(() => {
+    // Exemption applies only on tenant deployments, not the factory.
+    vi.stubEnv('NEXT_PUBLIC_TENANT_SLUG', 'redrubybali');
+  });
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  it('recognises the platform owner on tenant apps regardless of case or padding', () => {
     expect(service.isCreditExemptEmail(EXEMPT)).toBe(true);
     expect(service.isCreditExemptEmail('  Reward2Learn@Gmail.com  ')).toBe(true);
     expect(service.isCreditExemptEmail('someone@else.com')).toBe(false);
     expect(service.isCreditExemptEmail(undefined)).toBe(false);
     expect(service.isCreditExemptEmail('')).toBe(false);
+  });
+
+  it('does not exempt anyone on the factory (tokenizmyapp)', () => {
+    vi.stubEnv('NEXT_PUBLIC_TENANT_SLUG', 'tokenizmyapp');
+    expect(service.isCreditExemptEmail(EXEMPT)).toBe(false);
+    expect(service.isCreditExemptEmail('  Reward2Learn@Gmail.com  ')).toBe(false);
   });
 
   it('lets an exempt viewer through a gate with a zero balance', async () => {
@@ -618,6 +633,13 @@ describe('credit exemption', () => {
 
     const allowed = await service.requireCreditsForOrg(ORG, db, 1, EXEMPT);
     expect(allowed.ok).toBe(true);
+  });
+
+  it('gates the platform owner on the factory even with a zero balance', async () => {
+    vi.stubEnv('NEXT_PUBLIC_TENANT_SLUG', 'tokenizmyapp');
+    const db = makeDb();
+    const blocked = await service.requireCreditsForOrg(ORG, db, 1, EXEMPT);
+    expect(blocked.ok).toBe(false);
   });
 
   it('lets an exempt viewer through even while the org is in arrears', async () => {
@@ -656,6 +678,31 @@ describe('credit exemption', () => {
     expect(entry?.delta).toBe(0);
     expect(entry?.grant_id).toBeNull();
     expect(db.grants[0].remaining).toBe(100);
+  });
+
+  it('charges the platform owner on the factory (no exempt ledger path)', async () => {
+    vi.stubEnv('NEXT_PUBLIC_TENANT_SLUG', 'tokenizmyapp');
+    const db = makeDb();
+    await service.grantCredits(ORG, { source: 'addon', amount: 100 }, db);
+
+    const result = await service.meterAiUsageForOrg(
+      {
+        orgId: ORG,
+        model: 'gpt-4o',
+        promptTokens: 200_000,
+        completionTokens: 200_000,
+        keySource: 'env',
+        viewerEmail: EXEMPT,
+      },
+      db,
+    );
+
+    expect(result.charged).toBe(true);
+    expect(result.consumed).toBe(100);
+    expect(result.credits).toBeGreaterThan(0);
+    expect(db.ledger.find((l) => l.reason === 'ai_generation_exempt')).toBeUndefined();
+    expect(db.ledger.some((l) => l.reason === 'ai_generation' && l.delta < 0)).toBe(true);
+    expect(db.grants[0].remaining).toBe(0);
   });
 
   it('never puts an exempt viewer into debt', async () => {

@@ -18,12 +18,14 @@
  * Every app-user assistant call is metered against the org balance. The
  * platform supplies API keys and pays providers; tenants top up credits.
  * `keySource` is diagnostic only — tenant-stored keys are not an exemption.
- * Identity exemption (`isCreditExemptEmail`) still records usage at zero cost.
+ * On tenant apps, identity exemption (`isCreditExemptEmail`) still records
+ * usage at zero cost; on the factory, everyone is charged.
  */
 import type { createRawClient } from '@/lib/db';
 import { getPlan, CREDIT_PACKS, type CreditPack } from '@/lib/billing/plans';
 import { creditsForUsage } from '@/lib/billing/credit-rates';
 import { jsonErrorLite } from '@/lib/api/response-lite';
+import { isPlatformApp } from '@/lib/tenant-config';
 import { DEFAULT_PLATFORM_ADMIN_EMAIL } from '@/domain/security/persons';
 
 /** Grants expire 30 days after issue (roadmap §3.2 — documented decision). */
@@ -33,16 +35,18 @@ export const CREDIT_EXPIRY_DAYS = 30;
 const EXEMPT_USAGE_REASON = 'ai_generation_exempt';
 
 /**
- * Operators who are never gated or charged for AI usage.
+ * Operators who are never gated or charged for AI usage on **tenant** apps.
  *
- * The platform owner runs the console on their own infrastructure and pays the
- * providers directly; billing them in their own currency is circular, and a
- * zero balance locking the owner out of the chat is a support call with nobody
- * to call. `CREDIT_EXEMPT_EMAILS` (comma-separated) adds to the default.
+ * On the factory (`tokenizmyapp` / `isPlatformApp()`), nobody is exempt — the
+ * platform admin is billed like any other user so the full Stripe credit flow
+ * can be exercised end-to-end.
  *
- * This is an *identity* exemption, not a tenant one — it follows the signed-in
- * person, so an exempt operator working inside a customer's tenant does not
- * spend that customer's credits either.
+ * On tenant deployments, the listed emails skip gating/charging so an operator
+ * debugging inside a customer's app does not spend that customer's credits.
+ * `CREDIT_EXEMPT_EMAILS` (comma-separated) adds to the default.
+ *
+ * This is an *identity* exemption on tenant apps — it follows the signed-in
+ * person, not the org.
  */
 export function creditExemptEmails(): string[] {
   const extra = (process.env.CREDIT_EXEMPT_EMAILS ?? '')
@@ -55,12 +59,15 @@ export function creditExemptEmails(): string[] {
 /**
  * Is this viewer exempt from credit gating and charging?
  *
- * Deliberately keyed on email rather than the platform-admin *role*: every
+ * Always `false` on the factory (`NEXT_PUBLIC_TENANT_SLUG=tokenizmyapp`).
+ * On tenant apps, keyed on email rather than the platform-admin *role*: every
  * tenant seeds its own admin accounts, so exempting the role would hand a free
  * unmetered AI budget to every customer's administrator.
  */
 export function isCreditExemptEmail(email?: string | null): boolean {
   if (!email) return false;
+  // Factory must charge platform admins so Stripe test billing can be verified.
+  if (isPlatformApp()) return false;
   return creditExemptEmails().includes(email.trim().toLowerCase());
 }
 
@@ -1321,8 +1328,9 @@ export interface MeterAiUsageInput {
  *
  * Call this after every AI assistant call with the usage record from the
  * provider response. Debits the org credit balance regardless of whether the
- * key came from env or a tenant-stored secret. Operator emails matching
- * `isCreditExemptEmail` are recorded but not charged.
+ * key came from env or a tenant-stored secret. On tenant apps, operator emails
+ * matching `isCreditExemptEmail` are recorded but not charged; on the factory
+ * everyone is charged.
  */
 export async function meterAiUsage(
   input: MeterAiUsageInput,

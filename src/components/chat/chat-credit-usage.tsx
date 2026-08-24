@@ -65,8 +65,15 @@ export function ChatCreditUsage({
   const [messagesPanelHeight, setMessagesPanelHeight] = useState<number | null>(null);
 
   const turnCount = sessionUsage.turns.length;
+  const sessionCharged = sessionUsage.consumed;
   const lastExempt =
-    lastTurnUsage != null && !lastTurnUsage.charged && sessionUsage.consumed === 0;
+    lastTurnUsage != null && !lastTurnUsage.charged && sessionCharged === 0;
+  const creditsChargedDisplay =
+    sessionCharged > 0
+      ? String(sessionCharged)
+      : sessionUsage.turns.every((turn) => !turn.charged)
+        ? 'Not billed'
+        : '0';
   const hasActivity =
     turnCount > 0
     || sessionUsage.credits > 0
@@ -105,11 +112,11 @@ export function ChatCreditUsage({
 
   const chipLabel = lastExempt
     ? 'Not billed'
-    : `${sessionUsage.consumed || sessionUsage.credits} credit${(sessionUsage.consumed || sessionUsage.credits) === 1 ? '' : 's'} this chat`;
+    : `${sessionCharged} credit${sessionCharged === 1 ? '' : 's'} this chat`;
 
   const title = lastExempt
     ? 'Not billed'
-    : `~${sessionUsage.consumed || sessionUsage.credits} credits used this conversation`;
+    : `~${sessionCharged} credits used this conversation`;
 
   const handleChipClick = (event: MouseEvent<HTMLElement>) => {
     // Keep AccordionSummary from toggling when the chip is in its header.
@@ -227,10 +234,7 @@ export function ChatCreditUsage({
 
           <MetricRow label="Prompt tokens" value={formatTokens(sessionUsage.promptTokens)} />
           <MetricRow label="Completion tokens" value={formatTokens(sessionUsage.completionTokens)} />
-          <MetricRow
-            label="Credits charged"
-            value={String(sessionUsage.consumed || sessionUsage.credits)}
-          />
+          <MetricRow label="Credits charged" value={creditsChargedDisplay} />
           <MetricRow label="Turns" value={String(turnCount)} />
           {lastTurnUsage?.balance != null && Number.isFinite(lastTurnUsage.balance) ? (
             <MetricRow label="Remaining balance" value={String(lastTurnUsage.balance)} />
@@ -255,7 +259,7 @@ export function ChatCreditUsage({
                     <Typography variant="caption" sx={{ fontVariantNumeric: 'tabular-nums' }}>
                       {!turn.charged
                         ? 'Not billed'
-                        : `${turn.consumed || turn.credits} cr`}
+                        : `${turn.consumed} cr`}
                     </Typography>
                   </Stack>
                 ))}

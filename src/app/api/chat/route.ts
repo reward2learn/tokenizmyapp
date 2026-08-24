@@ -488,7 +488,8 @@ async function handleChatPost(request: Request): Promise<Response> {
     // ── Pre-flight credit gate ──
     // Every assistant call draws from the org balance (platform pays providers;
     // tenants top up). Empty balance degrades to a friendly reply instead of a
-    // hard error — chat must keep working. Exempt operators skip the gate.
+    // hard error — chat must keep working. On tenant apps, exempt operators
+    // (isCreditExemptEmail) skip the gate; on the factory everyone is gated.
     let creditBalance: number | null = null;
     let billingOrgId: string | null = null;
     let planId: import('@/lib/billing/plans').PlanId = 'free';
@@ -499,9 +500,6 @@ async function handleChatPost(request: Request): Promise<Response> {
       const tenantSlug = process.env.NEXT_PUBLIC_TENANT_SLUG ?? 'tokenizmyapp';
       const viewerUserId =
         !isPlatformApp() && session?.sub ? await resolveViewerUserId(session.sub) : undefined;
-      // The platform owner is exempt (see isCreditExemptEmail) — they pay the
-      // providers directly, so gating them on their own currency would only
-      // lock them out of their own console.
       const gate = await requireCreditsForTenant(
         tenantSlug,
         undefined,
