@@ -5,6 +5,7 @@
  *
  * Instant client preview + analyze (website/filings) + multi-turn assistant +
  * catalog/Stripe apply. Charge authority always goes through secured rate-card PUT.
+ * Assistant replies stream via SSE (`Accept: text/event-stream`).
  */
 import { useEffect, useMemo, useState } from 'react';
 import Box from '@mui/material/Box';
@@ -34,6 +35,7 @@ import {
   type TenantRateCardInputs,
 } from '@/lib/billing/tenant-rate-card';
 import { yearlyMonthlyPrice } from '@/lib/billing/plans';
+import { consumeSseStream } from '@/lib/chat/sse-parser';
 import {
   useListOrganizationsQuery,
   useAnalyzeAiCreditsCalculatorMutation,
@@ -41,7 +43,6 @@ import {
   useListCalculatorThreadsQuery,
   useCreateCalculatorThreadMutation,
   useGetCalculatorThreadQuery,
-  useSendCalculatorChatMessageMutation,
   useGetBillingCatalogQuery,
   useUpdateCatalogPricesMutation,
   useSyncStripeCatalogPricesMutation,
@@ -79,6 +80,10 @@ export function AiCreditsCalculatorTool() {
   const [status, setStatus] = useState<string | null>(null);
   const [threadId, setThreadId] = useState<string | null>(null);
   const [chatText, setChatText] = useState('');
+  const [streamingText, setStreamingText] = useState('');
+  const [pendingUserText, setPendingUserText] = useState<string | null>(null);
+  const [chatBusy, setChatBusy] = useState(false);
+  const [toolHints, setToolHints] = useState<string[]>([]);
   const [catalogConfirmOpen, setCatalogConfirmOpen] = useState(false);
   const [stripeConfirmOpen, setStripeConfirmOpen] = useState(false);
   const [editProMonthly, setEditProMonthly] = useState(9900);
@@ -133,10 +138,9 @@ export function AiCreditsCalculatorTool() {
   const [upsertRateCard, upsertState] = useUpsertOrgRateCardMutation();
   const [createThread] = useCreateCalculatorThreadMutation();
   const { data: threadsData, refetch: refetchThreads } = useListCalculatorThreadsQuery();
-  const { data: threadData } = useGetCalculatorThreadQuery(threadId ?? '', {
+  const { data: threadData, refetch: refetchThread } = useGetCalculatorThreadQuery(threadId ?? '', {
     skip: !threadId,
   });
-  const [sendChat, chatState] = useSendCalculatorChatMessageMutation();
   const [updateCatalog, catalogUpdateState] = useUpdateCatalogPricesMutation();
   const [syncStripe, syncState] = useSyncStripeCatalogPricesMutation();
 
@@ -223,25 +227,83 @@ export function AiCreditsCalculatorTool() {
   };
 
   const onSendChat = async () => {
-    if (!chatText.trim()) return;
+    if (!chatText.trim() || chatBusy) return;
     const id = await onEnsureThread();
     if (!id) return;
+    const outgoing = chatText.trim();
+    setChatText('');
+    setStreamingText('');
+    setPendingUserText(outgoing);
+    setToolHints([]);
+    setChatBusy(true);
+    setStatus(null);
     try {
-      await sendChat({
-        threadId: id,
-        message: chatText.trim(),
-        draftInputs: {
-          ...inputs,
-          annualRevenueUsd:
-            adminRevenue === '' ? inputs.annualRevenueUsd : Number(adminRevenue),
+      const response = await fetch(
+        `/api/admin/ai-credits-calculator/threads/${id}/messages`,
+        {
+          method: 'POST',
+          credentials: 'include',
+          headers: {
+            'Content-Type': 'application/json',
+            Accept: 'text/event-stream',
+          },
+          body: JSON.stringify({
+            message: outgoing,
+            draftInputs: {
+              ...inputs,
+              annualRevenueUsd:
+                adminRevenue === '' ? inputs.annualRevenueUsd : Number(adminRevenue),
+            },
+            websiteUrl: websiteUrl || null,
+            secCikOrTicker: secCikOrTicker || null,
+            companiesHouseNumber: companiesHouseNumber || null,
+          }),
         },
-        websiteUrl: websiteUrl || null,
-        secCikOrTicker: secCikOrTicker || null,
-        companiesHouseNumber: companiesHouseNumber || null,
-      }).unwrap();
-      setChatText('');
+      );
+
+      if (!response.ok) {
+        const errJson = (await response.json().catch(() => null)) as {
+          error?: string;
+        } | null;
+        throw new Error(errJson?.error ?? `Chat failed (${response.status})`);
+      }
+
+      const contentType = response.headers.get('content-type') ?? '';
+      if (contentType.includes('application/json')) {
+        const payload = (await response.json()) as {
+          data?: { assistantMessage?: { content?: string } };
+          error?: string;
+        };
+        if (payload.error) throw new Error(payload.error);
+        setStreamingText(payload.data?.assistantMessage?.content ?? '');
+      } else if (response.body) {
+        let streamError: string | null = null;
+        await consumeSseStream(response.body, (event) => {
+          if (event.type === 'token') {
+            setStreamingText((prev) => prev + event.token);
+            return;
+          }
+          if (event.type === 'tool_result') {
+            setToolHints((prev) => [...prev, event.tool]);
+            return;
+          }
+          if (event.type === 'error') {
+            streamError = event.error;
+          }
+        });
+        if (streamError) throw new Error(streamError);
+      }
+
+      setStreamingText('');
+      setToolHints([]);
+      setPendingUserText(null);
+      void refetchThread();
     } catch (err) {
       setStatus(err instanceof Error ? err.message : 'Chat failed');
+      setStreamingText('');
+      setPendingUserText(null);
+    } finally {
+      setChatBusy(false);
     }
   };
 
@@ -298,11 +360,19 @@ export function AiCreditsCalculatorTool() {
     analysis?: { businessSummary?: string; confidence?: number; industry?: string };
     filings?: { merged?: { confidence?: number; sourceRefs?: Array<{ source: string; label: string }> } };
     scrape?: { businessName?: string | null };
+    warnings?: string[];
   } | null;
 
   const messages = threadData?.data?.messages ?? [];
   const threads = threadsData?.data?.threads ?? [];
   const drift = catalogData?.data?.stripeDrift ?? [];
+  const filingDegradeHints = (analysis?.warnings ?? []).filter(
+    (w) =>
+      /SEC_USER_AGENT/i.test(w)
+      || /COMPANIES_HOUSE_API_KEY/i.test(w)
+      || /EDGAR scrape skipped/i.test(w)
+      || /UK filings skipped/i.test(w),
+  );
 
   return (
     <Stack spacing={2.5}>
@@ -318,6 +388,14 @@ export function AiCreditsCalculatorTool() {
       </Box>
 
       {status ? <Alert severity="info">{status}</Alert> : null}
+      {filingDegradeHints.length > 0 ? (
+        <Alert severity="warning">
+          Filings degraded: {filingDegradeHints[0]}
+          {filingDegradeHints.length > 1
+            ? ` (+${filingDegradeHints.length - 1} more). Set SEC_USER_AGENT / COMPANIES_HOUSE_API_KEY on the factory env when needed.`
+            : ' Set SEC_USER_AGENT / COMPANIES_HOUSE_API_KEY on the factory env when needed.'}
+        </Alert>
+      ) : null}
 
       <Stack direction={{ xs: 'column', lg: 'row' }} spacing={2} sx={{ alignItems: 'stretch' }}>
         {/* Main column */}
@@ -373,6 +451,7 @@ export function AiCreditsCalculatorTool() {
                   label="SEC CIK / ticker"
                   value={secCikOrTicker}
                   onChange={(e) => setSecCikOrTicker(e.target.value)}
+                  helperText="Needs SEC_USER_AGENT on server"
                 />
                 <TextField
                   size="small"
@@ -380,6 +459,7 @@ export function AiCreditsCalculatorTool() {
                   label="Companies House #"
                   value={companiesHouseNumber}
                   onChange={(e) => setCompaniesHouseNumber(e.target.value)}
+                  helperText="Optional COMPANIES_HOUSE_API_KEY"
                 />
               </Stack>
               <Button
@@ -538,6 +618,10 @@ export function AiCreditsCalculatorTool() {
                   Remember context
                 </Button>
               </Stack>
+              <Typography variant="caption" color="text.secondary">
+                Apply persists rate-card inputs server-side; markup / credits / charge
+                authority are computed on the server (client markupPercent is never trusted).
+              </Typography>
             </Stack>
           </Paper>
 
@@ -613,6 +697,11 @@ export function AiCreditsCalculatorTool() {
                   Sync Stripe list prices
                 </Button>
               </Stack>
+              <Typography variant="caption" color="text.secondary">
+                Both actions require an explicit confirm dialog. Stripe sync also
+                best-effort pushes STRIPE_PRICE_* to factory Vercel; DB catalog remains
+                source of truth. Charge amounts always resolve server-side.
+              </Typography>
             </Stack>
           </Paper>
         </Stack>
@@ -623,7 +712,7 @@ export function AiCreditsCalculatorTool() {
             Calculator assistant
           </Typography>
           <Typography variant="caption" color="text.secondary">
-            Multi-turn, scoped to rate-card / credits / catalog tools only.
+            Multi-turn SSE stream, scoped to rate-card / credits / catalog tools only.
           </Typography>
           <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap' }} useFlexGap>
             {threads.slice(0, 4).map((t) => (
@@ -657,7 +746,34 @@ export function AiCreditsCalculatorTool() {
                   </Typography>
                 </Box>
               ))}
-              {messages.length === 0 ? (
+              {pendingUserText ? (
+                <Box>
+                  <Typography variant="caption" color="text.secondary">
+                    user
+                  </Typography>
+                  <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap' }}>
+                    {pendingUserText}
+                  </Typography>
+                </Box>
+              ) : null}
+              {streamingText || chatBusy ? (
+                <Box>
+                  <Typography variant="caption" color="text.secondary">
+                    assistant{chatBusy ? ' · streaming' : ''}
+                  </Typography>
+                  <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap' }}>
+                    {streamingText || '…'}
+                  </Typography>
+                  {toolHints.length > 0 ? (
+                    <Stack direction="row" spacing={0.5} sx={{ mt: 0.5, flexWrap: 'wrap' }} useFlexGap>
+                      {toolHints.map((t) => (
+                        <Chip key={t} size="small" variant="outlined" label={t} />
+                      ))}
+                    </Stack>
+                  ) : null}
+                </Box>
+              ) : null}
+              {messages.length === 0 && !streamingText && !chatBusy && !pendingUserText ? (
                 <Typography variant="body2" color="text.secondary">
                   Ask about markup, competitive packs, or catalog positioning.
                 </Typography>
@@ -672,13 +788,14 @@ export function AiCreditsCalculatorTool() {
             placeholder="Message the calculator assistant…"
             value={chatText}
             onChange={(e) => setChatText(e.target.value)}
+            disabled={chatBusy}
           />
           <Button
             variant="contained"
             onClick={() => void onSendChat()}
-            disabled={chatState.isLoading || !chatText.trim()}
+            disabled={chatBusy || !chatText.trim()}
           >
-            {chatState.isLoading ? <CircularProgress size={18} /> : 'Send'}
+            {chatBusy ? <CircularProgress size={18} /> : 'Send'}
           </Button>
         </Paper>
       </Stack>
@@ -688,7 +805,8 @@ export function AiCreditsCalculatorTool() {
         <DialogContent>
           <Typography variant="body2">
             This changes what customers see for plan/pack list prices. Stripe charges are
-            unchanged until you sync Stripe list prices.
+            unchanged until you sync Stripe list prices. Requires explicit confirm; charge
+            authority stays server-side.
           </Typography>
         </DialogContent>
         <DialogActions>
@@ -707,8 +825,9 @@ export function AiCreditsCalculatorTool() {
         <DialogTitle>Sync Stripe list prices?</DialogTitle>
         <DialogContent>
           <Typography variant="body2">
-            This creates or reuses Stripe Price objects to match the catalog faces and
-            updates what Stripe charges. Do not run without reviewing amounts.
+            This creates or reuses Stripe Price objects to match the catalog faces,
+            updates DB price IDs, and best-effort pushes STRIPE_PRICE_* to factory Vercel.
+            Requires explicit confirm — do not run without reviewing amounts.
           </Typography>
         </DialogContent>
         <DialogActions>

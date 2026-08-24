@@ -34,6 +34,11 @@ vi.mock('@/domain/billing/ai-credits-calculator-chat-service', () => ({
     assistantMessage: { id: 'm2', role: 'assistant', content: 'hello', threadId: 'acct_1', toolCalls: null, createdAt: new Date().toISOString() },
     toolResults: [],
   }),
+  streamCalculatorChatMessage: vi.fn().mockResolvedValue(
+    new Response('data: {"choices":[{"delta":{"content":"streamed"}}]}\n\ndata: [DONE]\n\n', {
+      headers: { 'Content-Type': 'text/event-stream' },
+    }),
+  ),
 }));
 
 import { requireWriteAuth } from '@/lib/auth/guards';
@@ -69,13 +74,35 @@ describe('calculator chat routes', () => {
       new Request('http://localhost/api/admin/ai-credits-calculator/threads/acct_1/messages', {
         method: 'POST',
         body: JSON.stringify({ message: 'Explain credits per dollar' }),
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
       }),
       { params: Promise.resolve({ id: 'acct_1' }) },
     );
     expect(res.status).toBe(200);
     const json = await res.json();
     expect(json.data.assistantMessage.content).toBe('hello');
+  });
+
+  it('streams SSE when Accept is text/event-stream', async () => {
+    const { streamCalculatorChatMessage } = await import(
+      '@/domain/billing/ai-credits-calculator-chat-service'
+    );
+    const res = await sendMessage(
+      new Request('http://localhost/api/admin/ai-credits-calculator/threads/acct_1/messages', {
+        method: 'POST',
+        body: JSON.stringify({ message: 'Explain credits per dollar' }),
+        headers: {
+          'Content-Type': 'application/json',
+          Accept: 'text/event-stream',
+        },
+      }),
+      { params: Promise.resolve({ id: 'acct_1' }) },
+    );
+    expect(res.status).toBe(200);
+    expect(res.headers.get('content-type')).toContain('text/event-stream');
+    expect(streamCalculatorChatMessage).toHaveBeenCalled();
+    const body = await res.text();
+    expect(body).toContain('streamed');
   });
 
   it('rejects non-platform-admin for messages', async () => {

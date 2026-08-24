@@ -5,6 +5,10 @@
  * billing_catalog_overrides → fall back to static PLANS / CREDIT_PACKS.
  * Stripe price IDs for the factory catalog are stored alongside overrides
  * (DB-backed) so checkout / mismatch checks can resolve without fragile env edits.
+ *
+ * After a successful Stripe sync we also best-effort push STRIPE_PRICE_* onto the
+ * factory Vercel project (see pushCatalogStripePricesToFactoryVercel). DB remains
+ * authoritative; missing VERCEL_TOKEN / project id only skips the env mirror.
  */
 import type Stripe from 'stripe';
 import { createRawClient } from '@/lib/db';
@@ -300,6 +304,114 @@ export interface SyncStripeCatalogResult {
   prices: Partial<Record<CatalogStripePriceKey, string>>;
   created: CatalogStripePriceKey[];
   message: string;
+  /**
+   * Best-effort factory Vercel env mirror of STRIPE_PRICE_*.
+   * Absent / failed push does not fail the sync — DB is source of truth.
+   */
+  vercelEnv?: {
+    ok: boolean;
+    pushed: string[];
+    skippedReason?: string;
+  };
+}
+
+/** Env var name for a catalog Stripe short key (`PRO_MONTHLY` → `STRIPE_PRICE_PRO_MONTHLY`). */
+export function catalogStripePriceEnvKey(shortKey: CatalogStripePriceKey): string {
+  return `STRIPE_PRICE_${shortKey}`;
+}
+
+/**
+ * Mirror catalog Stripe price IDs onto the factory Vercel project as STRIPE_PRICE_*.
+ *
+ * DB (`billing_catalog_overrides.stripe_price_ids`) is the source of truth.
+ * This push keeps runtime `process.env.STRIPE_PRICE_*` (and redeploys) aligned
+ * when ops already use env-based checkout resolution.
+ *
+ * Degrades gracefully when:
+ * - no Vercel bearer token (VERCEL_TOKEN / OAuth), or
+ * - no project id (VERCEL_PROJECT_ID / FACTORY_VERCEL_PROJECT_ID fallback).
+ * Never throws for missing credentials — returns skippedReason instead.
+ */
+export async function pushCatalogStripePricesToFactoryVercel(
+  prices: Partial<Record<CatalogStripePriceKey, string>>,
+): Promise<{ ok: boolean; pushed: string[]; skippedReason?: string }> {
+  const entries = Object.entries(prices).filter(
+    (e): e is [CatalogStripePriceKey, string] => Boolean(e[1]?.trim()),
+  );
+  if (entries.length === 0) {
+    return { ok: true, pushed: [], skippedReason: 'No Stripe price IDs to push' };
+  }
+
+  let projectId =
+    process.env.VERCEL_PROJECT_ID?.trim()
+    || process.env.FACTORY_VERCEL_PROJECT_ID?.trim()
+    || '';
+  if (!projectId) {
+    try {
+      const { FACTORY_VERCEL_PROJECT_ID } = await import(
+        '@/domain/billing/stripe-webhook-test-service'
+      );
+      projectId = FACTORY_VERCEL_PROJECT_ID;
+    } catch {
+      return {
+        ok: false,
+        pushed: [],
+        skippedReason: 'Factory Vercel project id unavailable',
+      };
+    }
+  }
+
+  try {
+    const { listVercelBearerTokens } = await import('@/domain/tenant/vercel-sdk-client');
+    const tokens = await listVercelBearerTokens();
+    if (tokens.length === 0) {
+      return {
+        ok: false,
+        pushed: [],
+        skippedReason:
+          'No Vercel token (set VERCEL_TOKEN or Connect to Vercel) — DB price IDs unchanged',
+      };
+    }
+  } catch (err) {
+    return {
+      ok: false,
+      pushed: [],
+      skippedReason: `Vercel token check failed: ${err instanceof Error ? err.message : String(err)}`,
+    };
+  }
+
+  const { upsertProjectEnvVar } = await import('@/domain/tenant/vercel-deploy-service');
+  const pushed: string[] = [];
+  for (const [shortKey, priceId] of entries) {
+    const envKey = catalogStripePriceEnvKey(shortKey);
+    try {
+      const ok = await upsertProjectEnvVar(projectId, envKey, priceId.trim());
+      if (ok) pushed.push(envKey);
+      else {
+        console.warn(
+          `[catalog-price] Failed to upsert ${envKey} on factory project ${projectId}`,
+        );
+      }
+    } catch (err) {
+      console.warn(
+        `[catalog-price] Error upserting ${envKey}:`,
+        err instanceof Error ? err.message : err,
+      );
+    }
+  }
+
+  if (pushed.length === 0) {
+    return {
+      ok: false,
+      pushed: [],
+      skippedReason: `Could not upsert any STRIPE_PRICE_* on project ${projectId}`,
+    };
+  }
+
+  console.log(
+    `[catalog-price] Pushed ${pushed.length}/${entries.length} STRIPE_PRICE_* to factory Vercel (${projectId})`,
+  );
+  return { ok: true, pushed };
 }
 
 /**
@@ -455,12 +567,41 @@ export async function syncStripeCatalogPrices(opts: {
     opts.updatedBy,
   );
 
+  // Best-effort: mirror STRIPE_PRICE_* to factory Vercel. DB remains source of truth.
+  let vercelEnv: SyncStripeCatalogResult['vercelEnv'];
+  try {
+    vercelEnv = await pushCatalogStripePricesToFactoryVercel(out);
+    if (vercelEnv.skippedReason) {
+      console.warn(`[catalog-price] Vercel env push skipped: ${vercelEnv.skippedReason}`);
+    }
+  } catch (err) {
+    vercelEnv = {
+      ok: false,
+      pushed: [],
+      skippedReason: err instanceof Error ? err.message : String(err),
+    };
+    console.warn('[catalog-price] Vercel env push failed (non-blocking):', vercelEnv.skippedReason);
+  }
+
   const message =
     created.length > 0
       ? `Created or updated ${created.length} Stripe catalog price(s): ${created.join(', ')}`
       : 'Catalog Stripe prices are up to date';
 
-  return { prices: out, created, message, dryRun: false };
+  const vercelNote =
+    vercelEnv?.ok && vercelEnv.pushed.length > 0
+      ? ` · Vercel env: ${vercelEnv.pushed.length} STRIPE_PRICE_* updated`
+      : vercelEnv?.skippedReason
+        ? ` · Vercel env skipped (${vercelEnv.skippedReason})`
+        : '';
+
+  return {
+    prices: out,
+    created,
+    message: message + vercelNote,
+    dryRun: false,
+    vercelEnv,
+  };
 }
 
 /** StripeEnvConfig fragment from catalog DB (for mismatch / checkout). */

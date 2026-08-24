@@ -10,6 +10,15 @@ export type SseStreamEvent =
   | { type: 'credit_topup'; creditTopUp: CreditTopUpAction }
   /** Aggregated credit/token usage for this chat turn. */
   | { type: 'usage'; usage: ChatTurnUsage }
+  /** Calculator (or other tool-scoped) chat — tool finished with a result payload. */
+  | { type: 'tool_result'; tool: string; result: unknown }
+  /** Calculator chat — persisted user/assistant message ids after the turn. */
+  | {
+      type: 'final';
+      userMessage?: unknown;
+      assistantMessage?: unknown;
+      toolResults?: unknown[];
+    }
   | { type: 'error'; error: string }
   | { type: 'done' };
 
@@ -47,6 +56,11 @@ export function parseSsePayload(payload: unknown): SseStreamEvent[] {
     draft?: CustomTemplateDraft;
     creditTopUp?: CreditTopUpAction;
     usage?: ChatTurnUsage;
+    tool?: string;
+    result?: unknown;
+    userMessage?: unknown;
+    assistantMessage?: unknown;
+    toolResults?: unknown[];
     error?: string | { message?: string };
     choices?: { delta?: { content?: string }; message?: { content?: string } }[];
   };
@@ -65,6 +79,24 @@ export function parseSsePayload(payload: unknown): SseStreamEvent[] {
 
   if (data.type === 'usage' && isChatTurnUsage(data.usage)) {
     return [{ type: 'usage', usage: data.usage }];
+  }
+
+  if (data.type === 'tool_result' && typeof data.tool === 'string') {
+    return [{ type: 'tool_result', tool: data.tool, result: data.result }];
+  }
+
+  if (data.type === 'final') {
+    return [{
+      type: 'final',
+      userMessage: data.userMessage,
+      assistantMessage: data.assistantMessage,
+      toolResults: Array.isArray(data.toolResults) ? data.toolResults : undefined,
+    }];
+  }
+
+  // Ignore calculator user_message bookkeeping events (UI refetches / optimistic).
+  if (data.type === 'user_message') {
+    return [];
   }
 
   if (data.error) {

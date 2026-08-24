@@ -80,6 +80,31 @@ describe('sse-parser', () => {
     expect(remainder).toBe('data: {"cho');
   });
 
+  it('parseSsePayload extracts calculator tool_result events', () => {
+    const events = parseSsePayload({
+      type: 'tool_result',
+      tool: 'explain_unit_economics',
+      result: { creditsPerUsd: 100 },
+    });
+    expect(events).toEqual([
+      {
+        type: 'tool_result',
+        tool: 'explain_unit_economics',
+        result: { creditsPerUsd: 100 },
+      },
+    ]);
+  });
+
+  it('parseSsePayload extracts calculator final events', () => {
+    const events = parseSsePayload({
+      type: 'final',
+      userMessage: { id: 'u1' },
+      assistantMessage: { id: 'a1' },
+      toolResults: [],
+    });
+    expect(events[0]?.type).toBe('final');
+  });
+
   it('consumeSseStream emits events for every chunk and flushes at end', async () => {
     const encoder = new TextEncoder();
     const body = new ReadableStream({

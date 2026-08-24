@@ -1,8 +1,15 @@
 /**
  * SEC EDGAR + Companies House filing scrapers for AI Credits Calculator.
  *
- * Enriches annual revenue estimates. Gracefully degrades when SEC_USER_AGENT /
- * COMPANIES_HOUSE_API_KEY are missing. Caches payloads 24h in-memory (per process).
+ * Enriches annual revenue estimates. Gracefully degrades when env keys are missing:
+ *
+ * - `SEC_USER_AGENT` (required for EDGAR) — SEC asks for a descriptive User-Agent
+ *   like `TokenizMyApp Billing Bot admin@example.com`. Without it, SEC scrapes are skipped.
+ * - `COMPANIES_HOUSE_API_KEY` (optional) — UK Companies House REST API key. Without it,
+ *   UK filings are skipped; US/SEC and website analysis still work.
+ *
+ * Do not invent or commit secrets. Set these on the factory deployment / local env only.
+ * Caches payloads 24h in-memory (per process).
  */
 import { z } from 'zod';
 

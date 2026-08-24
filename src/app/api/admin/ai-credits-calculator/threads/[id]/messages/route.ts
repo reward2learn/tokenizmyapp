@@ -1,8 +1,11 @@
 /**
  * POST /api/admin/ai-credits-calculator/threads/[id]/messages
  * Multi-turn calculator chat (tool-scoped).
+ *
+ * Streaming (default when Accept includes text/event-stream, or ?stream=true):
+ * SSE tokens + tool_result events (see streamCalculatorChatMessage).
+ * JSON fallback when Accept is application/json (non-stream clients / tests).
  */
-import { NextResponse } from 'next/server';
 import { z } from 'zod';
 import { requireWriteAuth } from '@/lib/auth/guards';
 import { sessionIsPlatformAdmin } from '@/lib/auth/jwt';
@@ -10,6 +13,7 @@ import { jsonError, jsonOk } from '@/lib/api/response';
 import {
   getCalculatorThread,
   sendCalculatorChatMessage,
+  streamCalculatorChatMessage,
 } from '@/domain/billing/ai-credits-calculator-chat-service';
 
 export const dynamic = 'force-dynamic';
@@ -33,10 +37,21 @@ const bodySchema = z.object({
   companiesHouseNumber: z.string().optional().nullable(),
 });
 
+function wantsSse(request: Request): boolean {
+  const accept = request.headers.get('accept') ?? '';
+  if (accept.includes('text/event-stream')) return true;
+  try {
+    const url = new URL(request.url);
+    return url.searchParams.get('stream') === 'true';
+  } catch {
+    return false;
+  }
+}
+
 export async function POST(
   request: Request,
   context: RouteContext,
-): Promise<NextResponse> {
+): Promise<Response> {
   const guard = await requireWriteAuth(request);
   if (!guard.ok) return guard.response;
   if (!sessionIsPlatformAdmin(guard.session)) {
@@ -67,17 +82,23 @@ export async function POST(
     );
   }
 
+  const messageInput = {
+    threadId: id,
+    userId,
+    message: parsed.data.message,
+    draftInputs: parsed.data.draftInputs,
+    websiteUrl: parsed.data.websiteUrl,
+    secCikOrTicker: parsed.data.secCikOrTicker,
+    companiesHouseNumber: parsed.data.companiesHouseNumber,
+    meterTenantSlug: 'tokenizmyapp',
+  };
+
   try {
-    const result = await sendCalculatorChatMessage({
-      threadId: id,
-      userId,
-      message: parsed.data.message,
-      draftInputs: parsed.data.draftInputs,
-      websiteUrl: parsed.data.websiteUrl,
-      secCikOrTicker: parsed.data.secCikOrTicker,
-      companiesHouseNumber: parsed.data.companiesHouseNumber,
-      meterTenantSlug: 'tokenizmyapp',
-    });
+    if (wantsSse(request)) {
+      return await streamCalculatorChatMessage(messageInput);
+    }
+
+    const result = await sendCalculatorChatMessage(messageInput);
     return jsonOk(result);
   } catch (err) {
     return jsonError(

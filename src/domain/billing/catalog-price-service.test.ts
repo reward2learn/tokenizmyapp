@@ -59,4 +59,27 @@ describe('catalog-price-service confirm gates', () => {
       }),
     ).rejects.toThrow(/confirm/);
   });
+
+  it('catalogStripePriceEnvKey maps short keys to STRIPE_PRICE_*', async () => {
+    const { catalogStripePriceEnvKey } = await import('@/domain/billing/catalog-price-service');
+    expect(catalogStripePriceEnvKey('PRO_MONTHLY')).toBe('STRIPE_PRICE_PRO_MONTHLY');
+    expect(catalogStripePriceEnvKey('PACK_25')).toBe('STRIPE_PRICE_PACK_25');
+  });
+
+  it('pushCatalogStripePricesToFactoryVercel skips when no token', async () => {
+    vi.doMock('@/domain/tenant/vercel-sdk-client', () => ({
+      listVercelBearerTokens: vi.fn().mockResolvedValue([]),
+    }));
+    vi.doMock('@/domain/billing/stripe-webhook-test-service', () => ({
+      FACTORY_VERCEL_PROJECT_ID: 'prj_test',
+    }));
+    const { pushCatalogStripePricesToFactoryVercel } = await import(
+      '@/domain/billing/catalog-price-service'
+    );
+    const result = await pushCatalogStripePricesToFactoryVercel({
+      PRO_MONTHLY: 'price_123',
+    });
+    expect(result.ok).toBe(false);
+    expect(result.skippedReason).toMatch(/No Vercel token/i);
+  });
 });

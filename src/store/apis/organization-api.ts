@@ -678,7 +678,12 @@ export const organizationApi = createApi({
     }),
 
     syncStripeCatalogPrices: builder.mutation<
-      ApiEnvelope<{ message: string; created: string[]; dryRun: boolean }>,
+      ApiEnvelope<{
+        message: string;
+        created: string[];
+        dryRun: boolean;
+        vercelEnv?: { ok: boolean; pushed: string[]; skippedReason?: string };
+      }>,
       { confirm: true; dryRun?: boolean }
     >({
       query: (body) => ({
