@@ -1,6 +1,5 @@
 'use client';
 
-import { useEffect, useState } from 'react';
 import Box from '@mui/material/Box';
 import Paper from '@mui/material/Paper';
 import Table from '@mui/material/Table';
@@ -27,7 +26,7 @@ const FALLBACK_ROWS: TargetRow[] = [
 ];
 
 export function MetricGridBlock({ config }: { config: Record<string, unknown> }) {
-  parseBlockConfig('metric_grid', config);
+  const { heading, subheading } = parseBlockConfig('metric_grid', config);
   const { data, isLoading } = useGetDashboardDataQuery();
 
   const rows = !isLoading && data?.data?.targetRows?.length
@@ -39,10 +38,10 @@ export function MetricGridBlock({ config }: { config: Record<string, unknown> })
   return (
     <Box component="section" sx={{ mx: 'auto', px: 3, py: 4 }}>
       <Typography variant="h5" component="h2" sx={{ fontWeight: 800, textAlign: 'center', mb: 1 }}>
-        12-Month Target
+        {heading ?? '12-Month Target'}
       </Typography>
       <Typography variant="body2" color="text.secondary" sx={{ textAlign: 'center', mb: 3 }}>
-        From barely breaking even to industry-leading margins.
+        {subheading ?? 'From barely breaking even to industry-leading margins.'}
       </Typography>
       <TableContainer component={Paper} elevation={0} sx={{ overflowX: 'auto', border: '1px solid', borderColor: 'divider' }}>
         <Table size="small">

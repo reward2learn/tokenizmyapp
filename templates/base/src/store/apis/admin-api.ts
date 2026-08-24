@@ -3,6 +3,7 @@ import { baseQuery } from '@shared/store/base-query';
 import type { ApiEnvelope } from '@/store/api-types';
 import { brandConfigApi } from '@shared/store/apis/brand-config-api';
 import { configApi } from '@/store/apis/config-api';
+import { navigationApi } from '@/store/apis/navigation-api';
 import type { RoleConfigView } from '@/app/api/admin/roles/route';
 import type { AdminConversationView } from '@/app/api/admin/conversations/route';
 import type { AdminUserView } from '@/app/api/admin/users/route';
@@ -246,6 +247,14 @@ export const adminApi = createApi({
         body,
       }),
       invalidatesTags: ['Navigation'],
+      async onQueryStarted(_arg, { dispatch, queryFulfilled }) {
+        try {
+          await queryFulfilled;
+          dispatch(navigationApi.util.invalidateTags(['Navigation']));
+        } catch {
+          /* keep drawer cache */
+        }
+      },
     }),
     /** PUT /api/admin/navigation — batch update nav items */
     updateNavigationItems: builder.mutation<ApiEnvelope<unknown>, { items: Record<string, unknown>[] } & TenantAppScope>({
@@ -255,6 +264,14 @@ export const adminApi = createApi({
         body,
       }),
       invalidatesTags: ['Navigation'],
+      async onQueryStarted(_arg, { dispatch, queryFulfilled }) {
+        try {
+          await queryFulfilled;
+          dispatch(navigationApi.util.invalidateTags(['Navigation']));
+        } catch {
+          /* keep drawer cache */
+        }
+      },
     }),
     /** DELETE /api/admin/navigation — delete by IDs */
     deleteNavigationItems: builder.mutation<ApiEnvelope<unknown>, { ids: string[] } & TenantAppScope>({
@@ -265,6 +282,14 @@ export const adminApi = createApi({
         return { url: `admin/navigation?${params.toString()}`, method: 'DELETE' };
       },
       invalidatesTags: ['Navigation'],
+      async onQueryStarted(_arg, { dispatch, queryFulfilled }) {
+        try {
+          await queryFulfilled;
+          dispatch(navigationApi.util.invalidateTags(['Navigation']));
+        } catch {
+          /* keep drawer cache */
+        }
+      },
     }),
 
     /** GET /api/admin/pages — list AppPage rows for CMS */
@@ -334,6 +359,7 @@ export const adminApi = createApi({
       providesTags: ['PageSections'],
     }),
 
+    /** POST /api/admin/pages/[slug]/provision — create CMS row from catalog */
     provisionCatalogPage: builder.mutation<
       ApiEnvelope<{
         slug: string;
@@ -458,6 +484,37 @@ export const adminApi = createApi({
       }),
     }),
 
+    /**
+     * POST /api/admin/cms-generate-dashboard-slice —
+     * Regenerate actionPhases / levers / targetRows in dashboard_data.
+     */
+    generateDashboardSlice: builder.mutation<
+      ApiEnvelope<{ slice: string; value: unknown }>,
+      {
+        pageSlug: string;
+        pageTitle: string;
+        blockType: string;
+        slice?: 'actionPhases' | 'levers' | 'targetRows';
+        currentValue?: unknown;
+        additionalContext?: string;
+      } & TenantAppScope
+    >({
+      query: (body) => ({
+        url: 'admin/cms-generate-dashboard-slice',
+        method: 'POST',
+        body,
+      }),
+      async onQueryStarted(_arg, { dispatch, queryFulfilled }) {
+        try {
+          await queryFulfilled;
+          const { dashboardApi } = await import('@/store/apis/dashboard-api');
+          dispatch(dashboardApi.util.invalidateTags(['DashboardData']));
+        } catch {
+          // leave cache; caller surfaces error
+        }
+      },
+    }),
+
     /** DELETE /api/admin/pages/[slug]/sections */
     deletePageSections: builder.mutation<
       ApiEnvelope<{ deleted: number; contentLocked: boolean }>,
@@ -515,6 +572,32 @@ export const adminApi = createApi({
       query: (runId) => `admin/app-pack/generate/status?runId=${encodeURIComponent(runId)}`,
       providesTags: ['AppPack'],
     }),
+    /** POST /api/admin/navigation/reconcile — dedupe, seed defaults, apply hierarchy */
+    reconcileNavigation: builder.mutation<
+      ApiEnvelope<{
+        deleted: number;
+        seeded: number;
+        sheetsSynced: number;
+        hierarchyUpdated: number;
+        excelFolderId: string | null;
+      }>,
+      TenantAppScope | void
+    >({
+      query: (scope) => ({
+        url: 'admin/navigation/reconcile',
+        method: 'POST',
+        body: scope ?? {},
+      }),
+      invalidatesTags: ['Navigation'],
+      async onQueryStarted(_arg, { dispatch, queryFulfilled }) {
+        try {
+          await queryFulfilled;
+          dispatch(navigationApi.util.invalidateTags(['Navigation']));
+        } catch {
+          /* reconcile failed — keep drawer cache */
+        }
+      },
+    }),
     /** POST /api/admin/populate-sheet-pages — sync sheet pages into navigation */
     populateSheetPages: builder.mutation<ApiEnvelope<{ created: number; parentId: string; totalSheets: number }>, { parentId?: string; parentTitle?: string }>({
       query: (body) => ({
@@ -522,7 +605,15 @@ export const adminApi = createApi({
         method: 'POST',
         body,
       }),
-      invalidatesTags: ['Navigation', 'SeedData'],
+      invalidatesTags: ['Navigation'],
+      async onQueryStarted(_arg, { dispatch, queryFulfilled }) {
+        try {
+          await queryFulfilled;
+          dispatch(navigationApi.util.invalidateTags(['Navigation']));
+        } catch {
+          // populate failed — keep drawer cache
+        }
+      },
     }),
   }),
 });
@@ -553,6 +644,7 @@ export const {
   useCreateNavigationItemMutation,
   useUpdateNavigationItemsMutation,
   useDeleteNavigationItemsMutation,
+  useReconcileNavigationMutation,
   useListAdminPagesQuery,
   useSetPageContentLockedMutation,
   useGetCmsSourcesQuery,
@@ -563,6 +655,7 @@ export const {
   useEnsureHeroNavRoutesMutation,
   useDeletePageSectionsMutation,
   useGenerateCmsFieldMutation,
+  useGenerateDashboardSliceMutation,
   usePopulateSheetPagesMutation,
   useGenerateAppPackMutation,
   useGetAppPackStatusQuery,

@@ -43,10 +43,20 @@ export const BLOCK_USE_CASES: Record<string, string> = {
   chart_financial: 'Financial chart block — scenario and dashboard/ops variant.',
   kpi_cards: 'KPI cards — period label and dashboard/ops variant.',
   pnl_table: 'P&L table — optional period label.',
-  metric_grid: 'Scenario comparison grid (rows usually come from dashboard data).',
-  lever_accordion: 'Strategic levers accordion — section title (lever content from dashboard data).',
+  metric_grid:
+    'Scenario / target comparison grid — heading and subheading in CMS; target rows live in dashboard_data.',
+  lever_accordion:
+    'Strategic levers accordion — section title/subheading in CMS; lever cards live in dashboard_data.',
+  action_checklist:
+    'Phased action plan checklist — heading/subheading in CMS; phases live in dashboard_data.actionPhases.',
   sheet_viewer: 'Workbook sheet table viewer — sheet name, title, optional column filter.',
   pack_table: 'App-pack data table viewer — table name, title, page size.',
+  review_blocks: 'Multi-part business review container (parts are separate documents, not CMS JSON).',
+  reports_rollup: 'Ops reports rollup — no authored CMS copy.',
+  ops_admin_tabs: 'Ops admin tab shell — no authored CMS copy.',
+  z_report_form: 'Z-report data entry form — no authored CMS copy.',
+  costs_form: 'Costs data entry form — no authored CMS copy.',
+  calendar_import: 'Calendar import tool — no authored CMS copy.',
 };
 
 const COMMON_STRING: Omit<CmsFieldSpec, 'label'> = {
@@ -139,6 +149,32 @@ export const BLOCK_FIELD_SPECS: Record<string, Record<string, CmsFieldSpec>> = {
   },
   lever_accordion: {
     title: { label: 'title', ...COMMON_STRING, description: 'Levers section title.' },
+    subheading: {
+      label: 'subheading',
+      type: 'multiline',
+      description: 'Supporting line under the levers title.',
+    },
+  },
+  action_checklist: {
+    heading: { label: 'heading', ...COMMON_STRING, description: 'Action plan section heading.' },
+    subheading: {
+      label: 'subheading',
+      type: 'multiline',
+      description: 'Supporting line under the action plan heading.',
+    },
+  },
+  metric_grid: {
+    heading: { label: 'heading', ...COMMON_STRING, description: 'Target grid section heading.' },
+    subheading: {
+      label: 'subheading',
+      type: 'multiline',
+      description: 'Supporting line under the target grid heading.',
+    },
+    scenarios: {
+      label: 'scenarios',
+      type: 'json_rows',
+      description: 'Optional scenario column definitions when not using dashboard target rows.',
+    },
   },
   sheet_viewer: {
     sheet: { label: 'sheet', ...COMMON_STRING, description: 'Workbook sheet tab name.' },

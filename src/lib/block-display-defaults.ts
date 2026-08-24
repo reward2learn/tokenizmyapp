@@ -57,6 +57,19 @@ export const DOC_MARKDOWN_DEFAULTS = {
 
 export const LEVER_ACCORDION_DEFAULTS = {
   title: 'The 5 Levers',
+  subheading:
+    'Click each lever to see the actionable steps. Five interconnected strategies driving the turnaround.',
+} as const;
+
+export const ACTION_CHECKLIST_DEFAULTS = {
+  heading: 'Step-by-Step Action Plan',
+  subheading:
+    'Three phases from survival to sustainable profitability. Click each phase to expand.',
+} as const;
+
+export const METRIC_GRID_DEFAULTS = {
+  heading: '12-Month Target',
+  subheading: 'From barely breaking even to industry-leading margins.',
 } as const;
 
 export const CHART_FINANCIAL_DEFAULTS = {

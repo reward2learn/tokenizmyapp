@@ -15,7 +15,7 @@ interface Phase {
 }
 
 export function ActionChecklistBlock({ config }: { config: Record<string, unknown> }) {
-  parseBlockConfig('action_checklist', config);
+  const { heading, subheading } = parseBlockConfig('action_checklist', config);
   const { data, isLoading } = useGetDashboardDataQuery();
   const [expanded, setExpanded] = useState<string | false>('P1');
 
@@ -38,10 +38,11 @@ export function ActionChecklistBlock({ config }: { config: Record<string, unknow
   return (
     <Box component="section" sx={{ mx: 'auto', px: 3, py: 4 }}>
       <Typography variant="h5" component="h2" sx={{ fontWeight: 800, textAlign: 'center', mb: 1 }}>
-        Step-by-Step Action Plan
+        {heading ?? 'Step-by-Step Action Plan'}
       </Typography>
       <Typography variant="body2" color="text.secondary" sx={{ textAlign: 'center', mb: 3, maxWidth: 520, mx: 'auto' }}>
-        Three phases from survival to sustainable profitability. Click each phase to expand.
+        {subheading ??
+          'Three phases from survival to sustainable profitability. Click each phase to expand.'}
       </Typography>
       {phases.map((phase) => (
         <Accordion

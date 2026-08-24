@@ -24,7 +24,7 @@ const FALLBACK_LEVERS: Lever[] = [
 ];
 
 export function LeverAccordionBlock({ config }: { config: Record<string, unknown> }) {
-  const { title } = parseBlockConfig('lever_accordion', config);
+  const { title, subheading } = parseBlockConfig('lever_accordion', config);
   const { data, isLoading } = useGetDashboardDataQuery();
   const [expanded, setExpanded] = useState<number | false>(false);
 
@@ -40,7 +40,8 @@ export function LeverAccordionBlock({ config }: { config: Record<string, unknown
         {title ?? 'The 5 Levers'}
       </Typography>
       <Typography variant="body2" color="text.secondary" sx={{ textAlign: 'center', mb: 3, maxWidth: 520, mx: 'auto' }}>
-        Click each lever to see the actionable steps. Five interconnected strategies driving the turnaround.
+        {subheading ??
+          'Click each lever to see the actionable steps. Five interconnected strategies driving the turnaround.'}
       </Typography>
       {levers.map((lever) => (
         <Accordion

@@ -484,6 +484,37 @@ export const adminApi = createApi({
       }),
     }),
 
+    /**
+     * POST /api/admin/cms-generate-dashboard-slice —
+     * Regenerate actionPhases / levers / targetRows in dashboard_data.
+     */
+    generateDashboardSlice: builder.mutation<
+      ApiEnvelope<{ slice: string; value: unknown }>,
+      {
+        pageSlug: string;
+        pageTitle: string;
+        blockType: string;
+        slice?: 'actionPhases' | 'levers' | 'targetRows';
+        currentValue?: unknown;
+        additionalContext?: string;
+      } & TenantAppScope
+    >({
+      query: (body) => ({
+        url: 'admin/cms-generate-dashboard-slice',
+        method: 'POST',
+        body,
+      }),
+      async onQueryStarted(_arg, { dispatch, queryFulfilled }) {
+        try {
+          await queryFulfilled;
+          const { dashboardApi } = await import('@/store/apis/dashboard-api');
+          dispatch(dashboardApi.util.invalidateTags(['DashboardData']));
+        } catch {
+          // leave cache; caller surfaces error
+        }
+      },
+    }),
+
     /** DELETE /api/admin/pages/[slug]/sections */
     deletePageSections: builder.mutation<
       ApiEnvelope<{ deleted: number; contentLocked: boolean }>,
@@ -624,6 +655,7 @@ export const {
   useEnsureHeroNavRoutesMutation,
   useDeletePageSectionsMutation,
   useGenerateCmsFieldMutation,
+  useGenerateDashboardSliceMutation,
   usePopulateSheetPagesMutation,
   useGenerateAppPackMutation,
   useGetAppPackStatusQuery,

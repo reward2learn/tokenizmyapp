@@ -65,6 +65,13 @@ export function defaultConfigForBlock(blockType: string): Record<string, unknown
       };
     case 'lever_accordion':
       return { animate, title: 'The 5 Levers' };
+    case 'action_checklist':
+      return {
+        animate,
+        heading: 'Step-by-Step Action Plan',
+        subheading:
+          'Three phases from survival to sustainable profitability. Click each phase to expand.',
+      };
     case 'marketing_hero':
       return {
         animate,

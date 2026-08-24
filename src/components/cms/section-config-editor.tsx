@@ -14,10 +14,14 @@ import Typography from '@mui/material/Typography';
 import { HeroConfigEditor } from '@/components/cms/hero-config-editor';
 import { CmsAiTextField } from '@/components/cms/cms-ai-text-field';
 import { AiGenerateFieldButton } from '@/components/cms/ai-field-generate-button';
+import { AiGenerateDashboardSliceButton } from '@/components/cms/ai-dashboard-slice-generate-button';
 import { CmsEditorProvider } from '@/components/cms/cms-editor-context';
 import { hydrateBlockConfigForEdit } from '@/lib/hydrate-block-config';
 import type { CmsFieldValueType } from '@/lib/cms-block-field-catalog';
+import { BLOCK_TO_DASHBOARD_SLICE } from '@/domain/ai-content/dashboard-slice-generator';
 import { useGetCmsSourcesQuery } from '@/store/apis/admin-api';
+import { useGetDashboardDataQuery } from '@/store/apis/dashboard-api';
+import type { DashboardSliceKey } from '@/domain/ai-content/dashboard-slice-generator';
 
 function str(config: Record<string, unknown>, key: string): string {
   const v = config[key];
@@ -497,16 +501,69 @@ export function SectionConfigEditor({
   if (blockType === 'lever_accordion') {
     return ctxWrap(
       <Box component="fieldset" disabled={readOnly} sx={{ border: 0, m: 0, p: 0, minWidth: 0 }}>
-        <CmsAiTextField
-          label="title"
-          fieldKey="title"
-          size="small"
-          fullWidth
-          value={str(displayConfig, 'title')}
-          onChange={(v) => onChange(setStr(config, 'title', v))}
-          helperText="Lever content is loaded from dashboard data"
-          readOnly={readOnly}
-        />
+        <Stack spacing={1.5}>
+          <CmsAiTextField
+            label="title"
+            fieldKey="title"
+            size="small"
+            fullWidth
+            value={str(displayConfig, 'title')}
+            onChange={(v) => onChange(setStr(config, 'title', v))}
+            readOnly={readOnly}
+          />
+          <CmsAiTextField
+            label="subheading"
+            fieldKey="subheading"
+            fieldType="multiline"
+            size="small"
+            fullWidth
+            multiline
+            minRows={2}
+            value={str(displayConfig, 'subheading')}
+            onChange={(v) => onChange(setStr(config, 'subheading', v))}
+            readOnly={readOnly}
+          />
+          <DashboardSliceContentPanel
+            slice="levers"
+            readOnly={readOnly}
+            emptyHint="No levers loaded yet. Regenerate from the workbook or run Generate Content."
+          />
+        </Stack>
+      </Box>,
+    );
+  }
+
+  if (blockType === 'action_checklist') {
+    return ctxWrap(
+      <Box component="fieldset" disabled={readOnly} sx={{ border: 0, m: 0, p: 0, minWidth: 0 }}>
+        <Stack spacing={1.5}>
+          <CmsAiTextField
+            label="heading"
+            fieldKey="heading"
+            size="small"
+            fullWidth
+            value={str(displayConfig, 'heading')}
+            onChange={(v) => onChange(setStr(config, 'heading', v))}
+            readOnly={readOnly}
+          />
+          <CmsAiTextField
+            label="subheading"
+            fieldKey="subheading"
+            fieldType="multiline"
+            size="small"
+            fullWidth
+            multiline
+            minRows={2}
+            value={str(displayConfig, 'subheading')}
+            onChange={(v) => onChange(setStr(config, 'subheading', v))}
+            readOnly={readOnly}
+          />
+          <DashboardSliceContentPanel
+            slice="actionPhases"
+            readOnly={readOnly}
+            emptyHint="No action plan loaded yet. Regenerate from the workbook or run Generate Content."
+          />
+        </Stack>
       </Box>,
     );
   }
@@ -710,52 +767,162 @@ export function SectionConfigEditor({
   if (blockType === 'metric_grid') {
     return ctxWrap(
       <Box component="fieldset" disabled={readOnly} sx={{ border: 0, m: 0, p: 0, minWidth: 0 }}>
-        <CmsAiFieldRow
-          fieldKey="scenarios"
-          fieldType="json_rows"
-          currentValue={displayConfig.scenarios}
-          readOnly={readOnly}
-          onGenerated={(v) => onChange({ ...config, scenarios: v })}
-        >
-          <TextField
-            label="scenarios (JSON)"
+        <Stack spacing={1.5}>
+          <CmsAiTextField
+            label="heading"
+            fieldKey="heading"
+            size="small"
+            fullWidth
+            value={str(displayConfig, 'heading')}
+            onChange={(v) => onChange(setStr(config, 'heading', v))}
+            readOnly={readOnly}
+          />
+          <CmsAiTextField
+            label="subheading"
+            fieldKey="subheading"
+            fieldType="multiline"
             size="small"
             fullWidth
             multiline
-            minRows={6}
-            value={JSON.stringify(displayConfig.scenarios ?? [], null, 2)}
-            onChange={(e) => {
-              try {
-                onChange({ ...config, scenarios: JSON.parse(e.target.value) as unknown });
-              } catch {
-                /* keep typing */
-              }
-            }}
-            helperText='Array of { "key", "label", "target"? } objects'
+            minRows={2}
+            value={str(displayConfig, 'subheading')}
+            onChange={(v) => onChange(setStr(config, 'subheading', v))}
+            readOnly={readOnly}
           />
-        </CmsAiFieldRow>
+          <DashboardSliceContentPanel
+            slice="targetRows"
+            readOnly={readOnly}
+            emptyHint="No target rows loaded yet. Regenerate from the workbook or run Generate Content."
+          />
+          <CmsAiFieldRow
+            fieldKey="scenarios"
+            fieldType="json_rows"
+            currentValue={displayConfig.scenarios}
+            readOnly={readOnly}
+            onGenerated={(v) => onChange({ ...config, scenarios: v })}
+          >
+            <TextField
+              label="scenarios (JSON, optional override)"
+              size="small"
+              fullWidth
+              multiline
+              minRows={4}
+              value={JSON.stringify(displayConfig.scenarios ?? [], null, 2)}
+              onChange={(e) => {
+                try {
+                  onChange({ ...config, scenarios: JSON.parse(e.target.value) as unknown });
+                } catch {
+                  /* keep typing */
+                }
+              }}
+              helperText='Optional. Live block prefers dashboard_data.targetRows when present.'
+            />
+          </CmsAiFieldRow>
+        </Stack>
       </Box>,
+    );
+  }
+
+  const dashboardSlice = BLOCK_TO_DASHBOARD_SLICE[blockType];
+  if (dashboardSlice) {
+    return ctxWrap(
+      <DashboardSliceContentPanel
+        slice={dashboardSlice}
+        readOnly={readOnly}
+        emptyHint="No dashboard content for this block yet."
+      />,
     );
   }
 
   return ctxWrap(
     <Box component="fieldset" disabled={readOnly} sx={{ border: 0, m: 0, p: 0, minWidth: 0 }}>
-      <TextField
-        label="config (JSON)"
-        size="small"
-        fullWidth
-        multiline
-        minRows={6}
-        value={JSON.stringify(displayConfig, null, 2)}
-        onChange={(e) => {
-          try {
-            onChange(JSON.parse(e.target.value) as Record<string, unknown>);
-          } catch {
-            /* ignore while typing */
-          }
-        }}
-      />
+      <Stack spacing={1.5}>
+        <Typography variant="body2" color="text.secondary">
+          This block has no authored CMS copy fields. Animation and access tier live in the JSON
+          below; operational content is managed elsewhere (forms, admin tools, or Generate Content).
+        </Typography>
+        <TextField
+          label="config (JSON)"
+          size="small"
+          fullWidth
+          multiline
+          minRows={6}
+          value={JSON.stringify(displayConfig, null, 2)}
+          onChange={(e) => {
+            try {
+              onChange(JSON.parse(e.target.value) as Record<string, unknown>);
+            } catch {
+              /* ignore while typing */
+            }
+          }}
+        />
+      </Stack>
     </Box>,
+  );
+}
+
+function DashboardSliceContentPanel({
+  slice,
+  readOnly,
+  emptyHint,
+}: {
+  slice: DashboardSliceKey;
+  readOnly?: boolean;
+  emptyHint: string;
+}) {
+  const { data, isLoading, isFetching } = useGetDashboardDataQuery();
+  const sliceValue =
+    slice === 'actionPhases'
+      ? data?.data?.actionPhases
+      : slice === 'levers'
+        ? data?.data?.levers
+        : data?.data?.targetRows;
+
+  const preview =
+    Array.isArray(sliceValue) && sliceValue.length > 0
+      ? JSON.stringify(sliceValue, null, 2)
+      : '';
+
+  return (
+    <Stack spacing={1}>
+      <Stack
+        direction={{ xs: 'column', sm: 'row' }}
+        spacing={1}
+        sx={{ alignItems: { sm: 'center' }, justifyContent: 'space-between' }}
+      >
+        <Typography variant="subtitle2">
+          Content ({slice})
+          {(isLoading || isFetching) && (
+            <Typography component="span" variant="caption" color="text.secondary" sx={{ ml: 1 }}>
+              loading…
+            </Typography>
+          )}
+        </Typography>
+        {!readOnly ? (
+          <AiGenerateDashboardSliceButton slice={slice} currentValue={sliceValue} />
+        ) : null}
+      </Stack>
+      <Typography variant="caption" color="text.secondary">
+        Stored in knowledge_snippets.dashboard_data — not in this block&apos;s config JSON. Use
+        Generate with AI to refresh from the uploaded workbook, or edit via Admin → Generate Content.
+      </Typography>
+      {preview ? (
+        <TextField
+          label={`current ${slice}`}
+          size="small"
+          fullWidth
+          multiline
+          minRows={8}
+          value={preview}
+          slotProps={{ input: { readOnly: true } }}
+          helperText="Read-only preview. Regenerate with AI to replace."
+        />
+      ) : (
+        <Typography variant="body2" color="text.secondary">
+          {emptyHint}
+        </Typography>
+      )}
+    </Stack>
   );
 }
 

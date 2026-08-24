@@ -7,6 +7,8 @@ const minTierSchema = z.enum(['public', 'pin', 'google']).optional();
 export { heroConfigSchema };
 
 export const metricGridConfigSchema = z.object({
+  heading: z.string().optional(),
+  subheading: z.string().optional(),
   scenarios: z
     .array(
       z.object({
@@ -30,10 +32,14 @@ export const chartFinancialConfigSchema = z.object({
 
 export const leverAccordionConfigSchema = z.object({
   title: z.string().optional(),
+  subheading: z.string().optional(),
   minTier: minTierSchema,
 });
 
 export const actionChecklistConfigSchema = z.object({
+  /** Section chrome — rendered above phases loaded from dashboard_data. */
+  heading: z.string().optional(),
+  subheading: z.string().optional(),
   priority: z.enum(['P0', 'P1', 'P2']).optional(),
   minTier: minTierSchema,
 });

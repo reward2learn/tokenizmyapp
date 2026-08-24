@@ -9,6 +9,8 @@ import {
   FEATURE_GRID_DEFAULTS,
   KPI_CARDS_DEFAULTS,
   LEVER_ACCORDION_DEFAULTS,
+  ACTION_CHECKLIST_DEFAULTS,
+  METRIC_GRID_DEFAULTS,
   MARKETING_HERO_DEFAULTS,
   PRICING_TABLE_DEFAULTS,
   PRODUCT_SHOWCASE_DEFAULTS,
@@ -104,6 +106,12 @@ export function hydrateBlockConfigForEdit(
 
     case 'lever_accordion':
       return fillStrings(withAnimate, LEVER_ACCORDION_DEFAULTS);
+
+    case 'action_checklist':
+      return fillStrings(withAnimate, ACTION_CHECKLIST_DEFAULTS);
+
+    case 'metric_grid':
+      return fillStrings(withAnimate, METRIC_GRID_DEFAULTS);
 
     case 'chart_financial':
       return fillStrings(withAnimate, CHART_FINANCIAL_DEFAULTS);
