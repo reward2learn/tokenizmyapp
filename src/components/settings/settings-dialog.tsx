@@ -6,6 +6,8 @@ import DialogActions from '@mui/material/DialogActions';
 import DialogContent from '@mui/material/DialogContent';
 import DialogTitle from '@mui/material/DialogTitle';
 import IconButton from '@mui/material/IconButton';
+import useMediaQuery from '@mui/material/useMediaQuery';
+import { useTheme } from '@mui/material/styles';
 import CloseIcon from '@mui/icons-material/Close';
 import { AuthGate } from '@/components/auth/auth-gate';
 import { SignInPanelGate } from '@/components/auth/sign-in-panel';
@@ -31,6 +33,8 @@ import { RADIUS } from '@/theme/design-tokens';
 export function SettingsDialog() {
   const dispatch = useAppDispatch();
   const open = useAppSelector((s) => s.ui.settingsDialogOpen);
+  const theme = useTheme();
+  const isCompact = useMediaQuery(theme.breakpoints.down('md'), { defaultMatches: false });
   const close = () => dispatch(setSettingsDialogOpen(false));
 
   return (
@@ -38,13 +42,14 @@ export function SettingsDialog() {
       open={open}
       onClose={close}
       fullWidth
+      fullScreen={isCompact}
       maxWidth="lg"
       aria-labelledby="settings-dialog-title"
       slotProps={{
         paper: {
           sx: {
-            borderRadius: `${RADIUS.card}px`,
-            maxHeight: '90vh',
+            borderRadius: isCompact ? 0 : `${RADIUS.card}px`,
+            maxHeight: isCompact ? '100%' : '90vh',
             display: 'flex',
             flexDirection: 'column',
           },

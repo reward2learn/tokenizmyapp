@@ -8,7 +8,11 @@ import ListItemIcon from '@mui/material/ListItemIcon';
 import ListItemText from '@mui/material/ListItemText';
 import Paper from '@mui/material/Paper';
 import Stack from '@mui/material/Stack';
+import Tab from '@mui/material/Tab';
+import Tabs from '@mui/material/Tabs';
 import Typography from '@mui/material/Typography';
+import useMediaQuery from '@mui/material/useMediaQuery';
+import { useTheme } from '@mui/material/styles';
 import CreditCardIcon from '@mui/icons-material/CreditCard';
 import GroupIcon from '@mui/icons-material/Group';
 import HomeIcon from '@mui/icons-material/Home';
@@ -96,48 +100,62 @@ export function SettingsPanel({
 }) {
   const dispatch = useAppDispatch();
   const section = useAppSelector((s) => s.ui.settingsSection);
+  const theme = useTheme();
+  // defaultMatches: false keeps Vitest / SSR on the desktop rail so existing
+  // getByRole('button') queries stay stable.
+  const isCompact = useMediaQuery(theme.breakpoints.down('md'), { defaultMatches: false });
   const onPlatform = isPlatformApp();
   const organizationSections = onPlatform ? PLATFORM_ORGANIZATION_SECTIONS : TENANT_ORGANIZATION_SECTIONS;
   const organizationTitle = onPlatform ? 'Organization' : 'Your organization';
   const embedded = variant === 'dialog';
+  const selectSection = (id: SettingsSection) => dispatch(setSettingsSection(id));
 
   return (
     <Paper
       variant="outlined"
       sx={{
         display: 'flex',
+        flexDirection: isCompact ? 'column' : 'row',
         ...(embedded ? { flex: 1, minHeight: 0 } : { minHeight: 560 }),
         width: '100%',
         borderRadius: `${RADIUS.card}px`,
         overflow: 'hidden',
       }}
     >
-      <Box
-        component="nav"
-        aria-label="Settings sections"
-        sx={{
-          width: 220,
-          flexShrink: 0,
-          borderRight: '1px solid',
-          borderColor: 'divider',
-          display: 'flex',
-          flexDirection: 'column',
-          overflow: 'hidden',
-        }}
-      >
-        <SectionGroup
-          title={organizationTitle}
-          sections={organizationSections}
+      {isCompact ? (
+        <MobileSectionCarousel
+          sections={[...organizationSections, ...PERSONAL_SECTIONS]}
           active={section}
-          onSelect={(id) => dispatch(setSettingsSection(id))}
+          onSelect={selectSection}
         />
-        <SectionGroup
-          title="Personal"
-          sections={PERSONAL_SECTIONS}
-          active={section}
-          onSelect={(id) => dispatch(setSettingsSection(id))}
-        />
-      </Box>
+      ) : (
+        <Box
+          component="nav"
+          aria-label="Settings sections"
+          sx={{
+            width: 220,
+            flexShrink: 0,
+            borderRight: '1px solid',
+            borderColor: 'divider',
+            display: 'flex',
+            flexDirection: 'column',
+            overflow: 'hidden',
+          }}
+        >
+          <SectionGroup
+            title={organizationTitle}
+            sections={organizationSections}
+            active={section}
+            onSelect={selectSection}
+          />
+          <SectionGroup
+            title="Personal"
+            sections={PERSONAL_SECTIONS}
+            active={section}
+            onSelect={selectSection}
+          />
+        </Box>
+      )}
 
       <Box
         sx={{
@@ -145,7 +163,7 @@ export function SettingsPanel({
           minWidth: 0,
           minHeight: 0,
           overflow: 'auto',
-          p: 3,
+          p: { xs: 2, md: 3 },
         }}
       >
         {section === 'general' && <OrganizationGeneralPanel orgId={orgId} />}
@@ -166,6 +184,64 @@ export function SettingsPanel({
         {section === 'security' && <SecurityPanel />}
       </Box>
     </Paper>
+  );
+}
+
+/**
+ * Narrow-viewport nav: a single horizontal swipe row of every section so the
+ * content pane can use the full dialog width. Group labels stay on the desktop
+ * rail only — on compact screens they cost vertical space without helping swipe.
+ */
+function MobileSectionCarousel({
+  sections,
+  active,
+  onSelect,
+}: {
+  sections: SectionDef[];
+  active: SettingsSection;
+  onSelect: (id: SettingsSection) => void;
+}) {
+  return (
+    <Box
+      component="nav"
+      aria-label="Settings sections"
+      sx={{
+        flexShrink: 0,
+        borderBottom: '1px solid',
+        borderColor: 'divider',
+        px: 0.5,
+      }}
+    >
+      <Tabs
+        value={active}
+        onChange={(_, id: SettingsSection) => onSelect(id)}
+        variant="scrollable"
+        scrollButtons="auto"
+        allowScrollButtonsMobile
+        sx={{
+          minHeight: 44,
+          '& .MuiTabs-flexContainer': { gap: 0.5 },
+          '& .MuiTab-root': {
+            minHeight: 44,
+            minWidth: 'auto',
+            px: 1.25,
+            py: 0.75,
+            textTransform: 'none',
+            borderRadius: 1,
+          },
+        }}
+      >
+        {sections.map(({ id, label, icon: Icon }) => (
+          <Tab
+            key={id}
+            value={id}
+            icon={<Icon fontSize="small" />}
+            iconPosition="start"
+            label={label}
+          />
+        ))}
+      </Tabs>
+    </Box>
   );
 }
 

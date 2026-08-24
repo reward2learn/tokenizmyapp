@@ -2,6 +2,8 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { Provider } from 'react-redux';
 import { configureStore } from '@reduxjs/toolkit';
+import { ThemeProvider, createTheme } from '@mui/material/styles';
+import useMediaQuery from '@mui/material/useMediaQuery';
 import { SettingsLogoutButton, SettingsPanel } from '@/components/settings/settings-panel';
 import { organizationApi } from '@/store/apis/organization-api';
 import { authSlice } from '@/store/auth-slice';
@@ -9,6 +11,10 @@ import { uiSlice } from '@/store/ui-slice';
 
 vi.mock('@shared/lib/config/tenant', () => ({
   isPlatformApp: vi.fn(() => true),
+}));
+
+vi.mock('@mui/material/useMediaQuery', () => ({
+  default: vi.fn(() => false),
 }));
 
 import { isPlatformApp } from '@shared/lib/config/tenant';
@@ -24,6 +30,8 @@ vi.mock('@/components/billing/billing-panel', () => ({
   ),
 }));
 
+const theme = createTheme();
+
 function renderPanel(orgId: string | null) {
   const store = configureStore({
     reducer: {
@@ -35,16 +43,22 @@ function renderPanel(orgId: string | null) {
       getDefault({ serializableCheck: false }).concat(organizationApi.middleware),
   });
   return render(
-    <Provider store={store}>
-      <SettingsPanel orgId={orgId} />
-    </Provider>,
+    <ThemeProvider theme={theme}>
+      <Provider store={store}>
+        <SettingsPanel orgId={orgId} />
+      </Provider>
+    </ThemeProvider>,
   );
 }
 
 // Explicit, because vitest runs without `globals` here — Testing Library only
 // registers its own afterEach cleanup when the global hooks exist, so without
 // this each render stacks on the last and every getByRole finds duplicates.
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  vi.mocked(useMediaQuery).mockReturnValue(false);
+  vi.mocked(isPlatformApp).mockReturnValue(true);
+});
 
 describe('SettingsPanel', () => {
   it('lists only sections that have something behind them', () => {
@@ -89,6 +103,20 @@ describe('SettingsPanel', () => {
     expect(screen.getByText(/No organization is selected/i)).toBeInTheDocument();
   });
 
+  it('swaps the side rail for a single scrollable section row on compact viewports', () => {
+    vi.mocked(useMediaQuery).mockReturnValue(true);
+    vi.mocked(isPlatformApp).mockReturnValue(false);
+    renderPanel('org_1');
+
+    expect(screen.getByRole('tab', { name: /Usage/i })).toBeInTheDocument();
+    expect(screen.getByRole('tab', { name: /Profile/i })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Usage' })).toBeNull();
+    expect(screen.queryByText(/Your organization/i)).toBeNull();
+    expect(screen.queryByText(/^Personal$/i)).toBeNull();
+
+    fireEvent.click(screen.getByRole('tab', { name: /Usage/i }));
+    expect(screen.getByText(/billing for org_1 \(read-only\)/i)).toBeInTheDocument();
+  });
 });
 
 describe('SettingsLogoutButton', () => {
