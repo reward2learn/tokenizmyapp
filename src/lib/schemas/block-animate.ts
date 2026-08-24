@@ -9,6 +9,7 @@ export const DEFAULT_BLOCK_ANIMATE = {
   alphaTo: 1,
   durationMs: 600,
   delayMs: 0,
+  staggerMs: 120,
 } as const;
 
 export type BlockAnimateConfig = {
@@ -19,6 +20,7 @@ export type BlockAnimateConfig = {
   alphaTo: number;
   durationMs: number;
   delayMs: number;
+  staggerMs: number;
 };
 
 export const blockAnimateSchema = z.object({
@@ -29,6 +31,7 @@ export const blockAnimateSchema = z.object({
   alphaTo: z.number().min(0).max(1).optional(),
   durationMs: z.number().min(0).max(5000).optional(),
   delayMs: z.number().min(0).max(5000).optional(),
+  staggerMs: z.number().min(0).max(5000).optional(),
 });
 
 export function resolveBlockAnimate(animate: unknown): BlockAnimateConfig {
@@ -42,7 +45,12 @@ export function resolveBlockAnimate(animate: unknown): BlockAnimateConfig {
     alphaTo: partial.alphaTo ?? DEFAULT_BLOCK_ANIMATE.alphaTo,
     durationMs: partial.durationMs ?? DEFAULT_BLOCK_ANIMATE.durationMs,
     delayMs: partial.delayMs ?? DEFAULT_BLOCK_ANIMATE.delayMs,
+    staggerMs: partial.staggerMs ?? DEFAULT_BLOCK_ANIMATE.staggerMs,
   };
+}
+
+export function containerAnimateDelayMs(config: BlockAnimateConfig, index: number): number {
+  return config.delayMs + index * config.staggerMs;
 }
 
 export function hydrateBlockAnimateForEdit(

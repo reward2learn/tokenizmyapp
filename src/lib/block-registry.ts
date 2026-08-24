@@ -67,3 +67,17 @@ export function getBlockComponent(blockType: BlockType): BlockComponent {
 export function resolveBlockComponent(blockType: string): BlockComponent | null {
   return (BLOCK_REGISTRY as Record<string, BlockComponent | undefined>)[blockType] ?? null;
 }
+
+/** Blocks that stagger animate internal containers (BlockAnimateRoot inside the component). */
+export const BLOCKS_WITH_STAGGERED_CONTAINERS = new Set<BlockType>([
+  'hero',
+  'marketing_hero',
+  'feature_grid',
+  'faq',
+  'cta_banner',
+  'product_showcase',
+  'customer_proof',
+  'pricing_table',
+  'capability_marquee',
+  'testimonials',
+]);

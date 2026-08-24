@@ -104,16 +104,24 @@ export function BlockAnimateSettings({ config, onChange, readOnly = false }: Blo
             { min: 0, max: 5000, step: 50 },
           )}
           {numField(
-            'Delay (ms)',
+            'Initial delay (ms)',
             animate.delayMs,
             (delayMs) => patchAnimate({ delayMs }),
             readOnly,
             { min: 0, max: 5000, step: 50 },
           )}
         </Stack>
+        {numField(
+          'Stagger between containers (ms)',
+          animate.staggerMs,
+          (staggerMs) => patchAnimate({ staggerMs }),
+          readOnly,
+          { min: 0, max: 5000, step: 50 },
+        )}
         <Typography variant="caption" color="text.secondary">
-          Default: rise from {DEFAULT_BLOCK_ANIMATE.translateYFrom}px below, alpha{' '}
-          {DEFAULT_BLOCK_ANIMATE.alphaFrom} → {DEFAULT_BLOCK_ANIMATE.alphaTo}.
+          Each container inside the block animates in sequence. Default: rise from{' '}
+          {DEFAULT_BLOCK_ANIMATE.translateYFrom}px below, alpha {DEFAULT_BLOCK_ANIMATE.alphaFrom} →{' '}
+          {DEFAULT_BLOCK_ANIMATE.alphaTo}, {DEFAULT_BLOCK_ANIMATE.staggerMs}ms between containers.
         </Typography>
       </Stack>
     </Box>

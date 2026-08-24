@@ -17,6 +17,7 @@ import {
   resolveHeroSlide,
   type ResolvedHeroSlide,
 } from '@/lib/hero-config';
+import { BlockAnimateRoot } from '@/components/blocks/block-scroll-animate';
 
 export function HeroBlock({ config }: { config: Record<string, unknown> }) {
   const parsed = parseHeroConfig(config);
@@ -165,67 +166,68 @@ function HeroSlideView({ badge, slide }: { badge?: string; slide: ResolvedHeroSl
       ) : null}
 
       <Box sx={{ position: 'relative', zIndex: 2 }}>
-        {badge ? (
-          <Chip
-            label={badge}
-            size="small"
-            sx={{
-              mb: 2.5,
-              letterSpacing: '1.5px',
-              textTransform: 'uppercase',
-              fontSize: '10px',
-              fontWeight: 600,
-              color: 'text.primary',
-              bgcolor: hasMedia ? 'rgba(255,255,255,0.12)' : 'action.hover',
-              border: '1px solid',
-              borderColor: 'divider',
-            }}
-          />
-        ) : null}
-        <Typography
-          variant="h2"
-          component="h1"
-          sx={{
-            fontWeight: 800,
-            fontSize: { xs: '2.2rem', md: '3.4rem' },
-            letterSpacing: '-0.03em',
-            lineHeight: 1.08,
-            color: hasMedia ? 'common.white' : 'text.primary',
-          }}
-        >
-          {slide.headline}
-          {slide.accent ? (
-            <>
-              <br />
-              <Box component="span" sx={{ color: 'primary.main' }}>
-                {slide.accent}
-              </Box>
-            </>
+        <BlockAnimateRoot>
+          {badge ? (
+            <Chip
+              label={badge}
+              size="small"
+              sx={{
+                mb: 2.5,
+                letterSpacing: '1.5px',
+                textTransform: 'uppercase',
+                fontSize: '10px',
+                fontWeight: 600,
+                color: 'text.primary',
+                bgcolor: hasMedia ? 'rgba(255,255,255,0.12)' : 'action.hover',
+                border: '1px solid',
+                borderColor: 'divider',
+              }}
+            />
           ) : null}
-        </Typography>
-        {slide.subtitle ? (
           <Typography
-            variant="body1"
+            variant="h2"
+            component="h1"
             sx={{
-              mt: 1.75,
-              color: hasMedia ? 'grey.300' : 'text.secondary',
-              maxWidth: 600,
-              mx: 'auto',
+              fontWeight: 800,
+              fontSize: { xs: '2.2rem', md: '3.4rem' },
+              letterSpacing: '-0.03em',
+              lineHeight: 1.08,
+              color: hasMedia ? 'common.white' : 'text.primary',
             }}
           >
-            {slide.subtitle}
+            {slide.headline}
+            {slide.accent ? (
+              <>
+                <br />
+                <Box component="span" sx={{ color: 'primary.main' }}>
+                  {slide.accent}
+                </Box>
+              </>
+            ) : null}
           </Typography>
-        ) : null}
-
-        <AuthGate requiredTier="pin" fallback={null}>
-          <Grid container spacing={2} sx={{ mt: 6, maxWidth: 560, mx: 'auto' }}>
-            {slide.navButtons.map((btn) => (
-              <Grid key={`${btn.href}-${btn.label}`} size={{ xs: 12, sm: 6 }}>
-                <ReportCard href={btn.href} title={btn.label} onDark={hasMedia} />
-              </Grid>
-            ))}
-          </Grid>
-        </AuthGate>
+          {slide.subtitle ? (
+            <Typography
+              variant="body1"
+              sx={{
+                mt: 1.75,
+                color: hasMedia ? 'grey.300' : 'text.secondary',
+                maxWidth: 600,
+                mx: 'auto',
+              }}
+            >
+              {slide.subtitle}
+            </Typography>
+          ) : null}
+          <AuthGate requiredTier="pin" fallback={null}>
+            <Grid container spacing={2} sx={{ mt: 6, maxWidth: 560, mx: 'auto' }}>
+              {slide.navButtons.map((btn) => (
+                <Grid key={`${btn.href}-${btn.label}`} size={{ xs: 12, sm: 6 }}>
+                  <ReportCard href={btn.href} title={btn.label} onDark={hasMedia} />
+                </Grid>
+              ))}
+            </Grid>
+          </AuthGate>
+        </BlockAnimateRoot>
       </Box>
     </Box>
   );

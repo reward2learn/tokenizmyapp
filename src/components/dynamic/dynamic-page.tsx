@@ -4,7 +4,7 @@ import { useLayoutEffect } from 'react';
 import Box from '@mui/material/Box';
 import { usePathname, useSearchParams } from 'next/navigation';
 import type { AuthTier, BlockType, PageDefinition } from '@/lib/page-catalog';
-import { getBlockComponent } from '@/lib/block-registry';
+import { BLOCKS_WITH_STAGGERED_CONTAINERS, getBlockComponent } from '@/lib/block-registry';
 import { parseBlockConfig } from '@/lib/schemas/block-config';
 import { AuthGate } from '@/components/auth/auth-gate';
 import { SignInPanelGate } from '@/components/auth/sign-in-panel';
@@ -46,7 +46,12 @@ function BlockSection({
 
   const block = <Component key={sectionKey} config={config} />;
   const wrapped = (
-    <BlockScrollAnimate animationKey={animationKey} animate={config.animate} disabled={animateDisabled}>
+    <BlockScrollAnimate
+      animationKey={animationKey}
+      animate={config.animate}
+      disabled={animateDisabled}
+      staggerChildren={BLOCKS_WITH_STAGGERED_CONTAINERS.has(blockType)}
+    >
       {block}
     </BlockScrollAnimate>
   );

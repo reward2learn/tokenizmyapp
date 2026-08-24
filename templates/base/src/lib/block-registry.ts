@@ -10,6 +10,16 @@ import { ChartFinancialBlock } from '@/components/blocks/chart-financial-block';
 import { PnlTableBlock } from '@/components/blocks/pnl-table-block';
 import { ReportsRollupBlock } from '@/components/blocks/reports-rollup-block';
 import { SheetViewerBlock } from '@/components/blocks/sheet-viewer-block';
+import { PackTableBlock } from '@/components/blocks/pack-table-block';
+import { FeatureGridBlock } from '@/components/blocks/feature-grid-block';
+import { TestimonialsBlockAdapter } from '@/components/blocks/testimonials-block';
+import { MarketingHeroBlock } from '@/components/blocks/marketing-hero-block';
+import { CapabilityMarqueeBlock } from '@/components/blocks/capability-marquee-block';
+import { ProductShowcaseBlock } from '@/components/blocks/product-showcase-block';
+import { CustomerProofBlock } from '@/components/blocks/customer-proof-block';
+import { FaqBlock } from '@/components/blocks/faq-block';
+import { CtaBannerBlock } from '@/components/blocks/cta-banner-block';
+import { PricingTableBlock } from '@/components/blocks/pricing-table-block';
 import {
   OpsAdminTabsBlock,
   ZReportFormBlock,
@@ -38,13 +48,36 @@ export const BLOCK_REGISTRY: Record<BlockType, BlockComponent> = {
   review_blocks: ReviewBlocksBlock,
   reports_rollup: ReportsRollupBlock,
   sheet_viewer: SheetViewerBlock,
+  pack_table: PackTableBlock,
+  feature_grid: FeatureGridBlock,
+  testimonials: TestimonialsBlockAdapter,
+  marketing_hero: MarketingHeroBlock,
+  capability_marquee: CapabilityMarqueeBlock,
+  product_showcase: ProductShowcaseBlock,
+  customer_proof: CustomerProofBlock,
+  faq: FaqBlock,
+  cta_banner: CtaBannerBlock,
+  pricing_table: PricingTableBlock,
 };
 
 export function getBlockComponent(blockType: BlockType): BlockComponent {
   return BLOCK_REGISTRY[blockType];
 }
 
-/** Returns null when the block type is not registered in this deployment. */
 export function resolveBlockComponent(blockType: string): BlockComponent | null {
   return (BLOCK_REGISTRY as Record<string, BlockComponent | undefined>)[blockType] ?? null;
 }
+
+/** Blocks that stagger animate internal containers (BlockAnimateRoot inside the component). */
+export const BLOCKS_WITH_STAGGERED_CONTAINERS = new Set<BlockType>([
+  'hero',
+  'marketing_hero',
+  'feature_grid',
+  'faq',
+  'cta_banner',
+  'product_showcase',
+  'customer_proof',
+  'pricing_table',
+  'capability_marquee',
+  'testimonials',
+]);

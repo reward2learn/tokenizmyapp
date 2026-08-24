@@ -4,7 +4,7 @@ import { useLayoutEffect } from 'react';
 import Box from '@mui/material/Box';
 import { usePathname, useSearchParams } from 'next/navigation';
 import type { AuthTier, BlockType, PageDefinition } from '@/lib/page-catalog';
-import { getBlockComponent } from '@/lib/block-registry';
+import { BLOCKS_WITH_STAGGERED_CONTAINERS, getBlockComponent } from '@/lib/block-registry';
 import { parseBlockConfig } from '@/lib/schemas/block-config';
 import { AuthGate } from '@/components/auth/auth-gate';
 import { SignInPanelGate } from '@/components/auth/sign-in-panel';
@@ -36,12 +36,22 @@ function BlockSection({
   animateDisabled?: boolean;
 }) {
   const Component = getBlockComponent(blockType);
-  const parsed = parseBlockConfig(blockType, config);
-  const minTier = 'minTier' in parsed ? (parsed.minTier as AuthTier | undefined) : undefined;
+  let parsed: { minTier?: AuthTier } | undefined;
+  try {
+    parsed = parseBlockConfig(blockType, config);
+  } catch {
+    parsed = undefined;
+  }
+  const minTier = parsed && 'minTier' in parsed ? (parsed.minTier as AuthTier | undefined) : undefined;
 
   const block = <Component key={sectionKey} config={config} />;
   const wrapped = (
-    <BlockScrollAnimate animationKey={animationKey} animate={config.animate} disabled={animateDisabled}>
+    <BlockScrollAnimate
+      animationKey={animationKey}
+      animate={config.animate}
+      disabled={animateDisabled}
+      staggerChildren={BLOCKS_WITH_STAGGERED_CONTAINERS.has(blockType)}
+    >
       {block}
     </BlockScrollAnimate>
   );
@@ -65,7 +75,11 @@ export function DynamicPage({ page }: DynamicPageProps) {
   const pageEditSlug = useAppSelector((s) => s.ui.pageEditSlug);
   const searchParams = useSearchParams();
   const isPdf = searchParams.get('pdf') === '1';
-  const showSignIn = page.slug === 'dashboard' && tier === 'public';
+  const hasGatedSection = page.sections.some((section) => {
+    const configured = (section.config as { minTier?: AuthTier } | undefined)?.minTier;
+    return configured === 'pin' || configured === 'google';
+  });
+  const showSignIn = hasGatedSection && tier === 'public';
   const inlineEdit = pageEditMode && pageEditSlug === page.slug && !isPdf;
   const { sections: liveSections, publishRevision, isSectionsPending } = usePublishedPageSections(page);
 
