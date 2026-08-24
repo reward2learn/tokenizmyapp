@@ -92,8 +92,11 @@ export async function handleWorkbookIngest(
     },
   });
 
+  // Suite / single-app scope for all upserts (empty string = tenant default).
+  const appId = input.appId ?? '';
+
   // ── 3b. FORMULA MAP (import-time formula inventory, mapped to DB data) ──
-  const formulaCount = await saveWorkbookFormulaMapStep(buffers, dbUrl);
+  const formulaCount = await saveWorkbookFormulaMapStep(buffers, dbUrl, appId);
 
   await emitProgressStep(writable, {
     step: 'formula-map',
@@ -129,7 +132,6 @@ export async function handleWorkbookIngest(
   });
 
   // ── 5. POPULATE PROJECTIONS ────────────────────────────────────
-  const appId = input.appId ?? '';
   const projectionsCount = await populateProjectionsStep(
     comprehension.comprehension,
     dbUrl,
@@ -169,13 +171,13 @@ export async function handleWorkbookIngest(
       pct: 95,
     });
 
-    brParts = await generateBusinessReviewStep(comprehension.comprehension, apiKey, dbUrl, model);
+    brParts = await generateBusinessReviewStep(comprehension.comprehension, apiKey, dbUrl, model, appId);
     await sleep('1s');
 
-    esSaved = await generateExecutiveSummaryStep(comprehension.comprehension, apiKey, dbUrl, model);
+    esSaved = await generateExecutiveSummaryStep(comprehension.comprehension, apiKey, dbUrl, model, appId);
     await sleep('1s');
 
-    dashboardSaved = await generateDashboardStep(comprehension.comprehension, apiKey, dbUrl, model);
+    dashboardSaved = await generateDashboardStep(comprehension.comprehension, apiKey, dbUrl, model, appId);
   }
 
   const contentGenerated = brParts > 0 || esSaved || dashboardSaved;

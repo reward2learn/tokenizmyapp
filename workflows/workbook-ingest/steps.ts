@@ -174,11 +174,12 @@ export async function analyzeSheetsStep(sheets: ExtractedSheet[]): Promise<Analy
  * FORMULA MAP: find every formula cell in the imported workbook and persist
  * its references mapped to the DB-sheet coordinates (column key + data row
  * offset) that the sheet viewer serves, so formulas can be computed against
- * the database-saved sheet data. Idempotent: ON CONFLICT (key) DO UPDATE.
+ * the database-saved sheet data. Idempotent: ON CONFLICT (key, app_id) DO UPDATE.
  */
 export async function saveWorkbookFormulaMapStep(
   buffers: Uint8Array[],
   dbUrl: string,
+  appId = '',
 ): Promise<number> {
   'use step';
 
@@ -190,10 +191,10 @@ export async function saveWorkbookFormulaMapStep(
     await withPgClient(dbUrl, async (db) => {
       await executeOne(
         db,
-        `INSERT INTO knowledge_snippets (id, key, category, content)
-         VALUES (gen_random_uuid()::TEXT, $1, 'cache', $2)
-         ON CONFLICT (key) DO UPDATE SET content = EXCLUDED.content;`,
-        ['workbook_formulas', JSON.stringify(formulaMap)],
+        `INSERT INTO knowledge_snippets (id, key, category, content, app_id)
+         VALUES (gen_random_uuid()::TEXT, $1, 'cache', $2, $3)
+         ON CONFLICT (key, app_id) DO UPDATE SET content = EXCLUDED.content;`,
+        ['workbook_formulas', JSON.stringify(formulaMap), appId],
       );
     });
   } catch (err) {
@@ -832,12 +833,14 @@ function parseReviewParts(markdown: string): Array<{ slug: string; partKey: stri
 /**
  * Generate the Business Review from comprehension data.
  * Saves parsed parts to business_review_parts via pg.
+ * Idempotent: ON CONFLICT (slug, app_id) — matches @@unique([slug, appId]).
  */
 export async function generateBusinessReviewStep(
   comprehension: WorkbookComprehension,
   apiKey: string,
   dbUrl: string,
   model = 'gpt-4o',
+  appId = '',
 ): Promise<number> {
   'use step';
 
@@ -875,14 +878,14 @@ export async function generateBusinessReviewStep(
   await withPgClient(dbUrl, async (db) => {
     for (const part of parts) {
       await executeOne(db,
-        `INSERT INTO business_review_parts (id, slug, part_key, title, sort_order, auth_tier, markdown)
-         VALUES (gen_random_uuid()::TEXT, $1, $2, $3, $4, 'google', $5)
-         ON CONFLICT (slug) DO UPDATE SET
+        `INSERT INTO business_review_parts (id, slug, part_key, title, sort_order, auth_tier, markdown, app_id)
+         VALUES (gen_random_uuid()::TEXT, $1, $2, $3, $4, 'google', $5, $6)
+         ON CONFLICT (slug, app_id) DO UPDATE SET
            part_key = EXCLUDED.part_key,
            title = EXCLUDED.title,
            sort_order = EXCLUDED.sort_order,
            markdown = EXCLUDED.markdown;`,
-        [part.slug, part.partKey, part.title, part.sortOrder, part.markdown],
+        [part.slug, part.partKey, part.title, part.sortOrder, part.markdown, appId],
       );
       saved++;
     }
@@ -894,12 +897,14 @@ export async function generateBusinessReviewStep(
 /**
  * Generate the Executive Summary from comprehension data.
  * Saves to knowledge_snippets via pg.
+ * Idempotent: ON CONFLICT (key, app_id) — matches @@unique([key, appId]).
  */
 export async function generateExecutiveSummaryStep(
   comprehension: WorkbookComprehension,
   apiKey: string,
   dbUrl: string,
   model = 'gpt-4o',
+  appId = '',
 ): Promise<boolean> {
   'use step';
 
@@ -934,10 +939,10 @@ export async function generateExecutiveSummaryStep(
 
   await withPgClient(dbUrl, async (db) => {
     await executeOne(db,
-      `INSERT INTO knowledge_snippets (id, key, category, content)
-       VALUES (gen_random_uuid()::TEXT, 'executive_summary', 'document', $1)
-       ON CONFLICT (key) DO UPDATE SET content = EXCLUDED.content;`,
-      [markdown],
+      `INSERT INTO knowledge_snippets (id, key, category, content, app_id)
+       VALUES (gen_random_uuid()::TEXT, 'executive_summary', 'document', $1, $2)
+       ON CONFLICT (key, app_id) DO UPDATE SET content = EXCLUDED.content;`,
+      [markdown, appId],
     );
   });
 
@@ -947,12 +952,14 @@ export async function generateExecutiveSummaryStep(
 /**
  * Generate the Dashboard Data from comprehension data.
  * Saves to knowledge_snippets via pg.
+ * Idempotent: ON CONFLICT (key, app_id) — matches @@unique([key, appId]).
  */
 export async function generateDashboardStep(
   comprehension: WorkbookComprehension,
   apiKey: string,
   dbUrl: string,
   model = 'gpt-4o',
+  appId = '',
 ): Promise<boolean> {
   'use step';
 
@@ -982,10 +989,10 @@ export async function generateDashboardStep(
 
     await withPgClient(dbUrl, async (db) => {
       await executeOne(db,
-        `INSERT INTO knowledge_snippets (id, key, category, content)
-         VALUES (gen_random_uuid()::TEXT, 'dashboard_data', 'document', $1)
-         ON CONFLICT (key) DO UPDATE SET content = EXCLUDED.content;`,
-        [JSON.stringify(parsed)],
+        `INSERT INTO knowledge_snippets (id, key, category, content, app_id)
+         VALUES (gen_random_uuid()::TEXT, 'dashboard_data', 'document', $1, $2)
+         ON CONFLICT (key, app_id) DO UPDATE SET content = EXCLUDED.content;`,
+        [JSON.stringify(parsed), appId],
       );
     });
     return true;
