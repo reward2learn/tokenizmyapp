@@ -213,9 +213,8 @@ export async function saveWorkbookFormulaMapStep(
  *   - 429            → RetryableError({ retryAfter }) using Retry-After header (fallback 1s)
  *   - 5xx / network  → plain Error → SDK auto-retry (max 3)
  *   - missing key    → FatalError (permanent, no retry storm)
- *   - schema rejected → plain Error → SDK auto-retries (model output is stochastic
- *                      at temperature 0.2); run fails with a clear message after
- *                      the SDK's retry budget is exhausted.
+ *   - schema rejected → FatalError after coerceComprehensionPayload (no retry spend;
+ *                      remaining Zod failures are unlikely to clear on resample)
  */
 export async function comprehendWorkbookStep(
   sheets: ExtractedSheet[],
@@ -246,8 +245,9 @@ export async function comprehendWorkbookStep(
       throw err;
     }
     if (err instanceof ComprehendValidationError) {
-      // Schema/JSON rejection — the model may produce valid output on retry.
-      throw err;
+      // Coercion already filled deterministic fields (tabName, title, …).
+      // Remaining schema failures are not worth 3× OpenAI retries.
+      throw new FatalError(err.message);
     }
     throw err;
   }

@@ -47,7 +47,7 @@ export async function POST(request: Request) {
     await ensurePageCmsColumns(prisma);
     const payload = body.navButtons ?? body.heroConfig ?? {};
     const result = await ensureHeroNavRoutes(prisma, payload, {
-      tenantSlug: cmsScope.deploymentSlug,
+      tenantSlug: cmsScope.tenantSlug,
       appId: cmsScope.appId,
       resolveCatalogPage: (slug) => {
         const page = resolvePage(slug);

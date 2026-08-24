@@ -91,7 +91,7 @@ async function provisionHeroRoutesFromConfigs(
   const cmsScope = getCmsTenantAppScope();
   for (const config of configs) {
     await ensureHeroNavRoutes(prisma, config, {
-      tenantSlug: cmsScope.deploymentSlug,
+      tenantSlug: cmsScope.tenantSlug,
       appId: cmsScope.appId,
       resolveCatalogPage: catalogResolver,
     });

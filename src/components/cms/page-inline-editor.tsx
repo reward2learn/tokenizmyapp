@@ -44,7 +44,7 @@ import {
 import { useAppDispatch } from '@/store/hooks';
 import { publishPageSections, setPageEditMode } from '@/store/ui-slice';
 import { contentApi } from '@/store/apis/content-api';
-import { cmsPageCacheKey, getCmsTenantAppScope } from '@shared/lib/cms-scope';
+import { cmsPageCacheKey, getCmsTenantAppScope } from '@shared/lib/cms-scope';  
 import { DrawerResizeHandle } from '@/components/shared/drawer-resize-handle';
 import { useResizableDrawerWidth } from '@/hooks/use-resizable-drawer-width';
 
@@ -538,7 +538,7 @@ export function PageInlineEditor({ page }: PageInlineEditorProps) {
                   config={editingSection.config}
                   pageSlug={page.slug}
                   pageTitle={page.title}
-                  tenantSlug={cmsScope.deploymentSlug}
+                  tenantSlug={cmsScope.tenantSlug}
                   appId={cmsScope.appId}
                   onChange={(config) => updateDraftConfig(editingSection.id, config)}
                 />

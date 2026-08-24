@@ -46,7 +46,7 @@ export async function POST(request: Request, context: RouteContext): Promise<Nex
           config: s.config as Record<string, unknown>,
         })),
       },
-      { deploymentTenantSlug: cmsScope.deploymentSlug, appId: cmsScope.appId },
+      { deploymentTenantSlug: cmsScope.tenantSlug, appId: cmsScope.appId },
     );
 
     return jsonOk({

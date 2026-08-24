@@ -100,30 +100,39 @@ async function fetchDatabaseContext(db: ReturnType<typeof createClient>): Promis
   const parts: string[] = [];
 
   try {
-    const recent = await db.dailyZReport.findMany({
-      orderBy: { reportDate: 'desc' },
-      take: 7,
-      select: {
-        reportDate: true,
-        nettSales: true,
-        totalCovers: true,
-        avgCovers: true,
-        totalBills: true,
-        gofoodAmount: true,
-        dineInAmount: true,
-        totCollectionAmount: true,
-        totalSales: true,
-        tax10Amount: true,
-        service7Amount: true,
-      },
-    });
+    // DailyZReport is not in the base template Prisma schema — query the table directly.
+    const recent = await db.$queryRaw<
+      {
+        report_date: Date;
+        nett_sales: number;
+        total_covers: number;
+        avg_covers: number | null;
+        total_bills: number | null;
+        gofood_amount: number | null;
+        dine_in_amount: number | null;
+        tot_collection_amount: number | null;
+      }[]
+    >`
+      SELECT
+        report_date,
+        nett_sales::float AS nett_sales,
+        total_covers,
+        avg_covers::float AS avg_covers,
+        total_bills,
+        gofood_amount::float AS gofood_amount,
+        dine_in_amount::float AS dine_in_amount,
+        tot_collection_amount::float AS tot_collection_amount
+      FROM daily_z_reports
+      ORDER BY report_date DESC
+      LIMIT 7
+    `;
     if (recent.length) {
       parts.push('=== RECENT DAILY DATA (last 7 entries) ===');
       parts.push('date | nett_sales | covers | avg_covers | bills | gofood | dine_in | collection');
       for (const r of recent) {
-        const date = r.reportDate.toISOString().slice(0, 10);
+        const date = new Date(r.report_date).toISOString().slice(0, 10);
         parts.push(
-          `${date} | ${Number(r.nettSales).toLocaleString()} | ${r.totalCovers} | ${r.avgCovers ? Number(r.avgCovers).toLocaleString() : '-'} | ${r.totalBills || '-'} | ${r.gofoodAmount ? Number(r.gofoodAmount).toLocaleString() : '-'} | ${r.dineInAmount ? Number(r.dineInAmount).toLocaleString() : '-'} | ${r.totCollectionAmount ? Number(r.totCollectionAmount).toLocaleString() : '-'}`,
+          `${date} | ${Number(r.nett_sales).toLocaleString()} | ${r.total_covers} | ${r.avg_covers ? Number(r.avg_covers).toLocaleString() : '-'} | ${r.total_bills || '-'} | ${r.gofood_amount ? Number(r.gofood_amount).toLocaleString() : '-'} | ${r.dine_in_amount ? Number(r.dine_in_amount).toLocaleString() : '-'} | ${r.tot_collection_amount ? Number(r.tot_collection_amount).toLocaleString() : '-'}`,
         );
       }
     }

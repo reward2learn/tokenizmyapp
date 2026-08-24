@@ -10,7 +10,7 @@ import { jsonError, jsonOk } from '@/lib/api/response';
 import { resolveActiveAiConfig } from '@/lib/ai-providers';
 import { generateCmsFieldValue } from '@/domain/ai-content/cms-field-generator';
 import { getCurrentAppId, getTenantConfig } from '@shared/lib/config/tenant';
-import { getCmsTenantAppScope, normalizeCmsScope } from '@shared/lib/cms-scope';
+import { normalizeCmsScope, type CmsTenantAppScope } from '@shared/lib/cms-scope';
 import { ensureHeroNavRoutes } from '@/domain/cms/ensure-hero-nav-routes';
 import { resolvePage } from '@/lib/page-catalog';
 import { CREDIT_FLOORS, requireCreditsForTenant } from '@/domain/billing/credit-service';
@@ -73,7 +73,7 @@ export async function POST(request: Request) {
 
   if (ai.keySource === 'env') {
     const gate = await requireCreditsForTenant(
-      cmsScope.deploymentSlug,
+      cmsScope.tenantSlug,
       undefined,
       auth.session.email,
       CREDIT_FLOORS.contentGeneration,
@@ -94,7 +94,7 @@ export async function POST(request: Request) {
       currentConfig: body.currentConfig,
       currentValue: body.currentValue,
       ai,
-      tenantSlug: cmsScope.deploymentSlug,
+      tenantSlug: cmsScope.tenantSlug,
     });
 
     const fieldType = body.fieldType ?? body.fieldKey;
@@ -106,10 +106,9 @@ export async function POST(request: Request) {
       const prisma = getPageCmsClient();
       try {
         await ensurePageCmsColumns(prisma);
-        const scope = getCmsTenantAppScope();
         await ensureHeroNavRoutes(prisma, value as { label: string; href: string }[], {
-          tenantSlug: scope.deploymentSlug,
-          appId: scope.appId,
+          tenantSlug: cmsScope.tenantSlug,
+          appId: cmsScope.appId,
           resolveCatalogPage: catalogResolver,
         });
       } finally {

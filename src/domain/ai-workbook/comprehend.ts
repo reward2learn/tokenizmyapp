@@ -165,16 +165,23 @@ ${renderHintsSection(hints)}
 `
     : '';
 
+  const knownTabs = blocks.map((b) => b.tabName).filter((n) => n.trim().length > 0);
+  const knownTabsRule =
+    knownTabs.length > 0
+      ? `- sheets[].tabName is REQUIRED for every sheet and MUST be copied EXACTLY from these workbook tab names (same spelling/spacing): ${knownTabs.map((n) => JSON.stringify(n)).join(', ')}. Never omit tabName; do not rename tabs; do not use "name"/"sheetName" instead of "tabName".`
+      : `- sheets[].tabName is REQUIRED for every sheet and MUST match the "===== SHEET: <tabName> =====" header exactly. Never omit tabName.`;
+
   return `Analyze the following workbook. Every sheet of the workbook is dumped below as "R<row>: <cells>".
 
 TASKS:
 1. Understand the workbook as a whole (company, period, currency, purpose). ALWAYS include workbook.title (non-empty string) and workbook.summary (non-empty string).
-2. For EACH sheet: identify its category, a human-readable title, a short comprehension summary, detected period (e.g. "June 2026"), column headers, row count, and any per-period financial metrics (revenue, EBITDA, net income, guests, staff cost) you can read from the sheet.
+2. For EACH sheet: include tabName (exact workbook tab), category, a human-readable title, a short comprehension summary, detected period (e.g. "June 2026"), column headers, row count, and any per-period financial metrics (revenue, EBITDA, net income, guests, staff cost) you can read from the sheet. Emit one sheets[] entry per dumped sheet, in the same order as the dump.
 3. Consolidate ALL period-level financial data across the whole workbook into a single "projections" array: one entry per (period YYYY-MM, dataType actual|forecast, scenario actual|conservative|realistic|aspirational). Use the best source for each period (e.g. a P&L statement for actuals, a BEP table or budget sheet for forecasts). Annual totals use YYYY-12. Only include entries where at least one metric is present.
 4. Suggest the most appropriate app template id from this available catalog: financial-analytics, restaurant, hotel, education, ecommerce-retail, healthcare, manufacturing, professional-services, real-estate, supply-chain (confidence 0..1).
 
 RULES:
 - workbook.title and workbook.summary are REQUIRED non-empty strings (use company name or a short descriptive title if no explicit workbook name exists).
+${knownTabsRule}
 - periods: YYYY-MM only (e.g. "2026-06", "2025-12" for annual).
 - dataType "actual" for reported/actual figures, "forecast" for projections/budgets.
 - scenario: "actual" for actuals; "conservative" for base forecasts; "realistic"/"aspirational" when the sheet explicitly labels scenarios.
@@ -191,15 +198,56 @@ export function stripCodeFence(reply: string): string {
   return match ? match[1]! : reply;
 }
 
+/** Alternate keys models commonly emit instead of the required `tabName`. */
+const TAB_NAME_ALIASES = ['tabName', 'name', 'sheetName', 'sheet', 'tab'] as const;
+
+function pickStringField(
+  sheet: Record<string, unknown>,
+  keys: readonly string[],
+): string {
+  for (const key of keys) {
+    const value = sheet[key];
+    if (typeof value === 'string' && value.trim().length > 0) {
+      return value.trim();
+    }
+  }
+  return '';
+}
+
+/**
+ * Resolve a sheet's tabName from the model payload, then fall back to the
+ * known extract-order tab names (blocks / hints). Tab names are deterministic
+ * Excel metadata — never invent financial metrics here.
+ */
+export function resolveSheetTabName(
+  sheet: Record<string, unknown>,
+  index: number,
+  knownTabNames?: readonly string[],
+  hints?: AnalysisHints,
+): string {
+  const fromPayload = pickStringField(sheet, TAB_NAME_ALIASES);
+  if (fromPayload) return fromPayload;
+
+  const fromKnown = knownTabNames?.[index]?.trim() ?? '';
+  if (fromKnown) return fromKnown;
+
+  const fromHints = hints?.sheets[index]?.tabName?.trim() ?? '';
+  if (fromHints) return fromHints;
+
+  return `Sheet ${index + 1}`;
+}
+
 /**
  * Fill required workbook/sheet fields the model sometimes omits so Zod
  * validation does not abort the entire ingest (and leave Excel nav 404s).
  *
- * Prefer deterministic hints when present; never invent financial metrics.
+ * Prefer deterministic hints / known extract-order tab names; never invent
+ * financial metrics.
  */
 export function coerceComprehensionPayload(
   parsed: unknown,
   hints?: AnalysisHints,
+  knownTabNames?: readonly string[],
 ): unknown {
   if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
     return parsed;
@@ -219,15 +267,21 @@ export function coerceComprehensionPayload(
     const period = hints?.workbook.periodGuess?.trim() || '';
     const firstSheetTab = Array.isArray(root.sheets)
       ? root.sheets
-          .map((entry) =>
+          .map((entry, index) =>
             entry && typeof entry === 'object' && !Array.isArray(entry)
-              ? (entry as Record<string, unknown>).tabName
+              ? resolveSheetTabName(
+                  entry as Record<string, unknown>,
+                  index,
+                  knownTabNames,
+                  hints,
+                )
               : null,
           )
           .find((name): name is string => typeof name === 'string' && name.trim().length > 0)
           ?.trim()
       : undefined;
-    const hintTab = hints?.sheets[0]?.tabName?.trim() || '';
+    const hintTab =
+      knownTabNames?.[0]?.trim() || hints?.sheets[0]?.tabName?.trim() || '';
 
     workbookRaw.title =
       company ||
@@ -249,21 +303,35 @@ export function coerceComprehensionPayload(
   root.workbook = workbookRaw;
 
   if (Array.isArray(root.sheets)) {
-    root.sheets = root.sheets.map((entry) => {
+    root.sheets = root.sheets.map((entry, index) => {
       if (!entry || typeof entry !== 'object' || Array.isArray(entry)) return entry;
       const sheet = { ...(entry as Record<string, unknown>) };
+      sheet.tabName = resolveSheetTabName(sheet, index, knownTabNames, hints);
       const sheetTitle = typeof sheet.title === 'string' ? sheet.title.trim() : '';
       if (!sheetTitle) {
-        sheet.title =
-          typeof sheet.tabName === 'string' && sheet.tabName.trim()
-            ? sheet.tabName
-            : 'Sheet';
+        sheet.title = sheet.tabName || 'Sheet';
       }
       if (typeof sheet.summary !== 'string') {
         sheet.summary = '';
       }
+      // Prefer hint category when the model omits or invents an invalid one —
+      // only fill when missing; Zod still rejects unknown categories.
+      if (
+        (typeof sheet.category !== 'string' || !sheet.category.trim()) &&
+        hints?.sheets[index]?.likelyCategory
+      ) {
+        sheet.category = hints.sheets[index]!.likelyCategory;
+      }
       return sheet;
     });
+  } else if (knownTabNames && knownTabNames.length > 0) {
+    // Model sometimes returns a workbook object with no sheets array at all.
+    root.sheets = knownTabNames.map((tabName) => ({
+      tabName,
+      category: 'other',
+      title: tabName,
+      summary: '',
+    }));
   }
 
   if (!Array.isArray(root.projections)) {
@@ -367,7 +435,11 @@ export async function comprehendOnce(
   let comprehension: WorkbookComprehension;
   try {
     comprehension = WorkbookComprehensionSchema.parse(
-      coerceComprehensionPayload(parsed, hints),
+      coerceComprehensionPayload(
+        parsed,
+        hints,
+        blocks.map((b) => b.tabName),
+      ),
     );
   } catch (err) {
     const first = err instanceof z.ZodError ? err.issues[0] : null;

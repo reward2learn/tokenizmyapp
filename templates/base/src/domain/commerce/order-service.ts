@@ -1,4 +1,5 @@
 import { createClient } from '@/lib/db';
+import { Prisma } from '@/generated/prisma';
 
 export class OrderService {
   private client = createClient();
@@ -34,12 +35,14 @@ export class OrderService {
         customerName: data.customerName,
         customerPhone: data.customerPhone ?? null,
         customerSub: data.customerSub ?? null,
-        items: data.items as unknown as Record<string, unknown>,
+        items: data.items as Prisma.InputJsonValue,
         subtotal,
         total: data.total,
         currency: data.currency ?? 'USD',
         paymentMethod: data.paymentMethod ?? null,
-        shippingAddress: data.shippingAddress ?? null,
+        shippingAddress: data.shippingAddress
+          ? (data.shippingAddress as Prisma.InputJsonValue)
+          : Prisma.DbNull,
         paymentStatus: 'pending',
       },
     });

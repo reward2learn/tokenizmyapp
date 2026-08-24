@@ -19,12 +19,12 @@ export async function POST(request: NextRequest) {
   const result = { output: 'Simulated agent output', success: true };
   await client.aiActionLog.create({
     data: {
+      userSub: guard.session.sub,
       toolName: config.model ?? 'default',
       prompt: parsed.data.input,
-      
-      result: 'success', resultData: { output: result.output },
-      
-      
+      parameters: { agentId: parsed.data.agentId },
+      result: 'success',
+      resultData: { output: result.output },
     },
   });
   return jsonOk(result);

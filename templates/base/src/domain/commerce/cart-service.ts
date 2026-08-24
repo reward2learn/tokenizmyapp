@@ -1,4 +1,5 @@
 import { createClient } from '@/lib/db';
+import type { Prisma } from '@/generated/prisma';
 
 export class CartService {
   private client = createClient();
@@ -24,7 +25,10 @@ export class CartService {
       if (existingItem) {
         existingItem.qty += qty;
         const subtotal = items.reduce((s, i) => s + i.price * i.qty, 0);
-        return this.client.order.update({ where: { id: order.id }, data: { items: items as unknown as Record<string, unknown>, subtotal, total: subtotal } });
+        return this.client.order.update({
+          where: { id: order.id },
+          data: { items: items as Prisma.InputJsonValue, subtotal, total: subtotal },
+        });
       }
     }
 
@@ -36,7 +40,7 @@ export class CartService {
         customerEmail: '',
         customerName: '',
         customerSub,
-        items: items as unknown as Record<string, unknown>,
+        items: items as Prisma.InputJsonValue,
         subtotal,
         total: subtotal,
         paymentStatus: 'cart',

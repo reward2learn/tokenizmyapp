@@ -27,7 +27,7 @@ export async function POST(request: NextRequest) {
   const parsed = createSchema.safeParse(body);
   if (!parsed.success) return jsonError(parsed.error.message, 400);
   const client = createClient({ tier: guard.session.tier, sub: guard.session.sub });
-  const pack = await client.creditPack.create({ data: { ...parsed.data, currency: parsed.data.currency ?? 'USD', isActive: true } });
+  const pack = await client.creditPack.create({ data: { ...parsed.data, currency: parsed.data.currency ?? 'USD', isActive: true, credits: parsed.data.creditAmount } });
   return jsonOk({ pack }, { status: 201 });
 }
 

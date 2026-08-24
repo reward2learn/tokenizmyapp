@@ -104,6 +104,33 @@ describe('WorkbookComprehensionSchema', () => {
     const parsed = schema.parse(coerced);
     expect(parsed.workbook.title.length).toBeGreaterThan(0);
   });
+
+  it('coerceComprehensionPayload backfills missing sheets[].tabName from known extract names', async () => {
+    const { coerceComprehensionPayload, WorkbookComprehensionSchema: schema } =
+      await import('./comprehend');
+    const missingTabNames = {
+      ...VALID_COMPREHENSION,
+      sheets: VALID_COMPREHENSION.sheets.map(({ tabName: _omit, ...rest }) => rest),
+    };
+    const coerced = coerceComprehensionPayload(missingTabNames, undefined, ['PL', 'BEP Monthly']);
+    const parsed = schema.parse(coerced);
+    expect(parsed.sheets.map((s) => s.tabName)).toEqual(['PL', 'BEP Monthly']);
+  });
+
+  it('coerceComprehensionPayload accepts name/sheetName aliases for tabName', async () => {
+    const { coerceComprehensionPayload, WorkbookComprehensionSchema: schema } =
+      await import('./comprehend');
+    const aliased = {
+      ...VALID_COMPREHENSION,
+      sheets: [
+        { ...VALID_COMPREHENSION.sheets[0]!, tabName: undefined, name: 'PL' },
+        { ...VALID_COMPREHENSION.sheets[1]!, tabName: undefined, sheetName: 'BEP Monthly' },
+      ],
+    };
+    const coerced = coerceComprehensionPayload(aliased);
+    const parsed = schema.parse(coerced);
+    expect(parsed.sheets.map((s) => s.tabName)).toEqual(['PL', 'BEP Monthly']);
+  });
 });
 
 vi.mock('@/lib/openai', () => ({
