@@ -14,7 +14,9 @@ import {
 } from '@/domain/excel/workbook-analyzer';
 import type { PageDefinition } from '@/lib/page-catalog';
 import { setDynamicPages } from '@/lib/page-catalog';
-import { getTenantConfig } from '@shared/lib/config/tenant';
+import { getCurrentAppId, getTenantConfig } from '@shared/lib/config/tenant';
+import { resolveRegistryTenantSlug } from '@shared/lib/cms-scope';
+import { toStoragePageSlug } from '@shared/lib/page-slug';
 
 export type SheetPagesSqlClient = {
   $executeRawUnsafe: (query: string, ...values: unknown[]) => Promise<unknown>;
@@ -53,31 +55,35 @@ async function upsertPageDefinition(
   page: PageDefinition,
   sortOrder: number,
   tenantSlug: string | null,
+  appId: string,
 ): Promise<boolean> {
+  const storageSlug = appId ? toStoragePageSlug(page.slug, appId) : page.slug;
   const pageId = crypto.randomUUID();
   await db.$executeRawUnsafe(
-    `INSERT INTO app_pages (id, slug, title, auth_tier, sort_order, nav_label, show_in_nav, tenant_slug)
-     VALUES ($1, $2, $3, CAST($4 AS "AuthTier"), $5, $6, $7, $8)
+    `INSERT INTO app_pages (id, slug, title, auth_tier, sort_order, nav_label, show_in_nav, tenant_slug, app_id)
+     VALUES ($1, $2, $3, CAST($4 AS "AuthTier"), $5, $6, $7, $8, $9)
      ON CONFLICT (slug) DO UPDATE SET
        title = EXCLUDED.title,
        auth_tier = EXCLUDED.auth_tier,
        sort_order = EXCLUDED.sort_order,
        nav_label = EXCLUDED.nav_label,
        show_in_nav = EXCLUDED.show_in_nav,
-       tenant_slug = COALESCE(EXCLUDED.tenant_slug, app_pages.tenant_slug)`,
+       tenant_slug = COALESCE(EXCLUDED.tenant_slug, app_pages.tenant_slug),
+       app_id = COALESCE(EXCLUDED.app_id, app_pages.app_id)`,
     pageId,
-    page.slug,
+    storageSlug,
     page.title,
     page.authTier,
     sortOrder,
     page.navLabel ?? page.title,
     page.showInNav !== false,
     tenantSlug,
+    appId || null,
   );
 
   const idRows = (await db.$queryRawUnsafe(
     `SELECT id, COALESCE(content_locked, false) AS "contentLocked" FROM app_pages WHERE slug = $1 LIMIT 1`,
-    page.slug,
+    storageSlug,
   )) as { id: string; contentLocked: boolean }[];
 
   const row = idRows[0];
@@ -142,7 +148,11 @@ export async function ensureSheetPagesFromWorkbook(
 
   setDynamicPages(pages.filter((p) => p.slug.startsWith('sheet-') || p.slug === 'workbook'));
 
-  const tenantSlug = getTenantConfig().slug || process.env.NEXT_PUBLIC_TENANT_SLUG || null;
+  const deploymentSlug = getTenantConfig().slug || process.env.NEXT_PUBLIC_TENANT_SLUG || null;
+  const appId = getCurrentAppId();
+  const tenantSlug = deploymentSlug
+    ? resolveRegistryTenantSlug(deploymentSlug, appId)
+    : null;
 
   // Ensure CMS lock column exists (idempotent) before we read it.
   try {
@@ -158,7 +168,7 @@ export async function ensureSheetPagesFromWorkbook(
 
   for (const page of pages) {
     try {
-      const ok = await upsertPageDefinition(db, page, sortOrder++, tenantSlug);
+      const ok = await upsertPageDefinition(db, page, sortOrder++, tenantSlug, appId);
       if (ok && page.slug.startsWith('sheet-')) {
         created.push({ slug: page.slug, title: page.title });
       }

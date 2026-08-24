@@ -23,5 +23,8 @@ export function toRoutePageSlug(storageSlug: string, appId: string): string {
 /** Slug values to try when resolving a page row (prefixed when suite app id is set). */
 export function pageSlugLookupCandidates(routeSlug: string, appId: string): string[] {
   if (!appId) return [routeSlug];
-  return [toStoragePageSlug(routeSlug, appId)];
+  const prefixed = toStoragePageSlug(routeSlug, appId);
+  // Prefer suite-scoped storage slug; fall back to legacy unprefixed rows
+  // (older seeds wrote sheet-* without the appId prefix).
+  return prefixed === routeSlug ? [routeSlug] : [prefixed, routeSlug];
 }

@@ -168,12 +168,13 @@ ${renderHintsSection(hints)}
   return `Analyze the following workbook. Every sheet of the workbook is dumped below as "R<row>: <cells>".
 
 TASKS:
-1. Understand the workbook as a whole (company, period, currency, purpose).
+1. Understand the workbook as a whole (company, period, currency, purpose). ALWAYS include workbook.title (non-empty string) and workbook.summary (non-empty string).
 2. For EACH sheet: identify its category, a human-readable title, a short comprehension summary, detected period (e.g. "June 2026"), column headers, row count, and any per-period financial metrics (revenue, EBITDA, net income, guests, staff cost) you can read from the sheet.
 3. Consolidate ALL period-level financial data across the whole workbook into a single "projections" array: one entry per (period YYYY-MM, dataType actual|forecast, scenario actual|conservative|realistic|aspirational). Use the best source for each period (e.g. a P&L statement for actuals, a BEP table or budget sheet for forecasts). Annual totals use YYYY-12. Only include entries where at least one metric is present.
 4. Suggest the most appropriate app template id from this available catalog: financial-analytics, restaurant, hotel, education, ecommerce-retail, healthcare, manufacturing, professional-services, real-estate, supply-chain (confidence 0..1).
 
 RULES:
+- workbook.title and workbook.summary are REQUIRED non-empty strings (use company name or a short descriptive title if no explicit workbook name exists).
 - periods: YYYY-MM only (e.g. "2026-06", "2025-12" for annual).
 - dataType "actual" for reported/actual figures, "forecast" for projections/budgets.
 - scenario: "actual" for actuals; "conservative" for base forecasts; "realistic"/"aspirational" when the sheet explicitly labels scenarios.
@@ -188,6 +189,73 @@ ${sheetBlocks}`;
 export function stripCodeFence(reply: string): string {
   const match = reply.match(/```(?:json)?\s*([\s\S]*?)```/);
   return match ? match[1]! : reply;
+}
+
+/**
+ * Fill required workbook/sheet fields the model sometimes omits so Zod
+ * validation does not abort the entire ingest (and leave Excel nav 404s).
+ *
+ * Prefer deterministic hints when present; never invent financial metrics.
+ */
+export function coerceComprehensionPayload(
+  parsed: unknown,
+  hints?: AnalysisHints,
+): unknown {
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    return parsed;
+  }
+
+  const root = { ...(parsed as Record<string, unknown>) };
+  const workbookRaw =
+    root.workbook && typeof root.workbook === 'object' && !Array.isArray(root.workbook)
+      ? { ...(root.workbook as Record<string, unknown>) }
+      : {};
+
+  const title =
+    typeof workbookRaw.title === 'string' ? workbookRaw.title.trim() : '';
+  if (!title) {
+    // TODO(user): improve default title when the model omits workbook.title —
+    // e.g. prefer company, period guess, or first sheet tab name.
+    workbookRaw.title =
+      (typeof workbookRaw.company === 'string' && workbookRaw.company.trim()) ||
+      hints?.workbook.periodGuess ||
+      'Financial Workbook';
+  }
+
+  const summary =
+    typeof workbookRaw.summary === 'string' ? workbookRaw.summary.trim() : '';
+  if (!summary) {
+    workbookRaw.summary =
+      hints?.workbook.periodGuess != null
+        ? `Workbook covering ${hints.workbook.periodGuess}.`
+        : 'Workbook overview generated from sheet analysis.';
+  }
+
+  root.workbook = workbookRaw;
+
+  if (Array.isArray(root.sheets)) {
+    root.sheets = root.sheets.map((entry) => {
+      if (!entry || typeof entry !== 'object' || Array.isArray(entry)) return entry;
+      const sheet = { ...(entry as Record<string, unknown>) };
+      const sheetTitle = typeof sheet.title === 'string' ? sheet.title.trim() : '';
+      if (!sheetTitle) {
+        sheet.title =
+          typeof sheet.tabName === 'string' && sheet.tabName.trim()
+            ? sheet.tabName
+            : 'Sheet';
+      }
+      if (typeof sheet.summary !== 'string') {
+        sheet.summary = '';
+      }
+      return sheet;
+    });
+  }
+
+  if (!Array.isArray(root.projections)) {
+    root.projections = [];
+  }
+
+  return root;
 }
 
 // ── Single-attempt OpenAI call ──────────────────────────────────────
@@ -283,7 +351,9 @@ export async function comprehendOnce(
 
   let comprehension: WorkbookComprehension;
   try {
-    comprehension = WorkbookComprehensionSchema.parse(parsed);
+    comprehension = WorkbookComprehensionSchema.parse(
+      coerceComprehensionPayload(parsed, hints),
+    );
   } catch (err) {
     const first = err instanceof z.ZodError ? err.issues[0] : null;
     const detail = first

@@ -92,6 +92,18 @@ describe('WorkbookComprehensionSchema', () => {
     };
     expect(() => WorkbookComprehensionSchema.parse(bad)).toThrow();
   });
+
+  it('coerceComprehensionPayload fills missing workbook.title before parse', async () => {
+    const { coerceComprehensionPayload, WorkbookComprehensionSchema: schema } =
+      await import('./comprehend');
+    const missingTitle = {
+      ...VALID_COMPREHENSION,
+      workbook: { ...VALID_COMPREHENSION.workbook, title: undefined },
+    };
+    const coerced = coerceComprehensionPayload(missingTitle);
+    const parsed = schema.parse(coerced);
+    expect(parsed.workbook.title.length).toBeGreaterThan(0);
+  });
 });
 
 vi.mock('@/lib/openai', () => ({

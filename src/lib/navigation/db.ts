@@ -9,6 +9,7 @@
 
 import type { PrismaClient } from '@/generated/prisma';
 import { getCurrentAppId, getTenantConfig } from '@shared/lib/config/tenant';
+import { toRoutePageSlug, toStoragePageSlug } from '@shared/lib/page-slug';
 
 const NAV_DDL = `
 CREATE TABLE IF NOT EXISTS navigation_items (
@@ -109,22 +110,15 @@ async function normalizeNavigationPathsInScope(
     appId,
     tenantSlug,
   );
-  // Only set /excel when no sibling row already owns that path (avoids uq index 23505).
+  // Excel/Workbook folders must have an empty path so the drawer treats them as
+  // expand-only groups (a path of /excel has no AppPage → 404).
   const n2 = await prisma.$executeRawUnsafe(
     `UPDATE navigation_items AS ni
-     SET path = '/excel', updated_at = CURRENT_TIMESTAMP
-     WHERE COALESCE(TRIM(ni.path), '') = ''
+     SET path = '', updated_at = CURRENT_TIMESTAMP
+     WHERE parent_id IS NULL
        AND LOWER(TRIM(ni.title)) IN ('excel', 'workbook')
-       AND ${scopeSql('ni', 1)}
-       AND NOT EXISTS (
-         SELECT 1 FROM navigation_items AS existing
-         WHERE existing.path IN ('/excel', '/workbook')
-           AND COALESCE(existing.parent_id, '') = COALESCE(ni.parent_id, '')
-           AND existing.id <> ni.id
-           AND ${scopeSql('existing', 3)}
-       )`,
-    appId,
-    tenantSlug,
+       AND COALESCE(TRIM(ni.path), '') IN ('/excel', '/workbook')
+       AND ${scopeSql('ni', 1)}`,
     appId,
     tenantSlug,
   );
@@ -172,7 +166,17 @@ async function findExcelFolderIdInScope(
     appId,
     tenantSlug,
   );
-  return rows[0]?.id ?? null;
+  const id = rows[0]?.id ?? null;
+  if (id) {
+    // Clear legacy /excel path so the drawer treats this as a folder, not a 404 link.
+    await prisma.$executeRawUnsafe(
+      `UPDATE navigation_items
+       SET path = '', updated_at = CURRENT_TIMESTAMP
+       WHERE id = $1 AND COALESCE(TRIM(path), '') <> ''`,
+      id,
+    );
+  }
+  return id;
 }
 
 async function deleteNavRow(
@@ -536,7 +540,7 @@ export async function ensureExcelNavigationFolder(
          gen_random_uuid()::TEXT, NULL,
          (SELECT COALESCE(MAX(sort_order), 0) + 1 FROM navigation_items
           WHERE parent_id IS NULL AND COALESCE(app_id, '') = COALESCE($2, '')),
-         'Excel', '/excel', 'Folder', CAST('google' AS "AuthTier"), '',
+         'Excel', '', 'Folder', CAST('google' AS "AuthTier"), '',
          TRUE, TRUE, FALSE, $1, $2, CURRENT_TIMESTAMP
        )
        RETURNING id`,
@@ -563,18 +567,26 @@ export async function syncSheetPagesIntoNavigation(
   const appId = normalizeAppId(scope?.appId);
   const tenantSlug = normalizeTenantSlug(scope?.tenantSlug) || null;
 
+  // Match both suite-prefixed (finance-sheet-*) and legacy unprefixed (sheet-*) rows.
+  const prefixedPattern = appId ? `${toStoragePageSlug('sheet-', appId)}%` : 'sheet-%';
   const sheets = await prisma.$queryRawUnsafe<{ slug: string; title: string }[]>(
     `SELECT slug, title FROM app_pages
-     WHERE slug LIKE 'sheet-%'
+     WHERE (
+         slug LIKE 'sheet-%'
+         OR ($2::text <> 'sheet-%' AND slug LIKE $2)
+       )
        AND (COALESCE(app_id, '') = '' OR COALESCE(app_id, '') = $1)
      ORDER BY sort_order ASC, slug ASC`,
     appId,
+    prefixedPattern,
   );
 
   let created = 0;
   let navSort = 0;
   for (const sheet of sheets) {
-    const path = `/${sheet.slug}`;
+    const routeSlug = toRoutePageSlug(sheet.slug, appId);
+    if (!routeSlug.startsWith('sheet-')) continue;
+    const path = `/${routeSlug}`;
     const existing = await prisma.$queryRawUnsafe<{ id: string }[]>(
       `SELECT id FROM navigation_items
        WHERE path = $1 AND COALESCE(app_id, '') = $2

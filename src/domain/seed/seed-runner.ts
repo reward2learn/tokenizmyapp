@@ -9,6 +9,8 @@ import {
   type TaskStatus,
 } from '@/generated/prisma';
 import { getCurrentAppId } from '@shared/lib/config/tenant';
+import { resolveRegistryTenantSlug } from '@shared/lib/cms-scope';
+import { toStoragePageSlug } from '@shared/lib/page-slug';
 import { addTenantColumnsIfMissing } from '@/domain/tenant/tenant-seed-service';
 import { getFullCatalog, REVIEW_PART_CATALOG } from '@/lib/page-catalog';
 import type { DbClient } from '@/lib/db';
@@ -1421,20 +1423,33 @@ export async function seedFromSources(options: SeedOptions = {}): Promise<SeedRe
     }
 
     let pageSort = 0;
+    const tenantSlugForPages =
+      process.env.NEXT_PUBLIC_TENANT_SLUG?.trim() || null;
+    const registryTenantSlug = tenantSlugForPages
+      ? resolveRegistryTenantSlug(tenantSlugForPages, appId)
+      : null;
+
     for (const page of pageEntries) {
+      const storageSlug = appId ? toStoragePageSlug(page.slug, appId) : page.slug;
       const appPage = await prisma.appPage.upsert({
-        where: { slug: page.slug },
+        where: { slug: storageSlug },
         create: {
-          slug: page.slug,
+          slug: storageSlug,
           title: page.title,
           authTier: page.authTier as AuthTier,
           sortOrder: pageSort++,
+          navLabel: page.navLabel ?? page.title,
+          showInNav: page.showInNav !== false,
+          tenantSlug: registryTenantSlug,
           appId: appId || null,
         },
         update: {
           title: page.title,
           authTier: page.authTier as AuthTier,
           sortOrder: pageSort - 1,
+          navLabel: page.navLabel ?? page.title,
+          showInNav: page.showInNav !== false,
+          tenantSlug: registryTenantSlug ?? undefined,
           appId: appId || null,
         },
       });

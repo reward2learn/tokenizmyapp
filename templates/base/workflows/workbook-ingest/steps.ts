@@ -353,6 +353,12 @@ function normalizeSlug(name: string): string {
     .replace(/^-|-$/g, '');
 }
 
+/** Suite-app storage slug — mirrors shared/src/lib/page-slug.ts (no @shared in workflow bundles). */
+function toStoragePageSlug(routeSlug: string, appId: string): string {
+  if (!appId) return routeSlug;
+  return `${appId}-${routeSlug}`;
+}
+
 /** Page blocks per sheet category (mirrors pipeline.ts CATEGORY_BLOCKS). */
 const SHEET_CATEGORY_BLOCKS: Record<string, { blockType: string; title: string }[]> = {
   daily_sales: [
@@ -406,7 +412,8 @@ export async function upsertSheetPagesStep(
   await withPgClient(dbUrl, async (db) => {
     for (let si = 0; si < comprehension.sheets.length; si++) {
       const sheet = comprehension.sheets[si]!;
-      const slug = `sheet-${normalizeSlug(sheet.tabName)}`;
+      const routeSlug = `sheet-${normalizeSlug(sheet.tabName)}`;
+      const slug = toStoragePageSlug(routeSlug, appId);
       const blocks = SHEET_CATEGORY_BLOCKS[sheet.category] ?? SHEET_CATEGORY_BLOCKS.other;
 
       sheetStatuses = patchSheetStatus(sheetStatuses, sheet.tabName, {
@@ -430,17 +437,18 @@ export async function upsertSheetPagesStep(
       // §7.1 fix: RETURNING id gives us the real page ID on insert OR conflict.
       const pageRows = await queryRows<{ id: string }>(
         db,
-        `INSERT INTO app_pages (id, slug, title, auth_tier, sort_order, nav_label, show_in_nav, tenant_slug)
-         VALUES (gen_random_uuid()::TEXT, $1, $2, 'google', $3, $4, true, $5)
+        `INSERT INTO app_pages (id, slug, title, auth_tier, sort_order, nav_label, show_in_nav, tenant_slug, app_id)
+         VALUES (gen_random_uuid()::TEXT, $1, $2, 'google', $3, $4, true, $5, $6)
          ON CONFLICT (slug) DO UPDATE SET
            title = EXCLUDED.title,
            auth_tier = EXCLUDED.auth_tier,
            sort_order = EXCLUDED.sort_order,
            nav_label = EXCLUDED.nav_label,
            show_in_nav = EXCLUDED.show_in_nav,
-           tenant_slug = COALESCE(EXCLUDED.tenant_slug, app_pages.tenant_slug)
+           tenant_slug = COALESCE(EXCLUDED.tenant_slug, app_pages.tenant_slug),
+           app_id = COALESCE(EXCLUDED.app_id, app_pages.app_id)
          RETURNING id;`,
-        [slug, sheet.title, sortOrder++, sheet.title, tenantSlug ?? null],
+        [slug, sheet.title, sortOrder++, sheet.title, tenantSlug ?? null, appId || null],
       );
       const pageId = pageRows[0]?.id;
       if (!pageId) {
@@ -482,22 +490,23 @@ export async function upsertSheetPagesStep(
           [pageId, i + 1, block.blockType, JSON.stringify({ sheet: sheet.tabName, title: block.title })],
         );
       }
-      created.push({ slug, title: sheet.title });
+      created.push({ slug: routeSlug, title: sheet.title });
       sheetStatuses = patchSheetStatus(sheetStatuses, sheet.tabName, {
         status: 'completed',
         phase: 'pages',
-        detail: `Page /${slug}`,
+        detail: `Page /${routeSlug}`,
       });
     }
 
     // Auto-populate navigation under this app's Excel folder (per-app uniqueness).
-    // finance and hr each keep their own /excel + /sheet-* rows in a shared DB.
+    // finance and hr each keep their own Excel folder + /sheet-* rows in a shared DB.
+    // Folder path is empty so the drawer treats it as a non-navigable group (not /excel → 404).
     const appScope = appId ?? '';
     const excelFolders = await queryRows<{ id: string }>(
       db,
       `SELECT id FROM navigation_items
        WHERE parent_id IS NULL
-         AND (LOWER(title) IN ('excel', 'workbook') OR path IN ('/excel', '/workbook'))
+         AND (LOWER(title) IN ('excel', 'workbook') OR path IN ('/excel', '/workbook', ''))
          AND COALESCE(app_id, '') = $1
        ORDER BY created_at ASC NULLS LAST, id ASC`,
       [appScope],
@@ -512,7 +521,7 @@ export async function upsertSheetPagesStep(
       await executeOne(db, `DELETE FROM navigation_items WHERE id = $1`, [extra.id]);
     }
     if (!excelId) {
-      const created = await queryRows<{ id: string }>(
+      const createdFolder = await queryRows<{ id: string }>(
         db,
         `INSERT INTO navigation_items (
            id, parent_id, sort_order, title, path, icon, auth_tier, required_groups,
@@ -522,28 +531,30 @@ export async function upsertSheetPagesStep(
            gen_random_uuid()::TEXT, NULL,
            (SELECT COALESCE(MAX(sort_order), 0) + 1 FROM navigation_items
             WHERE parent_id IS NULL AND COALESCE(app_id, '') = $3),
-           'Excel', '/excel', 'Folder', CAST('google' AS "AuthTier"), 'viewer,ops-admin,finance,platform-admin',
+           'Excel', '', 'Folder', CAST('google' AS "AuthTier"), 'viewer,ops-admin,finance,platform-admin',
            true, true, $1, $2
          )
          RETURNING id`,
         [tenantSlug ?? null, appId || null, appScope],
       );
-      excelId = created[0]?.id;
-    } else if (appId) {
+      excelId = createdFolder[0]?.id;
+    } else {
       await executeOne(
         db,
         `UPDATE navigation_items
-         SET app_id = $1, tenant_slug = COALESCE(tenant_slug, $2)
+         SET path = '',
+             app_id = COALESCE($1, app_id),
+             tenant_slug = COALESCE(tenant_slug, $2)
          WHERE id = $3`,
-        [appId, tenantSlug ?? null, excelId],
+        [appId || null, tenantSlug ?? null, excelId],
       );
     }
 
     if (excelId) {
       let navSort = 0;
       for (const sheet of comprehension.sheets) {
-        const slug = `sheet-${normalizeSlug(sheet.tabName)}`;
-        const path = `/${slug}`;
+        const routeSlug = `sheet-${normalizeSlug(sheet.tabName)}`;
+        const path = `/${routeSlug}`;
         const existing = await queryRows<{ id: string }>(
           db,
           `SELECT id FROM navigation_items

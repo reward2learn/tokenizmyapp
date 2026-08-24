@@ -31,6 +31,7 @@ export {
   WorkbookComprehensionSchema,
   comprehendOnce,
   buildComprehensionPrompt,
+  coerceComprehensionPayload,
   stripCodeFence,
   ComprehendError,
   ComprehendHttpError,

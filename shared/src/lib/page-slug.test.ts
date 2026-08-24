@@ -3,8 +3,8 @@ import { pageSlugLookupCandidates, toStoragePageSlug } from '@shared/lib/page-sl
 import { cmsPageCacheKey } from '@shared/lib/cms-scope';
 
 describe('pageSlugLookupCandidates', () => {
-  it('returns only the prefixed slug when app id is set', () => {
-    expect(pageSlugLookupCandidates('home', 'finance')).toEqual(['finance-home']);
+  it('returns prefixed then legacy unprefixed when app id is set', () => {
+    expect(pageSlugLookupCandidates('home', 'finance')).toEqual(['finance-home', 'home']);
   });
 
   it('returns route slug when no app id', () => {
