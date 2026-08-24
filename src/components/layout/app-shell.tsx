@@ -102,7 +102,7 @@ function themeModeLabel(mode: ThemeMode): string {
   }
 }
 
-const linkSx = { textDecoration: 'none', color: 'inherit', display: 'inline-flex', width: '100%' };
+const linkSx = { textDecoration: 'none', color: 'inherit', display: 'inline-flex'  };
 
 /** DB-driven nav item shape from GET /api/navigation */
 interface DbNavItem {
