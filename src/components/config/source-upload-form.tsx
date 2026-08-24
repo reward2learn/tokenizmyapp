@@ -406,7 +406,7 @@ export function SourceUploadForm({ showSummaryOnly }: { showSummaryOnly?: boolea
         : null;
 
   return (
-    <Box component="section" sx={{ maxWidth: 720, mx: 'auto', py: 4, px: 2 }}>
+    <Box component="section" sx={{ width: '100%', py: 4, px: { xs: 0, sm: 1 } }}>
       {!showSummaryOnly ? (
         <>
           <Typography variant="subtitle1" sx={{ fontWeight: 700, mb: 1 }}>
