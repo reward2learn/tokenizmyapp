@@ -39,7 +39,7 @@ export const BLOCK_USE_CASES: Record<string, string> = {
     'Markdown document section — title, optional inline markdown override, or content source key.',
   review_part:
     'Single section of the multi-part business review — title and full Markdown body stored in business_review_parts.',
-  chat_panel: 'AI chat empty-state prompt and up to five suggested starter prompts.',
+  chat_panel: 'AI chat empty-state prompt and up to five suggested starter prompts; optional dataContext when converted from a data block.',
   chart_financial: 'Financial chart block — scenario and dashboard/ops variant.',
   kpi_cards: 'KPI cards — period label and dashboard/ops variant.',
   pnl_table: 'P&L table — optional period label.',
@@ -135,6 +135,11 @@ export const BLOCK_FIELD_SPECS: Record<string, Record<string, CmsFieldSpec>> = {
   chat_panel: {
     emptyStatePrompt: { label: 'emptyStatePrompt', type: 'multiline', description: 'Chat empty-state greeting question.' },
     suggestedPrompts: { label: 'suggestedPrompts', type: 'string_array', description: 'Up to five suggested prompts, one per line.' },
+    dataContext: {
+      label: 'dataContext',
+      type: 'json_rows',
+      description: 'Optional reference to the original data-backed block type when this chat replaced another block.',
+    },
   },
   chart_financial: {
     scenario: { label: 'scenario', type: 'enum', enumValues: ['conservative', 'realistic', 'aspirational', 'actual'], description: 'Financial scenario to chart.' },

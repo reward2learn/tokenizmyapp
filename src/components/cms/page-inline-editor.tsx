@@ -37,6 +37,8 @@ import { CMS_ADDABLE_BLOCKS, defaultConfigForBlock } from '@/components/cms/cms-
 import { SectionConfigEditor } from '@/components/cms/section-config-editor';
 import { BlockAnimateSettings } from '@/components/cms/block-animate-settings';
 import { BlockGridSettings } from '@/components/cms/block-grid-settings';
+import { BlockTypeSelect } from '@/components/cms/block-type-select';
+import { migrateConfigForBlockTypeChange } from '@/lib/cms-block-type-change';
 import {
   useCreatePageSectionMutation,
   useDeletePageSectionsMutation,
@@ -229,6 +231,30 @@ export function PageInlineEditor({ page }: PageInlineEditorProps) {
     setDrafts((prev) => prev.map((s) => (s.id === id ? { ...s, config } : s)));
     setDirty(true);
   }, []);
+
+  const changeEditingBlockType = useCallback(
+    (nextBlockType: string) => {
+      if (!editingSection || editingSection.blockType === nextBlockType) return;
+      const confirmed = window.confirm(
+        `Switch this block from "${editingSection.blockType}" to "${nextBlockType}"? ` +
+          'Layout and access tier are preserved; type-specific settings reset.',
+      );
+      if (!confirmed) return;
+      setDrafts((prev) =>
+        prev.map((s) =>
+          s.id === editingSection.id
+            ? {
+                ...s,
+                blockType: nextBlockType,
+                config: migrateConfigForBlockTypeChange(s.blockType, nextBlockType, s.config),
+              }
+            : s,
+        ),
+      );
+      setDirty(true);
+    },
+    [editingSection],
+  );
 
   const moveSection = useCallback((index: number, dir: -1 | 1) => {
     const next = index + dir;
@@ -532,7 +558,10 @@ export function PageInlineEditor({ page }: PageInlineEditorProps) {
                 <CloseIcon />
               </IconButton>
             </Stack>
-            <Chip label={editingSection.blockType} size="small" sx={{ alignSelf: 'flex-start' }} />
+            <BlockTypeSelect
+              value={editingSection.blockType}
+              onChange={changeEditingBlockType}
+            />
             <Box sx={{ flex: 1, overflow: 'auto' }}>
               <Stack spacing={2}>
                 <BlockAnimateSettings

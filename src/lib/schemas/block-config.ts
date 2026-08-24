@@ -72,6 +72,13 @@ export const chatPanelConfigSchema = z.object({
   /** Overrides the template-stamped chat starter when set on the page section. */
   emptyStatePrompt: z.string().max(300).optional(),
   suggestedPrompts: z.array(z.string().max(200)).max(5).optional(),
+  /** When converted from another block type, records the original data source. */
+  dataContext: z
+    .object({
+      blockType: z.string(),
+      config: z.record(z.unknown()).optional(),
+    })
+    .optional(),
   minTier: minTierSchema,
 });
 export const reviewBlocksConfigSchema = z.object({});

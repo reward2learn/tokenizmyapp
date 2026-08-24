@@ -67,6 +67,7 @@ import { getChatStarterPrompt } from '@shared/lib/config/template-profile';
 import { selectActiveSheetArg, selectSelectedCells } from '@/store/sheet-viewer-slice';
 import { sheetDataApi } from '@/store/apis/sheet-data-api';
 import { buildCellsPrompt, buildPagePrompt, type PromptRow } from '@/lib/sheet-prompt';
+import { buildBlockDataContextNote } from '@/lib/chat/block-data-context-prompt';
 import { isClientClearSessionAction, isExplicitSessionRequest } from '@/lib/chat/session-tools';
 import { listReviewParts, getReviewPartDisplayTitle } from '@/lib/page-catalog';
 import { useTtsVoicePreference } from '@/hooks/use-tts-voice-preference';
@@ -114,7 +115,11 @@ export function ChatPanel({
   blockConfig,
 }: {
   variant?: 'page' | 'drawer';
-  blockConfig?: { emptyStatePrompt?: string; suggestedPrompts?: string[] };
+  blockConfig?: {
+    emptyStatePrompt?: string;
+    suggestedPrompts?: string[];
+    dataContext?: { blockType?: string; config?: Record<string, unknown> };
+  };
 } = {}) {
   const isDrawer = variant === 'drawer';
   const dispatch = useAppDispatch();
@@ -278,13 +283,14 @@ export function ChatPanel({
     const attachmentNote = attachments.length
       ? `\n\nAttached files: ${attachments.map((a) => a.name).join(', ')}`
       : '';
+    const blockContextNote = buildBlockDataContextNote(blockConfig?.dataContext);
     await dispatch(sendStreamingMessage({
-      message: `${trimmed}${attachmentNote}`,
+      message: `${blockContextNote}${trimmed}${attachmentNote}`,
       history: messages,
       ...(attachments.length ? { attachments } : {}),
     }));
     setAttachments([]);
-  }, [attachments, dispatch, messages]);
+  }, [attachments, blockConfig?.dataContext, dispatch, messages]);
 
   const synthesizeVoice = useCallback(async (args: { text: string }) => {
     const payload = await synthesizeVoiceMutation({ ...args, voice: ttsVoice }).unwrap();

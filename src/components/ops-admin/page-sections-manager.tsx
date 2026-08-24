@@ -46,7 +46,9 @@ import { getCurrentAppId, getTenantConfig } from '@/lib/tenant-config';
 import { SectionConfigEditor } from '@/components/cms/section-config-editor';
 import { BlockAnimateSettings } from '@/components/cms/block-animate-settings';
 import { BlockGridSettings } from '@/components/cms/block-grid-settings';
+import { BlockTypeSelect } from '@/components/cms/block-type-select';
 import { CMS_ADDABLE_BLOCKS, defaultConfigForBlock } from '@/components/cms/cms-block-catalog';
+import { migrateConfigForBlockTypeChange } from '@/lib/cms-block-type-change';
 
 interface PageSectionsManagerProps {
   tenantSlug?: string;
@@ -192,6 +194,26 @@ export function PageSectionsManager({ tenantSlug, appId, isSuite = false }: Page
   const updateDraft = (id: string, patch: Partial<SectionDraft>) => {
     setDrafts((prev) =>
       prev.map((d) => (d.id === id ? { ...d, ...patch, dirty: true } : d)),
+    );
+  };
+
+  const updateDraftBlockType = (id: string, nextBlockType: string) => {
+    setDrafts((prev) =>
+      prev.map((d) => {
+        if (d.id !== id || d.blockType === nextBlockType) return d;
+        if (!canWrite) return d;
+        const confirmed = window.confirm(
+          `Switch this block from "${d.blockType}" to "${nextBlockType}"? ` +
+            'Layout and access tier are preserved; type-specific settings reset.',
+        );
+        if (!confirmed) return d;
+        return {
+          ...d,
+          blockType: nextBlockType,
+          config: migrateConfigForBlockTypeChange(d.blockType, nextBlockType, d.config),
+          dirty: true,
+        };
+      }),
     );
   };
 
@@ -451,6 +473,11 @@ export function PageSectionsManager({ tenantSlug, appId, isSuite = false }: Page
               </AccordionSummary>
               <AccordionDetails>
                 <Stack spacing={2}>
+                  <BlockTypeSelect
+                    value={section.blockType}
+                    disabled={!canWrite}
+                    onChange={(blockType) => updateDraftBlockType(section.id, blockType)}
+                  />
                   <BlockAnimateSettings
                     config={section.config}
                     readOnly={!canWrite}

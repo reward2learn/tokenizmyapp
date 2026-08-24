@@ -586,9 +586,27 @@ export function SectionConfigEditor({
   }
 
   if (blockType === 'chat_panel') {
+    const dataContext =
+      displayConfig.dataContext &&
+      typeof displayConfig.dataContext === 'object' &&
+      displayConfig.dataContext !== null
+        ? (displayConfig.dataContext as { blockType?: string; config?: Record<string, unknown> })
+        : null;
+
     return ctxWrap(
       <Box component="fieldset" disabled={readOnly} sx={{ border: 0, m: 0, p: 0, minWidth: 0 }}>
         <Stack spacing={1.5}>
+          {dataContext?.blockType ? (
+            <Typography variant="body2" color="text.secondary">
+              Data context: <strong>{dataContext.blockType}</strong>
+              {dataContext.config && Object.keys(dataContext.config).length > 0
+                ? ` (${Object.entries(dataContext.config)
+                    .map(([k, v]) => `${k}: ${String(v)}`)
+                    .join(', ')})`
+                : ''}
+              . Chat uses this to anchor prompts about the block&apos;s live data.
+            </Typography>
+          ) : null}
           <CmsAiTextField
             label="emptyStatePrompt"
             fieldKey="emptyStatePrompt"
