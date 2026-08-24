@@ -86,7 +86,7 @@ export async function POST(request: Request) {
   }
 
   try {
-    const value = await generateCmsFieldValue({
+    const { value, usage } = await generateCmsFieldValue({
       pageSlug: body.pageSlug,
       pageTitle: body.pageTitle,
       blockType: body.blockType,
@@ -119,7 +119,7 @@ export async function POST(request: Request) {
       }
     }
 
-    return jsonOk({ value });
+    return jsonOk({ value, usage });
   } catch (err) {
     return jsonError(err instanceof Error ? err.message : 'AI generation failed', 500);
   }

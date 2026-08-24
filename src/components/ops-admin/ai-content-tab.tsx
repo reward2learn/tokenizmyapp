@@ -38,6 +38,8 @@ import DialogActions from '@mui/material/DialogActions';
 import DialogContent from '@mui/material/DialogContent';
 import DialogContentText from '@mui/material/DialogContentText';
 import DialogTitle from '@mui/material/DialogTitle';
+import { useAiCreditFeedback, aiGenerateErrorMessage } from '@/hooks/use-ai-credit-feedback';
+import type { AiUsageSummary } from '@/lib/billing/ai-usage-summary';
 
 // ── Types ──────────────────────────────────────────────
 
@@ -103,6 +105,7 @@ interface GenerateResult {
   model?: string;
   providerId?: string;
   providerLabel?: string;
+  usage?: AiUsageSummary | null;
 }
 
 /** Ordered list of steps for the timeline visualiser. Step labels are
@@ -161,6 +164,7 @@ export function AiContentTab() {
 
   // RTK Query: POST /api/admin/ai-content — blocking JSON mode (non-SSE)
   const [generateContent, { isLoading: generating }] = useGenerateAiContentMutation();
+  const { reportUsage, feedbackSnackbar } = useAiCreditFeedback();
 
   // Which AI provider/model will actually be used — read from the same
   // database resolveActiveAiConfig() reads at generation time (Config > AI
@@ -258,6 +262,7 @@ export function AiContentTab() {
         model?: string;
         providerId?: string;
         providerLabel?: string;
+        usage?: AiUsageSummary | null;
       };
 
       setProgress({ step: 'complete', message: 'Generation complete.', pct: 100, detail: data });
@@ -267,9 +272,11 @@ export function AiContentTab() {
         model: data.model,
         providerId: data.providerId,
         providerLabel: data.providerLabel,
+        usage: data.usage ?? null,
       });
+      reportUsage(data.usage);
     } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
+      const msg = aiGenerateErrorMessage(err, err instanceof Error ? err.message : String(err));
       setProgress({
         step: 'error',
         message: msg,
@@ -280,7 +287,7 @@ export function AiContentTab() {
       // Refresh status after generation completes or fails
       void fetchStatus();
     }
-  }, [generateContent, fetchStatus, additionalContext, editedPrompt, status?.fullPrompt]);
+  }, [generateContent, fetchStatus, additionalContext, editedPrompt, status?.fullPrompt, reportUsage]);
 
   // ── Clear seeded data ────────────────────────────────
 
@@ -666,6 +673,19 @@ export function AiContentTab() {
                     size="small"
                     variant="outlined"
                   />
+                ) : null}
+                {result.usage?.charged ? (
+                  <Chip
+                    label={`Used ${result.usage.consumed || result.usage.credits} credits${
+                      result.usage.balance != null ? ` · ${result.usage.balance} left` : ''
+                    }`}
+                    size="small"
+                    color="secondary"
+                    variant="outlined"
+                    sx={{ fontVariantNumeric: 'tabular-nums' }}
+                  />
+                ) : result.usage && !result.usage.charged ? (
+                  <Chip label="Not billed — BYOK" size="small" variant="outlined" />
                 ) : null}
               </Stack>
               {result.saved ? (
@@ -1161,6 +1181,7 @@ export function AiContentTab() {
           </Button>
         </DialogActions>
       </Dialog>
+      {feedbackSnackbar}
     </Stack>
   );
 }

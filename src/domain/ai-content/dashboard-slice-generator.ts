@@ -11,6 +11,7 @@
 import { extractExcelData, type ExcelData } from '@/domain/excel/excel-extractor';
 import { buildDashboardPrompt } from '@/domain/ai-content/prompt-builder';
 import { meterAiUsage } from '@/domain/billing/credit-service';
+import { toAiUsageSummary, type AiUsageSummary } from '@/lib/billing/ai-usage-summary';
 import type { ActiveAiConfig } from '@/lib/ai-providers';
 import type { DbClient } from '@/lib/db';
 import { findCachedWorkbook } from '@/lib/workbook-cache';
@@ -139,6 +140,8 @@ export interface GenerateDashboardSliceResult {
   slice: DashboardSliceKey;
   value: unknown;
   document: DashboardDataDocument;
+  /** Null for BYOK — platform credits were not touched. */
+  usage: AiUsageSummary | null;
 }
 
 /**
@@ -195,21 +198,27 @@ export async function generateAndSaveDashboardSlice(
 
   const result = await response.json();
   const reply = result.choices?.[0]?.message?.content ?? '';
+  const providerUsage = result.usage as { prompt_tokens?: number; completion_tokens?: number } | undefined;
+  const tokens = {
+    promptTokens: providerUsage?.prompt_tokens ?? 0,
+    completionTokens: providerUsage?.completion_tokens ?? 0,
+  };
 
+  let usage: AiUsageSummary | null = null;
   if (input.ai.keySource === 'env') {
-    const usage = result.usage as { prompt_tokens?: number; completion_tokens?: number } | undefined;
     try {
-      await meterAiUsage({
+      const meter = await meterAiUsage({
         tenantSlug: input.tenantSlug,
         model: input.ai.model,
-        promptTokens: usage?.prompt_tokens ?? 0,
-        completionTokens: usage?.completion_tokens ?? 0,
+        promptTokens: tokens.promptTokens,
+        completionTokens: tokens.completionTokens,
         keySource: input.ai.keySource,
         refType: 'content_generation',
         refId: `dashboard_slice:${input.slice}:${input.pageSlug}`,
       });
+      usage = toAiUsageSummary(meter, tokens, { model: input.ai.model });
     } catch {
-      // non-blocking
+      usage = toAiUsageSummary(null, tokens, { model: input.ai.model });
     }
   }
 
@@ -234,5 +243,5 @@ export async function generateAndSaveDashboardSlice(
   };
   await saveDashboardDocument(input.db, next);
 
-  return { slice: input.slice, value, document: next };
+  return { slice: input.slice, value, document: next, usage };
 }

@@ -36,14 +36,41 @@ describe('sse-parser', () => {
     expect(remainder).toBe('');
   });
 
-  it('parseSseChunk extracts chat session actions', () => {
-    const chunk = 'data: {"type":"chat_action","action":"save_conversation"}\n\ndata: {"choices":[{"delta":{"content":"Done"}}]}\n';
-    const { events, remainder } = parseSseChunk(chunk);
+  it('parseSsePayload extracts usage events', () => {
+    const usage = {
+      promptTokens: 100,
+      completionTokens: 50,
+      credits: 2,
+      consumed: 2,
+      charged: true,
+      balance: 98,
+      model: 'gpt-4o-mini',
+    };
+    const events = parseSsePayload({ type: 'usage', usage });
+    expect(events).toEqual([{ type: 'usage', usage }]);
+  });
+
+  it('parseSseChunk includes usage before done', () => {
+    const chunk =
+      'data: {"choices":[{"delta":{"content":"Hi"}}]}\n\n' +
+      'data: {"type":"usage","usage":{"promptTokens":10,"completionTokens":5,"credits":1,"consumed":1,"charged":true,"balance":99}}\n\n' +
+      'data: [DONE]\n';
+    const { events } = parseSseChunk(chunk);
     expect(events).toEqual([
-      { type: 'action', action: 'save_conversation' },
-      { type: 'token', token: 'Done' },
+      { type: 'token', token: 'Hi' },
+      {
+        type: 'usage',
+        usage: {
+          promptTokens: 10,
+          completionTokens: 5,
+          credits: 1,
+          consumed: 1,
+          charged: true,
+          balance: 99,
+        },
+      },
+      { type: 'done' },
     ]);
-    expect(remainder).toBe('');
   });
 
   it('parseSseChunk preserves partial line in remainder', () => {

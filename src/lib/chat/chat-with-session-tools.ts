@@ -7,7 +7,12 @@ import {
   PURCHASE_CREDITS_OPENAI_TOOL,
   type SessionToolContext,
 } from '@/lib/chat/session-tools';
-import { meterAiUsage } from '@/domain/billing/credit-service';
+import { meterAiUsage, type MeterResult } from '@/domain/billing/credit-service';
+import {
+  emptyAiUsageSummary,
+  foldMeterIntoUsage,
+  type AiUsageSummary,
+} from '@/lib/billing/ai-usage-summary';
 
 export const CHAT_WEB_SEARCH_INSTRUCTIONS = `Web search is enabled on this chat model. When the user asks about current events, live market data, recent news, or information that may have changed after your training data, search the web before answering. Cite sources briefly when web results are used.`;
 
@@ -265,6 +270,10 @@ export async function consumeOpenAiStream(
  * 'db'`) is never charged; platform-key usage is metered non-blocking — a
  * metering failure must never break the chat reply (the pre-flight gate in
  * the route is the enforcement point).
+ *
+ * Returns the MeterResult (or a BYOK stub) so callers can aggregate and emit
+ * a usage event to the client. Failure returns null for the meter but still
+ * reports token counts when available.
  */
 async function meterChatUsage(
   options: {
@@ -274,18 +283,39 @@ async function meterChatUsage(
     viewerEmail?: string | null;
     viewerUserId?: string | null;
     provider?: string | null;
+    conversationId?: string | null;
+    refType?: string;
   },
   usage: { promptTokens: number; completionTokens: number } | null | undefined,
-): Promise<void> {
-  if (options.keySource !== 'env') return;
+): Promise<{ meter: MeterResult | null; promptTokens: number; completionTokens: number }> {
+  const promptTokens = usage?.promptTokens ?? 0;
+  const completionTokens = usage?.completionTokens ?? 0;
+
+  if (options.keySource !== 'env') {
+    return {
+      meter: {
+        charged: false,
+        credits: 0,
+        consumed: 0,
+        shortfall: 0,
+        debt: 0,
+        writtenOff: 0,
+        balance: 0,
+      },
+      promptTokens,
+      completionTokens,
+    };
+  }
+
   try {
-    await meterAiUsage({
+    const meter = await meterAiUsage({
       tenantSlug: options.tenantSlug,
       model: options.model,
-      promptTokens: usage?.promptTokens ?? 0,
-      completionTokens: usage?.completionTokens ?? 0,
+      promptTokens,
+      completionTokens,
       keySource: options.keySource,
-      refType: 'chat',
+      refType: options.refType ?? 'chat',
+      refId: options.conversationId ?? null,
       // Must match the identity the pre-flight gate used. An exempt viewer who
       // passed the gate but got charged here would accrue debt that then blocks
       // everyone else on the same org.
@@ -293,9 +323,24 @@ async function meterChatUsage(
       viewerUserId: options.viewerUserId,
       provider: options.provider,
     });
+    return { meter, promptTokens, completionTokens };
   } catch (err) {
     console.warn('[chat] Metering failed (non-blocking):', err instanceof Error ? err.message : err);
+    return { meter: null, promptTokens, completionTokens };
   }
+}
+
+function applyMeterRound(
+  turnUsage: AiUsageSummary,
+  metered: { meter: MeterResult | null; promptTokens: number; completionTokens: number },
+  options: { model: string; keySource: 'db' | 'env' },
+): AiUsageSummary {
+  return foldMeterIntoUsage(
+    turnUsage,
+    metered.meter,
+    { promptTokens: metered.promptTokens, completionTokens: metered.completionTokens },
+    { model: options.model, byok: options.keySource === 'db' },
+  );
 }
 
 async function completeChatWithoutStreaming(options: {
@@ -313,11 +358,17 @@ async function completeChatWithoutStreaming(options: {
   viewerEmail?: string | null;
   viewerUserId?: string | null;
   provider?: string | null;
+  conversationId?: string | null;
+  /** Usage already metered before the main chat loop (e.g. map-reduce). */
+  priorUsage?: AiUsageSummary | null;
 }): Promise<Response> {
   const clientActions: ChatSessionAction[] = [];
   let templateDraft: CustomTemplateDraft | undefined;
   let creditTopUp: CreditTopUpAction | undefined;
   let currentMessages = [...options.messages];
+  let turnUsage = options.priorUsage
+    ? { ...options.priorUsage }
+    : emptyAiUsageSummary({ model: options.model, byok: options.keySource === 'db' });
 
   for (let round = 0; round < MAX_TOOL_ROUNDS; round += 1) {
     const chatResp = await requestOpenAiCompletion(
@@ -333,20 +384,27 @@ async function completeChatWithoutStreaming(options: {
 
     if (!chatResp.ok) {
       const errReply = await readOpenAiError(chatResp);
-      return Response.json({ success: true, data: { reply: errReply, actions: clientActions } });
+      return Response.json({
+        success: true,
+        data: { reply: errReply, actions: clientActions, usage: turnUsage },
+      });
     }
 
     const data = await chatResp.json() as OpenAiCompletionResponse & { usage?: { prompt_tokens?: number; completion_tokens?: number } };
     const message = data.choices?.[0]?.message;
     if (!message) {
       const fallback = 'I could not generate a response. Please try again.';
-      return Response.json({ success: true, data: { reply: fallback, actions: clientActions } });
+      return Response.json({
+        success: true,
+        data: { reply: fallback, actions: clientActions, usage: turnUsage },
+      });
     }
 
     // Meter this round (tool rounds included — every provider call costs credits).
-    await meterChatUsage(options, data.usage
+    const metered = await meterChatUsage(options, data.usage
       ? { promptTokens: data.usage.prompt_tokens ?? 0, completionTokens: data.usage.completion_tokens ?? 0 }
       : null);
+    turnUsage = applyMeterRound(turnUsage, metered, options);
 
     if (message.tool_calls?.length) {
       const sessionToolCalls = message.tool_calls.filter(isSessionFunctionToolCall);
@@ -380,6 +438,7 @@ async function completeChatWithoutStreaming(options: {
       data: {
         reply,
         actions: clientActions,
+        usage: turnUsage,
         ...(templateDraft ? { templateDraft } : {}),
         ...(creditTopUp ? { creditTopUp } : {}),
       },
@@ -387,7 +446,10 @@ async function completeChatWithoutStreaming(options: {
   }
 
   const fallback = 'I could not complete the requested session action. Please try again.';
-  return Response.json({ success: true, data: { reply: fallback, actions: clientActions } });
+  return Response.json({
+    success: true,
+    data: { reply: fallback, actions: clientActions, usage: turnUsage },
+  });
 }
 
 async function completeChatWithStreaming(options: {
@@ -405,6 +467,9 @@ async function completeChatWithStreaming(options: {
   viewerEmail?: string | null;
   viewerUserId?: string | null;
   provider?: string | null;
+  conversationId?: string | null;
+  /** Usage already metered before the main chat loop (e.g. map-reduce). */
+  priorUsage?: AiUsageSummary | null;
 }): Promise<Response> {
   const encoder = new TextEncoder();
   const { readable, writable } = new TransformStream<Uint8Array>();
@@ -418,6 +483,9 @@ async function completeChatWithStreaming(options: {
     let currentMessages = [...options.messages];
     let streamedChars = 0;
     let emittedError = false;
+    let turnUsage = options.priorUsage
+      ? { ...options.priorUsage }
+      : emptyAiUsageSummary({ model: options.model, byok: options.keySource === 'db' });
 
     try {
       for (let round = 0; round < MAX_TOOL_ROUNDS; round += 1) {
@@ -450,7 +518,8 @@ async function completeChatWithStreaming(options: {
         );
 
         // Meter this round from the final usage chunk (include_usage).
-        await meterChatUsage(options, usage);
+        const metered = await meterChatUsage(options, usage);
+        turnUsage = applyMeterRound(turnUsage, metered, options);
 
         if (finishReason === 'tool_calls' && toolCalls.length) {
           const sessionToolCalls = toolCalls.filter(isSessionFunctionToolCall);
@@ -501,6 +570,25 @@ async function completeChatWithStreaming(options: {
         });
       }
 
+      // Emit aggregated turn usage before [DONE] so the client can refresh
+      // the header balance and session totals.
+      if (
+        turnUsage.promptTokens > 0
+        || turnUsage.completionTokens > 0
+        || turnUsage.credits > 0
+        || turnUsage.consumed > 0
+        || options.keySource === 'db'
+        || options.priorUsage
+      ) {
+        await writeLine({
+          type: 'usage',
+          usage: {
+            ...turnUsage,
+            byok: options.keySource === 'db',
+          },
+        });
+      }
+
       await writer.write(encoder.encode('data: [DONE]\n\n'));
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Chat stream failed';
@@ -530,6 +618,9 @@ export async function completeChatWithSessionTools(options: {
   viewerEmail?: string | null;
   viewerUserId?: string | null;
   provider?: string | null;
+  conversationId?: string | null;
+  /** Usage already metered before the main chat loop (e.g. map-reduce). */
+  priorUsage?: AiUsageSummary | null;
 }): Promise<Response> {
   if (options.stream) {
     return completeChatWithStreaming(options);

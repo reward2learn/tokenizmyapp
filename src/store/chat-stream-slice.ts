@@ -9,11 +9,21 @@ import {
 } from '@/lib/chat/session-tools';
 import type { ChatAttachment } from '@/lib/chat/attachments';
 import type { AiProviderId } from '@/store/apis/config-api';
+import type { ChatTurnUsage } from '@/lib/billing/ai-usage-summary';
+import { organizationApi } from '@/store/apis/organization-api';
 
 export interface ChatStreamMessage {
   role: 'user' | 'assistant';
   content: string;
   attachments?: ChatAttachment[];
+}
+
+export interface ChatSessionUsageTotals {
+  promptTokens: number;
+  completionTokens: number;
+  credits: number;
+  consumed: number;
+  turns: ChatTurnUsage[];
 }
 
 export interface ChatStreamState {
@@ -48,7 +58,21 @@ export interface ChatStreamState {
    * administrator sees in the transcript.
    */
   templateDraft: CustomTemplateDraft | null;
+  /** Stable id for this chat session — sent as meter refId and reset on clear. */
+  conversationId: string | null;
+  /** Running totals for the current conversation. */
+  sessionUsage: ChatSessionUsageTotals;
+  /** Most recent turn's usage (for the popover "last turn" breakdown). */
+  lastTurnUsage: ChatTurnUsage | null;
 }
+
+const emptySessionUsage = (): ChatSessionUsageTotals => ({
+  promptTokens: 0,
+  completionTokens: 0,
+  credits: 0,
+  consumed: 0,
+  turns: [],
+});
 
 const initialState: ChatStreamState = {
   messages: [],
@@ -61,7 +85,29 @@ const initialState: ChatStreamState = {
   selectedProviderId: null,
   selectedModel: null,
   templateDraft: null,
+  conversationId: null,
+  sessionUsage: emptySessionUsage(),
+  lastTurnUsage: null,
 };
+
+function ensureConversationId(state: ChatStreamState): string {
+  if (state.conversationId) return state.conversationId;
+  const id =
+    typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+      ? crypto.randomUUID()
+      : `chat-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+  state.conversationId = id;
+  return id;
+}
+
+function applyTurnUsage(state: ChatStreamState, usage: ChatTurnUsage): void {
+  state.lastTurnUsage = usage;
+  state.sessionUsage.promptTokens += usage.promptTokens;
+  state.sessionUsage.completionTokens += usage.completionTokens;
+  state.sessionUsage.credits += usage.credits;
+  state.sessionUsage.consumed += usage.consumed;
+  state.sessionUsage.turns.push(usage);
+}
 
 export const sendStreamingMessage = createAsyncThunk<
   void,
@@ -75,7 +121,16 @@ export const sendStreamingMessage = createAsyncThunk<
 
   // Read from the store rather than an argument so every caller sends the
   // selected tool without having to thread it through.
-  const { activeTool, selectedProviderId, selectedModel } = getState().chatStream;
+  const chatState = getState().chatStream;
+  const { activeTool, selectedProviderId, selectedModel } = chatState;
+  let conversationId = chatState.conversationId;
+  if (!conversationId) {
+    conversationId =
+      typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+        ? crypto.randomUUID()
+        : `chat-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+    dispatch(setConversationId(conversationId));
+  }
 
   dispatch(resetStream());
   dispatch(addMessage({
@@ -95,6 +150,7 @@ export const sendStreamingMessage = createAsyncThunk<
         message: trimmedMessage,
         history,
         stream: true,
+        conversationId,
         ...(attachments?.length ? { attachments } : {}),
         // Explicit composer selection — forces the matching tool on server-side
         // instead of relying on the message-phrasing heuristic.
@@ -111,7 +167,12 @@ export const sendStreamingMessage = createAsyncThunk<
     const contentType = response.headers.get('content-type') ?? '';
     if (contentType.includes('application/json')) {
       const payload = await response.json() as {
-        data?: { reply?: string; templateDraft?: CustomTemplateDraft; creditTopUp?: CreditTopUpAction };
+        data?: {
+          reply?: string;
+          templateDraft?: CustomTemplateDraft;
+          creditTopUp?: CreditTopUpAction;
+          usage?: ChatTurnUsage;
+        };
         error?: string;
       };
       const reply = payload.data?.reply ?? payload.error ?? 'No reply returned.';
@@ -124,6 +185,12 @@ export const sendStreamingMessage = createAsyncThunk<
       if (payload.data?.creditTopUp) {
         dispatch(setPendingCreditTopUp(payload.data.creditTopUp));
       }
+      if (payload.data?.usage) {
+        dispatch(recordTurnUsage(payload.data.usage));
+        if (payload.data.usage.charged) {
+          dispatch(organizationApi.util.invalidateTags(['Credits']));
+        }
+      }
       return;
     }
 
@@ -133,6 +200,7 @@ export const sendStreamingMessage = createAsyncThunk<
     }
 
     let streamError: string | null = null;
+    let chargedThisTurn = false;
 
     await consumeSseStream(reader, (event) => {
       if (event.type === 'token') {
@@ -157,10 +225,20 @@ export const sendStreamingMessage = createAsyncThunk<
         return;
       }
 
+      if (event.type === 'usage') {
+        dispatch(recordTurnUsage(event.usage));
+        if (event.usage.charged) chargedThisTurn = true;
+        return;
+      }
+
       if (event.type === 'error') {
         streamError = event.error;
       }
     });
+
+    if (chargedThisTurn) {
+      dispatch(organizationApi.util.invalidateTags(['Credits']));
+    }
 
     if (streamError) {
       throw new Error(streamError);
@@ -195,6 +273,9 @@ export const chatStreamSlice = createSlice({
       // leaving it behind would offer to save a template with no visible
       // context for what it is.
       state.templateDraft = null;
+      state.conversationId = null;
+      state.sessionUsage = emptySessionUsage();
+      state.lastTurnUsage = null;
     },
     appendToken(state, action: { payload: string }) {
       state.streamingText += action.payload;
@@ -241,6 +322,13 @@ export const chatStreamSlice = createSlice({
     setPendingCreditTopUp(state, action: { payload: CreditTopUpAction | null }) {
       state.pendingCreditTopUp = action.payload;
     },
+    setConversationId(state, action: { payload: string | null }) {
+      state.conversationId = action.payload;
+    },
+    recordTurnUsage(state, action: { payload: ChatTurnUsage }) {
+      ensureConversationId(state);
+      applyTurnUsage(state, action.payload);
+    },
   },
 });
 
@@ -251,8 +339,10 @@ export const {
   clearPendingSessionActions,
   clearTemplateDraft,
   queueSessionAction,
+  recordTurnUsage,
   resetStream,
   setActiveTool,
+  setConversationId,
   setSelectedProviderId,
   setSelectedModel,
   setMessages,

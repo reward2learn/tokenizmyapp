@@ -90,6 +90,7 @@ export async function POST(request: Request) {
     return jsonOk({
       slice: result.slice,
       value: result.value,
+      usage: result.usage,
     });
   } catch (err) {
     return jsonError(err instanceof Error ? err.message : 'Dashboard slice generation failed', 500);

@@ -31,7 +31,12 @@ import { resolveEffectiveChatModel } from '@/lib/chat/chat-model';
 import { getAppSettings } from '@/domain/config/app-settings-service';
 import { isExplicitSessionRequest } from '@/lib/chat/session-tools';
 import { ensureConversationsColumns } from '@/lib/db-migrate';
-import { requireCreditsForTenant, resolvePayingOrgId, LOW_CREDIT_THRESHOLD } from '@/domain/billing/credit-service';
+import { requireCreditsForTenant, resolvePayingOrgId, LOW_CREDIT_THRESHOLD, meterAiUsage } from '@/domain/billing/credit-service';
+import {
+  emptyAiUsageSummary,
+  foldMeterIntoUsage,
+  type AiUsageSummary,
+} from '@/lib/billing/ai-usage-summary';
 import { canPurchaseCreditPacks } from '@/lib/billing/plans';
 import { getSubscription } from '@/domain/billing/entitlement-service';
 import { isAgenticCatalogLive, resolveTenantAgenticCommerce } from '@/domain/billing/agentic-catalog-service';
@@ -83,6 +88,8 @@ const chatBodySchema = z.object({
   providerId: z.enum(['openai', 'vercel-ai-gateway', 'opencode-zen']).optional(),
   /** Optional per-request model override from the chat Tools picker. */
   model: z.string().trim().min(1).max(200).optional(),
+  /** Client-generated conversation id — groups ledger rows for this chat session. */
+  conversationId: z.string().trim().min(1).max(80).optional(),
 });
 
 const voiceBodySchema = z.object({
@@ -270,6 +277,8 @@ function buildUserMessage(message: string, attachments: ChatAttachment[]): OpenA
  * combines everything into a compact context prompt for the final answer.
  *
  * This mirrors the two-phase pattern used in AI Content Generation.
+ * Map-phase completions are metered (`refType: 'chat_mapreduce'`) so large
+ * prompts cannot bypass the credit ledger.
  */
 async function mapReduceContext(
   fullContext: string,
@@ -277,7 +286,15 @@ async function mapReduceContext(
   chatCompletionsUrl: string,
   apiKey: string,
   model: string,
-): Promise<string> {
+  meterOptions: {
+    tenantSlug: string;
+    keySource: 'db' | 'env';
+    viewerEmail?: string | null;
+    viewerUserId?: string | null;
+    provider?: string | null;
+    conversationId?: string | null;
+  },
+): Promise<{ reduced: string; usage: AiUsageSummary }> {
   // Split the context into chunks by ## section headers
   const sections = fullContext.split(/(?=## )/);
   const chunks: string[] = [];
@@ -295,6 +312,10 @@ async function mapReduceContext(
 
   // Map phase: extract relevant info from each chunk
   const extractedParts: string[] = [];
+  let usage = emptyAiUsageSummary({
+    model,
+    byok: meterOptions.keySource === 'db',
+  });
 
   for (let i = 0; i < chunks.length; i++) {
     const chunk = chunks[i];
@@ -323,10 +344,47 @@ async function mapReduceContext(
       });
 
       if (response.ok) {
-        const result = await response.json();
+        const result = await response.json() as {
+          choices?: { message?: { content?: string } }[];
+          usage?: { prompt_tokens?: number; completion_tokens?: number };
+        };
         const reply = result.choices?.[0]?.message?.content ?? '';
         if (reply.trim() !== 'NONE') {
           extractedParts.push(reply.trim());
+        }
+
+        const tokens = {
+          promptTokens: result.usage?.prompt_tokens ?? 0,
+          completionTokens: result.usage?.completion_tokens ?? 0,
+        };
+
+        if (meterOptions.keySource === 'env' && (tokens.promptTokens > 0 || tokens.completionTokens > 0)) {
+          try {
+            const meter = await meterAiUsage({
+              tenantSlug: meterOptions.tenantSlug,
+              model,
+              promptTokens: tokens.promptTokens,
+              completionTokens: tokens.completionTokens,
+              keySource: meterOptions.keySource,
+              refType: 'chat_mapreduce',
+              refId: meterOptions.conversationId ?? null,
+              viewerEmail: meterOptions.viewerEmail,
+              viewerUserId: meterOptions.viewerUserId,
+              provider: meterOptions.provider,
+            });
+            usage = foldMeterIntoUsage(usage, meter, tokens, { model });
+          } catch (err) {
+            console.warn(
+              '[chat] MapReduce metering failed (non-blocking):',
+              err instanceof Error ? err.message : err,
+            );
+            usage = foldMeterIntoUsage(usage, null, tokens, { model });
+          }
+        } else if (tokens.promptTokens > 0 || tokens.completionTokens > 0) {
+          usage = foldMeterIntoUsage(usage, null, tokens, {
+            model,
+            byok: meterOptions.keySource === 'db',
+          });
         }
       }
     } catch {
@@ -336,7 +394,7 @@ async function mapReduceContext(
 
   // Reduce: build a compact context from extracted parts
   if (extractedParts.length === 0) {
-    return fullContext.slice(0, 15000);
+    return { reduced: fullContext.slice(0, 15000), usage };
   }
 
   const reduced = [
@@ -357,7 +415,7 @@ async function mapReduceContext(
     '5. Highlight BEP coverage and margin metrics.',
   ].join('\n');
 
-  return reduced;
+  return { reduced, usage };
 }
 
 /**
@@ -403,7 +461,7 @@ async function handleChatPost(request: Request): Promise<Response> {
     return legacyError('Message is required', 400);
   }
 
-  const { message, history = [], stream, attachments = [], activeTool, providerId, model } = parsed.data;
+  const { message, history = [], stream, attachments = [], activeTool, providerId, model, conversationId } = parsed.data;
   const session = await getSessionFromRequest(request);
   const userName = session?.name || session?.email || 'Anonymous';
   const db = createClient({
@@ -514,20 +572,34 @@ async function handleChatPost(request: Request): Promise<Response> {
       content: systemSections.join('\n\n'),
     }];
 
+    const viewerUserId =
+      !isPlatformApp() && session?.sub ? await resolveViewerUserId(session.sub) : undefined;
+
     // ── MapReduce: if system prompt is too large, extract relevant context in chunks ──
     const systemMsg = messages[0];
+    let mapReduceUsage: AiUsageSummary | null = null;
     if (systemMsg && typeof systemMsg.content === 'string' && systemMsg.content.length > 18000) {
       try {
-        const reducedContext = await mapReduceContext(
+        const mapModel = ai.provider.id === 'openai' ? 'gpt-4o-mini' : ai.model;
+        const { reduced, usage } = await mapReduceContext(
           systemMsg.content,
           message,
           ai.provider.chatCompletionsUrl,
           ai.apiKey,
           // gpt-4o-mini is a known-cheap OpenAI model for this map phase;
           // other providers just reuse the selected chat model.
-          ai.provider.id === 'openai' ? 'gpt-4o-mini' : ai.model,
+          mapModel,
+          {
+            tenantSlug: tenantSlugForTools,
+            keySource: ai.keySource,
+            viewerEmail: session?.email,
+            viewerUserId,
+            provider: ai.provider.id,
+            conversationId: conversationId ?? null,
+          },
         );
-        systemMsg.content = reducedContext;
+        systemMsg.content = reduced;
+        mapReduceUsage = usage;
       } catch {
         // If MapReduce fails, fall back to simple truncation
         if (typeof systemMsg.content === 'string') {
@@ -558,9 +630,6 @@ async function handleChatPost(request: Request): Promise<Response> {
         .map((msg) => ({ role: msg.role, content: msg.content })),
       { role: 'user', content: message },
     ];
-
-    const viewerUserId =
-      !isPlatformApp() && session?.sub ? await resolveViewerUserId(session.sub) : undefined;
 
     const toolContext: SessionToolContext = {
       db,
@@ -605,6 +674,8 @@ async function handleChatPost(request: Request): Promise<Response> {
       viewerEmail: session?.email,
       viewerUserId,
       provider: ai.provider.id,
+      conversationId: conversationId ?? null,
+      priorUsage: mapReduceUsage,
     });
   } catch (err) {
     console.error('CHAT ERROR:', err);

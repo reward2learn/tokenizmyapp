@@ -4,6 +4,7 @@ import type { ApiEnvelope } from '@/store/api-types';
 import { brandConfigApi } from '@shared/store/apis/brand-config-api';
 import { configApi } from '@/store/apis/config-api';
 import { navigationApi } from '@/store/apis/navigation-api';
+import { organizationApi } from '@/store/apis/organization-api';
 import type { RoleConfigView } from '@/app/api/admin/roles/route';
 import type { AdminConversationView } from '@/app/api/admin/conversations/route';
 import type { AdminUserView } from '@/app/api/admin/users/route';
@@ -13,6 +14,7 @@ import { contentApi } from '@/store/apis/content-api';
 import { publishPageSections } from '@/store/ui-slice';
 import { cmsPageCacheKey, normalizeCmsScope } from '@shared/lib/cms-scope';
 import { getTenantConfig } from '@shared/lib/config/tenant';
+import type { AiUsageSummary } from '@/lib/billing/ai-usage-summary';
 
 /** Cross-tenant browse scope — resolved server-side only for platform admins. */
 export interface TenantAppScope {
@@ -200,6 +202,7 @@ export const adminApi = createApi({
           await queryFulfilled;
           // BR parts / snippets / tasks land in the same inventory Review Data reads.
           dispatch(configApi.util.invalidateTags(['SeedDetails']));
+          dispatch(organizationApi.util.invalidateTags(['Credits']));
         } catch {
           // generate failed — keep cache
         }
@@ -465,7 +468,7 @@ export const adminApi = createApi({
 
     /** POST /api/admin/cms-generate-field — AI-generate a single CMS block config field */
     generateCmsField: builder.mutation<
-      ApiEnvelope<{ value: unknown }>,
+      ApiEnvelope<{ value: unknown; usage?: AiUsageSummary | null }>,
       {
         pageSlug: string;
         pageTitle: string;
@@ -482,6 +485,14 @@ export const adminApi = createApi({
         method: 'POST',
         body,
       }),
+      async onQueryStarted(_arg, { dispatch, queryFulfilled }) {
+        try {
+          await queryFulfilled;
+          dispatch(organizationApi.util.invalidateTags(['Credits']));
+        } catch {
+          // leave cache; caller surfaces error
+        }
+      },
     }),
 
     /**
@@ -489,7 +500,7 @@ export const adminApi = createApi({
      * Regenerate actionPhases / levers / targetRows in dashboard_data.
      */
     generateDashboardSlice: builder.mutation<
-      ApiEnvelope<{ slice: string; value: unknown }>,
+      ApiEnvelope<{ slice: string; value: unknown; usage?: AiUsageSummary | null }>,
       {
         pageSlug: string;
         pageTitle: string;
@@ -509,6 +520,7 @@ export const adminApi = createApi({
           await queryFulfilled;
           const { dashboardApi } = await import('@/store/apis/dashboard-api');
           dispatch(dashboardApi.util.invalidateTags(['DashboardData']));
+          dispatch(organizationApi.util.invalidateTags(['Credits']));
         } catch {
           // leave cache; caller surfaces error
         }

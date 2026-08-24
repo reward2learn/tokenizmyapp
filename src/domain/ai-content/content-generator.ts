@@ -28,6 +28,11 @@ import { getCurrentAppId } from '@shared/lib/config/tenant';
 import { parseReviewParts } from '@/domain/ai-content/parse-review-parts';
 import type { ReviewPart } from '@/domain/ai-content/parse-review-parts';
 import { meterAiUsage, requireCreditsForTenant, CREDIT_FLOORS } from '@/domain/billing/credit-service';
+import {
+  aggregateAiUsageSummaries,
+  toAiUsageSummary,
+  type AiUsageSummary,
+} from '@/lib/billing/ai-usage-summary';
 import { analyzeWorkbook } from '@/domain/excel/workbook-analyzer';
 import { generateLegalDocuments } from '@/domain/legal/legal-doc-generator';
 import { resolveWorkbookBuffers } from '@/domain/ai-content/ensure-sheet-pages';
@@ -79,6 +84,8 @@ export interface GenerationResult {
   success: boolean;
   content?: AiGeneratedContent;
   error?: string;
+  /** Aggregated metering across all document + dashboard AI calls in this run. */
+  usage?: AiUsageSummary | null;
 }
 
 export interface SavedResult {
@@ -144,7 +151,7 @@ async function callAiProviderForDocument(
   documentType: 'businessReview' | 'executiveSummary' | 'dashboardData',
   tenantSlug: string,
   onProgress?: ProgressCallback,
-): Promise<string> {
+): Promise<{ text: string; usage: AiUsageSummary | null }> {
   const docLabel = documentType === 'businessReview' ? 'Business Review' : documentType === 'executiveSummary' ? 'Executive Summary' : 'Dashboard Data';
 
   onProgress?.({
@@ -185,24 +192,31 @@ async function callAiProviderForDocument(
 
   const result = await response.json();
   const reply = result.choices?.[0]?.message?.content ?? '';
+  const providerUsage = result.usage as { prompt_tokens?: number; completion_tokens?: number } | undefined;
+  const tokens = {
+    promptTokens: providerUsage?.prompt_tokens ?? 0,
+    completionTokens: providerUsage?.completion_tokens ?? 0,
+  };
 
+  let usage: AiUsageSummary | null = null;
   // Meter platform-key usage (BYOK is never charged — the tenant pays the
   // provider directly). Non-blocking: metering must never break generation;
   // the pre-flight gate in generateAndSave() is the enforcement point.
   if (ai.keySource === 'env') {
-    const usage = result.usage as { prompt_tokens?: number; completion_tokens?: number } | undefined;
     try {
-      await meterAiUsage({
+      const meter = await meterAiUsage({
         tenantSlug,
         model: ai.model,
-        promptTokens: usage?.prompt_tokens ?? 0,
-        completionTokens: usage?.completion_tokens ?? 0,
+        promptTokens: tokens.promptTokens,
+        completionTokens: tokens.completionTokens,
         keySource: ai.keySource,
         refType: 'content_generation',
         refId: documentType,
       });
+      usage = toAiUsageSummary(meter, tokens, { model: ai.model });
     } catch (err) {
       console.warn('[content-generator] Metering failed (non-blocking):', err instanceof Error ? err.message : err);
+      usage = toAiUsageSummary(null, tokens, { model: ai.model });
     }
   }
 
@@ -220,7 +234,7 @@ async function callAiProviderForDocument(
     }
   }
 
-  return parsed[documentType] ?? '';
+  return { text: parsed[documentType] ?? '', usage };
 }
 
 export interface HomeHeroPayload {
@@ -259,7 +273,7 @@ async function generateDashboardData(
   additionalContext: string | undefined,
   ai: ActiveAiConfig,
   tenantSlug: string,
-): Promise<DashboardData | null> {
+): Promise<{ data: DashboardData; usage: AiUsageSummary | null } | null> {
   const dashboardPrompt = buildDashboardPrompt(data, additionalContext);
 
   const response = await fetch(ai.provider.chatCompletionsUrl, {
@@ -292,35 +306,46 @@ async function generateDashboardData(
   const reply = result.choices?.[0]?.message?.content ?? '';
   if (!reply) return null;
 
+  const providerUsage = result.usage as { prompt_tokens?: number; completion_tokens?: number } | undefined;
+  const tokens = {
+    promptTokens: providerUsage?.prompt_tokens ?? 0,
+    completionTokens: providerUsage?.completion_tokens ?? 0,
+  };
+
+  let usage: AiUsageSummary | null = null;
   // Meter platform-key usage (BYOK is never charged). Non-blocking — the
   // dashboard call is already best-effort (returns null on failure), and
   // metering must never break generation.
   if (ai.keySource === 'env') {
-    const usage = result.usage as { prompt_tokens?: number; completion_tokens?: number } | undefined;
     try {
-      await meterAiUsage({
+      const meter = await meterAiUsage({
         tenantSlug,
         model: ai.model,
-        promptTokens: usage?.prompt_tokens ?? 0,
-        completionTokens: usage?.completion_tokens ?? 0,
+        promptTokens: tokens.promptTokens,
+        completionTokens: tokens.completionTokens,
         keySource: ai.keySource,
         refType: 'content_generation',
         refId: 'dashboardData',
       });
+      usage = toAiUsageSummary(meter, tokens, { model: ai.model });
     } catch (err) {
       console.warn('[content-generator] Dashboard metering failed (non-blocking):', err instanceof Error ? err.message : err);
+      usage = toAiUsageSummary(null, tokens, { model: ai.model });
     }
   }
 
   const parsed = JSON.parse(reply);
   if (!parsed.actionPhases || !parsed.targetRows || !parsed.levers) return null;
   return {
-    actionPhases: parsed.actionPhases,
-    targetRows: parsed.targetRows,
-    levers: parsed.levers,
-    homeHero: parsed.homeHero ?? null,
-    tasks: Array.isArray(parsed.tasks) ? parsed.tasks : null,
-  } as DashboardData;
+    data: {
+      actionPhases: parsed.actionPhases,
+      targetRows: parsed.targetRows,
+      levers: parsed.levers,
+      homeHero: parsed.homeHero ?? null,
+      tasks: Array.isArray(parsed.tasks) ? parsed.tasks : null,
+    } as DashboardData,
+    usage,
+  };
 }
 
 // ── Content parsing helpers ─────────────────────────────
@@ -548,10 +573,13 @@ export async function generateAndSave(
         return null;
       });
 
-    const [businessReview, executiveSummary] = await Promise.all([
+    const [businessReviewResult, executiveSummaryResult] = await Promise.all([
       callAiProviderForDocument(prompt, ai, 'businessReview', tenant, onProgress),
       callAiProviderForDocument(prompt, ai, 'executiveSummary', tenant, onProgress),
     ]);
+
+    const businessReview = businessReviewResult.text;
+    const executiveSummary = executiveSummaryResult.text;
 
     const content: AiGeneratedContent = {
       businessReview,
@@ -563,7 +591,8 @@ export async function generateAndSave(
       providerLabel: ai.provider.label,
     };
 
-    const dashboardData = await dashboardPromise;
+    const dashboardResult = await dashboardPromise;
+    const dashboardData = dashboardResult?.data ?? null;
     if (dashboardData) {
       // Save to knowledge_snippets so the dashboard blocks can read it
       await db.knowledgeSnippet.upsert({
@@ -580,6 +609,12 @@ export async function generateAndSave(
         },
       });
     }
+
+    const aggregatedUsage = aggregateAiUsageSummaries([
+      businessReviewResult.usage,
+      executiveSummaryResult.usage,
+      dashboardResult?.usage,
+    ]);
 
     onProgress?.({
       step: 'parsing',
@@ -792,6 +827,7 @@ export async function generateAndSave(
       success: true,
       prompt,
       content,
+      usage: aggregatedUsage,
       saved: {
         businessReviewParts: savedParts,
         executiveSummarySaved: execSummarySaved,
@@ -817,6 +853,7 @@ export async function generateAndSave(
         model: content.model,
         providerId: content.providerId,
         providerLabel: content.providerLabel,
+        usage: aggregatedUsage,
       },
     });
 

@@ -494,6 +494,7 @@ export async function POST(request: Request): Promise<Response> {
         model: result.content?.model,
         providerId: result.content?.providerId,
         providerLabel: result.content?.providerLabel,
+        usage: result.usage ?? null,
       },
     });
   } catch (err) {

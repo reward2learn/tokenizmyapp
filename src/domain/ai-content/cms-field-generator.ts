@@ -7,6 +7,7 @@ import {
 } from '@/lib/cms-block-field-catalog';
 import type { ActiveAiConfig } from '@/lib/ai-providers';
 import { meterAiUsage } from '@/domain/billing/credit-service';
+import { toAiUsageSummary, type AiUsageSummary } from '@/lib/billing/ai-usage-summary';
 
 export interface GenerateCmsFieldInput {
   pageSlug: string;
@@ -19,6 +20,12 @@ export interface GenerateCmsFieldInput {
   currentValue?: unknown;
   ai: ActiveAiConfig;
   tenantSlug: string;
+}
+
+export interface GenerateCmsFieldResult {
+  value: unknown;
+  /** Null for BYOK — platform credits were not touched. */
+  usage: AiUsageSummary | null;
 }
 
 function audienceContext(): string {
@@ -71,7 +78,7 @@ function summarizeConfig(config: Record<string, unknown>, omitKey: string): stri
   return `${json.slice(0, 4000)}\n…(truncated)`;
 }
 
-export async function generateCmsFieldValue(input: GenerateCmsFieldInput): Promise<unknown> {
+export async function generateCmsFieldValue(input: GenerateCmsFieldInput): Promise<GenerateCmsFieldResult> {
   const fieldType = input.fieldType ?? getFieldSpec(input.blockType, input.fieldKey).type;
   const spec = getFieldSpec(input.blockType, input.fieldKey);
   const useCase = getBlockUseCase(input.blockType);
@@ -137,21 +144,28 @@ export async function generateCmsFieldValue(input: GenerateCmsFieldInput): Promi
 
   const result = await response.json();
   const reply = result.choices?.[0]?.message?.content ?? '';
+  const providerUsage = result.usage as { prompt_tokens?: number; completion_tokens?: number } | undefined;
+  const tokens = {
+    promptTokens: providerUsage?.prompt_tokens ?? 0,
+    completionTokens: providerUsage?.completion_tokens ?? 0,
+  };
 
+  let usage: AiUsageSummary | null = null;
   if (input.ai.keySource === 'env') {
-    const usage = result.usage as { prompt_tokens?: number; completion_tokens?: number } | undefined;
     try {
-      await meterAiUsage({
+      const meter = await meterAiUsage({
         tenantSlug: input.tenantSlug,
         model: input.ai.model,
-        promptTokens: usage?.prompt_tokens ?? 0,
-        completionTokens: usage?.completion_tokens ?? 0,
+        promptTokens: tokens.promptTokens,
+        completionTokens: tokens.completionTokens,
         keySource: input.ai.keySource,
         refType: 'content_generation',
         refId: `cms_field:${input.pageSlug}:${input.blockType}:${input.fieldKey}`,
       });
+      usage = toAiUsageSummary(meter, tokens, { model: input.ai.model });
     } catch {
-      // non-blocking
+      // non-blocking — still return token counts so the client can show activity
+      usage = toAiUsageSummary(null, tokens, { model: input.ai.model });
     }
   }
 
@@ -168,5 +182,5 @@ export async function generateCmsFieldValue(input: GenerateCmsFieldInput): Promi
     throw new Error('AI response missing "value" key');
   }
 
-  return parsed.value;
+  return { value: parsed.value, usage };
 }

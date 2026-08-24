@@ -82,6 +82,7 @@ import { ActiveToolBadge, ComposerToolPicker } from '@/components/chat/composer-
 import { ComposerModelPicker } from '@/components/chat/composer-model-picker';
 import { availableComposerTools, CHAT_COMPOSER_TOOLS } from '@/lib/chat/session-tools';
 import { TemplateDraftCard } from '@/components/chat/template-draft-card';
+import { ChatCreditUsage } from '@/components/chat/chat-credit-usage';
 
 const ICON_BUTTON_SX = { width: 48, height: 48 };
 
@@ -951,6 +952,7 @@ export function ChatPanel({
               </AccordionSummary>
               <AccordionDetails sx={{ pt: 0, pb: 1 }}>
             <Stack direction="row" spacing={0.5} sx={{ alignItems: 'center', flexWrap: 'wrap' }}>
+              <ChatCreditUsage />
               {sttSupported ? (
                 <Tooltip title={voiceMode ? 'Stop voice chat' : 'Voice chat'}>
                   <IconButton

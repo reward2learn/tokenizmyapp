@@ -4,6 +4,7 @@ import {
   appendToken,
   chatStreamSlice,
   clearMessages,
+  recordTurnUsage,
   resetStream,
   setActiveTool,
   setMessages,
@@ -36,15 +37,10 @@ describe('chatStreamSlice', () => {
     state = chatStreamSlice.reducer(state, appendToken('partial'));
     state = chatStreamSlice.reducer(state, setStreamError('oops'));
     state = chatStreamSlice.reducer(state, resetStream());
-    expect(state).toEqual({
-      messages: [],
-      streamingText: '',
-      isStreaming: false,
-      error: null,
-      pendingSessionActions: [],
-      activeTool: null,
-      templateDraft: null,
-    });
+    expect(state.streamingText).toBe('');
+    expect(state.isStreaming).toBe(false);
+    expect(state.error).toBeNull();
+    expect(state.pendingSessionActions).toEqual([]);
   });
 
   it('keeps the selected composer tool across a send', () => {
@@ -95,5 +91,58 @@ describe('chatStreamSlice', () => {
     );
     expect(state.messages).toHaveLength(2);
     expect(state.messages[1]?.content).toBe('Hi there');
+  });
+
+  it('accumulates session usage across turns', () => {
+    let state = chatStreamSlice.reducer(
+      undefined,
+      recordTurnUsage({
+        promptTokens: 100,
+        completionTokens: 40,
+        credits: 2,
+        consumed: 2,
+        charged: true,
+        balance: 98,
+        model: 'gpt-4o-mini',
+      }),
+    );
+    expect(state.sessionUsage.credits).toBe(2);
+    expect(state.sessionUsage.promptTokens).toBe(100);
+    expect(state.lastTurnUsage?.consumed).toBe(2);
+    expect(state.conversationId).toBeTruthy();
+
+    state = chatStreamSlice.reducer(
+      state,
+      recordTurnUsage({
+        promptTokens: 50,
+        completionTokens: 20,
+        credits: 1,
+        consumed: 1,
+        charged: true,
+        balance: 97,
+      }),
+    );
+    expect(state.sessionUsage.credits).toBe(3);
+    expect(state.sessionUsage.turns).toHaveLength(2);
+    expect(state.lastTurnUsage?.balance).toBe(97);
+  });
+
+  it('clearMessages resets conversation usage and id', () => {
+    let state = chatStreamSlice.reducer(
+      undefined,
+      recordTurnUsage({
+        promptTokens: 10,
+        completionTokens: 5,
+        credits: 1,
+        consumed: 1,
+        charged: true,
+        balance: 9,
+      }),
+    );
+    state = chatStreamSlice.reducer(state, clearMessages());
+    expect(state.sessionUsage.credits).toBe(0);
+    expect(state.sessionUsage.turns).toEqual([]);
+    expect(state.lastTurnUsage).toBeNull();
+    expect(state.conversationId).toBeNull();
   });
 });

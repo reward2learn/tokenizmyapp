@@ -1,4 +1,5 @@
 import type { CustomTemplateDraft, CreditTopUpAction } from '@/lib/chat/session-tools';
+import type { ChatTurnUsage } from '@/lib/billing/ai-usage-summary';
 
 export type SseStreamEvent =
   | { type: 'token'; token: string }
@@ -7,6 +8,8 @@ export type SseStreamEvent =
   | { type: 'template_draft'; draft: CustomTemplateDraft }
   /** Credit top-up initiated from purchase_credits tool. */
   | { type: 'credit_topup'; creditTopUp: CreditTopUpAction }
+  /** Aggregated credit/token usage for this chat turn. */
+  | { type: 'usage'; usage: ChatTurnUsage }
   | { type: 'error'; error: string }
   | { type: 'done' };
 
@@ -24,6 +27,18 @@ function streamErrorMessage(error: unknown): string {
   return 'The AI service returned an error.';
 }
 
+function isChatTurnUsage(value: unknown): value is ChatTurnUsage {
+  if (!value || typeof value !== 'object') return false;
+  const u = value as Record<string, unknown>;
+  return (
+    typeof u.promptTokens === 'number'
+    && typeof u.completionTokens === 'number'
+    && typeof u.credits === 'number'
+    && typeof u.consumed === 'number'
+    && typeof u.charged === 'boolean'
+  );
+}
+
 /** Parse one SSE JSON payload into stream events. */
 export function parseSsePayload(payload: unknown): SseStreamEvent[] {
   const data = payload as {
@@ -31,6 +46,7 @@ export function parseSsePayload(payload: unknown): SseStreamEvent[] {
     action?: string;
     draft?: CustomTemplateDraft;
     creditTopUp?: CreditTopUpAction;
+    usage?: ChatTurnUsage;
     error?: string | { message?: string };
     choices?: { delta?: { content?: string }; message?: { content?: string } }[];
   };
@@ -45,6 +61,10 @@ export function parseSsePayload(payload: unknown): SseStreamEvent[] {
 
   if (data.type === 'credit_topup' && data.creditTopUp && typeof data.creditTopUp === 'object') {
     return [{ type: 'credit_topup', creditTopUp: data.creditTopUp }];
+  }
+
+  if (data.type === 'usage' && isChatTurnUsage(data.usage)) {
+    return [{ type: 'usage', usage: data.usage }];
   }
 
   if (data.error) {

@@ -7,6 +7,7 @@ import { chatStreamSlice } from '@/store/chat-stream-slice';
 import { chatApi } from '@/store/apis/chat-api';
 import { sheetViewerSlice } from '@/store/sheet-viewer-slice';
 import { authSlice } from '@/store/auth-slice';
+import { uiSlice } from '@/store/ui-slice';
 import { templateApi } from '@/store/apis/template-api';
 
 const searchParamsRef: { current: URLSearchParams } = { current: new URLSearchParams('') };
@@ -14,6 +15,15 @@ const searchParamsRef: { current: URLSearchParams } = { current: new URLSearchPa
 vi.mock('next/navigation', () => ({
   usePathname: () => '/ops-chat',
   useSearchParams: () => searchParamsRef.current,
+}));
+
+vi.mock('@/components/ops-admin/stripe-topup-dialog', () => ({
+  StripeTopUpDialog: () => null,
+}));
+
+vi.mock('@/components/billing/use-billing-org', () => ({
+  useBillingOrgId: () => null,
+  useSelfServeBillingEnabled: () => false,
 }));
 
 function renderPanel(search: string) {
@@ -25,6 +35,7 @@ function renderPanel(search: string) {
       // The composer reads auth.platformAdmin to decide which tools to offer,
       // and the template draft card issues a templateApi mutation.
       auth: authSlice.reducer,
+      ui: uiSlice.reducer,
       [chatApi.reducerPath]: chatApi.reducer,
       [templateApi.reducerPath]: templateApi.reducer,
     },
