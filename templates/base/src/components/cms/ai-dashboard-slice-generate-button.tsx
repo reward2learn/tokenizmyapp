@@ -7,7 +7,7 @@ import Tooltip from '@mui/material/Tooltip';
 import AutoAwesomeIcon from '@mui/icons-material/AutoAwesome';
 import { useGenerateDashboardSliceMutation } from '@/store/apis/admin-api';
 import { useCmsEditorContext } from '@/components/cms/cms-editor-context';
-import type { DashboardSliceKey } from '@/domain/ai-content/dashboard-slice-generator';
+import type { DashboardSliceKey } from '@/lib/dashboard-slices';
 
 export interface AiGenerateDashboardSliceButtonProps {
   slice: DashboardSliceKey;

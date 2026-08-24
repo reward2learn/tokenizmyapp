@@ -16,15 +16,13 @@ import type { DbClient } from '@/lib/db';
 import { findCachedWorkbook } from '@/lib/workbook-cache';
 import { getCurrentAppId, getTenantConfig } from '@shared/lib/config/tenant';
 import { getAssistantProfile } from '@shared/lib/config/template-profile';
+import {
+  DASHBOARD_SLICES,
+  BLOCK_TO_DASHBOARD_SLICE,
+  type DashboardSliceKey,
+} from '@/lib/dashboard-slices';
 
-export const DASHBOARD_SLICES = ['actionPhases', 'levers', 'targetRows'] as const;
-export type DashboardSliceKey = (typeof DASHBOARD_SLICES)[number];
-
-export const BLOCK_TO_DASHBOARD_SLICE: Record<string, DashboardSliceKey> = {
-  action_checklist: 'actionPhases',
-  lever_accordion: 'levers',
-  metric_grid: 'targetRows',
-};
+export { DASHBOARD_SLICES, BLOCK_TO_DASHBOARD_SLICE, type DashboardSliceKey };
 
 export interface DashboardDataDocument {
   actionPhases: unknown[];

@@ -18,10 +18,9 @@ import { AiGenerateDashboardSliceButton } from '@/components/cms/ai-dashboard-sl
 import { CmsEditorProvider } from '@/components/cms/cms-editor-context';
 import { hydrateBlockConfigForEdit } from '@/lib/hydrate-block-config';
 import type { CmsFieldValueType } from '@/lib/cms-block-field-catalog';
-import { BLOCK_TO_DASHBOARD_SLICE } from '@/domain/ai-content/dashboard-slice-generator';
+import { BLOCK_TO_DASHBOARD_SLICE, type DashboardSliceKey } from '@/lib/dashboard-slices';
 import { useGetCmsSourcesQuery } from '@/store/apis/admin-api';
 import { useGetDashboardDataQuery } from '@/store/apis/dashboard-api';
-import type { DashboardSliceKey } from '@/domain/ai-content/dashboard-slice-generator';
 
 function str(config: Record<string, unknown>, key: string): string {
   const v = config[key];
