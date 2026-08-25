@@ -761,20 +761,41 @@ export function AiContentTab() {
           }}
         >
           <AccordionSummary expandIcon={<ExpandMoreIcon />}>
-            <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
-              <Typography sx={{ fontWeight: 700, color: 'primary.main' }}>
+            <Stack
+              direction="row"
+              spacing={1}
+              useFlexGap
+              sx={{
+                alignItems: 'center',
+                width: '100%',
+                minWidth: 0,
+                flexWrap: 'wrap',
+                rowGap: 0.5,
+              }}
+            >
+              <Typography
+                sx={{
+                  fontWeight: 700,
+                  color: 'primary.main',
+                  flex: '1 1 140px',
+                  minWidth: 0,
+                  wordBreak: 'break-word',
+                }}
+              >
                 📋 AI Findings Context
               </Typography>
-              <Chip label={`${additionalContext.length.toLocaleString()} chars`} size="small" variant="outlined" color="primary" />
-              <Button
-                size="small"
-                variant="text"
-                color="inherit"
-                onClick={(e) => { e.stopPropagation(); clearAdditionalContext(); }}
-                sx={{ minWidth: 0, p: 0.5, color: 'text.disabled' }}
-              >
-                ✕ Remove
-              </Button>
+              <Stack direction="row" spacing={0.5} useFlexGap sx={{ flexShrink: 0, flexWrap: 'wrap', alignItems: 'center' }}>
+                <Chip label={`${additionalContext.length.toLocaleString()} chars`} size="small" variant="outlined" color="primary" />
+                <Button
+                  size="small"
+                  variant="text"
+                  color="inherit"
+                  onClick={(e) => { e.stopPropagation(); clearAdditionalContext(); }}
+                  sx={{ minWidth: 0, p: 0.5, minHeight: 36, color: 'text.disabled' }}
+                >
+                  ✕ Remove
+                </Button>
+              </Stack>
             </Stack>
           </AccordionSummary>
           <AccordionDetails>

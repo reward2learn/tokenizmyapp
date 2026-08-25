@@ -433,42 +433,75 @@ export function PageSectionsManager({ tenantSlug, appId, isSuite = false }: Page
           {drafts.map((section, index) => (
             <Accordion key={section.id} defaultExpanded={section.blockType === 'faq' || section.blockType === 'marketing_hero'}>
               <AccordionSummary expandIcon={<ExpandMoreIcon />}>
-                <Stack direction="row" spacing={1} sx={{ alignItems: 'center', width: '100%', pr: 1 }}>
-                  <Typography sx={{ flex: 1, fontFamily: 'monospace', fontSize: 13 }}>
+                <Stack
+                  direction="row"
+                  spacing={1}
+                  useFlexGap
+                  sx={{
+                    alignItems: 'center',
+                    width: '100%',
+                    minWidth: 0,
+                    pr: 1,
+                    flexWrap: 'wrap',
+                    rowGap: 0.5,
+                  }}
+                >
+                  <Typography
+                    sx={{
+                      flex: '1 1 140px',
+                      minWidth: 0,
+                      fontFamily: 'monospace',
+                      fontSize: 13,
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis',
+                      whiteSpace: { xs: 'normal', sm: 'nowrap' },
+                      wordBreak: 'break-word',
+                    }}
+                  >
                     {section.blockType}
                   </Typography>
-                  {section.dirty && <Chip size="small" label="unsaved" color="info" />}
-                  <IconButton
-                    size="small"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      moveSection(index, -1);
-                    }}
-                    disabled={!canWrite || index === 0}
+                  <Stack
+                    direction="row"
+                    spacing={0.25}
+                    useFlexGap
+                    sx={{ flexShrink: 0, flexWrap: 'wrap', alignItems: 'center' }}
                   >
-                    <ArrowUpwardIcon fontSize="small" />
-                  </IconButton>
-                  <IconButton
-                    size="small"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      moveSection(index, 1);
-                    }}
-                    disabled={!canWrite || index === drafts.length - 1}
-                  >
-                    <ArrowDownwardIcon fontSize="small" />
-                  </IconButton>
-                  <IconButton
-                    size="small"
-                    color="error"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      void handleDelete(section.id);
-                    }}
-                    disabled={!canWrite || deleting}
-                  >
-                    <DeleteIcon fontSize="small" />
-                  </IconButton>
+                    {section.dirty && <Chip size="small" label="unsaved" color="info" />}
+                    <IconButton
+                      size="small"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        moveSection(index, -1);
+                      }}
+                      disabled={!canWrite || index === 0}
+                      sx={{ width: 40, height: 40 }}
+                    >
+                      <ArrowUpwardIcon fontSize="small" />
+                    </IconButton>
+                    <IconButton
+                      size="small"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        moveSection(index, 1);
+                      }}
+                      disabled={!canWrite || index === drafts.length - 1}
+                      sx={{ width: 40, height: 40 }}
+                    >
+                      <ArrowDownwardIcon fontSize="small" />
+                    </IconButton>
+                    <IconButton
+                      size="small"
+                      color="error"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        void handleDelete(section.id);
+                      }}
+                      disabled={!canWrite || deleting}
+                      sx={{ width: 40, height: 40 }}
+                    >
+                      <DeleteIcon fontSize="small" />
+                    </IconButton>
+                  </Stack>
                 </Stack>
               </AccordionSummary>
               <AccordionDetails>

@@ -1009,17 +1009,23 @@ export function ChatPanel({
                   '& .MuiAccordionSummary-content': {
                     my: 0.5,
                     width: '100%',
+                    minWidth: 0,
                     alignItems: 'center',
                     gap: 1,
+                    flexWrap: 'wrap',
                     overflow: 'hidden',
                   },
                 }}
               >
-                <Typography variant="caption" color="text.disabled" sx={{ fontWeight: 600, flexShrink: 0 }}>
+                <Typography
+                  variant="caption"
+                  color="text.disabled"
+                  sx={{ fontWeight: 600, flex: '1 1 auto', minWidth: 0, wordBreak: 'break-word' }}
+                >
                   Tools &amp; Options
                 </Typography>
                 <Box
-                  sx={{ ml: 'auto', minWidth: 0, display: 'flex', justifyContent: 'flex-end' }}
+                  sx={{ ml: { xs: 0, sm: 'auto' }, minWidth: 0, display: 'flex', justifyContent: 'flex-end', flexShrink: 0 }}
                   onClick={(event) => event.stopPropagation()}
                   onFocus={(event) => event.stopPropagation()}
                 >

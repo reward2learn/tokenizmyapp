@@ -470,20 +470,45 @@ export function DataViewTab() {
       {categories.map((cat) => (
         <Accordion key={cat.key} elevation={0} sx={{ border: '1px solid', borderColor: 'divider', '&:before': { display: 'none' } }}>
           <AccordionSummary expandIcon={<ExpandMoreIcon />}>
-            <Stack direction="row" spacing={1.5} sx={{ alignItems: 'center', width: '100%', pr: 2 }}>
+            <Stack
+              direction="row"
+              spacing={1.5}
+              useFlexGap
+              sx={{
+                alignItems: 'center',
+                width: '100%',
+                minWidth: 0,
+                pr: 1,
+                flexWrap: 'wrap',
+                rowGap: 0.75,
+              }}
+            >
               <Checkbox
                 checked={selected.has(cat.key)}
                 onChange={() => toggleCategory(cat.key)}
                 onClick={(e) => e.stopPropagation()}
                 size="small"
+                sx={{ flexShrink: 0 }}
               />
-              <Typography variant="body2" sx={{ fontSize: '1.1rem' }}>{cat.icon}</Typography>
-              <Box sx={{ flex: 1 }}>
-                <Typography variant="body2" sx={{ fontWeight: 600 }}>{cat.label}</Typography>
+              <Typography variant="body2" sx={{ fontSize: '1.1rem', flexShrink: 0 }}>{cat.icon}</Typography>
+              <Box sx={{ flex: '1 1 120px', minWidth: 0 }}>
+                <Typography
+                  variant="body2"
+                  sx={{
+                    fontWeight: 600,
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                    whiteSpace: { xs: 'normal', sm: 'nowrap' },
+                    wordBreak: 'break-word',
+                  }}
+                >
+                  {cat.label}
+                </Typography>
               </Box>
+              <Stack direction="row" spacing={0.5} useFlexGap sx={{ flexShrink: 0, flexWrap: 'wrap', alignItems: 'center' }}>
               <Chip label={`${cat.count} rows`} size="small" variant="outlined" color={cat.count > 0 ? 'primary' : 'default'} />
               {cat.detail.length > 0 ? (
-                <Button size="small" variant="text" onClick={(e) => { e.stopPropagation(); exportCategoryAsJson(cat); }} startIcon={<DownloadIcon />} sx={{ minWidth: 0, p: 0.5 }}>
+                <Button size="small" variant="text" onClick={(e) => { e.stopPropagation(); exportCategoryAsJson(cat); }} startIcon={<DownloadIcon />} sx={{ minWidth: 0, p: 0.5, minHeight: 36 }}>
                   JSON
                 </Button>
               ) : null}
@@ -494,7 +519,7 @@ export function DataViewTab() {
                 disabled={importingCategory === cat.key}
                 onClick={(e) => e.stopPropagation()}
                 startIcon={importingCategory === cat.key ? <CircularProgress size={14} /> : <UploadFileIcon />}
-                sx={{ minWidth: 0, p: 0.5 }}
+                sx={{ minWidth: 0, p: 0.5, minHeight: 36 }}
               >
                 {importingCategory === cat.key ? '...' : 'Upload'}
                 <input
@@ -510,10 +535,11 @@ export function DataViewTab() {
                 />
               </Button>
               {categoryImportResults[cat.key] ? (
-                <Typography variant="caption" sx={{ color: categoryImportResults[cat.key]?.includes('Error') || categoryImportResults[cat.key]?.includes('failed') ? 'error.main' : 'success.main' }}>
+                <Typography variant="caption" sx={{ color: categoryImportResults[cat.key]?.includes('Error') || categoryImportResults[cat.key]?.includes('failed') ? 'error.main' : 'success.main', maxWidth: '100%', wordBreak: 'break-word' }}>
                   {categoryImportResults[cat.key]}
                 </Typography>
               ) : null}
+              </Stack>
             </Stack>
           </AccordionSummary>
           <AccordionDetails sx={{ borderTop: '1px solid', borderColor: 'divider', pt: 2 }}>

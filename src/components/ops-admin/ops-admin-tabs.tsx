@@ -1180,10 +1180,20 @@ function DayPosTab() {
     <Box sx={{ pb: 9 }}>
       <Accordion expanded={expanded === 'step1'} onChange={handleAccordion('step1')} sx={{ mb: 1 }}>
         <AccordionSummary expandIcon={<ExpandMoreIcon />}>
-          <Typography sx={{ fontWeight: 700, display: 'flex', alignItems: 'center', gap: 1 }}>
+          <Typography
+            sx={{
+              fontWeight: 700,
+              display: 'flex',
+              alignItems: 'center',
+              gap: 1,
+              minWidth: 0,
+              flexWrap: 'wrap',
+              wordBreak: 'break-word',
+            }}
+          >
             Step 1: POS OCR Prefill
             <Tooltip title="Scan POS receipt images to extract Z-report data automatically" arrow>
-              <Box component="span" sx={{ cursor: 'help', color: 'text.secondary', fontSize: '0.8rem' }}>ⓘ</Box>
+              <Box component="span" sx={{ cursor: 'help', color: 'text.secondary', fontSize: '0.8rem', flexShrink: 0 }}>ⓘ</Box>
             </Tooltip>
           </Typography>
         </AccordionSummary>
@@ -1222,10 +1232,20 @@ function DayPosTab() {
 
       <Accordion expanded={expanded === 'step2'} onChange={handleAccordion('step2')} sx={{ mb: 1 }}>
         <AccordionSummary expandIcon={<ExpandMoreIcon />}>
-          <Typography sx={{ fontWeight: 700, display: 'flex', alignItems: 'center', gap: 1 }}>
+          <Typography
+            sx={{
+              fontWeight: 700,
+              display: 'flex',
+              alignItems: 'center',
+              gap: 1,
+              minWidth: 0,
+              flexWrap: 'wrap',
+              wordBreak: 'break-word',
+            }}
+          >
             Step 2: Day POS Upload
             <Tooltip title="Review extracted data, attach receipts, then save the Z-report" arrow>
-              <Box component="span" sx={{ cursor: 'help', color: 'text.secondary', fontSize: '0.8rem' }}>ⓘ</Box>
+              <Box component="span" sx={{ cursor: 'help', color: 'text.secondary', fontSize: '0.8rem', flexShrink: 0 }}>ⓘ</Box>
             </Tooltip>
           </Typography>
         </AccordionSummary>
@@ -1339,14 +1359,43 @@ function DayPosTab() {
 
       <Accordion expanded={expanded === 'step3'} onChange={handleAccordion('step3')}>
         <AccordionSummary expandIcon={<ExpandMoreIcon />}>
-          <Stack direction="row" sx={{ width: '100%', alignItems: 'center', justifyContent: 'space-between', pr: 2 }}>
-            <Typography sx={{ fontWeight: 700, display: 'flex', alignItems: 'center', gap: 1 }}>
+          <Stack
+            direction="row"
+            spacing={1}
+            useFlexGap
+            sx={{
+              width: '100%',
+              minWidth: 0,
+              pr: 1,
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              flexWrap: 'wrap',
+              rowGap: 1,
+            }}
+          >
+            <Typography
+              sx={{
+                fontWeight: 700,
+                display: 'flex',
+                alignItems: 'center',
+                gap: 1,
+                flex: '1 1 160px',
+                minWidth: 0,
+                wordBreak: 'break-word',
+              }}
+            >
               Step 3: Recent Z-reports
               <Tooltip title="Recently saved Z-reports appear here after submission" arrow>
-                <Box component="span" sx={{ cursor: 'help', color: 'text.secondary', fontSize: '0.8rem' }}>ⓘ</Box>
+                <Box component="span" sx={{ cursor: 'help', color: 'text.secondary', fontSize: '0.8rem', flexShrink: 0 }}>ⓘ</Box>
               </Tooltip>
             </Typography>
-            <Stack direction="row" spacing={0.5} onClick={(e) => e.stopPropagation()}>
+            <Stack
+              direction="row"
+              spacing={0.5}
+              useFlexGap
+              onClick={(e) => e.stopPropagation()}
+              sx={{ flexShrink: 0, flexWrap: 'wrap' }}
+            >
               {(['list', 'calendar', 'chart'] as const).map((mode) => (
                 <Button
                   key={mode}
@@ -1354,7 +1403,7 @@ function DayPosTab() {
                   variant={viewMode === mode ? 'contained' : 'outlined'}
                   onClick={() => setViewMode(mode)}
                   startIcon={mode === 'list' ? <ViewListIcon /> : mode === 'calendar' ? <CalendarMonthIcon /> : <BarChartIcon />}
-                  sx={{ textTransform: 'capitalize', fontSize: '0.75rem', py: 0.25 }}
+                  sx={{ textTransform: 'capitalize', fontSize: '0.75rem', py: 0.25, minHeight: 36 }}
                 >
                   {mode}
                 </Button>

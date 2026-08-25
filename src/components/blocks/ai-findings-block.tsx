@@ -75,45 +75,107 @@ function FindingAccordion({
         borderColor: selected ? 'primary.main' : 'divider',
         '&:before': { display: 'none' },
         bgcolor: selected ? 'rgba(235, 61, 40, 0.06)' : 'rgba(235, 61, 40, 0.03)',
+        // Keep long titles + action chips inside the red card on narrow viewports.
+        maxWidth: '100%',
+        overflow: 'hidden',
+        boxSizing: 'border-box',
       }}
     >
-      <AccordionSummary expandIcon={<ExpandMoreIcon sx={{ color: 'primary.main' }} />}>
-        <Stack direction="row" spacing={1} sx={{ alignItems: 'center', width: '100%', pr: 2 }}>
-          <Checkbox
-            size="small"
-            checked={selected}
-            onChange={(e) => { e.stopPropagation(); onToggleSelect(); }}
-            onClick={(e) => e.stopPropagation()}
-            sx={{ p: 0.25 }}
-          />
-          <Box sx={{ flex: 1, minWidth: 0 }}>
-            <Typography variant="subtitle2" sx={{ fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+      <AccordionSummary
+        expandIcon={<ExpandMoreIcon sx={{ color: 'primary.main' }} />}
+        sx={{
+          px: { xs: 1, sm: 2 },
+          alignItems: 'flex-start',
+          maxWidth: '100%',
+          boxSizing: 'border-box',
+          '& .MuiAccordionSummary-content': {
+            display: 'block',
+            width: '100%',
+            minWidth: 0,
+            maxWidth: '100%',
+            my: 1,
+            overflow: 'hidden',
+          },
+          '& .MuiAccordionSummary-expandIconWrapper': {
+            mt: 0.75,
+            flexShrink: 0,
+          },
+        }}
+      >
+        {/*
+          Column layout (not a single row): title always gets the full summary
+          width and wraps; date/actions sit on the next line so they cannot
+          push past the accordion edge.
+        */}
+        <Stack spacing={0.75} sx={{ width: '100%', minWidth: 0, maxWidth: '100%', overflow: 'hidden' }}>
+          <Stack direction="row" spacing={0.5} sx={{ alignItems: 'flex-start', minWidth: 0, width: '100%' }}>
+            <Checkbox
+              size="small"
+              checked={selected}
+              onChange={(e) => { e.stopPropagation(); onToggleSelect(); }}
+              onClick={(e) => e.stopPropagation()}
+              // Theme forces sizeSmall checkboxes to 70×48 — too wide for this header.
+              sx={{ p: 0.5, width: 40, height: 40, flexShrink: 0 }}
+            />
+            <Typography
+              variant="subtitle2"
+              sx={{
+                fontWeight: 600,
+                flex: 1,
+                minWidth: 0,
+                maxWidth: '100%',
+                whiteSpace: 'normal',
+                overflowWrap: 'anywhere',
+                wordBreak: 'break-word',
+                lineHeight: 1.35,
+                pt: 0.75,
+              }}
+            >
               {finding.title}
             </Typography>
-          </Box>
-          <Chip label={formatDate(finding.createdAt)} size="small" variant="outlined" sx={{ height: 20, fontSize: '0.65rem' }} />
-          <Button
-            size="small"
-            variant="text"
-            onClick={(e) => { e.stopPropagation(); onCopy(); }}
-            startIcon={<ContentCopyIcon fontSize="small" />}
-            sx={{ minWidth: 0, p: 0.5 }}
+          </Stack>
+          <Stack
+            direction="row"
+            spacing={0.5}
+            useFlexGap
+            onClick={(e) => e.stopPropagation()}
+            sx={{
+              pl: { xs: 0, sm: 5 },
+              flexWrap: 'wrap',
+              alignItems: 'center',
+              rowGap: 0.5,
+              maxWidth: '100%',
+            }}
           >
-            Copy
-          </Button>
-          <Button
-            size="small"
-            variant="text"
-            onClick={(e) => { e.stopPropagation(); onSummarize(); }}
-            disabled={isSummarizing}
-            startIcon={isSummarizing ? <CircularProgress size={12} /> : <AutoFixHighIcon fontSize="small" />}
-            sx={{ minWidth: 0, p: 0.5 }}
-          >
-            {isSummarizing ? '...' : 'Summarize'}
-          </Button>
+            <Chip
+              label={formatDate(finding.createdAt)}
+              size="small"
+              variant="outlined"
+              sx={{ height: 22, fontSize: '0.65rem', maxWidth: '100%' }}
+            />
+            <Button
+              size="small"
+              variant="text"
+              onClick={(e) => { e.stopPropagation(); onCopy(); }}
+              startIcon={<ContentCopyIcon fontSize="small" />}
+              sx={{ minWidth: 0, px: 0.75, minHeight: 36 }}
+            >
+              Copy
+            </Button>
+            <Button
+              size="small"
+              variant="text"
+              onClick={(e) => { e.stopPropagation(); onSummarize(); }}
+              disabled={isSummarizing}
+              startIcon={isSummarizing ? <CircularProgress size={12} /> : <AutoFixHighIcon fontSize="small" />}
+              sx={{ minWidth: 0, px: 0.75, minHeight: 36 }}
+            >
+              {isSummarizing ? '...' : 'Summarize'}
+            </Button>
+          </Stack>
         </Stack>
       </AccordionSummary>
-      <AccordionDetails sx={{ borderTop: '1px solid', borderColor: 'divider', pt: 2 }}>
+      <AccordionDetails sx={{ borderTop: '1px solid', borderColor: 'divider', pt: 2, overflow: 'hidden' }}>
         <MarkdownBody markdown={finding.content} />
       </AccordionDetails>
     </Accordion>
@@ -301,14 +363,17 @@ export function AiFindingsBlock() {
   const allSelected = selectedIds.size === findings.length;
 
   return (
-    <Box component="section" sx={{ mx: 'auto', px: 3, py: 4 }}>
+    <Box component="section" sx={{ mx: 'auto', px: { xs: 1.5, sm: 3 }, py: 4, maxWidth: '100%', overflow: 'hidden', boxSizing: 'border-box' }}>
       <Paper
         elevation={0}
         sx={{
-          p: { xs: 2, md: 3 },
+          p: { xs: 1.5, md: 3 },
           border: '1px solid',
           borderColor: 'primary.main',
           bgcolor: 'rgba(235, 61, 40, 0.04)',
+          maxWidth: '100%',
+          overflow: 'hidden',
+          boxSizing: 'border-box',
         }}
       >
         <Stack spacing={2}>

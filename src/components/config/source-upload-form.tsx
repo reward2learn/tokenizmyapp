@@ -992,13 +992,25 @@ function SeedSummary({ result }: { result: ReseedResponse }) {
                 sx={{
                   fontWeight: 600,
                   flex: 1,
+                  minWidth: 0,
                   display: 'flex',
                   justifyContent: 'space-between',
                   alignItems: 'center',
+                  flexWrap: 'wrap',
+                  columnGap: 1,
+                  rowGap: 0.5,
                 }}
               >
-                <span>{TABLE_LABELS[table] ?? table}</span>
-                <Box component="span" sx={{ color: 'text.secondary', fontWeight: 400, ml: 2 }}>
+                <Box
+                  component="span"
+                  sx={{ minWidth: 0, flex: '1 1 120px', wordBreak: 'break-word' }}
+                >
+                  {TABLE_LABELS[table] ?? table}
+                </Box>
+                <Box
+                  component="span"
+                  sx={{ color: 'text.secondary', fontWeight: 400, flexShrink: 0 }}
+                >
                   {count}
                 </Box>
               </Typography>

@@ -316,6 +316,52 @@ export function createAppTheme(brand: BrandColors, mode: ResolvedThemeMode = 'li
           root: { textTransform: 'none', fontWeight: TYPE.control.weight, letterSpacing: 0 },
         },
       },
+      /**
+       * Accordion headers with long titles + inline action chips/icons must stay
+       * inside the panel on narrow viewports. Default MUI content is a non-wrapping
+       * flex row, so titles + 48px IconButtons spill past the card edge.
+       */
+      MuiAccordion: {
+        styleOverrides: {
+          root: {
+            overflow: 'hidden',
+            maxWidth: '100%',
+          },
+        },
+      },
+      MuiAccordionSummary: {
+        styleOverrides: {
+          root: {
+            maxWidth: '100%',
+            boxSizing: 'border-box',
+            // Allow multi-line headers (title + actions wrapping) without clipping.
+            alignItems: 'flex-start',
+            '&.Mui-expanded': {
+              minHeight: 48,
+            },
+          },
+          content: {
+            flex: '1 1 auto',
+            minWidth: 0,
+            maxWidth: '100%',
+            margin: '12px 0',
+            flexWrap: 'wrap',
+            alignItems: 'center',
+            columnGap: 8,
+            rowGap: 8,
+            overflow: 'hidden',
+            '&.Mui-expanded': {
+              margin: '12px 0',
+            },
+          },
+          expandIconWrapper: {
+            flexShrink: 0,
+            // Keep chevron aligned when the title/actions wrap to multiple lines.
+            alignSelf: 'center',
+            marginTop: 4,
+          },
+        },
+      },
       MuiButton: {
         defaultProps: { disableElevation: true },
         styleOverrides: {
