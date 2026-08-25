@@ -109,6 +109,18 @@ const createSchema = z.object({
       activeModel: z.string().min(1).max(200).optional(),
     })
     .optional(),
+  /**
+   * Database from create-tenant wizard step 5. When pooledUrl is present the
+   * server skips Neon API provisioning and persists these URLs so suite / add-app
+   * flows can prepopulate the shared tenant DB.
+   */
+  database: z
+    .object({
+      mode: z.enum(['auto', 'manual']).optional(),
+      pooledUrl: z.string().max(2000).nullable().optional(),
+      directUrl: z.string().max(2000).nullable().optional(),
+    })
+    .optional(),
 });
 
 // ── Helper: snake_case DB rows → camelCase TenantEntry ──
@@ -261,31 +273,63 @@ export async function POST(request: Request): Promise<Response> {
       );
     }
 
-    // ── Phase 4: Neon database provisioning (if API key available) ──
-    // Runs BEFORE suite provisioning below — provisionSuiteApps() reads
-    // tenants.db_url to decide which database to seed each app's data into,
-    // so the tenant's own dedicated DB must exist first. Provisioning suite
-    // apps before this ran meant every app's first seed silently landed in
-    // the shared root DB instead of the tenant's own database.
-    // Best-effort: log errors but continue.
+    // ── Phase 4: Neon database (wizard URLs or auto-provision) ──
+    // Runs BEFORE suite provisioning — provisionSuiteApps() reads
+    // tenants.db_url / metadata.config.database so apps seed the shared
+    // tenant DB, not the factory root DB.
     let neonResult: ProvisionedDatabase | null = null;
-    if (process.env.NEON_API_KEY) {
+    const wizardDb = parsed.data.database;
+    const wizardPooled = wizardDb?.pooledUrl?.trim() || '';
+    const wizardDirect = wizardDb?.directUrl?.trim() || '';
+
+    if (wizardPooled) {
+      neonResult = {
+        pooledUrl: wizardPooled,
+        directUrl: wizardDirect || wizardPooled.replace('-pooler', ''),
+        branchId: 'wizard-supplied',
+        databaseName: parsed.data.slug.replace(/-/g, '_'),
+      };
+      console.log('[tenants] Phase 4: using wizard-supplied database URLs');
+    } else if (process.env.NEON_API_KEY) {
       try {
         console.log('[tenants] Phase 4: provisioning Neon database...');
         neonResult = await provisionTenantDatabase(parsed.data.slug);
         console.log('[tenants] Phase 4: Neon database provisioned');
-        // Persist the DB URL to the tenant record
-        await db.$executeRawUnsafe(
-          `UPDATE tenants SET db_url = $1, updated_at = CURRENT_TIMESTAMP WHERE slug = $2;`,
-          neonResult.pooledUrl,
-          parsed.data.slug,
-        );
       } catch (err) {
         console.error(
           '[tenants] Phase 4: Neon provisioning failed:',
           err instanceof Error ? err.message : String(err),
         );
       }
+    } else {
+      console.warn(
+        '[tenants] Phase 4: skipped — no wizard database URLs and NEON_API_KEY is unset',
+      );
+    }
+
+    if (neonResult) {
+      const databaseConfig = {
+        databaseUrl: neonResult.pooledUrl,
+        pooledUrl: neonResult.pooledUrl,
+        directUrl: neonResult.directUrl,
+        dbUrl: neonResult.pooledUrl,
+      };
+      // Persist column + metadata.config.database (create-app / edit wizards read both).
+      await db.$executeRawUnsafe(
+        `UPDATE tenants
+         SET db_url = $1,
+             metadata = jsonb_set(
+               jsonb_set(COALESCE(metadata, '{}'::jsonb), '{config}', COALESCE(metadata->'config', '{}'::jsonb), true),
+               '{config,database}',
+               $2::jsonb,
+               true
+             ),
+             updated_at = CURRENT_TIMESTAMP
+         WHERE slug = $3;`,
+        neonResult.pooledUrl,
+        JSON.stringify(databaseConfig),
+        parsed.data.slug,
+      );
     }
 
     // ── Suite Mode: materialize app pack ─────────────────────────
@@ -302,14 +346,19 @@ export async function POST(request: Request): Promise<Response> {
           packMode: parsed.data.packMode,
         });
         if (packResult.success && packResult.appPack) {
-          // Store the app pack config in tenant metadata
-          const existingMeta = (parsed.data.metadata ?? {}) as Record<string, unknown>;
+          // Merge into the live DB metadata (not request metadata) so Phase 4's
+          // config.database is preserved for create-app prepopulation.
+          const liveRows = await db.$queryRawUnsafe(
+            `SELECT metadata FROM tenants WHERE slug = $1 LIMIT 1;`,
+            parsed.data.slug,
+          ) as { metadata: Record<string, unknown> | null }[];
+          const liveMeta = (liveRows[0]?.metadata ?? {}) as Record<string, unknown>;
+          const liveConfig = (liveMeta.config ?? {}) as Record<string, unknown>;
           await db.$executeRawUnsafe(
             `UPDATE tenants SET metadata = jsonb_set(COALESCE(metadata, '{}'), '{config}', $1::jsonb), updated_at = CURRENT_TIMESTAMP WHERE slug = $2;`,
             JSON.stringify({
-              ...((existingMeta.config as Record<string, unknown>) ?? {}),
+              ...liveConfig,
               templateMode: 'suite',
-              // Store the actual templates used so UI can reference them
               templates: parsed.data.templates,
               appPack: packResult.appPack,
             }),

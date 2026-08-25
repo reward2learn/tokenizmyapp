@@ -2,6 +2,7 @@
 
 import { useCallback, useState } from 'react';
 import Alert from '@mui/material/Alert';
+import AlertTitle from '@mui/material/AlertTitle';
 import Box from '@mui/material/Box';
 import Button from '@mui/material/Button';
 import Card from '@mui/material/Card';
@@ -32,9 +33,14 @@ import OpenInNewIcon from '@mui/icons-material/OpenInNew';
 import AutoFixHighIcon from '@mui/icons-material/AutoFixHigh';
 import TravelExploreIcon from '@mui/icons-material/TravelExplore';
 import PaletteIcon from '@mui/icons-material/Palette';
+import DnsIcon from '@mui/icons-material/Dns';
 import FormControlLabel from '@mui/material/FormControlLabel';
 import Switch from '@mui/material/Switch';
 import Checkbox from '@mui/material/Checkbox';
+import Radio from '@mui/material/Radio';
+import RadioGroup from '@mui/material/RadioGroup';
+import FormControl from '@mui/material/FormControl';
+import FormLabel from '@mui/material/FormLabel';
 import Table from '@mui/material/Table';
 import TableBody from '@mui/material/TableBody';
 import TableCell from '@mui/material/TableCell';
@@ -53,6 +59,7 @@ import { BUSINESS_CATEGORY_PROMPTS, getBusinessCategory } from '@/domain/app-pac
 import {
   useCreateTenantMutation,
   useScrapeTenantMutation,
+  usePreviewNeonProvisionMutation,
 } from '@/store/apis/tenant-api';
 import { TenantRateCardStep } from '@/components/ops-admin/tenant-rate-card-step';
 import {
@@ -67,7 +74,20 @@ import {
 import { useAppDispatch, useAppSelector } from '@/store/hooks';
 import { setWizardRateCardPrefill } from '@/store/ui-slice';
 
-const STEPS = ['Business Info', 'Template', 'AI Description', 'Branding', 'AI Rate Card', 'AI Providers', 'Review'];
+/** Create-tenant steps — Database is 5th so Neon exists before AI providers / Review. */
+const STEPS = [
+  'Business Info',
+  'Template',
+  'AI Description',
+  'Branding',
+  'Database',
+  'AI Rate Card',
+  'AI Providers',
+  'Review',
+];
+
+const REVIEW_STEP = STEPS.length - 1;
+const SUCCESS_STEP = STEPS.length;
 
 interface ScrapedData {
   businessName: string;
@@ -109,6 +129,15 @@ interface WizardState {
   scrapeUrl: string;
   /** Secured billing rate-card inputs — locked in by platform admin at create time. */
   rateCard: TenantRateCardInputs;
+  /**
+   * Shared tenant Neon DB — provisioned here so suite / add-app wizards can
+   * prepopulate connection strings from tenants.db_url + metadata.config.database.
+   */
+  database: {
+    mode: 'auto' | 'manual';
+    pooledUrl: string;
+    directUrl: string;
+  };
   /** AI provider catalog + keys seeded into the new tenant DB after Neon. */
   aiProviders: AiProviderWizardValue;
 }
@@ -132,6 +161,11 @@ const INITIAL_STATE: WizardState = {
     annualRevenueUsd: 0,
     macStudioCostUsd: DEFAULT_MAC_STUDIO_ULTRA_256_USD,
     monthlyThirdPartyUsd: 0,
+  },
+  database: {
+    mode: 'auto',
+    pooledUrl: '',
+    directUrl: '',
   },
   aiProviders: emptyAiProviderWizardValue(),
 };
@@ -160,6 +194,8 @@ export function TenantWizard() {
   const [scrapeError, setScrapeError] = useState<string | null>(null);
   const [createTenant, { isLoading, isError, error, isSuccess, data }] = useCreateTenantMutation();
   const [scrapeTenant] = useScrapeTenantMutation();
+  const [previewNeon, { isLoading: provisioningDb }] = usePreviewNeonProvisionMutation();
+  const [dbProvisionError, setDbProvisionError] = useState<string | null>(null);
   const [rateCardPrefillApplied, setRateCardPrefillApplied] = useState(false);
 
   const handleOpen = () => {
@@ -175,6 +211,7 @@ export function TenantWizard() {
     });
     setScraped(null);
     setScrapeError(null);
+    setDbProvisionError(null);
     setRateCardPrefillApplied(hadPrefill);
     if (rateCardPrefill) {
       dispatch(setWizardRateCardPrefill(null));
@@ -345,10 +382,50 @@ export function TenantWizard() {
       if (!state.displayName.trim()) { setSlugError('Display name is required'); return; }
       setSlugError(null);
     }
+    // Database step (index 4): manual mode requires a pooled URL before continuing.
+    if (step === 4 && state.database.mode === 'manual' && !state.database.pooledUrl.trim()) {
+      setDbProvisionError('Enter a pooled database URL, or switch to Auto-provision Neon.');
+      return;
+    }
+    setDbProvisionError(null);
     setStep((s) => s + 1);
   };
 
   const handleBack = () => setStep((s) => s - 1);
+
+  const handleProvisionNeonNow = async () => {
+    const err = validateSlug(state.slug);
+    if (err) {
+      setDbProvisionError(`Fix the slug on Business Info first: ${err}`);
+      return;
+    }
+    setDbProvisionError(null);
+    try {
+      const result = await previewNeon({ slug: state.slug }).unwrap();
+      const pooled = result.data?.pooledUrl ?? '';
+      const direct = result.data?.directUrl ?? '';
+      if (!pooled) {
+        setDbProvisionError('Provisioning succeeded but no connection string was returned.');
+        return;
+      }
+      setState((s) => ({
+        ...s,
+        database: {
+          mode: 'auto',
+          pooledUrl: pooled,
+          directUrl: direct || pooled.replace('-pooler', ''),
+        },
+      }));
+    } catch (e) {
+      const msg =
+        e && typeof e === 'object' && 'data' in e
+          ? ((e as { data?: { error?: string } }).data?.error ?? 'Neon provisioning failed')
+          : e instanceof Error
+            ? e.message
+            : 'Neon provisioning failed';
+      setDbProvisionError(msg);
+    }
+  };
 
   const handleCreate = async () => {
     const isSuite = state.templateMode === 'suite';
@@ -368,6 +445,11 @@ export function TenantWizard() {
         ...state.rateCard,
         appCount: state.rateCard.appCount || suggestedApps,
       },
+      database: {
+        mode: state.database.mode,
+        pooledUrl: state.database.pooledUrl.trim() || null,
+        directUrl: state.database.directUrl.trim() || null,
+      },
       aiProviderConfig: {
         catalog: state.aiProviders.catalog,
         apiKeysBySecretName: Object.fromEntries(
@@ -378,7 +460,7 @@ export function TenantWizard() {
       },
     }).unwrap();
     if (result.success) {
-      setStep(7);
+      setStep(SUCCESS_STEP);
     }
   };
 
@@ -964,8 +1046,152 @@ export function TenantWizard() {
             </Stack>
           ) : null}
 
-          {/* Step 4: AI Rate Card */}
+          {/* Step 4: Database — shared tenant Neon DB for all suite / add-app flows */}
           {step === 4 ? (
+            <Stack spacing={3}>
+              <Stack direction="row" spacing={1.5} sx={{ alignItems: 'center' }}>
+                <DnsIcon color="primary" />
+                <Typography variant="subtitle1" sx={{ fontWeight: 600 }}>
+                  Database Connection
+                </Typography>
+              </Stack>
+              <Alert severity="info">
+                This Neon database belongs to the <strong>tenant</strong>. Every app under{' '}
+                <strong>{state.slug || '…'}</strong> (suite pack, Add App) reuses these connection
+                strings via <code>tenants.db_url</code> / <code>metadata.config.database</code>.
+                Provision it here before AI providers and create.
+              </Alert>
+
+              <FormControl>
+                <FormLabel id="db-mode-label">How to configure</FormLabel>
+                <RadioGroup
+                  aria-labelledby="db-mode-label"
+                  value={state.database.mode}
+                  onChange={(e) =>
+                    setState((s) => ({
+                      ...s,
+                      database: {
+                        ...s.database,
+                        mode: e.target.value as 'auto' | 'manual',
+                      },
+                    }))
+                  }
+                >
+                  <FormControlLabel
+                    value="auto"
+                    control={<Radio />}
+                    label="Auto-provision Neon (recommended)"
+                  />
+                  <FormControlLabel
+                    value="manual"
+                    control={<Radio />}
+                    label="Enter existing connection strings"
+                  />
+                </RadioGroup>
+              </FormControl>
+
+              {state.database.mode === 'auto' ? (
+                <Paper variant="outlined" sx={{ p: 2.5, borderColor: 'secondary.main' }}>
+                  <Typography variant="subtitle2" sx={{ fontWeight: 600, mb: 1 }}>
+                    Auto-Provision Neon Database
+                  </Typography>
+                  <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                    Creates an isolated Neon branch for <strong>{state.slug || 'this-tenant'}</strong>.
+                    You can provision now (recommended) or let Create do it on submit when{' '}
+                    <code>NEON_API_KEY</code> is set.
+                  </Typography>
+                  <Stack direction="row" spacing={1.5} sx={{ flexWrap: 'wrap', gap: 1 }}>
+                    <Button
+                      variant="contained"
+                      color="secondary"
+                      onClick={() => void handleProvisionNeonNow()}
+                      disabled={provisioningDb || !state.slug}
+                      startIcon={
+                        provisioningDb
+                          ? <CircularProgress size={18} color="inherit" />
+                          : <DnsIcon />
+                      }
+                    >
+                      {provisioningDb
+                        ? 'Provisioning…'
+                        : state.database.pooledUrl
+                          ? 'Re-provision Neon'
+                          : 'Provision Neon now'}
+                    </Button>
+                    <Button
+                      variant="outlined"
+                      href="https://console.neon.tech"
+                      target="_blank"
+                      endIcon={<OpenInNewIcon />}
+                    >
+                      Open Neon Console
+                    </Button>
+                  </Stack>
+                  {state.database.pooledUrl ? (
+                    <Alert severity="success" sx={{ mt: 2 }}>
+                      <AlertTitle>Database ready</AlertTitle>
+                      Connection strings are set — suite / Add App wizards will prepopulate them.
+                    </Alert>
+                  ) : (
+                    <Alert severity="warning" sx={{ mt: 2 }}>
+                      Not provisioned yet. Create will attempt Neon automatically if the API key is
+                      configured; otherwise Add App will show a missing-database flight-check failure.
+                    </Alert>
+                  )}
+                </Paper>
+              ) : null}
+
+              <Divider>
+                <Typography variant="caption" color="text.secondary">
+                  {state.database.mode === 'manual' ? 'Connection strings' : 'or review / edit strings'}
+                </Typography>
+              </Divider>
+
+              <TextField
+                label="Database URL (Pooled)"
+                value={state.database.pooledUrl}
+                onChange={(e) => {
+                  const url = e.target.value;
+                  setState((s) => ({
+                    ...s,
+                    database: {
+                      ...s.database,
+                      mode: s.database.mode === 'auto' && url ? s.database.mode : 'manual',
+                      pooledUrl: url,
+                      directUrl: s.database.directUrl || url.replace('-pooler', ''),
+                    },
+                  }));
+                }}
+                fullWidth
+                multiline
+                rows={2}
+                placeholder="postgresql://user:pass@ep-xxx-pooler.neon.tech/db?sslmode=verify-full"
+                slotProps={{ input: { sx: { fontFamily: 'monospace', fontSize: '0.8rem' } } }}
+              />
+              <TextField
+                label="Direct URL (Unpooled)"
+                value={state.database.directUrl}
+                onChange={(e) =>
+                  setState((s) => ({
+                    ...s,
+                    database: { ...s.database, directUrl: e.target.value },
+                  }))
+                }
+                fullWidth
+                multiline
+                rows={2}
+                slotProps={{ input: { sx: { fontFamily: 'monospace', fontSize: '0.8rem' } } }}
+              />
+              {dbProvisionError ? (
+                <Alert severity="error" onClose={() => setDbProvisionError(null)}>
+                  {dbProvisionError}
+                </Alert>
+              ) : null}
+            </Stack>
+          ) : null}
+
+          {/* Step 5: AI Rate Card */}
+          {step === 5 ? (
             <Stack spacing={2}>
               {rateCardPrefillApplied ? (
                 <Alert severity="success">
@@ -986,16 +1212,16 @@ export function TenantWizard() {
             </Stack>
           ) : null}
 
-          {/* Step 5: AI Providers */}
-          {step === 5 ? (
+          {/* Step 6: AI Providers */}
+          {step === 6 ? (
             <TenantAiProvidersConfigStep
               value={state.aiProviders}
               onChange={(aiProviders) => setState((s) => ({ ...s, aiProviders }))}
             />
           ) : null}
 
-          {/* Step 6: Review */}
-          {step === 6 ? (
+          {/* Step 7: Review */}
+          {step === REVIEW_STEP ? (
             <Stack spacing={2}>
               <Typography variant="body2" color="text.secondary">
                 Review your tenant configuration before creating. The AI pipeline will run automatically.
@@ -1051,6 +1277,16 @@ export function TenantWizard() {
                     <Chip size="small" label={`Primary: ${state.primaryColor}`} sx={{ bgcolor: state.primaryColor, color: '#fff' }} />
                     <Chip size="small" label={`Secondary: ${state.secondaryColor}`} sx={{ bgcolor: state.secondaryColor, color: '#000' }} />
                   </Stack>
+                  <Box>
+                    <Typography variant="caption" color="text.secondary">Database</Typography>
+                    <Typography variant="body2" sx={{ mt: 0.5 }}>
+                      {state.database.pooledUrl
+                        ? `✅ ${state.database.mode === 'manual' ? 'Manual URLs' : 'Provisioned'} — shared by all apps under this tenant`
+                        : state.database.mode === 'auto'
+                          ? '⏳ Auto-provision on Create (requires NEON_API_KEY)'
+                          : '⚠️ No pooled URL — Add App will fail flight check'}
+                    </Typography>
+                  </Box>
                   <Box>
                     <Typography variant="caption" color="text.secondary">AI Rate Card</Typography>
                     <Typography variant="body2" sx={{ mt: 0.5 }}>
@@ -1174,8 +1410,8 @@ export function TenantWizard() {
               </Paper>
             </Stack>
           ) : null}
-          {/* Step 7: Success */}
-          {step === 7 ? (
+          {/* Success (after Create) */}
+          {step === SUCCESS_STEP ? (
             <Stack spacing={2} sx={{ textAlign: 'center', py: 3 }}>
               <CheckCircleIcon color="success" sx={{ fontSize: 64, mx: 'auto' }} />
               <Typography variant="h6" sx={{ fontWeight: 700 }}>Tenant Created!</Typography>
@@ -1197,7 +1433,7 @@ export function TenantWizard() {
                 <Chip label={data.data.tenant.status === 'live' ? 'Live — Ready to use' : `Status: ${data.data.tenant.status}`} size="small" color={data.data.tenant.status === 'live' ? 'success' : 'warning'} />
               ) : null}
               <Stack direction="row" sx={{ gap: 1 }}>
-                <Button variant="outlined" onClick={() => { setStep(0); setState(INITIAL_STATE); setScraped(null); }}>Create Another</Button>
+                <Button variant="outlined" onClick={() => { setStep(0); setState(INITIAL_STATE); setScraped(null); setDbProvisionError(null); }}>Create Another</Button>
                 <Button variant="contained" onClick={handleClose}>View Tenant List</Button>
                 <Button variant="contained" color="secondary" component="a" href={`https://${state.slug}.vercel.app`} target="_blank" endIcon={<OpenInNewIcon />}>Open {state.slug}.vercel.app</Button>
               </Stack>
@@ -1211,12 +1447,12 @@ export function TenantWizard() {
           ) : null}
         </DialogContent>
 
-        {step < 7 ? (
+        {step < SUCCESS_STEP ? (
           <DialogActions>
-            {step > 0 ? <Button onClick={handleBack} disabled={isLoading}>Back</Button> : <Button onClick={handleClose} disabled={isLoading}>Cancel</Button>}
+            {step > 0 ? <Button onClick={handleBack} disabled={isLoading || provisioningDb}>Back</Button> : <Button onClick={handleClose} disabled={isLoading}>Cancel</Button>}
             <Box sx={{ flex: 1 }} />
-            {step < 6 ? (
-              <Button variant="contained" onClick={handleNext}>Continue</Button>
+            {step < REVIEW_STEP ? (
+              <Button variant="contained" onClick={handleNext} disabled={provisioningDb}>Continue</Button>
             ) : (
               <Button variant="contained" color="primary" onClick={() => void handleCreate()} disabled={isLoading} startIcon={isLoading ? <CircularProgress size={18} color="inherit" /> : <AutoFixHighIcon />}>
                 {isLoading ? 'Generating...' : 'Create with AI'}

@@ -225,6 +225,16 @@ export const tenantApi = createApi({
         activeProviderId?: string;
         activeModel?: string;
       };
+      /**
+       * Tenant Neon DB from the create wizard Database step.
+       * When pooledUrl is set, create skips Neon API and uses these URLs.
+       * mode `auto` without URLs still provisions on the server when NEON_API_KEY is set.
+       */
+      database?: {
+        mode?: 'auto' | 'manual';
+        pooledUrl?: string | null;
+        directUrl?: string | null;
+      };
     }>({
       query: (body) => ({
         url: 'admin/tenants',
@@ -818,6 +828,24 @@ export const tenantApi = createApi({
       invalidatesTags: (_result, _error, { slug }) => [{ type: 'Tenants', id: slug }],
     }),
 
+    /** Create-wizard: provision Neon before the tenants row exists. */
+    previewNeonProvision: builder.mutation<
+      ApiEnvelope<{
+        slug: string;
+        pooledUrl: string;
+        directUrl: string;
+        branchId: string;
+        databaseName: string;
+      }>,
+      { slug: string }
+    >({
+      query: (body) => ({
+        url: 'admin/tenants/neon-preview',
+        method: 'POST',
+        body,
+      }),
+    }),
+
     testNeonConnection: builder.mutation<ApiEnvelope<{ success: boolean; message?: string }>, { slug: string; dbUrl?: string }>({
       query: ({ slug, dbUrl }) => ({
         url: `admin/tenants/${slug}/provision/neon/test`,
@@ -983,6 +1011,7 @@ export const {
   useLazyFetchGoogleOAuthClientInfoQuery,
   useSyncGoogleOAuthClientMutation,
   useProvisionNeonMutation,
+  usePreviewNeonProvisionMutation,
   useTestNeonConnectionMutation,
   useCheckRedirectsMutation,
   useRenameTenantMutation,

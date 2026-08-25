@@ -14,7 +14,7 @@
 import { NextResponse } from 'next/server';
 import { requireWriteAuth } from '@/lib/auth/guards';
 import { jsonError, jsonOk } from '@/lib/api/response';
-import { createClient } from '@/lib/db';
+import { createRawClient } from '@/lib/db';
 import { provisionTenantDatabase } from '@/domain/tenant/neon-provision-service';
 import { formatNeonConnectionStrings, formatNeonOutput } from '@/domain/tenant/neon-output-formatter';
 
@@ -38,16 +38,30 @@ export async function POST(
     const formatted = formatNeonConnectionStrings(neonDb, slug);
     const prettyOutput = formatNeonOutput(neonDb, slug);
 
-    // 3. Update tenant record with DB URL (using auth session to satisfy ZenStack policy)
-    const db = createClient({ tier: guard.session.tier, sub: guard.session.sub });
-    await db.tenant.update({
-      where: { slug },
-      data: {
-        dbUrl: neonDb.pooledUrl,
-        status: 'draft',
-        updatedAt: new Date(),
-      },
-    });
+    // 3. Update tenant record with DB URL + metadata.config.database (for Add App prepopulation)
+    const db = createRawClient();
+    const databaseConfig = {
+      databaseUrl: neonDb.pooledUrl,
+      pooledUrl: neonDb.pooledUrl,
+      directUrl: neonDb.directUrl,
+      dbUrl: neonDb.pooledUrl,
+    };
+    await db.$executeRawUnsafe(
+      `UPDATE tenants
+       SET db_url = $1,
+           metadata = jsonb_set(
+             jsonb_set(COALESCE(metadata, '{}'::jsonb), '{config}', COALESCE(metadata->'config', '{}'::jsonb), true),
+             '{config,database}',
+             $2::jsonb,
+             true
+           ),
+           status = 'draft',
+           updated_at = CURRENT_TIMESTAMP
+       WHERE slug = $3;`,
+      neonDb.pooledUrl,
+      JSON.stringify(databaseConfig),
+      slug,
+    );
 
     // 4. Return the full result
     return jsonOk({
