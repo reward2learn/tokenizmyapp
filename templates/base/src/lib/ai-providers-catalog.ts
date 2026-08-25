@@ -9,10 +9,14 @@
  * only when a client component needs the catalog without pulling in the
  * DB-dependent half.
  *
- * All three providers expose an OpenAI-compatible Chat Completions surface,
- * so the same request/response handling in content-generator.ts and the
- * chat assistant works unchanged across providers — only the base URL, API
- * key, and model string differ.
+ * All providers expose an OpenAI-compatible Chat Completions surface, so the
+ * same request/response handling in content-generator.ts and the chat
+ * assistant works unchanged across providers — only the base URL, API key,
+ * and model string differ.
+ *
+ * Builtin `AI_PROVIDERS` is the seed template. Runtime catalogs may live in
+ * the DB secret `AI_PROVIDERS_CATALOG` and can include custom OpenAI-compatible
+ * backends (ids are free-form strings validated against the loaded catalog).
  *
  * - OpenAI: https://api.openai.com/v1
  * - Vercel AI Gateway: https://ai-gateway.vercel.sh/v1 — unified access to
@@ -20,12 +24,24 @@
  *   See https://vercel.com/docs/ai-gateway.
  * - OpenCode Zen: https://opencode.ai/zen/v1 — curated models for coding
  *   agents. See https://opencode.ai/docs/zen/.
+ * - Nous Research: https://inference-api.nousresearch.com/v1 — Hermes and
+ *   other OpenAI-compatible models. See https://portal.nousresearch.com.
  */
 
-export type AiProviderId = 'openai' | 'vercel-ai-gateway' | 'opencode-zen';
+/** Canonical builtin provider id list — seed template + defaults. */
+export const AI_PROVIDER_IDS = [
+  'openai',
+  'vercel-ai-gateway',
+  'opencode-zen',
+  'nous-research',
+] as const;
+
+/** Builtin provider ids only. Runtime / DB catalog ids are plain `string`. */
+export type AiProviderId = (typeof AI_PROVIDER_IDS)[number];
 
 export interface AiProviderDef {
-  id: AiProviderId;
+  /** Builtin or custom id (slug). Custom ids are allowed in DB catalogs. */
+  id: string;
   label: string;
   /** secrets.ts keyName the API key is stored under (encrypted in the DB). */
   keySecretName: string;
@@ -34,7 +50,12 @@ export interface AiProviderDef {
   keyPlaceholder: string;
   chatCompletionsUrl: string;
   modelsUrl: string;
-  /** Whether GET {modelsUrl} requires the provider's API key. */
+  /**
+   * Whether our listProviderModels() requires an API key before calling
+   * GET {modelsUrl}. Does not control chat auth (chat always sends Bearer).
+   * Builtins set this true so admin/chat option UIs cannot enumerate upstream
+   * catalogs without BYOK.
+   */
   modelsRequireAuth: boolean;
   docsUrl: string;
   /** Only OpenAI has a stable, well-known default — the others require an
@@ -63,7 +84,7 @@ export const AI_PROVIDERS: AiProviderDef[] = [
     keyPlaceholder: 'AI Gateway API key',
     chatCompletionsUrl: 'https://ai-gateway.vercel.sh/v1/chat/completions',
     modelsUrl: 'https://ai-gateway.vercel.sh/v1/models',
-    modelsRequireAuth: false,
+    modelsRequireAuth: true,
     docsUrl: 'https://vercel.com/docs/ai-gateway',
   },
   {
@@ -74,15 +95,36 @@ export const AI_PROVIDERS: AiProviderDef[] = [
     keyPlaceholder: 'OpenCode Zen API key',
     chatCompletionsUrl: 'https://opencode.ai/zen/v1/chat/completions',
     modelsUrl: 'https://opencode.ai/zen/v1/models',
-    // Verified live: GET /v1/models returns the full catalog with no
-    // Authorization header at all (chat/completions still requires a key).
-    modelsRequireAuth: false,
+    modelsRequireAuth: true,
     docsUrl: 'https://opencode.ai/docs/zen/',
+  },
+  {
+    id: 'nous-research',
+    label: 'Nous Research',
+    keySecretName: 'NOUSRE_SEARCH_API_KEY',
+    keyEnvVar: 'NOUSRE_SEARCH_API_KEY',
+    keyPlaceholder: 'sk-nous-...',
+    chatCompletionsUrl: 'https://inference-api.nousresearch.com/v1/chat/completions',
+    modelsUrl: 'https://inference-api.nousresearch.com/v1/models',
+    modelsRequireAuth: true,
+    docsUrl: 'https://portal.nousresearch.com',
+    // Free-tier default; paid Hermes models remain available via /models.
+    defaultModel: 'tencent/hy3:free',
   },
 ];
 
+/** Lookup in the static builtin seed catalog only. Prefer findProviderInCatalog
+ *  / loadAiProvidersCatalog at runtime for DB-backed catalogs. */
 export function getAiProvider(id: string | null | undefined): AiProviderDef | null {
   return AI_PROVIDERS.find((p) => p.id === id) ?? null;
+}
+
+export function findProviderInCatalog(
+  catalog: AiProviderDef[],
+  id: string | null | undefined,
+): AiProviderDef | null {
+  if (!id) return null;
+  return catalog.find((p) => p.id === id) ?? null;
 }
 
 export interface AiModelOption {
@@ -94,6 +136,13 @@ export interface AiModelOption {
 /** Raw shapes from each provider's OpenAI-compatible /models endpoint. */
 type RawModel = { id: string; owned_by?: string; name?: string; description?: string; type?: string };
 
+function mapGenericChatModels(raw: RawModel[]): AiModelOption[] {
+  return raw
+    .filter((m) => !/embed/i.test(m.id) && (!m.type || m.type === 'language' || m.type === 'chat'))
+    .map((m) => ({ id: m.id, label: m.name || m.id, description: m.description }))
+    .sort((a, b) => a.label.localeCompare(b.label));
+}
+
 /**
  * Fetch the live list of models currently available for a provider, using
  * its own API key. This is what backs the "select Model from a list of
@@ -102,6 +151,9 @@ type RawModel = { id: string; owned_by?: string; name?: string; description?: st
  * called from server code (route handlers) — never call this directly from
  * a client component, since it would ship the API key to the provider's
  * API from the browser instead of routing it through our own server.
+ *
+ * Builtin providers keep specialized filters; unknown/custom ids use a
+ * generic chat-model filter (exclude embed) so DB-defined providers work.
  */
 export async function listProviderModels(provider: AiProviderDef, apiKey: string | null): Promise<AiModelOption[]> {
   const headers: Record<string, string> = { 'Content-Type': 'application/json' };
@@ -140,7 +192,14 @@ export async function listProviderModels(provider: AiProviderDef, apiKey: string
         .filter((m) => !/embed/i.test(m.id))
         .map((m) => ({ id: m.id, label: m.name || m.id, description: m.description }))
         .sort((a, b) => a.label.localeCompare(b.label));
+    case 'nous-research':
+      // Catalog mixes Hermes + third-party slugs (e.g. tencent/hy3:free).
+      // Prefer display name when present; drop obvious embedding-only ids.
+      return raw
+        .filter((m) => !/embed/i.test(m.id))
+        .map((m) => ({ id: m.id, label: m.name || m.id, description: m.description }))
+        .sort((a, b) => a.label.localeCompare(b.label));
     default:
-      return raw.map((m) => ({ id: m.id, label: m.id }));
+      return mapGenericChatModels(raw);
   }
 }

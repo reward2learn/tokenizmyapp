@@ -26,10 +26,12 @@ export interface OpenAiKeyStatus {
   source: 'db' | 'env' | null;
 }
 
-export type AiProviderId = 'openai' | 'vercel-ai-gateway' | 'opencode-zen';
+import type { AiProviderDef, AiProviderId } from '@/lib/ai-providers-catalog';
+
+export type { AiProviderDef, AiProviderId };
 
 export interface AiProviderInfo {
-  id: AiProviderId;
+  id: string;
   label: string;
   configured: boolean;
   source: 'db' | 'env' | null;
@@ -40,7 +42,8 @@ export interface AiProviderInfo {
 
 export interface AiProviderStatus {
   providers: AiProviderInfo[];
-  activeProviderId: AiProviderId;
+  catalog?: AiProviderDef[];
+  activeProviderId: string;
   activeModel: string | null;
 }
 
@@ -102,7 +105,7 @@ export const configApi = createApi({
         try {
           await queryFulfilled;
           const { navigationApi } = await import('@/store/apis/navigation-api');
-          dispatch(navigationApi.util.invalidateTags(['Navigation']));
+          dispatch(navigationApi.util.invalidateTags([{ type: 'Navigation' }] as any));
         } catch {
           // reseed failed
         }
@@ -118,7 +121,7 @@ export const configApi = createApi({
         try {
           await queryFulfilled;
           const { navigationApi } = await import('@/store/apis/navigation-api');
-          dispatch(navigationApi.util.invalidateTags(['Navigation']));
+          dispatch(navigationApi.util.invalidateTags([{ type: 'Navigation' }] as any));
         } catch {
           // reprocess failed
         }
@@ -201,10 +204,17 @@ export const configApi = createApi({
       query: () => 'config/ai-provider',
       providesTags: ['AiProvider'],
     }),
-    /** POST /api/config/ai-provider — save a provider's key and/or activate it */
+    /** POST /api/config/ai-provider — save catalog / key and/or activate */
     saveAiProvider: builder.mutation<
       ApiEnvelope<AiProviderStatus>,
-      { providerId: AiProviderId; apiKey?: string; model?: string; activate?: boolean }
+      {
+        providerId?: string;
+        apiKey?: string;
+        model?: string;
+        activate?: boolean;
+        catalog?: AiProviderDef[];
+        apiKeysBySecretName?: Record<string, string>;
+      }
     >({
       query: (body) => ({
         url: 'config/ai-provider',
@@ -214,7 +224,7 @@ export const configApi = createApi({
       invalidatesTags: ['AiProvider'],
     }),
     /** DELETE /api/config/ai-provider — remove a provider's stored key */
-    clearAiProviderKey: builder.mutation<ApiEnvelope<AiProviderStatus>, { providerId: AiProviderId }>({
+    clearAiProviderKey: builder.mutation<ApiEnvelope<AiProviderStatus>, { providerId: string }>({
       query: (body) => ({
         url: 'config/ai-provider',
         method: 'DELETE',
@@ -223,7 +233,7 @@ export const configApi = createApi({
       invalidatesTags: ['AiProvider'],
     }),
     /** GET /api/config/ai-models?providerId= — live model list for a provider */
-    getAiModels: builder.query<ApiEnvelope<{ providerId: AiProviderId; models: AiModelOption[] }>, AiProviderId>({
+    getAiModels: builder.query<ApiEnvelope<{ providerId: string; models: AiModelOption[] }>, string>({
       query: (providerId) => `config/ai-models?providerId=${providerId}`,
     }),
   }),

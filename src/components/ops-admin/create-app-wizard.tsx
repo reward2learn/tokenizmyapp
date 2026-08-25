@@ -98,8 +98,8 @@ import {
   type SuiteAppInstance,
 } from '@/store/apis/tenant-api';
 import { useListRoleConfigsQuery } from '@/store/apis/admin-api';
-import type { AiProviderId } from '@/lib/ai-providers-catalog';
-import { CreateAppAiProviderStep } from './create-app-ai-provider-step';
+import { CreateAppAiProviderStep, type AiProviderWizardValue } from './create-app-ai-provider-step';
+import { emptyAiProviderWizardValue } from './tenant-ai-providers-config-step';
 import {
   EMPTY_STRIPE_WIZARD,
   StripeIntegrationStep,
@@ -215,9 +215,7 @@ export function CreateAppWizard({ open, onClose, tenantSlug, sourceApp, onSnackb
   const [provisioningOAuth, setProvisioningOAuth] = useState(false);
   const [provisionOAuthResult, setProvisionOAuthResult] = useState<Record<string, unknown> | null>(null);
   const [provisionOAuthError, setProvisionOAuthError] = useState<string | null>(null);
-  const [aiProviderId, setAiProviderId] = useState<AiProviderId>('openai');
-  const [aiApiKey, setAiApiKey] = useState('');
-  const [aiModel, setAiModel] = useState('');
+  const [aiProviders, setAiProviders] = useState<AiProviderWizardValue>(emptyAiProviderWizardValue);
 
   // Suite / App Pack state (mirrors tenant-wizard Template step)
   const [suiteMode, setSuiteMode] = useState(false);
@@ -553,19 +551,27 @@ export function CreateAppWizard({ open, onClose, tenantSlug, sourceApp, onSnackb
         );
         setCreateProgress(1);
 
-        if (aiApiKey.trim()) {
+        const keys = Object.fromEntries(
+          Object.entries(aiProviders.apiKeysBySecretName).filter(([, v]) => v.trim()),
+        );
+        const hasKeys = Object.keys(keys).length > 0;
+        if (hasKeys || aiProviders.catalog.length > 0) {
           mark('ai-provider', 'inprogress');
           let aiOk = 0;
           let aiFail = 0;
+          const active = aiProviders.catalog.find((p) => p.id === aiProviders.activeProviderId);
+          const model = aiProviders.activeModel || active?.defaultModel || undefined;
+          const canActivate = Boolean(active && keys[active.keySecretName] && model);
           for (const app of created) {
             try {
               await saveTenantAiProvider({
                 slug: tenantSlug,
                 appId: app.appId,
-                providerId: aiProviderId,
-                apiKey: aiApiKey.trim(),
-                model: aiModel || undefined,
-                activate: true,
+                catalog: aiProviders.catalog,
+                apiKeysBySecretName: keys,
+                providerId: aiProviders.activeProviderId,
+                model,
+                activate: canActivate,
               }).unwrap();
               aiOk += 1;
             } catch {
@@ -573,7 +579,7 @@ export function CreateAppWizard({ open, onClose, tenantSlug, sourceApp, onSnackb
             }
           }
           if (aiFail === 0) {
-            mark('ai-provider', 'success', `${aiProviderId} configured on ${aiOk} app${aiOk === 1 ? '' : 's'}`);
+            mark('ai-provider', 'success', `${aiProviders.activeProviderId} configured on ${aiOk} app${aiOk === 1 ? '' : 's'}`);
           } else {
             mark('ai-provider', 'error', `Saved on ${aiOk}, failed on ${aiFail} — configure remaining apps from Edit App`);
           }
@@ -647,24 +653,30 @@ export function CreateAppWizard({ open, onClose, tenantSlug, sourceApp, onSnackb
       mark('create', 'success', `${mode === 'duplicate' ? 'Duplicated' : 'Created'} "${name.trim()}" (${appId})`);
       setCreateProgress(1);
 
-      // The AI Provider step (Step 5) only collects local wizard state — the
-      // new app's database doesn't exist until the create call above
-      // succeeds, so this is the earliest point it can actually be saved.
-      if (aiApiKey.trim()) {
+      const keys = Object.fromEntries(
+        Object.entries(aiProviders.apiKeysBySecretName).filter(([, v]) => v.trim()),
+      );
+      const hasKeys = Object.keys(keys).length > 0;
+      if (hasKeys || aiProviders.catalog.length > 0) {
         mark('ai-provider', 'inprogress');
         try {
+          const active = aiProviders.catalog.find((p) => p.id === aiProviders.activeProviderId);
+          const model = aiProviders.activeModel || active?.defaultModel || undefined;
           await saveTenantAiProvider({
             slug: tenantSlug,
             appId,
-            providerId: aiProviderId,
-            apiKey: aiApiKey.trim(),
-            model: aiModel || undefined,
-            activate: true,
+            catalog: aiProviders.catalog,
+            apiKeysBySecretName: keys,
+            providerId: aiProviders.activeProviderId,
+            model,
+            activate: Boolean(active && keys[active.keySecretName] && model),
           }).unwrap();
-          mark('ai-provider', 'success', `${aiProviderId} configured${aiModel ? ` (model: ${aiModel})` : ''}`);
+          mark(
+            'ai-provider',
+            'success',
+            `${aiProviders.activeProviderId} configured${model ? ` (model: ${model})` : ''}`,
+          );
         } catch (err) {
-          // Non-fatal — the app itself was created fine; AI provider can
-          // still be configured later from the Edit App Modal.
           mark('ai-provider', 'error', apiErrorMessage(err, 'Failed to save AI provider — configure it later from Edit App'));
         }
         setCreateProgress(2);
@@ -1177,21 +1189,10 @@ export function CreateAppWizard({ open, onClose, tenantSlug, sourceApp, onSnackb
     </Stack>
   );
 
-  // Step 5: AI Provider — collected as local wizard state (see aiProviderId/
-  // aiApiKey/aiModel above) and pushed to the new app's own database right
-  // after creation succeeds, in handleCreate() below — there's no app/
-  // database to write into yet while this step is on screen. The legacy
-  // tenant-inherited OpenAI key field stays for backward compatibility.
+  // Step 5: AI Providers — local wizard state until create succeeds
   const renderStepOpenAi = () => (
     <Stack spacing={3}>
-      <CreateAppAiProviderStep
-        providerId={aiProviderId}
-        onProviderIdChange={setAiProviderId}
-        apiKey={aiApiKey}
-        onApiKeyChange={setAiApiKey}
-        model={aiModel}
-        onModelChange={setAiModel}
-      />
+      <CreateAppAiProviderStep value={aiProviders} onChange={setAiProviders} />
 
       <Divider />
 
@@ -1200,7 +1201,7 @@ export function CreateAppWizard({ open, onClose, tenantSlug, sourceApp, onSnackb
         <Typography variant="subtitle1" sx={{ fontWeight: 600 }}>Legacy OpenAI API Key (tenant-inherited)</Typography>
       </Stack>
       <Typography variant="body2" color="text.secondary">
-        Inherited from the tenant. Superseded by the AI Provider section above.
+        Inherited from the tenant. Superseded by the AI Providers section above.
       </Typography>
       <Paper variant="outlined" sx={{ p: 2 }}>
         <SummaryRow label="OpenAI API Key" value={openaiApiKey ? '✅ configured' : '⚠️ not set'} />

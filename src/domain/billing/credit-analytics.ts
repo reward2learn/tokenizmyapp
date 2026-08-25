@@ -59,6 +59,9 @@ function inferProvider(model: string | null | undefined, explicit?: string | nul
   if (m.startsWith('gemini')) return 'google';
   if (m.includes('grok')) return 'xai';
   if (m.includes('mistral') || m.includes('mixtral')) return 'mistral';
+  if (m.includes('hermes') || m.includes('nous') || m.startsWith('tencent/')) {
+    return 'nous-research';
+  }
   return 'unknown';
 }
 

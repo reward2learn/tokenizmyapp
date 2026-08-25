@@ -1,6 +1,11 @@
 import { requireWriteAuth, requireCapability } from '@/lib/auth/guards';
 import { jsonError, jsonOk } from '@/lib/api/response';
-import { getAiProvider, resolveProviderKey, listProviderModels } from '@/lib/ai-providers';
+import {
+  findProviderInCatalog,
+  loadAiProvidersCatalog,
+  resolveProviderKey,
+  listProviderModels,
+} from '@/lib/ai-providers';
 
 export const maxDuration = 30;
 
@@ -20,7 +25,10 @@ export async function GET(request: Request) {
 
   const { searchParams } = new URL(request.url);
   const providerId = searchParams.get('providerId');
-  const provider = getAiProvider(providerId);
+  if (!providerId) return jsonError('Unknown or missing providerId', 400);
+
+  const catalog = await loadAiProvidersCatalog();
+  const provider = findProviderInCatalog(catalog, providerId);
   if (!provider) return jsonError('Unknown or missing providerId', 400);
 
   try {

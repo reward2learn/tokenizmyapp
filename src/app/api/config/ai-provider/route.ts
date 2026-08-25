@@ -3,31 +3,36 @@ import { requireWriteAuth, requireCapability } from '@/lib/auth/guards';
 import { jsonError, jsonOk } from '@/lib/api/response';
 import { setSecret, deleteSecret, getSecretPlaintext } from '@/lib/secrets';
 import {
-  AI_PROVIDERS,
-  getAiProvider,
+  findProviderInCatalog,
   getActiveProviderId,
   getActiveModel,
   setActiveProvider,
   resolveProviderKey,
-  type AiProviderId,
+  loadAiProvidersCatalog,
+  saveAiProvidersCatalog,
+  type AiProviderDef,
 } from '@/lib/ai-providers';
-
-const providerIdSchema = z.enum(['openai', 'vercel-ai-gateway', 'opencode-zen']);
+import { aiProvidersCatalogSchema } from '@/lib/ai-provider-def-schema';
 
 const postSchema = z.object({
-  providerId: providerIdSchema,
+  catalog: aiProvidersCatalogSchema.optional(),
+  providerId: z.string().min(1).max(64).optional(),
   apiKey: z.string().trim().min(10, 'API key is too short').optional(),
+  apiKeysBySecretName: z.record(z.string(), z.string()).optional(),
   model: z.string().trim().min(1).optional(),
   /** Set this provider as the active one used by content generation. */
   activate: z.boolean().optional(),
-});
+}).refine(
+  (d) => d.catalog || d.providerId || d.apiKeysBySecretName,
+  { message: 'Provide catalog, providerId, and/or apiKeysBySecretName' },
+);
 
 const deleteSchema = z.object({
-  providerId: providerIdSchema,
+  providerId: z.string().min(1).max(64),
 });
 
 interface ProviderStatus {
-  id: AiProviderId;
+  id: string;
   label: string;
   configured: boolean;
   source: 'db' | 'env' | null;
@@ -36,9 +41,15 @@ interface ProviderStatus {
   defaultModel: string | null;
 }
 
-async function buildStatus(): Promise<{ providers: ProviderStatus[]; activeProviderId: AiProviderId; activeModel: string | null }> {
+async function buildStatus(): Promise<{
+  providers: ProviderStatus[];
+  catalog: AiProviderDef[];
+  activeProviderId: string;
+  activeModel: string | null;
+}> {
+  const catalog = await loadAiProvidersCatalog();
   const providers: ProviderStatus[] = await Promise.all(
-    AI_PROVIDERS.map(async (p) => {
+    catalog.map(async (p) => {
       const dbKey = await getSecretPlaintext(p.keySecretName);
       const source: 'db' | 'env' | null = dbKey ? 'db' : process.env[p.keyEnvVar] ? 'env' : null;
       return {
@@ -54,7 +65,7 @@ async function buildStatus(): Promise<{ providers: ProviderStatus[]; activeProvi
   );
   const activeProviderId = await getActiveProviderId();
   const activeModel = await getActiveModel(activeProviderId);
-  return { providers, activeProviderId, activeModel };
+  return { providers, catalog, activeProviderId, activeModel };
 }
 
 export async function GET(request: Request) {
@@ -86,19 +97,33 @@ export async function POST(request: Request) {
     return jsonError(parsed.error.issues[0]?.message ?? 'Invalid request', 400);
   }
 
-  const provider = getAiProvider(parsed.data.providerId);
-  if (!provider) return jsonError('Unknown provider', 400);
-
-  if (parsed.data.apiKey) {
-    await setSecret(provider.keySecretName, parsed.data.apiKey);
+  if (parsed.data.catalog) {
+    await saveAiProvidersCatalog(parsed.data.catalog);
   }
 
-  if (parsed.data.activate) {
-    // Require a resolvable key (just-saved or already on file/env) before
-    // switching content generation over to this provider.
-    const key = await resolveProviderKey(provider);
-    if (!key) return jsonError(`${provider.label} has no API key configured — save one first`, 400);
-    await setActiveProvider(provider.id, parsed.data.model ?? null);
+  if (parsed.data.apiKeysBySecretName) {
+    for (const [secretName, key] of Object.entries(parsed.data.apiKeysBySecretName)) {
+      const trimmed = key?.trim();
+      if (!trimmed) continue;
+      await setSecret(secretName, trimmed);
+    }
+  }
+
+  const catalog = await loadAiProvidersCatalog();
+
+  if (parsed.data.providerId) {
+    const provider = findProviderInCatalog(catalog, parsed.data.providerId);
+    if (!provider) return jsonError('Unknown provider — not in catalog', 400);
+
+    if (parsed.data.apiKey) {
+      await setSecret(provider.keySecretName, parsed.data.apiKey);
+    }
+
+    if (parsed.data.activate) {
+      const key = await resolveProviderKey(provider);
+      if (!key) return jsonError(`${provider.label} has no API key configured — save one first`, 400);
+      await setActiveProvider(provider.id, parsed.data.model ?? null);
+    }
   }
 
   return jsonOk(await buildStatus());
@@ -123,7 +148,8 @@ export async function DELETE(request: Request) {
     return jsonError(parsed.error.issues[0]?.message ?? 'Invalid request', 400);
   }
 
-  const provider = getAiProvider(parsed.data.providerId);
+  const catalog = await loadAiProvidersCatalog();
+  const provider = findProviderInCatalog(catalog, parsed.data.providerId);
   if (!provider) return jsonError('Unknown provider', 400);
 
   await deleteSecret(provider.keySecretName);

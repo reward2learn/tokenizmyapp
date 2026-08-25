@@ -2,14 +2,26 @@
  * AI Provider resolution — DB-backed half of the AI provider system. Server
  * only (imports Prisma via secrets.ts) — see ai-providers-catalog.ts for the
  * client-safe static catalog + model-list fetcher, both re-exported below.
+ *
+ * Runtime catalog lives in encrypted secrets under AI_PROVIDERS_CATALOG
+ * (JSON array of AiProviderDef). Builtin AI_PROVIDERS is the seed template /
+ * fallback when the secret is missing or invalid.
  */
 import { getSecretPlaintext, setSecret, deleteSecret } from '@/lib/secrets';
 import type { DbClient } from '@/lib/db';
-import { getAiProvider, type AiProviderDef, type AiProviderId, type AiModelOption, listProviderModels } from '@/lib/ai-providers-catalog';
+import {
+  AI_PROVIDERS,
+  findProviderInCatalog,
+  type AiProviderDef,
+  type AiModelOption,
+  listProviderModels,
+} from '@/lib/ai-providers-catalog';
 
 export {
+  AI_PROVIDER_IDS,
   AI_PROVIDERS,
   getAiProvider,
+  findProviderInCatalog,
   listProviderModels,
   type AiProviderDef,
   type AiProviderId,
@@ -36,6 +48,116 @@ export interface AiModelHealth {
 const ACTIVE_PROVIDER_KEY = 'AI_ACTIVE_PROVIDER';
 const ACTIVE_MODEL_KEY = 'AI_ACTIVE_MODEL';
 
+/** Full per-tenant/app provider catalog (JSON array of AiProviderDef). */
+export const AI_PROVIDERS_CATALOG_KEY = 'AI_PROVIDERS_CATALOG';
+
+function isNonEmptyString(v: unknown): v is string {
+  return typeof v === 'string' && v.trim().length > 0;
+}
+
+/** Light shape validation for a single catalog entry (no Zod — keep deps thin). */
+export function isValidAiProviderDef(value: unknown): value is AiProviderDef {
+  if (!value || typeof value !== 'object') return false;
+  const v = value as Record<string, unknown>;
+  return (
+    isNonEmptyString(v.id)
+    && isNonEmptyString(v.label)
+    && isNonEmptyString(v.keySecretName)
+    && isNonEmptyString(v.keyEnvVar)
+    && typeof v.keyPlaceholder === 'string'
+    && isNonEmptyString(v.chatCompletionsUrl)
+    && isNonEmptyString(v.modelsUrl)
+    && typeof v.modelsRequireAuth === 'boolean'
+    && isNonEmptyString(v.docsUrl)
+    && (v.defaultModel === undefined || typeof v.defaultModel === 'string')
+  );
+}
+
+/** Parse a JSON catalog string; returns null if missing/invalid. */
+export function parseAiProvidersCatalogJson(raw: string | null | undefined): AiProviderDef[] | null {
+  if (!raw?.trim()) return null;
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    if (!Array.isArray(parsed) || parsed.length === 0) return null;
+    if (!parsed.every(isValidAiProviderDef)) return null;
+    const ids = new Set<string>();
+    for (const def of parsed) {
+      if (ids.has(def.id)) return null;
+      ids.add(def.id);
+    }
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Load the AI provider catalog from DB secrets, falling back to the static
+ * builtin seed template when missing or invalid.
+ */
+export async function loadAiProvidersCatalog(db?: DbClient): Promise<AiProviderDef[]> {
+  try {
+    const raw = await getSecretPlaintext(AI_PROVIDERS_CATALOG_KEY, db);
+    const parsed = parseAiProvidersCatalogJson(raw);
+    if (parsed) return parsed;
+  } catch (err) {
+    console.warn(
+      '[ai-providers] catalog load failed, using builtin fallback:',
+      err instanceof Error ? err.message : err,
+    );
+  }
+  return AI_PROVIDERS;
+}
+
+export async function saveAiProvidersCatalog(defs: AiProviderDef[], db?: DbClient): Promise<void> {
+  if (!Array.isArray(defs) || defs.length === 0) {
+    throw new Error('AI providers catalog must be a non-empty array');
+  }
+  if (!defs.every(isValidAiProviderDef)) {
+    throw new Error('AI providers catalog contains invalid entries');
+  }
+  const ids = new Set(defs.map((d) => d.id));
+  if (ids.size !== defs.length) {
+    throw new Error('AI providers catalog contains duplicate ids');
+  }
+  await setSecret(AI_PROVIDERS_CATALOG_KEY, JSON.stringify(defs), db);
+}
+
+export interface SeedAiProviderConfigInput {
+  catalog: AiProviderDef[];
+  /** Map of keySecretName → plaintext API key (only entries with values are written). */
+  apiKeysBySecretName?: Record<string, string>;
+  activeProviderId?: string | null;
+  activeModel?: string | null;
+}
+
+/**
+ * Seed a tenant/app DB with a full provider catalog, optional API keys, and
+ * active provider/model selection. Used by create-tenant / create-app flows.
+ */
+export async function seedAiProviderConfig(
+  db: DbClient,
+  input: SeedAiProviderConfigInput,
+): Promise<void> {
+  await saveAiProvidersCatalog(input.catalog, db);
+
+  if (input.apiKeysBySecretName) {
+    for (const [secretName, key] of Object.entries(input.apiKeysBySecretName)) {
+      const trimmed = key?.trim();
+      if (!trimmed) continue;
+      await setSecret(secretName, trimmed, db);
+    }
+  }
+
+  if (input.activeProviderId) {
+    const provider = findProviderInCatalog(input.catalog, input.activeProviderId);
+    if (!provider) {
+      throw new Error(`Active provider "${input.activeProviderId}" is not in the catalog`);
+    }
+    await setActiveProvider(provider.id, input.activeModel ?? null, db);
+  }
+}
+
 /**
  * Every function below optionally accepts a `db` client so the admin
  * console can manage a DIFFERENT tenant/app's AI provider config directly
@@ -44,19 +166,21 @@ const ACTIVE_MODEL_KEY = 'AI_ACTIVE_MODEL';
  * redeploy, since it's read live on that tenant's next request. Omitting
  * `db` operates on the caller's own database (the self-service Config page).
  */
-export async function getActiveProviderId(db?: DbClient): Promise<AiProviderId> {
+export async function getActiveProviderId(db?: DbClient): Promise<string> {
+  const catalog = await loadAiProvidersCatalog(db);
   const stored = await getSecretPlaintext(ACTIVE_PROVIDER_KEY, db);
-  const provider = getAiProvider(stored);
-  return provider?.id ?? 'openai'; // default preserves pre-multi-provider behavior
+  const provider = findProviderInCatalog(catalog, stored);
+  return provider?.id ?? findProviderInCatalog(catalog, 'openai')?.id ?? catalog[0]?.id ?? 'openai';
 }
 
-export async function getActiveModel(providerId: AiProviderId, db?: DbClient): Promise<string | null> {
+export async function getActiveModel(providerId: string, db?: DbClient): Promise<string | null> {
   const stored = await getSecretPlaintext(ACTIVE_MODEL_KEY, db);
   if (stored) return stored;
-  return getAiProvider(providerId)?.defaultModel ?? null;
+  const catalog = await loadAiProvidersCatalog(db);
+  return findProviderInCatalog(catalog, providerId)?.defaultModel ?? null;
 }
 
-export async function setActiveProvider(providerId: AiProviderId, model?: string | null, db?: DbClient): Promise<void> {
+export async function setActiveProvider(providerId: string, model?: string | null, db?: DbClient): Promise<void> {
   await setSecret(ACTIVE_PROVIDER_KEY, providerId, db);
   if (model) {
     await setSecret(ACTIVE_MODEL_KEY, model, db);
@@ -162,12 +286,13 @@ export interface ActiveAiConfig {
 export async function resolveActiveAiConfig(
   modelOverride?: string | null,
   db?: DbClient,
-  providerOverride?: AiProviderId | null,
+  providerOverride?: string | null,
 ): Promise<ActiveAiConfig | null> {
-  const providerId = providerOverride && getAiProvider(providerOverride)
+  const catalog = await loadAiProvidersCatalog(db);
+  const providerId = providerOverride && findProviderInCatalog(catalog, providerOverride)
     ? providerOverride
     : await getActiveProviderId(db);
-  const provider = getAiProvider(providerId);
+  const provider = findProviderInCatalog(catalog, providerId);
   if (!provider) return null;
 
   const { key: apiKey, source: keySource } = await resolveProviderKeyWithSource(provider, db);

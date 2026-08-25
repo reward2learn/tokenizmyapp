@@ -56,13 +56,18 @@ import {
 } from '@/store/apis/tenant-api';
 import { TenantRateCardStep } from '@/components/ops-admin/tenant-rate-card-step';
 import {
+  TenantAiProvidersConfigStep,
+  emptyAiProviderWizardValue,
+  type AiProviderWizardValue,
+} from '@/components/ops-admin/tenant-ai-providers-config-step';
+import {
   DEFAULT_MAC_STUDIO_ULTRA_256_USD,
   type TenantRateCardInputs,
 } from '@/lib/billing/tenant-rate-card';
 import { useAppDispatch, useAppSelector } from '@/store/hooks';
 import { setWizardRateCardPrefill } from '@/store/ui-slice';
 
-const STEPS = ['Business Info', 'Template', 'AI Description', 'Branding', 'AI Rate Card', 'Review'];
+const STEPS = ['Business Info', 'Template', 'AI Description', 'Branding', 'AI Rate Card', 'AI Providers', 'Review'];
 
 interface ScrapedData {
   businessName: string;
@@ -104,6 +109,8 @@ interface WizardState {
   scrapeUrl: string;
   /** Secured billing rate-card inputs — locked in by platform admin at create time. */
   rateCard: TenantRateCardInputs;
+  /** AI provider catalog + keys seeded into the new tenant DB after Neon. */
+  aiProviders: AiProviderWizardValue;
 }
 
 const INITIAL_STATE: WizardState = {
@@ -126,6 +133,7 @@ const INITIAL_STATE: WizardState = {
     macStudioCostUsd: DEFAULT_MAC_STUDIO_ULTRA_256_USD,
     monthlyThirdPartyUsd: 0,
   },
+  aiProviders: emptyAiProviderWizardValue(),
 };
 
 export const PIPELINE_STEPS = [
@@ -360,9 +368,17 @@ export function TenantWizard() {
         ...state.rateCard,
         appCount: state.rateCard.appCount || suggestedApps,
       },
+      aiProviderConfig: {
+        catalog: state.aiProviders.catalog,
+        apiKeysBySecretName: Object.fromEntries(
+          Object.entries(state.aiProviders.apiKeysBySecretName).filter(([, v]) => v.trim()),
+        ),
+        activeProviderId: state.aiProviders.activeProviderId,
+        activeModel: state.aiProviders.activeModel || undefined,
+      },
     }).unwrap();
     if (result.success) {
-      setStep(6);
+      setStep(7);
     }
   };
 
@@ -970,8 +986,16 @@ export function TenantWizard() {
             </Stack>
           ) : null}
 
-          {/* Step 5: Review */}
+          {/* Step 5: AI Providers */}
           {step === 5 ? (
+            <TenantAiProvidersConfigStep
+              value={state.aiProviders}
+              onChange={(aiProviders) => setState((s) => ({ ...s, aiProviders }))}
+            />
+          ) : null}
+
+          {/* Step 6: Review */}
+          {step === 6 ? (
             <Stack spacing={2}>
               <Typography variant="body2" color="text.secondary">
                 Review your tenant configuration before creating. The AI pipeline will run automatically.
@@ -1034,6 +1058,18 @@ export function TenantWizard() {
                       {state.rateCard.annualRevenueUsd.toLocaleString()} turnover · Mac Studio $
                       {state.rateCard.macStudioCostUsd.toLocaleString()} · $
                       {state.rateCard.monthlyThirdPartyUsd.toLocaleString()}/mo 3rd-party
+                    </Typography>
+                  </Box>
+                  <Box>
+                    <Typography variant="caption" color="text.secondary">AI Providers</Typography>
+                    <Typography variant="body2" sx={{ mt: 0.5 }}>
+                      {state.aiProviders.catalog.length} provider(s) · active:{' '}
+                      {state.aiProviders.catalog.find((p) => p.id === state.aiProviders.activeProviderId)?.label
+                        ?? state.aiProviders.activeProviderId}
+                      {state.aiProviders.activeModel ? ` / ${state.aiProviders.activeModel}` : ''}
+                      {Object.values(state.aiProviders.apiKeysBySecretName).some((k) => k.trim())
+                        ? ' · keys included'
+                        : ' · no keys yet'}
                     </Typography>
                   </Box>
                   {scraped ? (
@@ -1138,8 +1174,8 @@ export function TenantWizard() {
               </Paper>
             </Stack>
           ) : null}
-          {/* Step 6: Success */}
-          {step === 6 ? (
+          {/* Step 7: Success */}
+          {step === 7 ? (
             <Stack spacing={2} sx={{ textAlign: 'center', py: 3 }}>
               <CheckCircleIcon color="success" sx={{ fontSize: 64, mx: 'auto' }} />
               <Typography variant="h6" sx={{ fontWeight: 700 }}>Tenant Created!</Typography>
@@ -1175,11 +1211,11 @@ export function TenantWizard() {
           ) : null}
         </DialogContent>
 
-        {step < 6 ? (
+        {step < 7 ? (
           <DialogActions>
             {step > 0 ? <Button onClick={handleBack} disabled={isLoading}>Back</Button> : <Button onClick={handleClose} disabled={isLoading}>Cancel</Button>}
             <Box sx={{ flex: 1 }} />
-            {step < 5 ? (
+            {step < 6 ? (
               <Button variant="contained" onClick={handleNext}>Continue</Button>
             ) : (
               <Button variant="contained" color="primary" onClick={() => void handleCreate()} disabled={isLoading} startIcon={isLoading ? <CircularProgress size={18} color="inherit" /> : <AutoFixHighIcon />}>

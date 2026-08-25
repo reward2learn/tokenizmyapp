@@ -4,7 +4,7 @@
  * EditTenantModal — Stepper wizard for editing tenant applications.
  *
  * Steps: Template → Preview → License → Organization & Billing → Features
- *        → OpenAI API-Keys → Google OAuth → Database → Custom Env
+ *        → AI Providers → Google OAuth → Database → Custom Env
  *        → Deploy Hooks → Functional Roles → Custom Domain → Admin & Auth
  *        → Flight Check → Summary
  *
@@ -77,7 +77,7 @@ import ErrorIcon from '@mui/icons-material/Error';
 import { getTemplate, listTemplates } from '@/domain/tenant/template-catalog';
 import { DEFAULT_PLATFORM_ADMIN_EMAIL } from '@/domain/security/persons';
 import { TemplateSelector } from '@/components/ops-admin/tenant-wizard';
-import { TenantAiProviderForm } from '@/components/ops-admin/tenant-ai-provider-form';
+import { TenantAiProvidersConfigStep } from '@/components/ops-admin/tenant-ai-providers-config-step';
 import { addAgenticCommerceToFlightCheck, addEmbeddedCheckoutProbeToFlightCheck, addStripeWebhookHealthToFlightCheck } from '@/components/ops-admin/stripe-flight-check';
 import {
   StripeIntegrationStep,
@@ -180,7 +180,7 @@ const EDIT_STEPS: Array<{ label: string; icon: React.ReactNode; key: string }> =
   { label: 'License', icon: <KeyIcon fontSize="small" />, key: 'license' },
   { label: 'Organization & Billing', icon: <CreditCardIcon fontSize="small" />, key: 'org' },
   { label: 'Features', icon: <AutoFixHighIcon fontSize="small" />, key: 'features' },
-  { label: 'OpenAI API-Keys', icon: <KeyIcon fontSize="small" />, key: 'openai' },
+  { label: 'AI Providers', icon: <KeyIcon fontSize="small" />, key: 'openai' },
   { label: 'Google OAuth', icon: <VerifiedUserIcon fontSize="small" />, key: 'oauth' },
   { label: 'Database', icon: <DnsIcon fontSize="small" />, key: 'database' },
   { label: 'Custom Env', icon: <CloudIcon fontSize="small" />, key: 'env' },
@@ -287,6 +287,28 @@ function getAppPack(tenant: TenantEntry | null): AppPackConfig | null {
   const meta = (tenant.metadata ?? {}) as Record<string, unknown>;
   const cfg = (meta.config ?? {}) as Record<string, unknown>;
   return (cfg.appPack as AppPackConfig) ?? null;
+}
+
+/** Extract a human message from RTK Query / FetchBaseQueryError catch values. */
+function getApiErrorMessage(err: unknown, fallback: string): string {
+  if (err instanceof Error && err.message) return err.message;
+  if (err && typeof err === 'object') {
+    const obj = err as { data?: unknown; error?: unknown };
+    if (obj.data && typeof obj.data === 'object' && obj.data !== null && 'error' in obj.data) {
+      const nested = (obj.data as { error?: unknown }).error;
+      if (typeof nested === 'string' && nested) return nested;
+    }
+    if (typeof obj.error === 'string' && obj.error) return obj.error;
+  }
+  return fallback;
+}
+
+function getApiErrorStatus(err: unknown): string | number | undefined {
+  if (err && typeof err === 'object' && 'status' in err) {
+    const status = (err as { status: unknown }).status;
+    if (typeof status === 'string' || typeof status === 'number') return status;
+  }
+  return undefined;
 }
 
 interface ConfigFieldsInput {
@@ -498,6 +520,7 @@ export function EditTenantModal({ open, tenant, onClose, onSnackbar }: EditTenan
     secretKey: string;
     webhookSecret: string;
     publishableKey: string;
+    priceAmounts: SubscriptionTierPricingState['amounts'];
     prices: { PRO_MONTHLY?: string; PRO_YEARLY?: string; BUSINESS_MONTHLY?: string; BUSINESS_YEARLY?: string };
     agenticCommerce: { enabled: boolean; connectPlatformWaitlist: boolean };
     selfServeBilling: { enabled: boolean };
@@ -663,7 +686,7 @@ export function EditTenantModal({ open, tenant, onClose, onSnackbar }: EditTenan
         onSnackbar({ message: result.error || 'Failed to set PIN', severity: 'error' });
       }
     } catch (err) {
-      const msg = err?.data?.error || err?.error || 'Failed to set PIN';
+      const msg = err instanceof Error ? err.message : String(err);
       onSnackbar({ message: msg, severity: 'error' });
     } finally {
       setSavingPinRole(null);
@@ -726,7 +749,7 @@ export function EditTenantModal({ open, tenant, onClose, onSnackbar }: EditTenan
         onSnackbar({ message: result.error || 'Failed to delete role', severity: 'error' });
       }
     } catch (err) {
-      onSnackbar({ message: err?.data?.error || err?.error || 'Failed to delete role', severity: 'error' });
+      onSnackbar({ message: getApiErrorMessage(err, 'Failed to delete role'), severity: 'error' });
     } finally {
       setRoleSaving(false);
     }
@@ -853,7 +876,7 @@ export function EditTenantModal({ open, tenant, onClose, onSnackbar }: EditTenan
         throw new Error(result.error || 'Google OAuth provisioning failed');
       }
     } catch (err) {
-      const msg = err?.data?.error || (err instanceof Error ? err.message : 'Provisioning error');
+      const msg = getApiErrorMessage(err, 'Provisioning error');
       setProvisionOAuthError(msg);
       onSnackbar({ message: `❌ OAuth provisioning failed: ${msg}`, severity: 'error' });
     } finally {
@@ -889,7 +912,7 @@ export function EditTenantModal({ open, tenant, onClose, onSnackbar }: EditTenan
         throw new Error(result.error || 'Neon provisioning failed');
       }
     } catch (err) {
-      const msg = err?.data?.error || (err instanceof Error ? err.message : 'Provisioning error');
+      const msg = getApiErrorMessage(err, 'Provisioning error');
       setProvisionDbError(msg);
       onSnackbar({ message: `❌ Database provisioning failed: ${msg}`, severity: 'error' });
     } finally {
@@ -1027,7 +1050,7 @@ export function EditTenantModal({ open, tenant, onClose, onSnackbar }: EditTenan
       }
       onSnackbar({ message, severity: 'success' });
     } catch (err) {
-      const msg = err?.data?.error || (err instanceof Error ? err.message : 'Save failed');
+      const msg = getApiErrorMessage(err, 'Save failed');
       onSnackbar({ message: `❌ Save failed: ${msg}`, severity: 'error' });
     } finally {
       setSaving(false);
@@ -1628,7 +1651,7 @@ export function EditTenantModal({ open, tenant, onClose, onSnackbar }: EditTenan
       setActiveStep(0);
       onClose();
     } catch (err) {
-      const msg = err?.data?.error || (err instanceof Error ? err.message : 'Deploy failed');
+      const msg = getApiErrorMessage(err, 'Deploy failed');
       onSnackbar({ message: `❌ Deploy failed: ${msg}`, severity: 'error' });
     } finally {
       setDeployingSlug(null);
@@ -1678,7 +1701,7 @@ export function EditTenantModal({ open, tenant, onClose, onSnackbar }: EditTenan
       setActiveStep(0);
       onClose();
     } catch (err) {
-      const msg = err?.data?.error || (err instanceof Error ? err.message : 'Deploy failed');
+      const msg = getApiErrorMessage(err, 'Deploy failed');
       onSnackbar({ message: `❌ Git deploy failed: ${msg}`, severity: 'error' });
       setDeployingSlug(null);
     }
@@ -2017,7 +2040,7 @@ export function EditTenantModal({ open, tenant, onClose, onSnackbar }: EditTenan
           setSlugError(result.error || 'Failed to rename slug');
         }
       } catch (err) {
-        setSlugError(err?.data?.error || 'Failed to connect to rename API');
+        setSlugError(getApiErrorMessage(err, 'Failed to connect to rename API'));
       } finally {
         setRenamingSlug(false);
       }
@@ -2408,10 +2431,10 @@ export function EditTenantModal({ open, tenant, onClose, onSnackbar }: EditTenan
     </Stack>
   );
 
-  // ── Step 4: OpenAI API-Key ────────────────────────────────
+  // ── Step: AI Providers ────────────────────────────────
   const renderStepOpenAi = () => (
     <Stack spacing={3}>
-      <TenantAiProviderForm tenantSlug={tenant.slug} />
+      <TenantAiProvidersConfigStep tenantSlug={tenant.slug} />
 
       <Divider />
 
@@ -2419,7 +2442,7 @@ export function EditTenantModal({ open, tenant, onClose, onSnackbar }: EditTenan
         Legacy OpenAI API Key
       </Typography>
       <Typography variant="body2" color="text.secondary">
-        Superseded by the AI Provider section above, which takes effect immediately on the tenant&apos;s
+        Superseded by the AI Providers section above, which takes effect immediately on the tenant&apos;s
         live app with no redeploy required.
       </Typography>
       <Alert severity="warning">
@@ -3098,7 +3121,7 @@ export function EditTenantModal({ open, tenant, onClose, onSnackbar }: EditTenan
           setDomainError(result.error || 'Failed to set domain');
         }
       } catch (err) {
-        setDomainError(err?.data?.error || 'Failed to set domain');
+        setDomainError(getApiErrorMessage(err, 'Failed to set domain'));
       } finally {
         setDomainSetting(false);
       }
@@ -3568,7 +3591,9 @@ export function EditTenantModal({ open, tenant, onClose, onSnackbar }: EditTenan
                   await getAiFindings().unwrap();
                   return 'Chat API responded with 200';
                 } catch (err) {
-                  throw new Error(err?.data?.error || 'Chat API returned ' + (err?.status ?? 'error'));
+                  throw new Error(
+                    getApiErrorMessage(err, `Chat API returned ${getApiErrorStatus(err) ?? 'error'}`),
+                  );
                 }
               },
             },

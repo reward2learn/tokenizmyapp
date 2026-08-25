@@ -40,6 +40,11 @@ export const RATE_CARD: Record<string, CreditRate> = {
   'gpt-4.1-mini': { inputPer1K: 0.1, outputPer1K: 0.4 },
   'claude-haiku-4-5': { inputPer1K: 0.1, outputPer1K: 0.4 },
   'deepseek-chat': { inputPer1K: 0.1, outputPer1K: 0.4 },
+  // Nous Research Hermes (calibrate against portal.nousresearch.com pricing).
+  'Hermes-4.3-36B': { inputPer1K: 0.15, outputPer1K: 0.6 },
+  'Hermes-4-70B': { inputPer1K: 0.25, outputPer1K: 1.0 },
+  'Hermes-4-405B': { inputPer1K: 0.5, outputPer1K: 2.0 },
+  'tencent/hy3:free': { inputPer1K: 0.05, outputPer1K: 0.2 },
   // Reasoning models — higher per-token cost AND higher token burn.
   'o3': { inputPer1K: 0.8, outputPer1K: 3.2 },
   'o4-mini': { inputPer1K: 0.2, outputPer1K: 0.8 },

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { checkModelHealth } from '@/lib/ai-providers';
+import { checkModelHealth, parseAiProvidersCatalogJson, isValidAiProviderDef } from '@/lib/ai-providers';
+import { AI_PROVIDERS } from '@/lib/ai-providers-catalog';
 
 describe('checkModelHealth', () => {
   const models = [{ id: 'gpt-4o', label: 'gpt-4o' }];
@@ -19,5 +20,41 @@ describe('checkModelHealth', () => {
   it('passes when provider and model are valid', () => {
     const result = checkModelHealth('gpt-4o', models, { status: 'healthy' });
     expect(result.status).toBe('healthy');
+  });
+});
+
+describe('parseAiProvidersCatalogJson', () => {
+  it('returns null for empty / invalid JSON', () => {
+    expect(parseAiProvidersCatalogJson(null)).toBeNull();
+    expect(parseAiProvidersCatalogJson('')).toBeNull();
+    expect(parseAiProvidersCatalogJson('not-json')).toBeNull();
+    expect(parseAiProvidersCatalogJson('[]')).toBeNull();
+    expect(parseAiProvidersCatalogJson('{}')).toBeNull();
+  });
+
+  it('parses a valid builtin-shaped catalog', () => {
+    const parsed = parseAiProvidersCatalogJson(JSON.stringify(AI_PROVIDERS));
+    expect(parsed).not.toBeNull();
+    expect(parsed).toHaveLength(AI_PROVIDERS.length);
+    expect(parsed?.[0].id).toBe('openai');
+    expect(parsed?.every((p) => p.modelsRequireAuth === true)).toBe(true);
+  });
+
+  it('rejects duplicate ids', () => {
+    const dup = [AI_PROVIDERS[0], { ...AI_PROVIDERS[0], label: 'Other' }];
+    expect(parseAiProvidersCatalogJson(JSON.stringify(dup))).toBeNull();
+  });
+
+  it('accepts a custom provider id', () => {
+    const custom = [{
+      ...AI_PROVIDERS[0],
+      id: 'my-custom-llm',
+      label: 'Custom LLM',
+      keySecretName: 'CUSTOM_LLM_API_KEY',
+      keyEnvVar: 'CUSTOM_LLM_API_KEY',
+    }];
+    const parsed = parseAiProvidersCatalogJson(JSON.stringify(custom));
+    expect(parsed?.[0].id).toBe('my-custom-llm');
+    expect(isValidAiProviderDef(custom[0])).toBe(true);
   });
 });

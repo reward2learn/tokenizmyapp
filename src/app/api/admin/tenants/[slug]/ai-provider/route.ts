@@ -2,9 +2,9 @@
  * Admin-scoped AI Provider config — POST /api/admin/tenants/[slug]/ai-provider
  *
  * Lets a platform admin set a tenant (or one suite app within it)'s AI
- * provider, API key, and model directly from the tenant/app edit modal in
- * /admin, instead of requiring someone to sign into that tenant's own
- * deployment and use its self-service Config > AI Chat page.
+ * provider catalog, API keys, and active model directly from the tenant/app
+ * edit modal in /admin, instead of requiring someone to sign into that
+ * tenant's own deployment and use its self-service Config > AI Chat page.
  *
  * Writes land directly on the tenant/app's own dedicated database (see
  * tenant-db-resolver.ts) — the same secrets table the self-service page
@@ -18,35 +18,43 @@ import { jsonError, jsonOk } from '@/lib/api/response';
 import { createClient, createClientForUrl, type DbClient } from '@/lib/db';
 import { resolveDedicatedTenantDbUrl } from '@/domain/tenant/tenant-db-resolver';
 import {
-  AI_PROVIDERS,
-  getAiProvider,
+  findProviderInCatalog,
   getActiveProviderId,
   getActiveModel,
   setActiveProvider,
   resolveProviderKey,
-  type AiProviderId,
+  loadAiProvidersCatalog,
+  saveAiProvidersCatalog,
+  type AiProviderDef,
 } from '@/lib/ai-providers';
+import { aiProvidersCatalogSchema } from '@/lib/ai-provider-def-schema';
 import { getSecretPlaintext, setSecret, deleteSecret } from '@/lib/secrets';
 
 export const dynamic = 'force-dynamic';
 
-const providerIdSchema = z.enum(['openai', 'vercel-ai-gateway', 'opencode-zen']);
-
 const postSchema = z.object({
   appId: z.string().max(50).optional(),
-  providerId: providerIdSchema,
+  /** Optional full catalog replace (persisted as AI_PROVIDERS_CATALOG). */
+  catalog: aiProvidersCatalogSchema.optional(),
+  /** Provider to configure / activate — must exist in saved or incoming catalog. */
+  providerId: z.string().min(1).max(64).optional(),
   apiKey: z.string().trim().min(10, 'API key is too short').optional(),
+  /** Bulk key write by secret name (create/seed flows). */
+  apiKeysBySecretName: z.record(z.string(), z.string()).optional(),
   model: z.string().trim().min(1).optional(),
   activate: z.boolean().optional(),
-});
+}).refine(
+  (d) => d.catalog || d.providerId || d.apiKeysBySecretName,
+  { message: 'Provide catalog, providerId, and/or apiKeysBySecretName' },
+);
 
 const deleteSchema = z.object({
   appId: z.string().max(50).optional(),
-  providerId: providerIdSchema,
+  providerId: z.string().min(1).max(64),
 });
 
 interface ProviderStatus {
-  id: AiProviderId;
+  id: string;
   label: string;
   configured: boolean;
   source: 'db' | 'env' | null;
@@ -55,9 +63,15 @@ interface ProviderStatus {
   defaultModel: string | null;
 }
 
-async function buildStatus(db: DbClient): Promise<{ providers: ProviderStatus[]; activeProviderId: AiProviderId; activeModel: string | null }> {
+async function buildStatus(db: DbClient): Promise<{
+  providers: ProviderStatus[];
+  catalog: AiProviderDef[];
+  activeProviderId: string;
+  activeModel: string | null;
+}> {
+  const catalog = await loadAiProvidersCatalog(db);
   const providers: ProviderStatus[] = await Promise.all(
-    AI_PROVIDERS.map(async (p) => {
+    catalog.map(async (p) => {
       const dbKey = await getSecretPlaintext(p.keySecretName, db);
       const source: 'db' | 'env' | null = dbKey ? 'db' : process.env[p.keyEnvVar] ? 'env' : null;
       return {
@@ -73,7 +87,7 @@ async function buildStatus(db: DbClient): Promise<{ providers: ProviderStatus[];
   );
   const activeProviderId = await getActiveProviderId(db);
   const activeModel = await getActiveModel(activeProviderId, db);
-  return { providers, activeProviderId, activeModel };
+  return { providers, catalog, activeProviderId, activeModel };
 }
 
 /** Resolve which database this tenant/app's AI provider config lives on —
@@ -125,25 +139,50 @@ export async function POST(request: Request, { params }: { params: Promise<{ slu
     return jsonError(parsed.error.issues[0]?.message ?? 'Invalid request', 400);
   }
 
-  const provider = getAiProvider(parsed.data.providerId);
-  if (!provider) return jsonError('Unknown provider', 400);
-
   const { db, dedicated } = await resolveTenantDb(slug, parsed.data.appId);
   try {
-    if (parsed.data.apiKey) {
-      await setSecret(provider.keySecretName, parsed.data.apiKey, db);
+    if (parsed.data.catalog) {
+      await saveAiProvidersCatalog(parsed.data.catalog, db);
     }
 
-    if (parsed.data.activate) {
-      const key = await resolveProviderKey(provider, db);
-      if (!key) return jsonError(`${provider.label} has no API key configured — save one first`, 400);
-      await setActiveProvider(provider.id, parsed.data.model ?? null, db);
+    if (parsed.data.apiKeysBySecretName) {
+      for (const [secretName, key] of Object.entries(parsed.data.apiKeysBySecretName)) {
+        const trimmed = key?.trim();
+        if (!trimmed) continue;
+        await setSecret(secretName, trimmed, db);
+      }
+    }
+
+    const catalog = await loadAiProvidersCatalog(db);
+
+    if (parsed.data.providerId) {
+      const provider = findProviderInCatalog(catalog, parsed.data.providerId);
+      if (!provider) return jsonError('Unknown provider — not in catalog', 400);
+
+      if (parsed.data.apiKey) {
+        await setSecret(provider.keySecretName, parsed.data.apiKey, db);
+      }
+
+      if (parsed.data.activate) {
+        const key = await resolveProviderKey(provider, db);
+        if (!key) return jsonError(`${provider.label} has no API key configured — save one first`, 400);
+        await setActiveProvider(provider.id, parsed.data.model ?? null, db);
+      }
+    } else if (parsed.data.activate && parsed.data.model) {
+      // Activate using current active provider when only model/catalog was sent
+      const activeId = await getActiveProviderId(db);
+      const provider = findProviderInCatalog(catalog, activeId);
+      if (provider) {
+        const key = await resolveProviderKey(provider, db);
+        if (!key) return jsonError(`${provider.label} has no API key configured — save one first`, 400);
+        await setActiveProvider(provider.id, parsed.data.model, db);
+      }
     }
 
     return jsonOk(await buildStatus(db));
   } catch (err) {
     console.error(`[admin/ai-provider] POST error for "${slug}":`, err);
-    return jsonError('Failed to save AI provider config', 500);
+    return jsonError(err instanceof Error ? err.message : 'Failed to save AI provider config', 500);
   } finally {
     if (dedicated) await (db as unknown as { $disconnect: () => Promise<void> }).$disconnect();
   }
@@ -168,11 +207,12 @@ export async function DELETE(request: Request, { params }: { params: Promise<{ s
     return jsonError(parsed.error.issues[0]?.message ?? 'Invalid request', 400);
   }
 
-  const provider = getAiProvider(parsed.data.providerId);
-  if (!provider) return jsonError('Unknown provider', 400);
-
   const { db, dedicated } = await resolveTenantDb(slug, parsed.data.appId);
   try {
+    const catalog = await loadAiProvidersCatalog(db);
+    const provider = findProviderInCatalog(catalog, parsed.data.providerId);
+    if (!provider) return jsonError('Unknown provider', 400);
+
     await deleteSecret(provider.keySecretName, db);
     return jsonOk(await buildStatus(db));
   } catch (err) {

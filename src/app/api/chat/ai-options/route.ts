@@ -5,26 +5,26 @@
  * selected provider. Config → AI Provider stays admin-only for key writes;
  * any signed-in chat user can read options here to change the model for the
  * next prompt.
+ *
+ * Providers come from the loaded DB catalog (AI_PROVIDERS_CATALOG) with
+ * builtin fallback — custom OpenAI-compatible backends appear here once seeded.
  */
 import { requireSession } from '@/lib/auth/guards';
 import { jsonError, jsonOk } from '@/lib/api/response';
 import { getSecretPlaintext } from '@/lib/secrets';
 import {
-  AI_PROVIDERS,
-  getAiProvider,
+  findProviderInCatalog,
   getActiveProviderId,
   getActiveModel,
   resolveProviderKey,
   listProviderModels,
   checkProviderHealth,
   checkModelHealth,
-  type AiProviderId,
+  loadAiProvidersCatalog,
   type AiProviderHealth,
 } from '@/lib/ai-providers';
 
 export const maxDuration = 30;
-
-const PROVIDER_IDS = new Set<string>(AI_PROVIDERS.map((p) => p.id));
 
 export async function GET(request: Request): Promise<Response> {
   const guard = await requireSession(request);
@@ -34,8 +34,10 @@ export async function GET(request: Request): Promise<Response> {
   const requested = searchParams.get('providerId');
   const requestedModel = searchParams.get('model');
 
+  const catalog = await loadAiProvidersCatalog();
+
   const providers = await Promise.all(
-    AI_PROVIDERS.map(async (p) => {
+    catalog.map(async (p) => {
       const dbKey = await getSecretPlaintext(p.keySecretName);
       const source: 'db' | 'env' | null = dbKey
         ? 'db'
@@ -61,12 +63,12 @@ export async function GET(request: Request): Promise<Response> {
   const activeProviderId = await getActiveProviderId();
   const activeModel = await getActiveModel(activeProviderId);
 
-  let providerId: AiProviderId = activeProviderId;
-  if (requested && PROVIDER_IDS.has(requested)) {
-    providerId = requested as AiProviderId;
+  let providerId = activeProviderId;
+  if (requested && findProviderInCatalog(catalog, requested)) {
+    providerId = requested;
   }
 
-  const provider = getAiProvider(providerId);
+  const provider = findProviderInCatalog(catalog, providerId);
   if (!provider) return jsonError('Unknown provider', 400);
 
   const providerHealth =

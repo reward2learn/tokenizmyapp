@@ -1,0 +1,345 @@
+
+tencent/hy3:free
+Vercel Environment Variable has the apiKey
+NOUSRE_SEARCH_API_KEY
+
+https://inference-api.nousresearch.com/v1{
+  "model": "Hermes-4.3-36B",
+  "messages": [
+    {
+      "role": "user",
+      "content": "What is the capital of France?"
+    }
+  ],
+  "temperature": 0.7,
+  "max_tokens": 100
+}
+Successful Response
+Media type
+application/json
+Controls Accept header.
+Chat response example
+
+{
+  "id": "chatcmpl-abc123",
+  "object": "chat.completion",
+  "created": 1696109012,
+  "model": "Hermes-4.3-36B",
+  "choices": [
+    {
+      "index": 0,
+      "message": {
+        "role": "assistant",
+        "content": "The capital of France is Paris."
+      },
+      "finish_reason": "stop"
+    }
+  ]
+}
+/completions{
+  "model": "Hermes-4.3-36B",
+  "prompt": "Once upon a time",
+  "max_tokens": 60,
+  "temperature": 0.8,
+  "stream": true
+}
+
+Successful Response
+Media type
+application/json
+Controls Accept header.
+	•	
+	•	
+{
+  "id": "string",
+  "object": "text_completion",
+  "created": 0,
+  "model": "string",
+  "choices": [
+    {
+      "text": "string",
+      "index": 0,
+      "logprobs": "Unknown Type: object,null",
+      "finish_reason": "string"
+    }
+  ]
+}	No links
+422	Validation Error
+Media type
+application/json
+	•	
+	•	
+{
+  "detail": [
+    {
+      "loc": [
+        "string",
+        0
+      ],
+      "msg": "string",
+      "type": "string"
+    }
+  ]
+}
+
+HTTPValidationError{
+detail	Detail[
+title: Detail
+
+ValidationError{
+loc*
+Location[
+title: Location
+
+{
+anyOf ->
+string
+integer
+}]
+msg*
+Messagestring
+title: Message
+type*
+Error Typestring
+title: Error Type
+}]
+loc*	Location[
+title: Location
+
+{
+anyOf ->
+string
+integer
+}]
+msg*	Messagestring
+title: Message
+type*	Error Typestring
+title: Error Type
+anyOf ->	string
+integer
+}
+
+ValidationError{
+loc*	Location[
+title: Location
+
+{
+anyOf ->
+string
+integer
+}]
+msg*	Messagestring
+title: Message
+type*	Error Typestring
+title: Error Type
+anyOf ->	string
+integer
+}
+Examples: Chat example
+* 
+* 
+{	
+model*	string
+example: Hermes-4.3-36B
+The model to use for the request.
+messages*	[
+List of messages comprising the conversation.
+{
+role*
+string
+example: user
+The role of the message sender.
+Enum:
+[ system, user, assistant ]
+content*
+string
+example: What is the capital of France?
+The content of the message.
+}]
+temperature	number
+default: 1
+example: 0.7
+minimum: 0
+maximum: 2
+Sampling temperature to use. Must be between 0.0 and 2.0.
+max_tokens	integer
+default: 100
+example: 50
+minimum: 1
+maximum: 32000
+The maximum number of tokens to generate. Must be between 1 and 32000.
+stream	boolean
+default: false
+example: true
+Whether to stream responses incrementally.
+role*	string
+example: user
+The role of the message sender.
+Enum:
+[ system, user, assistant ]
+content*	string
+example: What is the capital of France?
+The content of the message.
+}
+
+
+const http = require('https');
+
+const options = {
+method: 'post',
+hostname: 'inference-api.nousresearch.com',
+port: null,
+path: '/v1/chat/completions',
+headers: {
+authorization: 'bearer sk-nous-feukyy6clikpvtwrq3ndqj0jg7jhhsez',
+'content-type': 'application/json'
+}
+};
+
+const req = http.request(options, function (res) {
+const chunks = [];
+
+res.on('data', function (chunk) {
+chunks.push(chunk);
+});
+
+res.on('end', function () {
+const body = buffer.concat(chunks);
+console.log(body.tostring());
+});
+});
+
+req.write(json.stringify({
+model: 'tencent/hy3:free',
+messages: [
+{role: 'system', content: 'you are a helpful assistant.'},
+{
+role: 'user',
+content: 'how much wood would a theoretical 80kg woodchuck chuck? assume a competitive environment.'
+}
+],
+max_tokens: 256
+}));
+req.end();
+
+
+
+
+
+
+
+
+
+
+
+Documentation NOUS RESEARCH INFERENCE API
+ 1.0.0 
+OAS 3.0
+An OpenAI-compatible API for running completion requests on Nous Research's inference backend.
+API BASE URL
+* The API is available at https://inference-api.nousresearch.com/v1.
+* You can use this URL with OpenAI-compatible clients and libraries.
+AUTHENTICATION & PAYMENT
+OPTION 1: USING API KEYS & ACCOUNT CREDITS:
+The standard method of authenticating with the API is via API keys.
+* Register an account on https://portal.nousresearch.com.
+* Add API credits or activate a subscription, then generate an API key.
+* Set the API key as a bearer token in the Authorization header in your requests.
+OPTION 2: X402 SUPPORT (BETA)
+The API supports payment via the x402 protocol using Solana USDC. This enables:
+* More anonymous usage: No account registration or API key required.
+* Pay-per-request: No need to pre-purchase credits; pay only for what you use.
+* Automatic cost tracking: All payments are tracked on-chain.
+Note: we strongly recommend that you set a max_tokens parameter in your x402 requests explicitly, else we default to a high limit. The x402 protocol requires that the price of a request must be determined before the work is executed. This means you will be charged for the number of tokens specified by the max_tokens parameter in your request or a default max if not set, regardless of actual usage.
+To use x402 payments with the API:
+1. Ensure you have a Solana wallet with USDC funds available.
+2. Prepare your inference request as normal, setting the desired parameters including max_tokens.
+3. Issue your inference request to the API endpoint as normal, but without an Authorization header. You will get a 402 response with payment requirement details.
+4. Construct a payment signature matching the payment requirements as per the x402 spec (there are client libraries to help with this), and re-run the request including the payment signature in the generated X-PAYMENT header.
+USAGE & PRICING
+* Usage is charged by consumed tokens.
+* Pricing details are available at https://portal.nousresearch.com. Note that there is a small surcharge when using x402.
+API KEY RATE LIMITS
+* Ultra: 1,600 RPM, 16,000,000 TPM
+* Free: 50 RPM, 500,000 TPM
+* Super: 800 RPM, 8,000,000 TPM
+* Plus: 400 RPM, 4,000,000 TPM
+* Default paid users: 180 RPM, 720,000 TPM
+AVAILABLE MODELS
+* Hermes-4.3-36B (128k context)
+* Hermes-4-70B (128k context)
+* Hermes-4-405B (128k context)
+See https://portal.nousresearch.com for more details on each model, including pricing and capabilities.
+REASONING
+When using Hermes 4 or DeepHermes, remember to use the following system prompt to enable reasoning:
+You are a deep thinking AI, you may use extremely long chains of thought to deeply consider the problem and deliberate with yourself via systematic reasoning processes to help come to a correct solution prior to answering. You should enclose your thoughts and internal monologue inside <think> </think> tags, and then provide your solution or response to the problem.
+Alternatively, if you're using completions or have the ability to modify the assistant responses, you can prefill <think> in the responses to trigger reasoning.
+The location of the reasoning output in the response depends on a few factors.
+* With Deep Hermes 3, the reasoning output will always be amongst the standard response content between <think></think> tags.
+* With Hermes 4, if you prefill the response with the tag, the reasoning output will also be between <think></think> tags.
+* With Hermes 4, if you use the reasoning system prompt and do not prefill the tag, the reasoning output will be included in reasoning_content field of the output.
+SERVERS
+https://inference-api.nousresearch.com/v1 - Production server
+
+
+POST
+Inference: Chat Completion
+
+POST
+Inference: Completion
+SCHEMAS
+
+HTTPValidationError{
+detail	Detail[
+title: Detail
+
+ValidationError{
+loc*
+Location[
+title: Location
+
+{
+anyOf ->
+[...]
+[...]
+}]
+msg*
+Messagestring
+title: Message
+type*
+Error Typestring
+title: Error Type
+}]
+loc*	Location[
+title: Location
+
+{
+anyOf ->
+[...]
+[...]
+}]
+msg*	Messagestring
+title: Message
+type*	Error Typestring
+title: Error Type
+anyOf ->	[...]
+[...]
+}
+
+ValidationError{
+loc*	Location[
+title: Location
+
+{
+anyOf ->
+string
+integer
+}]
+msg*	Messagestring
+title: Message
+type*	Error Typestring
+title: Error Type
+anyOf ->	string
+integer
+}
+https://portal.nousresearch.com/api/openapi

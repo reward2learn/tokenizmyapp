@@ -10,7 +10,7 @@
 
 import { z } from 'zod';
 import { PrismaClient } from '@/generated/prisma';
-import { createRawClient } from '@/lib/db';
+import { createRawClient, createClientForUrl } from '@/lib/db';
 import { requireWriteAuth } from '@/lib/auth/guards';
 import { jsonError, jsonOk } from '@/lib/api/response';
 import { ensureTenantsTable } from '@/domain/tenant/tenant-service';
@@ -31,6 +31,9 @@ import { provisionSuiteApps } from '@/domain/workflow/suite-provisioning';
 import { CREDIT_FLOORS, requireCreditsForTenant } from '@/domain/billing/credit-service';
 import { ensureRateCardForTenantSlug } from '@/domain/billing/org-rate-card-service';
 import { defaultRateCardInputs } from '@/lib/billing/tenant-rate-card';
+import { seedAiProviderConfig } from '@/lib/ai-providers';
+import { aiProvidersCatalogSchema } from '@/lib/ai-provider-def-schema';
+import { resolveDedicatedTenantDbUrl } from '@/domain/tenant/tenant-db-resolver';
 
 export const dynamic = 'force-dynamic';
 
@@ -95,6 +98,15 @@ const createSchema = z.object({
       annualRevenueUsd: z.number().min(0).optional(),
       macStudioCostUsd: z.number().min(0).optional(),
       monthlyThirdPartyUsd: z.number().min(0).optional(),
+    })
+    .optional(),
+  /** Optional AI provider catalog + keys seeded into tenant/app DBs after Neon. */
+  aiProviderConfig: z
+    .object({
+      catalog: aiProvidersCatalogSchema,
+      apiKeysBySecretName: z.record(z.string(), z.string()).optional(),
+      activeProviderId: z.string().min(1).max(64).optional(),
+      activeModel: z.string().min(1).max(200).optional(),
     })
     .optional(),
 });
@@ -433,6 +445,60 @@ export async function POST(request: Request): Promise<Response> {
       // Admin can retry seeding from the tenant dashboard
     } finally {
       if (dedicatedSeedClient) await dedicatedSeedClient.$disconnect();
+    }
+
+    // ── Seed AI provider catalog into tenant DB (+ suite app DBs when present) ──
+    if (parsed.data.aiProviderConfig) {
+      const aiCfg = parsed.data.aiProviderConfig;
+      try {
+        const tenantDbUrl = neonResult?.directUrl
+          ?? (await resolveDedicatedTenantDbUrl(parsed.data.slug));
+        if (tenantDbUrl) {
+          const aiDb = createClientForUrl(tenantDbUrl);
+          try {
+            await seedAiProviderConfig(aiDb, {
+              catalog: aiCfg.catalog,
+              apiKeysBySecretName: aiCfg.apiKeysBySecretName,
+              activeProviderId: aiCfg.activeProviderId,
+              activeModel: aiCfg.activeModel,
+            });
+            console.log('[tenants] AI provider catalog seeded on tenant DB');
+          } finally {
+            await (aiDb as unknown as { $disconnect: () => Promise<void> }).$disconnect();
+          }
+        }
+
+        // Suite apps may have their own dedicated DBs — seed each independently.
+        if (parsed.data.templateMode === 'suite') {
+          const metaRows = await db.$queryRawUnsafe(
+            `SELECT metadata FROM tenants WHERE slug = $1 LIMIT 1;`,
+            parsed.data.slug,
+          ) as { metadata: Record<string, unknown> }[];
+          const pack = (metaRows[0]?.metadata?.config as Record<string, unknown> | undefined)?.appPack as
+            | { apps?: { appId: string }[] }
+            | undefined;
+          for (const app of pack?.apps ?? []) {
+            const appDbUrl = await resolveDedicatedTenantDbUrl(parsed.data.slug, app.appId);
+            if (!appDbUrl || appDbUrl === tenantDbUrl) continue;
+            const appDb = createClientForUrl(appDbUrl);
+            try {
+              await seedAiProviderConfig(appDb, {
+                catalog: aiCfg.catalog,
+                apiKeysBySecretName: aiCfg.apiKeysBySecretName,
+                activeProviderId: aiCfg.activeProviderId,
+                activeModel: aiCfg.activeModel,
+              });
+            } finally {
+              await (appDb as unknown as { $disconnect: () => Promise<void> }).$disconnect();
+            }
+          }
+        }
+      } catch (aiErr) {
+        console.error(
+          '[tenants] AI provider seed failed:',
+          aiErr instanceof Error ? aiErr.message : String(aiErr),
+        );
+      }
     }
 
     // ── Step 7: Deploy (Phase 6 CLI if codegen succeeded, else existing API) ──

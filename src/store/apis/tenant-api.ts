@@ -1,7 +1,7 @@
 import { createApi } from '@reduxjs/toolkit/query/react';
 import { baseQuery } from '@shared/store/base-query';
 import type { ApiEnvelope } from '@/store/api-types';
-import type { AiProviderId, AiProviderStatus, AiModelOption } from '@/store/apis/config-api';
+import type { AiProviderStatus, AiModelOption } from '@/store/apis/config-api';
 
 export interface TenantEntry {
   id: string;
@@ -217,6 +217,13 @@ export const tenantApi = createApi({
         annualRevenueUsd?: number;
         macStudioCostUsd?: number;
         monthlyThirdPartyUsd?: number;
+      };
+      /** Optional AI provider catalog + keys to seed into the new tenant DB after Neon. */
+      aiProviderConfig?: {
+        catalog: import('@/lib/ai-providers-catalog').AiProviderDef[];
+        apiKeysBySecretName?: Record<string, string>;
+        activeProviderId?: string;
+        activeModel?: string;
       };
     }>({
       query: (body) => ({
@@ -875,7 +882,16 @@ export const tenantApi = createApi({
     }),
     saveTenantAiProvider: builder.mutation<
       ApiEnvelope<AiProviderStatus>,
-      { slug: string; appId?: string; providerId: AiProviderId; apiKey?: string; model?: string; activate?: boolean }
+      {
+        slug: string;
+        appId?: string;
+        providerId?: string;
+        apiKey?: string;
+        model?: string;
+        activate?: boolean;
+        catalog?: import('@/lib/ai-providers-catalog').AiProviderDef[];
+        apiKeysBySecretName?: Record<string, string>;
+      }
     >({
       query: ({ slug, ...body }) => ({
         url: `admin/tenants/${slug}/ai-provider`,
@@ -884,7 +900,7 @@ export const tenantApi = createApi({
       }),
       invalidatesTags: (_result, _error, { slug, appId }) => [{ type: 'Tenants', id: `ai-provider-${slug}-${appId ?? ''}` }],
     }),
-    clearTenantAiProviderKey: builder.mutation<ApiEnvelope<AiProviderStatus>, { slug: string; appId?: string; providerId: AiProviderId }>({
+    clearTenantAiProviderKey: builder.mutation<ApiEnvelope<AiProviderStatus>, { slug: string; appId?: string; providerId: string }>({
       query: ({ slug, ...body }) => ({
         url: `admin/tenants/${slug}/ai-provider`,
         method: 'DELETE',
@@ -892,7 +908,7 @@ export const tenantApi = createApi({
       }),
       invalidatesTags: (_result, _error, { slug, appId }) => [{ type: 'Tenants', id: `ai-provider-${slug}-${appId ?? ''}` }],
     }),
-    getTenantAiModels: builder.query<ApiEnvelope<{ providerId: AiProviderId; models: AiModelOption[] }>, { slug: string; appId?: string; providerId: AiProviderId }>({
+    getTenantAiModels: builder.query<ApiEnvelope<{ providerId: string; models: AiModelOption[] }>, { slug: string; appId?: string; providerId: string }>({
       query: ({ slug, appId, providerId }) => ({
         url: `admin/tenants/${slug}/ai-models`,
         params: { providerId, ...(appId ? { appId } : {}) },
@@ -901,7 +917,14 @@ export const tenantApi = createApi({
     /** POST /api/admin/ai-models-preview — list models for a provider using
      *  an explicit key, before it's saved anywhere (Create App Wizard, where
      *  the app/database don't exist yet to resolve a stored key from). */
-    previewAiModels: builder.mutation<ApiEnvelope<{ providerId: AiProviderId; models: AiModelOption[] }>, { providerId: AiProviderId; apiKey?: string }>({
+    previewAiModels: builder.mutation<
+      ApiEnvelope<{ providerId: string; models: AiModelOption[] }>,
+      {
+        providerId?: string;
+        apiKey?: string;
+        provider?: import('@/lib/ai-providers-catalog').AiProviderDef;
+      }
+    >({
       query: (body) => ({
         url: 'admin/ai-models-preview',
         method: 'POST',

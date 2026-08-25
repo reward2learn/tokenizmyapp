@@ -84,8 +84,8 @@ const chatBodySchema = z.object({
    * than any phrasing heuristic, so it turns them on directly.
    */
   activeTool: z.enum(['build_custom_template']).optional(),
-  /** Optional per-request provider override from the chat Tools picker. */
-  providerId: z.enum(['openai', 'vercel-ai-gateway', 'opencode-zen']).optional(),
+  /** Optional per-request provider override from the chat Tools picker (must exist in loaded catalog). */
+  providerId: z.string().trim().min(1).max(64).optional(),
   /** Optional per-request model override from the chat Tools picker. */
   model: z.string().trim().min(1).max(200).optional(),
   /** Client-generated conversation id — groups ledger rows for this chat session. */

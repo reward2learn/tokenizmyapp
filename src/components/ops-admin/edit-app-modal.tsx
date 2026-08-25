@@ -84,7 +84,7 @@ import {
   type AppScopedConfig,
 } from '@/store/apis/tenant-api';
 import { useListRoleConfigsQuery } from '@/store/apis/admin-api';
-import { TenantAiProviderForm } from './tenant-ai-provider-form';
+import { TenantAiProvidersConfigStep } from './tenant-ai-providers-config-step';
 import {
   EMPTY_STRIPE_WIZARD,
   StripeIntegrationStep,
@@ -931,13 +931,10 @@ export function EditAppModal({ open, onClose, tenantSlug, app, onSnackbar }: Edi
     </Stack>
   );
 
-  // Step 5: AI Provider — TenantAiProviderForm saves immediately to this
-  // app's own dedicated database (no dependency on this modal's Save All
-  // Changes / diff-tracking flow below). The legacy OpenAI-only field stays
-  // for backward compatibility with existing saved values.
+  // Step 5: AI Providers — saves immediately to this app's dedicated DB
   const renderStepOpenAi = () => (
     <Stack spacing={3}>
-      <TenantAiProviderForm tenantSlug={tenantSlug} appId={app.appId} />
+      <TenantAiProvidersConfigStep tenantSlug={tenantSlug} appId={app.appId} />
 
       <Divider />
 
@@ -946,7 +943,7 @@ export function EditAppModal({ open, onClose, tenantSlug, app, onSnackbar }: Edi
         <Typography variant="subtitle1" sx={{ fontWeight: 600 }}>Legacy OpenAI API Key</Typography>
       </Stack>
       <Alert severity="warning" sx={{ fontSize: '0.8rem' }}>
-        Superseded by the AI Provider section above, which takes effect immediately. This field is only
+        Superseded by the AI Providers section above, which takes effect immediately. This field is only
         saved into the app&apos;s config JSON — it is not currently pushed as an env var to this app&apos;s
         Vercel project.
       </Alert>
