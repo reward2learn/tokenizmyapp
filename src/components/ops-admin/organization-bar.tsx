@@ -219,106 +219,113 @@ export function OrganizationBar({ tenantSlug }: { tenantSlug?: string | null }) 
             </Select>
           </FormControl>
 
-          {activeOrg && (
-            <Stack
-              direction="row"
-              spacing={0.5}
-              useFlexGap
-              sx={{
-                alignItems: 'center',
-                // Full width only in the column (xs) layout — claiming 100%
-                // beside the Select on sm+ starves the FormControl of flex space.
-                width: { xs: '100%', sm: 'auto' },
-                minWidth: 0,
-                maxWidth: '100%',
-                flexWrap: 'wrap',
-                rowGap: 0.5,
-                flex: { sm: '0 1 auto' },
-                flexShrink: { sm: 0 },
-              }}
-            >
-              {/* Support asks users to read this out — keep it copyable. */}
-              <Tooltip title="Copy organization ID">
-                <Chip
-                  label={activeOrg.id}
-                  size="small"
-                  variant="outlined"
-                  onDelete={() => navigator.clipboard?.writeText(activeOrg.id)}
-                  deleteIcon={<ContentCopyIcon sx={{ fontSize: 14 }} />}
-                  sx={{
-                    fontFamily: 'var(--font-geist-mono, monospace)',
-                    fontSize: '0.7rem',
-                    maxWidth: '100%',
-                    '& .MuiChip-label': {
-                      overflow: 'hidden',
-                      textOverflow: 'ellipsis',
-                      wordBreak: 'break-all',
-                    },
-                  }}
-                />
-              </Tooltip>
+          {/*
+            Org meta + actions share one horizontal Stack so the ID chip, Plan
+            select, and + / delete icons stay on the same line even when the
+            outer Stack switches to column on xs.
+          */}
+          <Stack
+            direction="row"
+            spacing={0.5}
+            useFlexGap
+            sx={{
+              alignItems: 'center',
+              // Full width only in the column (xs) layout — claiming 100%
+              // beside the Select on sm+ starves the FormControl of flex space.
+              width: { xs: '100%', sm: 'auto' },
+              minWidth: 0,
+              maxWidth: '100%',
+              flexWrap: 'wrap',
+              rowGap: 0.5,
+              flex: { sm: '0 1 auto' },
+              flexShrink: { sm: 0 },
+            }}
+          >
+            {activeOrg ? (
+              <>
+                {/* Support asks users to read this out — keep it copyable. */}
+                <Tooltip title="Copy organization ID">
+                  <Chip
+                    label={activeOrg.id}
+                    size="small"
+                    variant="outlined"
+                    onDelete={() => navigator.clipboard?.writeText(activeOrg.id)}
+                    deleteIcon={<ContentCopyIcon sx={{ fontSize: 14 }} />}
+                    sx={{
+                      fontFamily: 'var(--font-geist-mono, monospace)',
+                      fontSize: '0.7rem',
+                      maxWidth: '100%',
+                      '& .MuiChip-label': {
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis',
+                        wordBreak: 'break-all',
+                      },
+                    }}
+                  />
+                </Tooltip>
 
-              {canMoveTenant ? (
-                <Button
-                  size="small"
-                  variant="outlined"
-                  onClick={handleMoveTenant}
-                  disabled={isAssigning}
-                  sx={{ maxWidth: '100%', wordBreak: 'break-word' }}
+                {canMoveTenant ? (
+                  <Button
+                    size="small"
+                    variant="outlined"
+                    onClick={handleMoveTenant}
+                    disabled={isAssigning}
+                    sx={{ maxWidth: '100%', wordBreak: 'break-word' }}
+                  >
+                    {isAssigning ? 'Moving…' : `Move ${tenantSlug} here`}
+                  </Button>
+                ) : null}
+
+                {plan ? (
+                  <Chip
+                    label={`${plan.label} · ${formatPrice(plan.priceMonthly)}`}
+                    size="small"
+                    color={plan.id === 'free' ? 'default' : 'primary'}
+                  />
+                ) : null}
+                {subscription && subscription.status !== 'active' ? (
+                  <Chip label={subscription.status} size="small" color="warning" />
+                ) : null}
+              </>
+            ) : null}
+
+            {tenantSlug ? (
+              <FormControl size="small" sx={{ minWidth: 160 }}>
+                <InputLabel id="plan-selector-label">Plan</InputLabel>
+                <Select
+                  labelId="plan-selector-label"
+                  label="Plan"
+                  value={subscription?.planId ?? 'free'}
+                  onChange={(e) => handlePlanChange(e.target.value as PlanId)}
+                  disabled={busy || !activeOrgId}
                 >
-                  {isAssigning ? 'Moving…' : `Move ${tenantSlug} here`}
-                </Button>
-              ) : null}
+                  {PLANS.map((p) => (
+                    <MenuItem key={p.id} value={p.id}>
+                      {p.label} — {formatPrice(p.priceMonthly)}
+                    </MenuItem>
+                  ))}
+                </Select>
+              </FormControl>
+            ) : null}
 
-              {plan && (
-                <Chip
-                  label={`${plan.label} · ${formatPrice(plan.priceMonthly)}`}
-                  size="small"
-                  color={plan.id === 'free' ? 'default' : 'primary'}
-                />
-              )}
-              {subscription && subscription.status !== 'active' && (
-                <Chip label={subscription.status} size="small" color="warning" />
-              )}
-            </Stack>
-          )}
-
-          {tenantSlug && (
-            <FormControl size="small" sx={{ minWidth: 160 }}>
-              <InputLabel id="plan-selector-label">Plan</InputLabel>
-              <Select
-                labelId="plan-selector-label"
-                label="Plan"
-                value={subscription?.planId ?? 'free'}
-                onChange={(e) => handlePlanChange(e.target.value as PlanId)}
-                disabled={busy || !activeOrgId}
-              >
-                {PLANS.map((p) => (
-                  <MenuItem key={p.id} value={p.id}>
-                    {p.label} — {formatPrice(p.priceMonthly)}
-                  </MenuItem>
-                ))}
-              </Select>
-            </FormControl>
-          )}
-
-          <Tooltip title="New organization">
-            <IconButton size="small" onClick={() => setCreateOpen(true)} aria-label="New organization">
-              <AddIcon />
-            </IconButton>
-          </Tooltip>
-          {activeOrg && (
-            <Tooltip title="Delete organization">
-              <IconButton
-                size="small"
-                onClick={() => handleDeleteOrg(activeOrg.id)}
-                aria-label="Delete organization"
-                disabled={busy}
-              >
-                <DeleteIcon />
+            <Tooltip title="New organization">
+              <IconButton size="small" onClick={() => setCreateOpen(true)} aria-label="New organization">
+                <AddIcon />
               </IconButton>
             </Tooltip>
-          )}
+            {activeOrg ? (
+              <Tooltip title="Delete organization">
+                <IconButton
+                  size="small"
+                  onClick={() => handleDeleteOrg(activeOrg.id)}
+                  aria-label="Delete organization"
+                  disabled={busy}
+                >
+                  <DeleteIcon />
+                </IconButton>
+              </Tooltip>
+            ) : null}
+          </Stack>
         </Stack>
 
         {tenantSlug && plan && (
