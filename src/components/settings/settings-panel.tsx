@@ -181,6 +181,7 @@ export function SettingsPanel({
           flexGrow: 1,
           minWidth: 0,
           minHeight: 0,
+          ...(embedded ? { height: 'calc(90vh - 169px)' } : null),
           overflow: 'auto',
           p: { xs: 2, md: 3 },
         }}
