@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import Alert from '@mui/material/Alert';
 import Box from '@mui/material/Box';
 import CircularProgress from '@mui/material/CircularProgress';
@@ -10,34 +10,40 @@ import Stack from '@mui/material/Stack';
 import Switch from '@mui/material/Switch';
 import Typography from '@mui/material/Typography';
 import {
+  configApi,
   useGetChatSettingsQuery,
   useUpdateChatSettingsMutation,
 } from '@/store/apis/config-api';
+import { useAppDispatch } from '@/store/hooks';
 
 export function ChatSettingsForm() {
+  const dispatch = useAppDispatch();
   const { data, isLoading, isError } = useGetChatSettingsQuery();
   const [updateSettings, { isLoading: isSaving }] = useUpdateChatSettingsMutation();
-  const [webSearchEnabled, setWebSearchEnabled] = useState(false);
   const [status, setStatus] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    if (data?.data) {
-      setWebSearchEnabled(data.data.webSearchEnabled);
-    }
-  }, [data]);
+  // Derive from RTK Query cache — no useEffect mirror.
+  const webSearchEnabled = data?.data?.webSearchEnabled ?? false;
 
   const handleToggle = async (checked: boolean) => {
-    setWebSearchEnabled(checked);
     setStatus(null);
     setError(null);
+    // Optimistic SoT write into the cache (undo on failure).
+    const patch = dispatch(
+      configApi.util.updateQueryData('getChatSettings', undefined, (draft) => {
+        if (draft.data) {
+          draft.data.webSearchEnabled = checked;
+        }
+      }),
+    );
     try {
       await updateSettings({ webSearchEnabled: checked }).unwrap();
       setStatus(checked
         ? 'Web search enabled for the assistant.'
         : 'Web search disabled for the assistant.');
     } catch (err) {
-      setWebSearchEnabled(!checked);
+      patch.undo();
       setError(err instanceof Error ? err.message : 'Could not update chat settings.');
     }
   };

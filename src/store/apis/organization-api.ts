@@ -2,6 +2,7 @@ import { createApi } from '@reduxjs/toolkit/query/react';
 import { baseQuery } from '@shared/store/base-query';
 import type { ApiEnvelope } from '@/store/api-types';
 import type { BillingInterval, Feature, PlanDef, PlanId } from '@/lib/billing/plans';
+import { consumeSseStream } from '@/lib/chat/sse-parser';
 
 export interface ResourceUsage {
   resource: string;
@@ -636,13 +637,113 @@ export const organizationApi = createApi({
         websiteUrl?: string | null;
         secCikOrTicker?: string | null;
         companiesHouseNumber?: string | null;
+        /** Called for each SSE token while streaming (kept out of the wire body). */
+        onToken?: (token: string) => void;
+        /** Called for each SSE tool_result event (kept out of the wire body). */
+        onToolResult?: (tool: string) => void;
       }
     >({
-      query: ({ threadId, ...body }) => ({
-        url: `admin/ai-credits-calculator/threads/${threadId}/messages`,
-        method: 'POST',
-        body,
-      }),
+      /**
+       * Prefer SSE (`Accept: text/event-stream`); fall back to JSON.
+       * Uses queryFn so streaming callbacks stay in the store layer (enforce-redux).
+       */
+      queryFn: async (arg) => {
+        const { threadId, onToken, onToolResult, ...body } = arg;
+        try {
+          const response = await fetch(
+            `/api/admin/ai-credits-calculator/threads/${threadId}/messages`,
+            {
+              method: 'POST',
+              credentials: 'include',
+              headers: {
+                'Content-Type': 'application/json',
+                Accept: 'text/event-stream',
+              },
+              body: JSON.stringify(body),
+            },
+          );
+
+          if (!response.ok) {
+            const errJson = (await response.json().catch(() => null)) as {
+              error?: string;
+            } | null;
+            return {
+              error: {
+                status: response.status,
+                data: { error: errJson?.error ?? `Chat failed (${response.status})` },
+              },
+            };
+          }
+
+          const contentType = response.headers.get('content-type') ?? '';
+          if (contentType.includes('application/json')) {
+            const payload = (await response.json()) as ApiEnvelope<{
+              assistantMessage: { id: string; content: string };
+              toolResults: unknown[];
+            }>;
+            if (payload.error || !payload.success) {
+              return {
+                error: {
+                  status: response.status,
+                  data: { error: payload.error ?? 'Chat failed' },
+                },
+              };
+            }
+            const content = payload.data?.assistantMessage?.content ?? '';
+            if (content) onToken?.(content);
+            return { data: payload };
+          }
+
+          if (!response.body) {
+            return {
+              error: { status: 500, data: { error: 'Streaming response body was empty' } },
+            };
+          }
+
+          let streamed = '';
+          let streamError: string | null = null;
+          const toolResults: unknown[] = [];
+
+          await consumeSseStream(response.body, (event) => {
+            if (event.type === 'token') {
+              streamed += event.token;
+              onToken?.(event.token);
+              return;
+            }
+            if (event.type === 'tool_result') {
+              toolResults.push(event.tool);
+              onToolResult?.(event.tool);
+              return;
+            }
+            if (event.type === 'error') {
+              streamError = event.error;
+            }
+          });
+
+          if (streamError) {
+            return {
+              error: { status: 500, data: { error: streamError } },
+            };
+          }
+
+          return {
+            data: {
+              success: true,
+              data: {
+                assistantMessage: { id: `stream-${Date.now()}`, content: streamed },
+                toolResults,
+              },
+            },
+          };
+        } catch (err) {
+          return {
+            error: {
+              status: 500,
+              data: { error: err instanceof Error ? err.message : 'Chat failed' },
+            },
+          };
+        }
+      },
       invalidatesTags: (_r, _e, { threadId }) => [{ type: 'AiCreditsCalculator', id: threadId }],
     }),
 

@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import Alert from '@mui/material/Alert';
 import AlertTitle from '@mui/material/AlertTitle';
 import Box from '@mui/material/Box';
@@ -64,6 +64,10 @@ import { CloudCreditsTab } from '@/components/billing/cloud-credits-tab';
 import { PaymentMethodsTab } from '@/components/billing/payment-methods-tab';
 import { StripeTopUpDialog } from '@/components/ops-admin/stripe-topup-dialog';
 import { TenantManagedOrgAlert } from '@/components/settings/tenant-managed-message';
+import {
+  ResponsiveTabPanels,
+  type ResponsiveTabItem,
+} from '@/components/shared/responsive-tab-panels';
 import type { CreditAdminAnalytics } from '@/store/apis/organization-api';
 
 /**
@@ -122,60 +126,12 @@ export function BillingPanel({
 
   const activeTab = visibleTabs.includes(tab) ? tab : visibleTabs[0];
 
-  return (
-    <Paper elevation={0} sx={{ border: '1px solid', borderColor: 'divider' }}>
-      <Tabs
-        value={activeTab}
-        onChange={(_, next: BillingTab) => dispatch(setBillingTab(next))}
-        variant="scrollable"
-        scrollButtons="auto"
-        sx={{ borderBottom: 1, borderColor: 'divider', px: 1 }}
-      >
-        <Tab label="Plan" value="plan" />
-        <Tab label="History" value="credit-history" />
-        {!readOnly && <Tab label="Cloud Credits" value="cloud-credits" />}
-        {!readOnly && <Tab label="Billing Details" value="billing-details" />}
-        {!readOnly && <Tab label="Payment Methods" value="payment-methods" />}
-        {!readOnly && <Tab label="Invoices" value="invoices" />}
-      </Tabs>
-
-      <Box sx={{ p: { xs: 2, md: 3 } }}>
-        {readOnly && !selfServeBilling && (
-          <Box sx={{ mb: 2 }}>
-            <TenantManagedOrgAlert />
-          </Box>
-        )}
-
-        {!readOnly && readiness?.configError && (
-          <Alert severity="error" sx={{ mb: 2 }}>
-            <AlertTitle>Stripe configuration problem</AlertTitle>
-            {readiness.configError}
-          </Alert>
-        )}
-        {!readOnly && priceMismatches.length > 0 && (
-          <Alert severity="error" sx={{ mb: 2 }}>
-            <AlertTitle>Advertised price does not match Stripe</AlertTitle>
-            {priceMismatches.map((message) => (
-              <Typography key={message} variant="body2">
-                {message}
-              </Typography>
-            ))}
-          </Alert>
-        )}
-        {!readOnly && reconcileNote && (
-          <Alert severity="warning" sx={{ mb: 2 }}>
-            <AlertTitle>Plan could not be confirmed with Stripe</AlertTitle>
-            {reconcileNote}
-          </Alert>
-        )}
-        {!readOnly && readiness?.liveMode && (
-          <Alert severity="warning" sx={{ mb: 2 }}>
-            This deployment is connected to <strong>live</strong> Stripe. Actions here move real
-            money.
-          </Alert>
-        )}
-
-        {activeTab === 'plan' && (
+  const tabItems: ResponsiveTabItem[] = useMemo(() => {
+    const items: ResponsiveTabItem[] = [
+      {
+        id: 'plan',
+        label: 'Plan',
+        content: (
           <PlanTab
             orgId={orgId}
             currentPlanId={subscription?.planId ?? 'free'}
@@ -188,8 +144,12 @@ export function BillingPanel({
             hasExistingSubscription={Boolean(linkage?.subscriptionId)}
             readOnly={readOnly}
           />
-        )}
-        {activeTab === 'credit-history' && (
+        ),
+      },
+      {
+        id: 'credit-history',
+        label: 'History',
+        content: (
           <AiCreditsHistory
             grants={grants}
             ledger={ledger}
@@ -197,12 +157,96 @@ export function BillingPanel({
             readOnly={readOnly}
             selfServeTopUp={selfServeBilling}
           />
-        )}
-        {!readOnly && activeTab === 'cloud-credits' && <CloudCreditsTab orgId={orgId} />}
-        {!readOnly && activeTab === 'billing-details' && <BillingDetailsTab orgId={orgId} />}
-        {!readOnly && activeTab === 'payment-methods' && <PaymentMethodsTab orgId={orgId} />}
-        {!readOnly && activeTab === 'invoices' && <InvoicesTab orgId={orgId} />}
-      </Box>
+        ),
+      },
+    ];
+
+    if (!readOnly) {
+      items.push(
+        { id: 'cloud-credits', label: 'Cloud Credits', content: <CloudCreditsTab orgId={orgId} /> },
+        { id: 'billing-details', label: 'Billing Details', content: <BillingDetailsTab orgId={orgId} /> },
+        { id: 'payment-methods', label: 'Payment Methods', content: <PaymentMethodsTab orgId={orgId} /> },
+        { id: 'invoices', label: 'Invoices', content: <InvoicesTab orgId={orgId} /> },
+      );
+    }
+
+    return items;
+  }, [
+    orgId,
+    readOnly,
+    selfServeBilling,
+    subscription?.planId,
+    subscription?.status,
+    linkage?.pendingPlanId,
+    linkage?.gracePeriodEndsAt,
+    linkage?.subscriptionId,
+    checkoutData?.data?.purchasable,
+    checkoutData?.data?.publishableKey,
+    readiness?.ready,
+    grants,
+    ledger,
+    analytics,
+  ]);
+
+  const sharedAlerts = (
+    <>
+      {readOnly && !selfServeBilling && (
+        <Box sx={{ mb: 2 }}>
+          <TenantManagedOrgAlert />
+        </Box>
+      )}
+
+      {!readOnly && readiness?.configError && (
+        <Alert severity="error" sx={{ mb: 2 }}>
+          <AlertTitle>Stripe configuration problem</AlertTitle>
+          {readiness.configError}
+        </Alert>
+      )}
+      {!readOnly && priceMismatches.length > 0 && (
+        <Alert severity="error" sx={{ mb: 2 }}>
+          <AlertTitle>Advertised price does not match Stripe</AlertTitle>
+          {priceMismatches.map((message) => (
+            <Typography key={message} variant="body2">
+              {message}
+            </Typography>
+          ))}
+        </Alert>
+      )}
+      {!readOnly && reconcileNote && (
+        <Alert severity="warning" sx={{ mb: 2 }}>
+          <AlertTitle>Plan could not be confirmed with Stripe</AlertTitle>
+          {reconcileNote}
+        </Alert>
+      )}
+      {!readOnly && readiness?.liveMode && (
+        <Alert severity="warning" sx={{ mb: 2 }}>
+          This deployment is connected to <strong>live</strong> Stripe. Actions here move real
+          money.
+        </Alert>
+      )}
+    </>
+  );
+
+  const hasSharedAlerts =
+    (readOnly && !selfServeBilling) ||
+    Boolean(!readOnly && readiness?.configError) ||
+    (!readOnly && priceMismatches.length > 0) ||
+    Boolean(!readOnly && reconcileNote) ||
+    Boolean(!readOnly && readiness?.liveMode);
+
+  return (
+    <Paper elevation={0} sx={{ border: '1px solid', borderColor: 'divider' }}>
+      {hasSharedAlerts ? (
+        <Box sx={{ px: { xs: 2, md: 3 }, pt: { xs: 2, md: 3 }, pb: 0 }}>{sharedAlerts}</Box>
+      ) : null}
+
+      <ResponsiveTabPanels
+        ariaLabel="Billing sections"
+        breakpoint="md"
+        value={activeTab}
+        onChange={(id) => dispatch(setBillingTab(id as BillingTab))}
+        items={tabItems}
+      />
     </Paper>
   );
 }

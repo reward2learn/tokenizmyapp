@@ -113,6 +113,8 @@ import {
   useRemoveAppFromSuiteMutation,
   usePushStripeEnvVarsMutation,
   useLazyGetStripeMarketplaceStatusQuery,
+  useLazyGetAgenticCommerceHealthQuery,
+  useLazyGetStripeEmbeddedCheckoutProbeQuery,
   type TenantEntry
 } from '@/store/apis/tenant-api';
 import {
@@ -622,6 +624,8 @@ export function EditTenantModal({ open, tenant, onClose, onSnackbar }: EditTenan
   const [getDeployStatus] = useLazyGetDeployStatusQuery();
   const [getTenantDomains] = useLazyGetTenantDomainsQuery();
   const [getAiFindings] = useLazyGetAiFindingsQuery();
+  const [getAgenticCommerceHealth] = useLazyGetAgenticCommerceHealthQuery();
+  const [getStripeEmbeddedCheckoutProbe] = useLazyGetStripeEmbeddedCheckoutProbeQuery();
 
   // ── Deploy state ───────────────────────────────────────────
   const [deployingSlug, setDeployingSlug] = useState<string | null>(null);
@@ -1436,8 +1440,7 @@ export function EditTenantModal({ open, tenant, onClose, onSnackbar }: EditTenan
 
     if (hasSecret && hasPublishable) {
       try {
-        const res = await fetch(`/api/admin/tenants/${slug}/agentic-commerce-health`, { credentials: 'include' });
-        const payload = await res.json() as { success?: boolean; data?: { steps?: { label: string; status: 'pass' | 'fail' | 'warn'; message: string }[] }; error?: string };
+        const payload = await getAgenticCommerceHealth(slug).unwrap();
         if (payload.success && payload.data?.steps) {
           addAgenticCommerceToFlightCheck(payload.data.steps, addResult, goToOrgStep, 'Go to step');
         } else {
@@ -1460,14 +1463,7 @@ export function EditTenantModal({ open, tenant, onClose, onSnackbar }: EditTenan
       }
 
       try {
-        const probeRes = await fetch(`/api/admin/tenants/${slug}/stripe-embedded-checkout-probe`, {
-          credentials: 'include',
-        });
-        const probePayload = (await probeRes.json()) as {
-          success?: boolean;
-          data?: { ok?: boolean; status?: 'pass' | 'fail' | 'warn'; message?: string };
-          error?: string;
-        };
+        const probePayload = await getStripeEmbeddedCheckoutProbe(slug).unwrap();
         if (probePayload.success && probePayload.data) {
           addEmbeddedCheckoutProbeToFlightCheck(probePayload.data, addResult, goToOrgStep, 'Go to step');
         } else {
@@ -1507,7 +1503,7 @@ export function EditTenantModal({ open, tenant, onClose, onSnackbar }: EditTenan
 
     setFlightChecks(results);
     setFlightRunning(false);
-  }, [tenant, flightRunId, getTenant, getDeployStatus, setActiveStep, testStripeWebhook, fetchMarketplaceStatus, onSnackbar, updateTenant]);
+  }, [tenant, flightRunId, getTenant, getDeployStatus, setActiveStep, testStripeWebhook, fetchMarketplaceStatus, onSnackbar, updateTenant, getAgenticCommerceHealth, getStripeEmbeddedCheckoutProbe]);
 
   // ── Export tenant config ────────────────────────────────
   const handleExport = useCallback(() => {

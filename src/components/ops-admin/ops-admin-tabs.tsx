@@ -64,6 +64,9 @@ let opsChartJsRegistered = false;
 import { useAppDispatch, useAppSelector } from '@/store/hooks';
 import { setActiveTab } from '@/store/ui-slice';
 import {
+  ResponsiveTabPanels,
+} from '@/components/shared/responsive-tab-panels';
+import {
   useDeleteZReportMutation,
   useGetCalendarQuery,
   useGetDetailQuery,
@@ -2663,12 +2666,18 @@ export function OpsAdminTabs({ initialTab = 'day-pos' }: { initialTab?: OpsTab }
     ? activeTab
     : initialTab) as OpsTab;
 
-  const handleTabChange = (_event: SyntheticEvent, value: OpsTab) => {
-    dispatch(setActiveTab(value));
-  };
+  const tabItems = useMemo(
+    () => [
+      { id: 'day-pos', label: 'Day POS', content: <DayPosTab /> },
+      { id: 'costs-payroll', label: 'Costs & Payroll', content: <CostsPayrollTab /> },
+      { id: 'fill-missing', label: 'Fill Missing Days', content: <FillMissingTab /> },
+      { id: 'recent', label: 'Recent Entries', content: <RecentEntries /> },
+    ],
+    [],
+  );
 
   return (
-    <Box component="section" sx={{  mx: 'auto', px: 3, py: 4 }}>
+    <Box component="section" sx={{ mx: 'auto', px: 3, py: 4 }}>
       <Stack spacing={3}>
         <Box>
           <Typography variant="overline" color="primary.main" sx={{ fontWeight: 700 }}>
@@ -2682,28 +2691,20 @@ export function OpsAdminTabs({ initialTab = 'day-pos' }: { initialTab?: OpsTab }
           </Typography>
         </Box>
 
-        <Paper elevation={0} sx={{ 
-          position: 'sticky', 
-          top: 64, 
-          zIndex: 89, 
-          borderRadius: 0,
-          border: '0px solid', 
-          borderColor: 'divider', 
-          bgcolor: 'background.default',
-          backgroundFilter: 'blur(0px)' }}>
-     
-          <Tabs value={tab} onChange={handleTabChange} variant="scrollable" scrollButtons="auto">
-            <Tab value="day-pos" label="Day POS" />
-            <Tab value="costs-payroll" label="Costs & Payroll" />
-            <Tab value="fill-missing" label="Fill Missing Days" />
-            <Tab value="recent" label="Recent Entries" />
-          </Tabs>
-        </Paper>
-
-        {tab === 'day-pos' ? <DayPosTab /> : null}
-        {tab === 'costs-payroll' ? <CostsPayrollTab /> : null}
-        {tab === 'fill-missing' ? <FillMissingTab /> : null}
-        {tab === 'recent' ? <RecentEntries /> : null}
+        <ResponsiveTabPanels
+          ariaLabel="Ops admin sections"
+          breakpoint="md"
+          value={tab}
+          onChange={(id) => dispatch(setActiveTab(id as OpsTab))}
+          items={tabItems}
+          showDivider={false}
+          tabsSx={{
+            position: 'sticky',
+            top: 64,
+            zIndex: 89,
+            bgcolor: 'background.default',
+          }}
+        />
       </Stack>
     </Box>
   );

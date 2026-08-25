@@ -36,7 +36,6 @@ import {
   type TenantRateCardInputs,
 } from '@/lib/billing/tenant-rate-card';
 import { yearlyMonthlyPrice } from '@/lib/billing/plans';
-import { consumeSseStream } from '@/lib/chat/sse-parser';
 import {
   useListOrganizationsQuery,
   useAnalyzeAiCreditsCalculatorMutation,
@@ -44,6 +43,7 @@ import {
   useListCalculatorThreadsQuery,
   useCreateCalculatorThreadMutation,
   useGetCalculatorThreadQuery,
+  useSendCalculatorChatMessageMutation,
   useGetBillingCatalogQuery,
   useUpdateCatalogPricesMutation,
   useSyncStripeCatalogPricesMutation,
@@ -211,6 +211,7 @@ export function AiCreditsCalculatorTool() {
   const [analyze, analyzeState] = useAnalyzeAiCreditsCalculatorMutation();
   const [upsertRateCard, upsertState] = useUpsertOrgRateCardMutation();
   const [createThread] = useCreateCalculatorThreadMutation();
+  const [sendChatMessage] = useSendCalculatorChatMessageMutation();
   const { data: threadsData, refetch: refetchThreads } = useListCalculatorThreadsQuery();
   const { data: threadData, refetch: refetchThread } = useGetCalculatorThreadQuery(threadId ?? '', {
     skip: !threadId,
@@ -335,68 +336,35 @@ export function AiCreditsCalculatorTool() {
     setChatBusy(true);
     setStatus(null);
     try {
-      const response = await fetch(
-        `/api/admin/ai-credits-calculator/threads/${id}/messages`,
-        {
-          method: 'POST',
-          credentials: 'include',
-          headers: {
-            'Content-Type': 'application/json',
-            Accept: 'text/event-stream',
-          },
-          body: JSON.stringify({
-            message: outgoing,
-            draftInputs: {
-              ...inputs,
-              annualRevenueUsd:
-                adminRevenue === '' ? inputs.annualRevenueUsd : Number(adminRevenue),
-            },
-            websiteUrl: websiteUrl || null,
-            secCikOrTicker: secCikOrTicker || null,
-            companiesHouseNumber: companiesHouseNumber || null,
-          }),
+      await sendChatMessage({
+        threadId: id,
+        message: outgoing,
+        draftInputs: {
+          ...inputs,
+          annualRevenueUsd:
+            adminRevenue === '' ? inputs.annualRevenueUsd : Number(adminRevenue),
         },
-      );
-
-      if (!response.ok) {
-        const errJson = (await response.json().catch(() => null)) as {
-          error?: string;
-        } | null;
-        throw new Error(errJson?.error ?? `Chat failed (${response.status})`);
-      }
-
-      const contentType = response.headers.get('content-type') ?? '';
-      if (contentType.includes('application/json')) {
-        const payload = (await response.json()) as {
-          data?: { assistantMessage?: { content?: string } };
-          error?: string;
-        };
-        if (payload.error) throw new Error(payload.error);
-        setStreamingText(payload.data?.assistantMessage?.content ?? '');
-      } else if (response.body) {
-        let streamError: string | null = null;
-        await consumeSseStream(response.body, (event) => {
-          if (event.type === 'token') {
-            setStreamingText((prev) => prev + event.token);
-            return;
-          }
-          if (event.type === 'tool_result') {
-            setToolHints((prev) => [...prev, event.tool]);
-            return;
-          }
-          if (event.type === 'error') {
-            streamError = event.error;
-          }
-        });
-        if (streamError) throw new Error(streamError);
-      }
+        websiteUrl: websiteUrl || null,
+        secCikOrTicker: secCikOrTicker || null,
+        companiesHouseNumber: companiesHouseNumber || null,
+        onToken: (token) => {
+          setStreamingText((prev) => prev + token);
+        },
+        onToolResult: (tool) => {
+          setToolHints((prev) => [...prev, tool]);
+        },
+      }).unwrap();
 
       setStreamingText('');
       setToolHints([]);
       setPendingUserText(null);
       void refetchThread();
     } catch (err) {
-      setStatus(err instanceof Error ? err.message : 'Chat failed');
+      const message =
+        err && typeof err === 'object' && 'data' in err
+          ? (err as { data?: { error?: string } }).data?.error
+          : undefined;
+      setStatus(message ?? (err instanceof Error ? err.message : 'Chat failed'));
       setStreamingText('');
       setPendingUserText(null);
     } finally {

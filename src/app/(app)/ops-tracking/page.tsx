@@ -1,10 +1,8 @@
 'use client';
 
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import Box from '@mui/material/Box';
 import Paper from '@mui/material/Paper';
-import Tab from '@mui/material/Tab';
-import Tabs from '@mui/material/Tabs';
 import Typography from '@mui/material/Typography';
 import { AuthGate } from '@/components/auth/auth-gate';
 import { SignInPanelGate } from '@/components/auth/sign-in-panel';
@@ -13,14 +11,36 @@ import { ChartFinancialBlock } from '@/components/blocks/chart-financial-block';
 import { ReportsRollupBlock } from '@/components/blocks/reports-rollup-block';
 import { PnlTableBlock } from '@/components/blocks/pnl-table-block';
 import { MonthSelect } from '@/components/ui/month-select';
-
-function TabPanel({ children, value, index }: { children: React.ReactNode; value: number; index: number }) {
-  if (value !== index) return null;
-  return <Box sx={{ pt: 2 }}>{children}</Box>;
-}
+import { ResponsiveTabPanels } from '@/components/shared/responsive-tab-panels';
 
 export default function OpsTrackingPage() {
-  const [tab, setTab] = useState(0);
+  const [tab, setTab] = useState('z-report');
+
+  const tabItems = useMemo(
+    () => [
+      {
+        id: 'z-report',
+        label: 'Z-Report',
+        content: (
+          <>
+            <KpiCardsBlock config={{ variant: 'ops', showMonthSelect: false }} />
+            <ReportsRollupBlock config={{}} />
+          </>
+        ),
+      },
+      {
+        id: 'projections',
+        label: 'Projections',
+        content: <ChartFinancialBlock config={{ variant: 'ops' }} />,
+      },
+      {
+        id: 'breakdown',
+        label: 'Breakdown',
+        content: <PnlTableBlock config={{ showMonthSelect: false }} />,
+      },
+    ],
+    [],
+  );
 
   return (
     <AuthGate requiredTier="google" fallback={<SignInPanelGate requiredTier="google" />}>
@@ -42,26 +62,15 @@ export default function OpsTrackingPage() {
           <MonthSelect />
         </Box>
 
-        <Paper variant="outlined" sx={{ p: 2 }}>
-          <Tabs value={tab} onChange={(_e, v) => setTab(v)} variant="scrollable" scrollButtons="auto">
-            <Tab label="Z-Report" />
-            <Tab label="Projections" />
-            <Tab label="Breakdown" />
-          </Tabs>
+        <Paper variant="outlined">
+          <ResponsiveTabPanels
+            ariaLabel="Financial tracking sections"
+            breakpoint="md"
+            value={tab}
+            onChange={setTab}
+            items={tabItems}
+          />
         </Paper>
-
-        <TabPanel value={tab} index={0}>
-          <KpiCardsBlock config={{ variant: 'ops', showMonthSelect: false }} />
-          <ReportsRollupBlock config={{}} />
-        </TabPanel>
-
-        <TabPanel value={tab} index={1}>
-          <ChartFinancialBlock config={{ variant: 'ops' }} />
-        </TabPanel>
-
-        <TabPanel value={tab} index={2}>
-          <PnlTableBlock config={{ showMonthSelect: false }} />
-        </TabPanel>
       </Box>
     </AuthGate>
   );

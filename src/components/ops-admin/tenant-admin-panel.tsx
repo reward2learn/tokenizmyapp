@@ -25,12 +25,8 @@ import Paper from '@mui/material/Paper';
 import Select from '@mui/material/Select';
 import Snackbar from '@mui/material/Snackbar';
 import Stack from '@mui/material/Stack';
-import Tab from '@mui/material/Tab';
-import Tabs from '@mui/material/Tabs';
 import Tooltip from '@mui/material/Tooltip';
 import Typography from '@mui/material/Typography';
-import useMediaQuery from '@mui/material/useMediaQuery';
-import { useTheme } from '@mui/material/styles';
 import ApartmentIcon from '@mui/icons-material/Apartment';
 import AutoFixHighIcon from '@mui/icons-material/AutoFixHigh';
 import ClearIcon from '@mui/icons-material/Clear';
@@ -55,6 +51,10 @@ import { TenantInlineUserManager } from './tenant-inline-user-manager';
 import { AppRow } from './app-row';
 import { AddAppButton } from './add-app-dialog';
 import { TenantAppRowMenu } from './tenant-app-row-menu';
+import {
+  ResponsiveTabPanels,
+  type ResponsiveTabItem,
+} from '@/components/shared/responsive-tab-panels';
 
 // ── Helpers ─────────────────────────────────────────────────
 
@@ -74,8 +74,6 @@ function isSuiteTenant(tenant: TenantEntry): boolean {
 // ── Component ───────────────────────────────────────────────
 
 export function TenantAdminPanel() {
-  const theme = useTheme();
-  const isMobile = useMediaQuery(theme.breakpoints.down('md'));
   const dispatch = useAppDispatch();
 
   // Tenant selection state — lives in Redux (ui-slice) so every subtab reads
@@ -156,18 +154,87 @@ export function TenantAdminPanel() {
     dispatch(setAdminSelectedApp(appId));
   };
 
-  // Subtab definitions
-  const subtabs: Array<{ key: AdminTenantSubtab; label: string; icon?: React.ReactNode }> = [
-    { key: 'info', label: 'Tenant Info' },
-    { key: 'navigation', label: 'Navigation' },
-    { key: 'pages', label: 'Page Content' },
-    { key: 'brand', label: 'Brand Config' },
-    { key: 'security', label: 'Security Groups' },
-    { key: 'accounts', label: 'Accounts' },
-    { key: 'roles', label: 'Roles' },
-    { key: 'ai-chat', label: 'AI Chat' },
-    { key: 'billing', label: 'Billing' },
-  ];
+  // Subtab definitions + panel content (accordion on mobile via ResponsiveTabPanels)
+  const subtabItems: ResponsiveTabItem[] = useMemo(() => {
+    if (!selectedTenant) return [];
+    return [
+      {
+        id: 'info',
+        label: 'Tenant Info',
+        content: <TenantInfoTab tenantSlug={selectedTenant.slug} appId={effectiveAppId} />,
+      },
+      {
+        id: 'navigation',
+        label: 'Navigation',
+        content: <NavigationManager tenantSlug={selectedTenant.slug} appId={effectiveAppId} />,
+      },
+      {
+        id: 'pages',
+        label: 'Page Content',
+        content: (
+          <PageSectionsManager
+            tenantSlug={selectedTenant.slug}
+            appId={effectiveAppId}
+            isSuite={isSuite}
+          />
+        ),
+      },
+      {
+        id: 'brand',
+        label: 'Brand Config',
+        content: <BrandConfigTab tenantSlug={selectedTenant.slug} appId={effectiveAppId} />,
+      },
+      {
+        id: 'security',
+        label: 'Security Groups',
+        content: (
+          <TenantSecurityGroups
+            tenantSlug={selectedTenant.slug}
+            tenantName={selectedTenant.displayName}
+            appId={effectiveAppId}
+          />
+        ),
+      },
+      {
+        id: 'accounts',
+        label: 'Accounts',
+        content: (
+          <TenantInlineUserManager
+            tenantSlug={selectedTenant.slug}
+            tenantName={selectedTenant.displayName}
+            appId={effectiveAppId}
+          />
+        ),
+      },
+      {
+        id: 'roles',
+        label: 'Roles',
+        content: (
+          <TenantRoles
+            tenantSlug={selectedTenant.slug}
+            tenantName={selectedTenant.displayName}
+            appId={effectiveAppId}
+          />
+        ),
+      },
+      {
+        id: 'ai-chat',
+        label: 'AI Chat',
+        content: (
+          <TenantAIChat
+            tenantSlug={selectedTenant.slug}
+            tenantName={selectedTenant.displayName}
+            appId={effectiveAppId}
+          />
+        ),
+      },
+      {
+        id: 'billing',
+        label: 'Billing',
+        content: <TenantBillingTab tenantSlug={selectedTenant.slug} />,
+      },
+    ];
+  }, [selectedTenant, effectiveAppId, isSuite]);
   
   return (
     <Box sx={{ pb: 4 }}>
@@ -424,66 +491,15 @@ export function TenantAdminPanel() {
               </Typography>
             </Paper>
           ) : (
-            <>
-              {/* Subtab Navigation */}
-              <Paper elevation={0} sx={{ mb: 3, border: '1px solid', borderColor: 'divider', bgcolor: 'background.paper' }}>
-                <Tabs
-                  value={activeSubtab}
-                  onChange={(_, v) => dispatch(setAdminActiveSubtab(v as AdminTenantSubtab))}
-                  variant={isMobile ? 'scrollable' : 'standard'}
-                  scrollButtons="auto"
-                  allowScrollButtonsMobile
-                >
-                  {subtabs.map((subtab) => (
-                    <Tab
-                      key={subtab.key}
-                      value={subtab.key}
-                      label={
-                        <Stack direction="row" spacing={0.5} sx={{ alignItems: 'center' }}>
-                          {subtab.icon}
-                          <span>{subtab.label}</span>
-                        </Stack>
-                      }
-                    />
-                  ))}
-                </Tabs>
-              </Paper>
-
-              {/* Subtab Content */}
-              <Box>
-                {activeSubtab === 'info' && selectedTenant && (
-                  <TenantInfoTab tenantSlug={selectedTenant.slug} appId={effectiveAppId} />
-                )}
-                {activeSubtab === 'navigation' && selectedTenant && (
-                  <NavigationManager tenantSlug={selectedTenant.slug} appId={effectiveAppId} />
-                )}
-                {activeSubtab === 'pages' && selectedTenant && (
-                  <PageSectionsManager
-                    tenantSlug={selectedTenant.slug}
-                    appId={effectiveAppId}
-                    isSuite={isSuite}
-                  />
-                )}
-                {activeSubtab === 'brand' && selectedTenant && (
-                  <BrandConfigTab tenantSlug={selectedTenant.slug} appId={effectiveAppId} />
-                )}
-                {activeSubtab === 'security' && selectedTenant && (
-                  <TenantSecurityGroups tenantSlug={selectedTenant.slug} tenantName={selectedTenant.displayName} appId={effectiveAppId} />
-                )}
-                {activeSubtab === 'accounts' && selectedTenant && (
-                  <TenantInlineUserManager tenantSlug={selectedTenant.slug} tenantName={selectedTenant.displayName} appId={effectiveAppId} />
-                )}
-                {activeSubtab === 'roles' && selectedTenant && (
-                  <TenantRoles tenantSlug={selectedTenant.slug} tenantName={selectedTenant.displayName} appId={effectiveAppId} />
-                )}
-                {activeSubtab === 'ai-chat' && selectedTenant && (
-                  <TenantAIChat tenantSlug={selectedTenant.slug} tenantName={selectedTenant.displayName} appId={effectiveAppId} />
-                )}
-                {activeSubtab === 'billing' && selectedTenant && (
-                  <TenantBillingTab tenantSlug={selectedTenant.slug} />
-                )}
-              </Box>
-            </>
+            <Paper elevation={0} sx={{ border: '1px solid', borderColor: 'divider', bgcolor: 'background.paper' }}>
+              <ResponsiveTabPanels
+                ariaLabel="Tenant admin sections"
+                breakpoint="md"
+                value={activeSubtab}
+                onChange={(id) => dispatch(setAdminActiveSubtab(id as AdminTenantSubtab))}
+                items={subtabItems}
+              />
+            </Paper>
           )}
         </Box>
       )}

@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
 import Link from 'next/link';
 import Accordion from '@mui/material/Accordion';
 import AccordionDetails from '@mui/material/AccordionDetails';
@@ -104,35 +104,32 @@ export function DataViewTab() {
   const [clearSeed, { isLoading: clearing }] = useClearSeedMutation();
   const [importData, { isLoading: importing }] = useImportDataMutation();
 
-  // ── Local state ────────────────────────────────────────
-  const [details, setDetails] = useState<SeedDetails | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  // ── Local state (ephemeral UI only — seed data derived from cache) ──
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [confirmText, setConfirmText] = useState('');
   const [clearError, setClearError] = useState<string | null>(null);
   const [clearResult, setClearResult] = useState<Record<string, number> | null>(null);
 
-  // Sync RTK Query seed data into local state
-  useEffect(() => {
-    if (seedData?.success) {
-      setDetails(seedData as unknown as SeedDetails);
-      setError(null);
-    } else if (seedData && !seedData.success) {
-      setError(seedData.error ?? 'Failed to load seed details');
-    }
-  }, [seedData]);
+  // Seed-details API returns a flat envelope ({ success, counts, pageDetails, … }),
+  // not { success, data }. Derive during render — no useEffect mirror.
+  const details: SeedDetails | null = seedData?.success
+    ? (seedData as unknown as SeedDetails)
+    : null;
 
-  useEffect(() => {
-    if (seedError) {
-      const msg = typeof seedError === 'object' && 'message' in seedError
-        ? String((seedError as { message: unknown }).message)
-        : typeof seedError === 'object' && 'error' in seedError
-          ? String((seedError as { error: unknown }).error)
-          : String(seedError);
-      setError(msg);
+  const error: string | null = (() => {
+    if (seedData && !seedData.success) {
+      return seedData.error ?? 'Failed to load seed details';
     }
-  }, [seedError]);
+    if (!seedError) return null;
+    if (typeof seedError === 'object' && 'message' in seedError) {
+      return String((seedError as { message: unknown }).message);
+    }
+    if (typeof seedError === 'object' && 'error' in seedError) {
+      return String((seedError as { error: unknown }).error);
+    }
+    return String(seedError);
+  })();
 
   // ── Derived categories ────────────────────────────────
 

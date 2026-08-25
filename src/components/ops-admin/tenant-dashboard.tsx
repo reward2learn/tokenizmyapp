@@ -69,6 +69,7 @@ import {
   useSeedAppMutation,
   useMigrateAppMutation,
   useDeployAppMutation,
+  usePropagateBillingIdentityMutation,
   type TenantEntry,
   type AppPackConfig,
   type SuiteAppInstance,
@@ -520,6 +521,7 @@ export function TenantDashboard() {
   const [seedApp] = useSeedAppMutation();
   const [migrateApp] = useMigrateAppMutation();
   const [deployApp] = useDeployAppMutation();
+  const [propagateBillingIdentity] = usePropagateBillingIdentityMutation();
 
   const handleBulkSuiteAction = async (tenantSlug: string, appPack: AppPackConfig, action: 'seed' | 'migrate' | 'deploy') => {
     handleMenuClose();
@@ -539,12 +541,8 @@ export function TenantDashboard() {
 
     if (action === 'seed') {
       try {
-        const res = await fetch(`/api/admin/tenants/${tenantSlug}/propagate-billing-identity`, {
-          method: 'POST',
-          credentials: 'include',
-        });
-        const body = await res.json().catch(() => null);
-        if (res.ok && body?.data?.orgId) {
+        const body = await propagateBillingIdentity(tenantSlug).unwrap();
+        if (body?.data?.orgId) {
           setSnackbar({
             message: `✅ ${actionLabel} complete — billing org ${body.data.orgId} pushed to ${body.data.appsTouched ?? 0} app project(s)`,
             severity: 'success',
@@ -555,8 +553,12 @@ export function TenantDashboard() {
             severity: 'success',
           });
         }
-      } catch {
-        setSnackbar({ message: `✅ ${actionLabel} complete for ${appPack.apps.length} apps`, severity: 'success' });
+      } catch (err) {
+        const msg = apiErrorMessage(err, 'not pushed');
+        setSnackbar({
+          message: `✅ ${actionLabel} complete for ${appPack.apps.length} apps (billing identity: ${msg})`,
+          severity: 'success',
+        });
       }
     } else {
       setSnackbar({ message: `✅ ${actionLabel} complete for ${appPack.apps.length} apps`, severity: 'success' });

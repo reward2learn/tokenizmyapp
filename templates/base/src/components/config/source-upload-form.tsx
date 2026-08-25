@@ -693,17 +693,16 @@ const TABLE_LABELS: Record<string, string> = {
 
 function SeedSummary({ result }: { result: ReseedResponse }) {
   const rows = Object.entries(result.counts) as [string, number][];
-  const [details, setDetails] = useState<SeedDetails | null>(null);
   const [expandedTable, setExpandedTable] = useState<string | null>(null);
   const [showAiContent, setShowAiContent] = useState(false);
 
   const { data: seedDetailsData } = useGetSeedDetailsQuery();
 
-  useEffect(() => {
-    if (seedDetailsData?.success) {
-      setDetails(seedDetailsData as unknown as SeedDetails);
-    }
-  }, [seedDetailsData]);
+  // Seed-details API returns a flat envelope ({ success, counts, pageDetails, … }).
+  // Derive during render — no useEffect mirror. Expand/AI toggle stay local.
+  const details: SeedDetails | null = seedDetailsData?.success
+    ? (seedDetailsData as unknown as SeedDetails)
+    : null;
 
   const handleToggle = (table: string) => {
     if (expandedTable === table) {

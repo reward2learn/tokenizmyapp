@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import type { Route } from 'next';
 import Accordion from '@mui/material/Accordion';
@@ -192,21 +192,18 @@ export function AiFindingsBlock() {
   const [saveBatch] = useSaveAiFindingsBatchMutation();
   const [summarizeMutation] = useSummarizeFindingMutation();
 
-  // Local state
-  const [findings, setFindings] = useState<AiFinding[]>([]);
+  // Local UI state only — findings list derived from RTK Query cache.
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
   const [summarizingId, setSummarizingId] = useState<string | null>(null);
   const [summarizingAll, setSummarizingAll] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [, forceUpdate] = useState(0);
 
-  // Sync RTK Query data into local state
-  useEffect(() => {
-    if (findingsData) {
-      // findingsData.data is typed loosely as unknown[] but at runtime is { findings: AiFinding[] }
-      const payload = findingsData.data as unknown as { findings?: AiFinding[] };
-      setFindings(payload?.findings ?? []);
-    }
+  // findingsData.data is typed loosely as unknown[] but at runtime is { findings: AiFinding[] }
+  const findings = useMemo((): AiFinding[] => {
+    if (!findingsData) return [];
+    const payload = findingsData.data as unknown as { findings?: AiFinding[] };
+    return payload?.findings ?? [];
   }, [findingsData]);
 
   const toggleExpand = useCallback((id: string) => {
@@ -267,7 +264,7 @@ export function AiFindingsBlock() {
       if (summaryResult.data?.summary) {
         const updated = `**AI Summary:** ${summaryResult.data.summary}\n\n---\n\n${finding.content}`;
         await createFinding({ content: updated, title: finding.title }).unwrap();
-        // Mutation invalidates AiFindings tag → auto-refetch → useEffect syncs local state
+        // Mutation invalidates AiFindings tag → auto-refetch updates derived findings
         setExpandedIds((prev) => new Set(prev).add(finding.id));
       }
     } catch {
@@ -306,9 +303,8 @@ export function AiFindingsBlock() {
         };
         remaining.unshift(summaryFinding);
 
-        // Save via batch endpoint
+        // Save via batch endpoint — invalidates AiFindings → cache refetch is SoT
         await saveBatch({ findings: remaining }).unwrap();
-        setFindings(remaining);
         setSelectedIds(new Set());
         setExpandedIds(new Set([summaryFinding.id]));
       }
@@ -325,7 +321,7 @@ export function AiFindingsBlock() {
       const ids = Array.from(selectedIds);
       await deleteFindings(ids).unwrap();
       setSelectedIds(new Set());
-      // Mutation invalidates AiFindings tag → auto-refetch → useEffect syncs local state
+      // Mutation invalidates AiFindings tag → auto-refetch updates derived findings
     } catch {
       // silent
     }

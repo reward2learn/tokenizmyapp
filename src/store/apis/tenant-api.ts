@@ -959,6 +959,49 @@ export const tenantApi = createApi({
         body,
       }),
     }),
+
+    /** GET /api/admin/tenants/:slug/agentic-commerce-health — Flight Check rows. */
+    getAgenticCommerceHealth: builder.query<
+      ApiEnvelope<{
+        steps: Array<{ label: string; status: 'pass' | 'fail' | 'warn'; message: string }>;
+      }>,
+      string
+    >({
+      query: (slug) => ({ url: `admin/tenants/${slug}/agentic-commerce-health` }),
+    }),
+
+    /** GET /api/admin/tenants/:slug/stripe-embedded-checkout-probe — embedded Checkout probe. */
+    getStripeEmbeddedCheckoutProbe: builder.query<
+      ApiEnvelope<{
+        ok: boolean;
+        status: 'pass' | 'fail' | 'warn';
+        message: string;
+        sessionId?: string | null;
+      }>,
+      string
+    >({
+      query: (slug) => ({ url: `admin/tenants/${slug}/stripe-embedded-checkout-probe` }),
+    }),
+
+    /**
+     * POST /api/admin/tenants/:slug/propagate-billing-identity —
+     * stamp org id onto suite app Vercel projects after Seed All Apps.
+     */
+    propagateBillingIdentity: builder.mutation<
+      ApiEnvelope<{
+        orgId: string;
+        appsTouched: number;
+        envVarsPushed: number;
+        skippedNoProject: string[];
+        errors: string[];
+      }>,
+      string
+    >({
+      query: (slug) => ({
+        url: `admin/tenants/${slug}/propagate-billing-identity`,
+        method: 'POST',
+      }),
+    }),
   }),
 });
 
@@ -1023,4 +1066,7 @@ export const {
   useClearTenantAiProviderKeyMutation,
   useLazyGetTenantAiModelsQuery,
   usePreviewAiModelsMutation,
+  useLazyGetAgenticCommerceHealthQuery,
+  useLazyGetStripeEmbeddedCheckoutProbeQuery,
+  usePropagateBillingIdentityMutation,
 } = tenantApi;

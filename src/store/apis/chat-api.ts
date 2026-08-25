@@ -2,6 +2,7 @@ import { createApi } from '@reduxjs/toolkit/query/react';
 import { baseQuery } from '@shared/store/base-query';
 import type { ApiEnvelope } from '@/store/api-types';
 import type { ChatAttachment } from '@/lib/chat/attachments';
+import type { AiProviderId } from '@/store/apis/config-api';
 
 export interface ChatMessage {
   role: 'user' | 'assistant' | 'system';
@@ -9,11 +10,46 @@ export interface ChatMessage {
   attachments?: ChatAttachment[];
 }
 
+export type ChatAiHealthStatus = 'healthy' | 'unhealthy' | 'unconfigured';
+
+export interface ChatAiProviderHealth {
+  status: ChatAiHealthStatus;
+  message?: string;
+}
+
+export interface ChatAiProviderOption {
+  id: AiProviderId;
+  label: string;
+  configured: boolean;
+  defaultModel: string | null;
+  health?: ChatAiProviderHealth;
+}
+
+export interface ChatAiOptionsData {
+  providers: ChatAiProviderOption[];
+  activeProviderId: AiProviderId;
+  activeModel: string | null;
+  providerId: AiProviderId;
+  models: { id: string; label: string; description?: string }[];
+  providerHealth?: ChatAiProviderHealth;
+  modelHealth?: { status: 'healthy' | 'unhealthy'; message?: string };
+}
+
 export const chatApi = createApi({
   reducerPath: 'chatApi',
   baseQuery,
   tagTypes: ['Conversations', 'AiFindings'],
   endpoints: (builder) => ({
+    /** GET /api/chat/ai-options — provider/model picker for the chat composer. */
+    getChatAiOptions: builder.query<
+      ApiEnvelope<ChatAiOptionsData>,
+      { providerId?: string } | void
+    >({
+      query: (args) => ({
+        url: 'chat/ai-options',
+        params: args?.providerId ? { providerId: args.providerId } : undefined,
+      }),
+    }),
     sendMessage: builder.mutation<
       ApiEnvelope<{ reply: string }>,
       { message: string; history?: ChatMessage[]; stream?: boolean }
@@ -120,6 +156,7 @@ export const chatApi = createApi({
 });
 
 export const {
+  useGetChatAiOptionsQuery,
   useSendMessageMutation,
   useSynthesizeVoiceMutation,
   useListConversationsQuery,

@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo } from 'react';
 import CircularProgress from '@mui/material/CircularProgress';
 import FormControl from '@mui/material/FormControl';
 import FormHelperText from '@mui/material/FormHelperText';
@@ -14,36 +14,16 @@ import ErrorIcon from '@mui/icons-material/Error';
 import { useAppDispatch, useAppSelector } from '@/store/hooks';
 import { setSelectedModel, setSelectedProviderId } from '@/store/chat-stream-slice';
 import type { AiProviderId } from '@/store/apis/config-api';
+import {
+  useGetChatAiOptionsQuery,
+  type ChatAiHealthStatus,
+  type ChatAiProviderHealth,
+} from '@/store/apis/chat-api';
 
 const STORAGE_PROVIDER = 'chat.selectedProviderId';
 const STORAGE_MODEL = 'chat.selectedModel';
 
-type HealthStatus = 'healthy' | 'unhealthy' | 'unconfigured';
-
-interface ProviderHealth {
-  status: HealthStatus;
-  message?: string;
-}
-
-interface ChatAiProviderOption {
-  id: AiProviderId;
-  label: string;
-  configured: boolean;
-  defaultModel: string | null;
-  health?: ProviderHealth;
-}
-
-interface ChatAiOptionsData {
-  providers: ChatAiProviderOption[];
-  activeProviderId: AiProviderId;
-  activeModel: string | null;
-  providerId: AiProviderId;
-  models: { id: string; label: string; description?: string }[];
-  providerHealth?: ProviderHealth;
-  modelHealth?: { status: 'healthy' | 'unhealthy'; message?: string };
-}
-
-function healthIcon(status: HealthStatus | 'healthy' | 'unhealthy' | undefined) {
+function healthIcon(status: ChatAiHealthStatus | 'healthy' | 'unhealthy' | undefined) {
   if (status === 'healthy') {
     return <CheckCircleIcon fontSize="inherit" color="success" sx={{ fontSize: 14 }} />;
   }
@@ -63,15 +43,6 @@ export function ComposerModelPicker() {
   const selectedProviderId = useAppSelector((s) => s.chatStream.selectedProviderId);
   const selectedModel = useAppSelector((s) => s.chatStream.selectedModel);
 
-  const [providers, setProviders] = useState<ChatAiProviderOption[]>([]);
-  const [activeProviderId, setActiveProviderId] = useState<AiProviderId | null>(null);
-  const [activeModel, setActiveModel] = useState<string | null>(null);
-  const [models, setModels] = useState<{ id: string; label: string }[]>([]);
-  const [providerHealth, setProviderHealth] = useState<ProviderHealth | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [loadingModels, setLoadingModels] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
   useEffect(() => {
     try {
       const storedProvider = localStorage.getItem(STORAGE_PROVIDER) as AiProviderId | null;
@@ -83,75 +54,38 @@ export function ComposerModelPicker() {
     }
   }, [dispatch]);
 
+  const {
+    data,
+    isLoading,
+    isFetching,
+    isError,
+    error,
+  } = useGetChatAiOptionsQuery(
+    selectedProviderId ? { providerId: selectedProviderId } : undefined,
+  );
+
+  const payload = data?.data;
+  const providers = payload?.providers ?? [];
+  const activeProviderId = payload?.activeProviderId ?? null;
+  const activeModel = payload?.activeModel ?? null;
+  const models = payload?.models ?? [];
+  const providerHealth: ChatAiProviderHealth | null = payload?.providerHealth ?? null;
+
   const effectiveProviderId = selectedProviderId ?? activeProviderId;
   const effectiveModel = selectedModel ?? activeModel;
 
+  // Seed a default model when none is chosen yet (after options load / provider change).
   useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      setLoading(true);
-      setError(null);
-      try {
-        const res = await fetch('/api/chat/ai-options', { credentials: 'include' });
-        const json = (await res.json()) as { success?: boolean; data?: ChatAiOptionsData; error?: string };
-        if (!res.ok || !json.data) {
-          throw new Error(json.error ?? `Failed to load AI options (${res.status})`);
-        }
-        if (cancelled) return;
-        setProviders(json.data.providers);
-        setActiveProviderId(json.data.activeProviderId);
-        setActiveModel(json.data.activeModel);
-        setModels(json.data.models);
-        setProviderHealth(json.data.providerHealth ?? null);
-      } catch (err) {
-        if (!cancelled) setError(err instanceof Error ? err.message : 'Failed to load AI options');
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  useEffect(() => {
-    if (!effectiveProviderId) return;
-    let cancelled = false;
-    (async () => {
-      setLoadingModels(true);
-      try {
-        const res = await fetch(
-          `/api/chat/ai-options?providerId=${encodeURIComponent(effectiveProviderId)}`,
-          { credentials: 'include' },
-        );
-        const json = (await res.json()) as { success?: boolean; data?: ChatAiOptionsData; error?: string };
-        if (!res.ok || !json.data) {
-          throw new Error(json.error ?? 'Failed to load models');
-        }
-        if (cancelled) return;
-        setProviders(json.data.providers);
-        setModels(json.data.models);
-        setProviderHealth(json.data.providerHealth ?? null);
-        if (!selectedModel) {
-          const fallback =
-            (effectiveProviderId === json.data.activeProviderId ? json.data.activeModel : null)
-            ?? json.data.providers.find((p) => p.id === effectiveProviderId)?.defaultModel
-            ?? json.data.models[0]?.id
-            ?? null;
-          if (fallback) dispatch(setSelectedModel(fallback));
-        }
-      } catch (err) {
-        if (!cancelled) setError(err instanceof Error ? err.message : 'Failed to load models');
-      } finally {
-        if (!cancelled) setLoadingModels(false);
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-    // selectedModel intentionally omitted: only seed a default when none is chosen yet.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [dispatch, effectiveProviderId]);
+    if (!payload || selectedModel) return;
+    const pid = selectedProviderId ?? payload.activeProviderId;
+    if (!pid) return;
+    const fallback =
+      (pid === payload.activeProviderId ? payload.activeModel : null)
+      ?? payload.providers.find((p) => p.id === pid)?.defaultModel
+      ?? payload.models[0]?.id
+      ?? null;
+    if (fallback) dispatch(setSelectedModel(fallback));
+  }, [dispatch, payload, selectedModel, selectedProviderId]);
 
   const configuredProviders = useMemo(
     () => providers.filter((p) => p.configured),
@@ -183,6 +117,19 @@ export function ComposerModelPicker() {
 
   const providerUnhealthy = currentProviderHealth?.status === 'unhealthy' || currentProviderHealth?.status === 'unconfigured';
   const modelUnhealthy = modelHealth?.status === 'unhealthy';
+  const loadingModels = isFetching && !isLoading;
+
+  const errorMessage = (() => {
+    if (isError) {
+      if (error && typeof error === 'object' && 'data' in error) {
+        const dataErr = (error as { data?: { error?: string } }).data?.error;
+        if (dataErr) return dataErr;
+      }
+      return 'Failed to load AI options';
+    }
+    if (data && !data.success && data.error) return data.error;
+    return null;
+  })();
 
   const onProviderChange = (providerId: AiProviderId) => {
     dispatch(setSelectedProviderId(providerId));
@@ -204,7 +151,7 @@ export function ComposerModelPicker() {
     }
   };
 
-  if (loading) {
+  if (isLoading) {
     return (
       <Stack direction="row" spacing={1} sx={{ alignItems: 'center', width: '100%', minWidth: 0 }}>
         <CircularProgress size={16} />
@@ -215,10 +162,10 @@ export function ComposerModelPicker() {
     );
   }
 
-  if (error) {
+  if (errorMessage) {
     return (
       <Typography variant="caption" color="error" sx={{ width: '100%' }}>
-        {error}
+        {errorMessage}
       </Typography>
     );
   }

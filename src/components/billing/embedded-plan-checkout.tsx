@@ -15,6 +15,7 @@ import {
 } from '@stripe/react-stripe-js';
 import { loadStripe, type Stripe } from '@stripe/stripe-js';
 import type { PlanId } from '@/lib/billing/plans';
+import { useStartCheckoutMutation } from '@/store/apis/organization-api';
 
 export type EmbeddedPlanCheckoutTarget = {
   planId: PlanId;
@@ -30,31 +31,6 @@ export interface EmbeddedPlanCheckoutProps {
   title?: string;
 }
 
-async function fetchEmbeddedClientSecret(
-  orgId: string,
-  target: EmbeddedPlanCheckoutTarget,
-): Promise<string> {
-  const res = await fetch(`/api/admin/organizations/${orgId}/checkout`, {
-    method: 'POST',
-    credentials: 'include',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      planId: target.planId,
-      interval: target.interval,
-      embedded: true,
-    }),
-  });
-  const json = (await res.json()) as {
-    success?: boolean;
-    error?: string;
-    data?: { mode?: string; clientSecret?: string };
-  };
-  if (!json.success || !json.data?.clientSecret) {
-    throw new Error(json.error ?? 'Could not start embedded checkout');
-  }
-  return json.data.clientSecret;
-}
-
 /**
  * Stripe Embedded Checkout for a subscription plan (Vercel × Stripe guide pattern).
  *
@@ -68,15 +44,29 @@ export function EmbeddedPlanCheckout({
   onComplete,
   title,
 }: EmbeddedPlanCheckoutProps) {
+  const [startCheckout] = useStartCheckoutMutation();
+
   const stripePromise = useMemo(
     () => loadStripe(publishableKey),
     [publishableKey],
   );
 
-  const fetchClientSecret = useCallback(
-    () => fetchEmbeddedClientSecret(orgId, target),
-    [orgId, target],
-  );
+  const fetchClientSecret = useCallback(async () => {
+    const json = await startCheckout({
+      orgId,
+      planId: target.planId,
+      interval: target.interval,
+      embedded: true,
+    }).unwrap();
+    if (
+      !json.success
+      || json.data?.mode !== 'embedded_checkout'
+      || !json.data.clientSecret
+    ) {
+      throw new Error(json.error ?? 'Could not start embedded checkout');
+    }
+    return json.data.clientSecret;
+  }, [orgId, startCheckout, target.interval, target.planId]);
 
   const options = useMemo(
     () => ({ fetchClientSecret, onComplete }),
