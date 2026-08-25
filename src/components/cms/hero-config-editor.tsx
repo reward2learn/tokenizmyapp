@@ -8,7 +8,6 @@ import Box from '@mui/material/Box';
 import Button from '@mui/material/Button';
 import Checkbox from '@mui/material/Checkbox';
 import FormControlLabel from '@mui/material/FormControlLabel';
-import IconButton from '@mui/material/IconButton';
 import Stack from '@mui/material/Stack';
 import TextField from '@mui/material/TextField';
 import Typography from '@mui/material/Typography';
@@ -287,7 +286,8 @@ export function HeroConfigEditor({ config, onChange, readOnly = false }: HeroCon
 
   const disableCarousel = () => {
     const first = slides[0] ?? emptyHeroSlide();
-    const { slides: _removed, ...rest } = config;
+    const { slides: _removedSlides, ...rest } = config;
+    void _removedSlides;
     onChange({
       ...rest,
       headline: first.headline ?? '',

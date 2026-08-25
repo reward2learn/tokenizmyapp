@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { Provider } from 'react-redux';
 import { configureStore } from '@reduxjs/toolkit';
-import { BillingPanel } from '@/components/billing/billing-panel';
+import { BillingPanel, AiCreditsPanel } from '@/components/billing/billing-panel';
 import { organizationApi } from '@/store/apis/organization-api';
 import { authSlice } from '@/store/auth-slice';
 import { uiSlice } from '@/store/ui-slice';
@@ -64,9 +64,67 @@ function renderPanel(readOnly: boolean) {
     }),
   );
 
-  return render(
+  return { store, ...render(
     <Provider store={store}>
       <BillingPanel orgId={orgId} readOnly={readOnly} />
+    </Provider>,
+  ) };
+}
+
+function renderTopup(readOnly: boolean) {
+  const store = configureStore({
+    reducer: {
+      ui: uiSlice.reducer,
+      auth: authSlice.reducer,
+      [organizationApi.reducerPath]: organizationApi.reducer,
+    },
+    middleware: (getDefault) =>
+      getDefault({ serializableCheck: false }).concat(organizationApi.middleware),
+  });
+
+  store.dispatch(
+    organizationApi.util.upsertQueryData('getOrganization', orgId, {
+      success: true,
+      data: {
+        organization: {
+          id: orgId,
+          slug: 'acme',
+          displayName: 'Acme',
+          logoUrl: null,
+        },
+        members: [],
+        subscription: { planId: 'free', interval: 'monthly', status: 'active' },
+        plan: { id: 'free', name: 'Free' },
+      },
+    }),
+  );
+  store.dispatch(
+    organizationApi.util.upsertQueryData('getOrganizationCredits', orgId, {
+      success: true,
+      data: {
+        balance: { available: 42, expiringSoon: 0, debt: 0, net: 42 },
+        grants: [],
+        ledger: [],
+      },
+    }),
+  );
+  store.dispatch(
+    organizationApi.util.upsertQueryData('getBillingCheckout', orgId, {
+      success: true,
+      data: {
+        subscription: { planId: 'free', interval: 'monthly', status: 'active' },
+        readiness: { ready: false },
+        purchasable: [],
+        linkage: null,
+        reconcileNote: null,
+        priceMismatches: [],
+      },
+    }),
+  );
+
+  return render(
+    <Provider store={store}>
+      <AiCreditsPanel orgId={orgId} readOnly={readOnly} />
     </Provider>,
   );
 }
@@ -84,15 +142,46 @@ describe('BillingPanel', () => {
   it('shows managed-by-organization messaging in tenant read-only mode', () => {
     renderPanel(true);
     expect(screen.queryByText(/Payments are not configured on this deployment/i)).toBeNull();
-    expect(screen.getByText(/Managed by your organization/i)).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Request more AI credits' })).toBeInTheDocument();
+    expect(screen.getByText('Managed by your organization')).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /Choose/i })).toBeNull();
+  });
+});
+
+describe('AiCreditsPanel', () => {
+  it('shows a request-credits entry point for tenant users', () => {
+    renderTopup(true);
+    expect(screen.getByRole('button', { name: 'Request more AI credits' })).toBeInTheDocument();
+  });
+
+  it('stays purchase-focused — no usage history or grants on Topup', () => {
+    renderTopup(true);
+    expect(screen.queryByRole('tab', { name: 'Usage history' })).toBeNull();
+    expect(screen.queryByRole('tab', { name: 'Grants' })).toBeNull();
   });
 
   it('opens a copyable credit request dialog for tenant users', () => {
-    renderPanel(true);
+    renderTopup(true);
     fireEvent.click(screen.getByRole('button', { name: 'Request more AI credits' }));
     expect(screen.getByRole('dialog', { name: 'Request more AI credits' })).toBeInTheDocument();
     expect(screen.getByDisplayValue(/request an increase to our AI credit limit/i)).toBeInTheDocument();
+  });
+});
+
+describe('BillingPanel credit history', () => {
+  it('keeps usage history under Usage → History, not Topup', () => {
+    const { store } = renderPanel(true);
+    store.dispatch(uiSlice.actions.setBillingTab('credit-history'));
+    // Re-render with the store already on History.
+    cleanup();
+    render(
+      <Provider store={store}>
+        <BillingPanel orgId={orgId} readOnly />
+      </Provider>,
+    );
+    expect(screen.getByRole('tab', { name: 'History' })).toBeInTheDocument();
+    expect(screen.getByRole('tab', { name: 'Usage history' })).toBeInTheDocument();
+    expect(screen.getByRole('tab', { name: 'Grants' })).toBeInTheDocument();
+    expect(screen.queryByText(/Your spendable AI credits/i)).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Request more AI credits' })).toBeNull();
   });
 });

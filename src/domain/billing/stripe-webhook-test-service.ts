@@ -13,9 +13,8 @@ import {
   isStripeMarketplaceIntegrationToken,
   listProjectEnvKeyNames,
   TOKENIZ_SNAPSHOT_WHSEC_KEY,
-  SNAPSHOT_WEBHOOK_SECRET_ENV_KEYS,
 } from '@/domain/tenant/vercel-stripe-marketplace-service';
-import { getVercelClient, TEAM_ID, withTeamId404Null } from '@/domain/tenant/vercel-sdk-client';
+import { getVercelClient, withTeamId404Null } from '@/domain/tenant/vercel-sdk-client';
 
 /** Factory control-plane project (tokenizmyapp.vercel.app billing webhooks). */
 export const FACTORY_VERCEL_PROJECT_ID =

@@ -191,9 +191,6 @@ export interface TemplateDefinition {
 
 // ── Shared page definitions ─────────────────────────────
 
-const DASHBOARD_PAGE = (blockTypes: string[] = ['hero', 'kpi_cards', 'chart_financial']) => ({
-  slug: 'dashboard', title: 'Dashboard', navLabel: 'Dashboard', authTier: 'public' as const, blockTypes,
-});
 const SUMMARY_PAGE = {
   slug: 'summary', title: 'Executive Summary', navLabel: 'Summary', authTier: 'google' as const,
   blockTypes: ['doc_markdown'],

@@ -70,21 +70,6 @@ function deriveUnpooledHost(pooledHost: string): string {
 }
 
 /**
- * Derive the pooled host from a direct host.
- */
-function derivePooledHost(directHost: string): string {
-  if (directHost.includes('-pooler')) return directHost;
-
-  // Insert -pooler before the region segment (e.g. ".c-12.")
-  const match = directHost.match(/^(ep-[^.]+)\.(c-\d+\..*)/);
-  if (match) {
-    return `${match[1]}-pooler.${match[2]}`;
-  }
-
-  return directHost.replace('.neon.tech', '-pooler.neon.tech');
-}
-
-/**
  * Build a Neon-formatted output string with all connection string variants.
  *
  * The output mirrors the format Vercel/Neon dashboard returns:
@@ -104,7 +89,7 @@ export function formatNeonConnectionStrings(
   db: ProvisionedDatabase,
   slug?: string,
 ): NeonFormattedOutput {
-  const { pooledUrl, directUrl, branchId, databaseName } = db;
+  const { pooledUrl, directUrl, databaseName } = db;
   const projectName = slug || databaseName;
 
   // Parse the pooled URL to extract components

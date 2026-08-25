@@ -10,10 +10,6 @@ import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import { parseBlockConfig } from '@/lib/schemas/block-config';
 import { useGetDashboardDataQuery } from '@/store/apis/dashboard-api';
 
-interface Phase {
-  id: string; title: string; period: string; impact: string; actions: string[];
-}
-
 export function ActionChecklistBlock({ config }: { config: Record<string, unknown> }) {
   const { heading, subheading } = parseBlockConfig('action_checklist', config);
   const { data, isLoading } = useGetDashboardDataQuery();

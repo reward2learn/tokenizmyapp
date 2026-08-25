@@ -66,7 +66,7 @@ function KpiCardsBlockInner({ config }: { config: Record<string, unknown> }) {
 
   const { data, isLoading, isError } = useGetChartOverviewQuery('conservative');
   const overview = data?.data;
-  const labels = overview?.labels ?? [];
+  const labels = useMemo(() => overview?.labels ?? [], [overview?.labels]);
   const actualSeries = pickActualSeriesForDefault(overview?.actual);
 
   useChartMonthSync(overview, variant === 'ops');

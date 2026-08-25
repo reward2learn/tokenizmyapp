@@ -101,7 +101,10 @@ export function TasksView({ forcedRole }: { forcedRole?: string | null } = {}) {
   );
   const [updateStatus, { isLoading: isUpdating }] = useUpdateTaskStatusMutation();
 
-  const tasks = data?.success ? data.data.tasks : [];
+  const tasks = useMemo(
+    () => (data?.success ? data.data.tasks : []),
+    [data],
+  );
   const isPlatformAdmin = data?.success ? data.data.isPlatformAdmin : tier === 'pin';
   const viewerRole = data?.success ? data.data.viewerRole : null;
 

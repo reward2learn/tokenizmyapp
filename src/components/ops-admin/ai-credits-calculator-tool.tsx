@@ -69,8 +69,14 @@ export function AiCreditsCalculatorTool() {
 
   const { data: orgsData } = useListOrganizationsQuery();
   const { data: tenantsData } = useListTenantsQuery();
-  const orgs = orgsData?.data?.organizations ?? [];
-  const tenants = tenantsData?.data?.tenants ?? [];
+  const orgs = useMemo(
+    () => orgsData?.data?.organizations ?? [],
+    [orgsData?.data?.organizations],
+  );
+  const tenants = useMemo(
+    () => tenantsData?.data?.tenants ?? [],
+    [tenantsData?.data?.tenants],
+  );
 
   const [orgId, setOrgId] = useState(calcContext?.orgId ?? adminOrgId ?? '');
   const [tenantSlug, setTenantSlug] = useState(

@@ -70,7 +70,7 @@ function PnlTableBlockInner({ config }: { config: Record<string, unknown> }) {
 
   const { data: overviewData } = useGetChartOverviewQuery('conservative');
   const overview = overviewData?.data;
-  const labels = overview?.labels ?? [];
+  const labels = useMemo(() => overview?.labels ?? [], [overview?.labels]);
   const actualSeries = pickActualSeriesForDefault(overview?.actual);
 
   useChartMonthSync(overview, true);

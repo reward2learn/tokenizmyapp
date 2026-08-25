@@ -261,6 +261,8 @@ export function ChatPanel({
     setInput(msg.content);
     // Auto-send after a short delay
     setTimeout(() => void handleSend(), 100);
+    // handleSend is declared below; including it would create a TDZ reference.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [menuMessageIndex, messages]);
 
   // Prefill from ?prompt= (e.g. when arriving from a task's "Ask AI" button).
@@ -269,6 +271,8 @@ export function ChatPanel({
     if (prefill && !input) {
       setInput(prefill);
     }
+    // Intentionally omit `input`: only seed when the field is still empty on mount/param change.
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- one-shot prefill
   }, [searchParams]);
 
   // Prefill from AI Findings context (stored by AiFindingsBlock "Use in Chat").
@@ -278,6 +282,7 @@ export function ChatPanel({
       setInput(context);
       sessionStorage.removeItem('ai_findings_context');
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- one-shot prefill
   }, []);
 
   const sendMessage = useCallback(async (message: string) => {

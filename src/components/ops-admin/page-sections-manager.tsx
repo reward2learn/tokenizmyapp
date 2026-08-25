@@ -71,7 +71,10 @@ export function PageSectionsManager({ tenantSlug, appId, isSuite = false }: Page
   const canWrite = hasPagesWrite(permissions, platformAdmin);
   const { data: pagesData, isLoading: pagesLoading, error: pagesError, refetch: refetchPages } =
     useListAdminPagesQuery(scope);
-  const pages = pagesData?.data?.pages ?? [];
+  const pages = useMemo(
+    () => pagesData?.data?.pages ?? [],
+    [pagesData?.data?.pages],
+  );
 
   const [slug, setSlug] = useState('');
   const [drafts, setDrafts] = useState<SectionDraft[]>([]);

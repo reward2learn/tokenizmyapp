@@ -93,7 +93,7 @@ function ChartFinancialBlockInner({ config }: { config: Record<string, unknown> 
       ? conservativeQ.isError || realisticQ.isError || aspirationalQ.isError
       : dashboardQ.isError;
 
-  const labels = primaryData?.labels ?? [];
+  const labels = useMemo(() => primaryData?.labels ?? [], [primaryData?.labels]);
   const kpi = chartKpi;
   const actualSeries = primaryData?.actual?.[kpi] ?? [];
   const forecastSeries = primaryData?.forecast?.[kpi] ?? [];

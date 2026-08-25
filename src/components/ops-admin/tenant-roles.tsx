@@ -35,7 +35,6 @@ import KeyIcon from '@mui/icons-material/Key';
 import {
   useListRoleConfigsQuery,
   useCreateRoleMutation,
-  useUpdateRoleMutation,
   useSetRolePinMutation,
 } from '@/store/apis/admin-api';
 import type { RoleConfigView } from '@/app/api/admin/roles/route';
@@ -57,12 +56,10 @@ export function TenantRoles({ tenantSlug, tenantName, appId }: TenantRolesProps)
   // tenant_slug/app_id columns rather than the old code-prefix heuristic.
   const { data, isLoading, isError, refetch } = useListRoleConfigsQuery();
   const [createRole, { isLoading: isCreating }] = useCreateRoleMutation();
-  const [updateRole, { isLoading: isUpdating }] = useUpdateRoleMutation();
   const [setRolePin, { isLoading: isSettingPin }] = useSetRolePinMutation();
   
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
   const [newRole, setNewRole] = useState({ code: '', name: '' });
-  const [editingRole, setEditingRole] = useState<RoleConfigView | null>(null);
   const [pinDialog, setPinDialog] = useState<{ code: string; name: string } | null>(null);
   const [pinValue, setPinValue] = useState('');
 

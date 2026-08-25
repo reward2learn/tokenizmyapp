@@ -65,7 +65,8 @@ const updateSchema = z.object({
 
 function validateConfig(blockType: CatalogBlockType, config: Record<string, unknown>) {
   const animate = resolveBlockAnimate(config.animate);
-  const { animate: _drop, ...blockOnly } = config;
+  const { animate: _, ...blockOnly } = config;
+  void _;
   // marketing_hero requires headline/subheadline — seed empty creates with component defaults.
   const withDefaults: Record<string, unknown> =
     blockType === 'marketing_hero'

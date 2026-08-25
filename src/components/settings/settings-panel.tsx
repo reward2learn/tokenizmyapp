@@ -21,6 +21,7 @@ import PaletteIcon from '@mui/icons-material/Palette';
 import LogoutIcon from '@mui/icons-material/Logout';
 import PersonIcon from '@mui/icons-material/PersonOutlined';
 import InsightsIcon from '@mui/icons-material/Insights';
+import BoltIcon from '@mui/icons-material/Bolt';
 import { useAppDispatch, useAppSelector } from '@/store/hooks';
 import { setSettingsSection, type SettingsSection } from '@/store/ui-slice';
 import { OrganizationGeneralPanel } from '@/components/settings/organization-general-panel';
@@ -28,7 +29,7 @@ import { BrandingPanel } from '@/components/settings/branding-panel';
 import { TeammatesPanel } from '@/components/settings/teammates-panel';
 import { ProfilePanel } from '@/components/settings/profile-panel';
 import { SecurityPanel } from '@/components/settings/security-panel';
-import { BillingPanel } from '@/components/billing/billing-panel';
+import { AiCreditsPanel, BillingPanel } from '@/components/billing/billing-panel';
 import { RADIUS } from '@/theme/design-tokens';
 import { isPlatformApp } from '@shared/lib/config/tenant';
 
@@ -40,7 +41,8 @@ import { isPlatformApp } from '@shared/lib/config/tenant';
  * billing owner of one or more tenants) and everything below belongs to the
  * signed-in account. Billing sits in the first group for the same reason it is
  * keyed on `orgId` everywhere else — a customer running three tenant apps has
- * one plan and one balance, not three.
+ * one plan and one balance, not three. Topup sits beside Billing/Usage so
+ * credit purchase is a sidebar click, not a nested billing tab.
  *
  * Sections are listed only where something real backs them. SSO, data
  * residency, commerce and chat integrations are deliberately absent rather
@@ -58,6 +60,7 @@ interface SectionDef {
 const PLATFORM_ORGANIZATION_SECTIONS: SectionDef[] = [
   { id: 'general', label: 'General', icon: HomeIcon },
   { id: 'billing', label: 'Billing', icon: CreditCardIcon },
+  { id: 'topup', label: 'Topup', icon: BoltIcon },
   { id: 'teammates', label: 'Teammates', icon: GroupIcon },
   { id: 'branding', label: 'Branding', icon: PaletteIcon },
 ];
@@ -66,6 +69,7 @@ const PLATFORM_ORGANIZATION_SECTIONS: SectionDef[] = [
 const TENANT_ORGANIZATION_SECTIONS: SectionDef[] = [
   { id: 'general', label: 'General', icon: HomeIcon },
   { id: 'billing', label: 'Usage', icon: InsightsIcon },
+  { id: 'topup', label: 'Topup', icon: BoltIcon },
   { id: 'teammates', label: 'Team', icon: GroupIcon },
 ];
 
@@ -178,6 +182,12 @@ export function SettingsPanel({
             <BillingPanel orgId={orgId} readOnly={!onPlatform} selfServeBilling={selfServeBilling} />
           ) : (
             <NoOrganization what={onPlatform ? 'Billing' : 'Usage'} />
+          ))}
+        {section === 'topup' &&
+          (orgId ? (
+            <AiCreditsPanel orgId={orgId} readOnly={!onPlatform} selfServeBilling={selfServeBilling} />
+          ) : (
+            <NoOrganization what="Topup" />
           ))}
         {section === 'teammates' && <TeammatesPanel orgId={orgId} readOnly={!onPlatform} />}
         {section === 'profile' && <ProfilePanel />}

@@ -13,7 +13,6 @@ import type { AdminGroupView } from '@/app/api/admin/groups/route';
 import { contentApi } from '@/store/apis/content-api';
 import { publishPageSections } from '@/store/ui-slice';
 import { cmsPageCacheKey, normalizeCmsScope } from '@shared/lib/cms-scope';
-import { getTenantConfig } from '@shared/lib/config/tenant';
 import type { AiUsageSummary } from '@/lib/billing/ai-usage-summary';
 
 /** Cross-tenant browse scope — resolved server-side only for platform admins. */

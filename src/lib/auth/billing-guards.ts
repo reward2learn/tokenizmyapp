@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { createRawClient, createBillingRawClient } from '@/lib/db';
+import { createBillingRawClient } from '@/lib/db';
 import { getTenantConfig, isPlatformApp } from '@shared/lib/config/tenant';
 import { resolveOrgForTenant } from '@/domain/billing/organization-service';
 import { resolveTenantSelfServeBilling } from '@/domain/billing/self-serve-billing-service';

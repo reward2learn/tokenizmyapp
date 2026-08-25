@@ -3,10 +3,10 @@ import type { ForecastScenarioKey } from '@/domain/financial/financial-projectio
 
 export type ChartKpi = 'ebitda' | 'revenue' | 'net_income' | 'guests' | 'staff_cost';
 
-/** Tabs in Settings → Billing. */
+/** Tabs in Settings → Billing / Usage (plan, credit history & invoices — not pack purchase). */
 export type BillingTab =
   | 'plan'
-  | 'ai-credits'
+  | 'credit-history'
   | 'cloud-credits'
   | 'billing-details'
   | 'payment-methods'
@@ -19,10 +19,15 @@ export type BillingTab =
  * capability the platform does not have reads as a broken feature rather than
  * an absent one — see the auto-reload panel that shipped as a permanent
  * "Disabled" line and had to be removed.
+ *
+ * `topup` is a first-class section (not a Billing tab) so credit balance and
+ * pack purchase sit one click from the sidebar — same surface the header
+ * credit chip opens.
  */
 export type SettingsSection =
   | 'general'
   | 'billing'
+  | 'topup'
   | 'teammates'
   | 'branding'
   | 'profile'
@@ -220,8 +225,8 @@ export const uiSlice = createSlice({
      * Open Settings at a specific place.
      *
      * One action rather than three dispatches from every call site: the header
-     * top-up button has to land on Billing → AI Credits, and doing that as
-     * separate `setSettingsSection` / `setBillingTab` / `setSettingsDialogOpen`
+     * top-up button has to land on Topup, and doing that as separate
+     * `setSettingsSection` / `setBillingTab` / `setSettingsDialogOpen`
      * dispatches renders the dialog once per step on whatever tab was left
      * over from last time.
      */

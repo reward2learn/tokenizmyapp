@@ -35,7 +35,7 @@ import IconButton from '@mui/material/IconButton';
 import InputAdornment from '@mui/material/InputAdornment';
 import Tooltip from '@mui/material/Tooltip';
 import { useAppDispatch, useAppSelector } from '@/store/hooks';
-import { setBillingTab, type BillingTab } from '@/store/ui-slice';
+import { setBillingTab, setSettingsSection, type BillingTab } from '@/store/ui-slice';
 import {
   useGetOrganizationQuery,
   useGetOrganizationCreditsQuery,
@@ -66,12 +66,12 @@ import { TenantManagedOrgAlert } from '@/components/settings/tenant-managed-mess
 import type { CreditAdminAnalytics } from '@/store/apis/organization-api';
 
 /**
- * Settings → Billing.
+ * Settings → Billing / Usage.
  *
- * Four tabs mirroring the IA in the roadmap: Plan, AI Credits, Cloud Credits,
- * Invoices. Cloud Credits is deliberately an honest "not built yet" panel
- * rather than a mocked table — Phase 5 has no metering, and a UI that implies
- * otherwise would be worse than an absent one.
+ * Plan, credit history (ledger/grants), cloud credits, invoices, and payment
+ * details. Spendable balance and pack purchase live under Settings → Topup
+ * (`AiCreditsPanel`) so the sidebar can open them in one click — the same
+ * surface the header credit chip uses.
  *
  * Tab selection lives in the ui slice, not component state, so returning from
  * embedded Checkout keeps the admin on the Plan tab instead of resetting.
@@ -107,23 +107,17 @@ export function BillingPanel({
   // is the fresher of the two. Falling back to the organization query keeps the
   // panel populated when Stripe is switched off entirely.
   const subscription = checkoutData?.data?.subscription ?? orgData?.data?.subscription ?? null;
-  const balance = creditsData?.data?.balance ?? null;
   const grants = creditsData?.data?.grants ?? [];
   const ledger = creditsData?.data?.ledger ?? [];
   const analytics = creditsData?.data?.analytics ?? null;
   const readiness = checkoutData?.data?.readiness ?? null;
-  const creditsPaymentsReady = creditsData?.data?.paymentsReady;
-  const effectiveReadiness =
-    readOnly && selfServeBilling
-      ? { ready: creditsPaymentsReady === true }
-      : readiness;
   const linkage = checkoutData?.data?.linkage ?? null;
   const reconcileNote = checkoutData?.data?.reconcileNote ?? null;
   const priceMismatches = checkoutData?.data?.priceMismatches ?? [];
 
   const visibleTabs: BillingTab[] = readOnly
-    ? ['plan', 'ai-credits']
-    : ['plan', 'ai-credits', 'cloud-credits', 'billing-details', 'payment-methods', 'invoices'];
+    ? ['plan', 'credit-history']
+    : ['plan', 'credit-history', 'cloud-credits', 'billing-details', 'payment-methods', 'invoices'];
 
   const activeTab = visibleTabs.includes(tab) ? tab : visibleTabs[0];
 
@@ -137,7 +131,7 @@ export function BillingPanel({
         sx={{ borderBottom: 1, borderColor: 'divider', px: 1 }}
       >
         <Tab label="Plan" value="plan" />
-        <Tab label="AI Credits" value="ai-credits" />
+        <Tab label="History" value="credit-history" />
         {!readOnly && <Tab label="Cloud Credits" value="cloud-credits" />}
         {!readOnly && <Tab label="Billing Details" value="billing-details" />}
         {!readOnly && <Tab label="Payment Methods" value="payment-methods" />}
@@ -149,12 +143,6 @@ export function BillingPanel({
           <Box sx={{ mb: 2 }}>
             <TenantManagedOrgAlert />
           </Box>
-        )}
-        {readOnly && selfServeBilling && (
-          <Alert severity="info" sx={{ mb: 2 }}>
-            You can purchase AI credit top-ups for this organization. Plan changes and billing
-            details are managed by your administrator.
-          </Alert>
         )}
 
         {!readOnly && readiness?.configError && (
@@ -194,24 +182,19 @@ export function BillingPanel({
             pendingPlanId={linkage?.pendingPlanId ?? null}
             gracePeriodEndsAt={linkage?.gracePeriodEndsAt ?? null}
             purchasable={checkoutData?.data?.purchasable ?? []}
-            paymentsReady={Boolean(effectiveReadiness?.ready)}
+            paymentsReady={Boolean(readiness?.ready)}
             publishableKey={checkoutData?.data?.publishableKey ?? null}
             hasExistingSubscription={Boolean(linkage?.subscriptionId)}
             readOnly={readOnly}
           />
         )}
-        {activeTab === 'ai-credits' && (
-          <AiCreditsTab
-            orgId={orgId}
-            planId={(subscription?.planId ?? 'free') as PlanId}
-            balance={balance}
+        {activeTab === 'credit-history' && (
+          <AiCreditsHistory
             grants={grants}
             ledger={ledger}
-            readiness={effectiveReadiness}
             analytics={analytics}
             readOnly={readOnly}
             selfServeTopUp={selfServeBilling}
-            onOpenPlanTab={() => dispatch(setBillingTab('plan'))}
           />
         )}
         {!readOnly && activeTab === 'cloud-credits' && <CloudCreditsTab orgId={orgId} />}
@@ -220,6 +203,63 @@ export function BillingPanel({
         {!readOnly && activeTab === 'invoices' && <InvoicesTab orgId={orgId} />}
       </Box>
     </Paper>
+  );
+}
+
+/**
+ * Settings → Topup — spendable balance and pack purchase only.
+ *
+ * Usage / grant history lives under Settings → Usage → History so this
+ * surface stays purchase-focused. The header credit chip deep-links here.
+ */
+export function AiCreditsPanel({
+  orgId,
+  readOnly = false,
+  selfServeBilling = false,
+}: {
+  orgId: string;
+  readOnly?: boolean;
+  selfServeBilling?: boolean;
+}) {
+  const dispatch = useAppDispatch();
+  const { data: orgData } = useGetOrganizationQuery(orgId, { skip: !orgId });
+  const { data: creditsData } = useGetOrganizationCreditsQuery(orgId, { skip: !orgId });
+  const { data: checkoutData } = useGetBillingCheckoutQuery(orgId, {
+    skip: !orgId || (readOnly && selfServeBilling),
+  });
+
+  const subscription = checkoutData?.data?.subscription ?? orgData?.data?.subscription ?? null;
+  const balance = creditsData?.data?.balance ?? null;
+  const grants = creditsData?.data?.grants ?? [];
+  const readiness = checkoutData?.data?.readiness ?? null;
+  const creditsPaymentsReady = creditsData?.data?.paymentsReady;
+  const effectiveReadiness =
+    readOnly && selfServeBilling
+      ? { ready: creditsPaymentsReady === true }
+      : readiness;
+
+  return (
+    <Stack spacing={2}>
+      {readOnly && selfServeBilling && (
+        <Alert severity="info">
+          You can purchase AI credit top-ups for this organization. Plan changes and billing
+          details are managed by your administrator.
+        </Alert>
+      )}
+      <AiCreditsPurchase
+        orgId={orgId}
+        planId={(subscription?.planId ?? 'free') as PlanId}
+        balance={balance}
+        grants={grants}
+        readiness={effectiveReadiness}
+        readOnly={readOnly}
+        selfServeTopUp={selfServeBilling}
+        onOpenPlanTab={() => {
+          dispatch(setSettingsSection('billing'));
+          dispatch(setBillingTab('plan'));
+        }}
+      />
+    </Stack>
   );
 }
 
@@ -537,16 +577,14 @@ function PlanTab({
   );
 }
 
-// ── AI Credits ────────────────────────────────────────────────────
+// ── AI Credits (Topup purchase + Usage history) ───────────────────
 
-function AiCreditsTab({
+function AiCreditsPurchase({
   orgId,
   planId,
   balance,
   grants,
-  ledger,
   readiness,
-  analytics,
   readOnly = false,
   selfServeTopUp = false,
   onOpenPlanTab,
@@ -562,14 +600,11 @@ function AiCreditsTab({
     personal?: number;
   } | null;
   grants: React.ComponentProps<typeof CreditGrantsTable>['grants'];
-  ledger: React.ComponentProps<typeof CreditUsageTable>['ledger'];
   readiness: { ready: boolean } | null;
-  analytics?: CreditAdminAnalytics | null;
   readOnly?: boolean;
   selfServeTopUp?: boolean;
   onOpenPlanTab?: () => void;
 }) {
-  const [historyTab, setHistoryTab] = useState<'usage' | 'grants'>('usage');
   const [topUpPackId, setTopUpPackId] = useState<string | null>(null);
   const [requestOpen, setRequestOpen] = useState(false);
   const [requestCopied, setRequestCopied] = useState(false);
@@ -599,15 +634,9 @@ function AiCreditsTab({
           .reduce((sum, g) => sum + g.remaining, 0)
       : grants.filter((g) => g.source === 'promo').reduce((sum, g) => sum + g.remaining, 0);
 
-  const visibleGrants =
-    selfServeTopUp && user?.id
-      ? grants.filter((g) => !g.ownerUserId || g.ownerUserId === user.id)
-      : grants;
-
   const mayPurchase = !readOnly || selfServeTopUp;
   const planAllowsTopUp = canPurchaseCreditPacks(planId);
   const canTopUp = mayPurchase && planAllowsTopUp;
-  const showAdminAnalytics = !readOnly && Boolean(analytics);
 
   const requestMessage = [
     'Hi,',
@@ -732,30 +761,6 @@ function AiCreditsTab({
         </Box>
       )}
 
-      {showAdminAnalytics && analytics && (
-        <CreditAdminAnalyticsPanels
-          users={analytics.users}
-          byProvider={analytics.byProvider}
-          byModel={analytics.byModel}
-        />
-      )}
-
-      <Box>
-        <Tabs
-          value={historyTab}
-          onChange={(_, next: 'usage' | 'grants') => setHistoryTab(next)}
-          sx={{ mb: 2, minHeight: 36 }}
-        >
-          <Tab label="Usage history" value="usage" sx={{ minHeight: 36 }} />
-          <Tab label="Grants" value="grants" sx={{ minHeight: 36 }} />
-        </Tabs>
-        {historyTab === 'usage' ? (
-          <CreditUsageTable ledger={ledger} />
-        ) : (
-          <CreditGrantsTable grants={visibleGrants} />
-        )}
-      </Box>
-
       {topUpPackId && canTopUp && (
         <StripeTopUpDialog
           open
@@ -794,6 +799,59 @@ function AiCreditsTab({
           </Button>
         </DialogActions>
       </Dialog>
+    </Stack>
+  );
+}
+
+/** Settings → Usage / Billing → History — ledger, grants, and admin analytics. */
+function AiCreditsHistory({
+  grants,
+  ledger,
+  analytics,
+  readOnly = false,
+  selfServeTopUp = false,
+}: {
+  grants: React.ComponentProps<typeof CreditGrantsTable>['grants'];
+  ledger: React.ComponentProps<typeof CreditUsageTable>['ledger'];
+  analytics?: CreditAdminAnalytics | null;
+  readOnly?: boolean;
+  selfServeTopUp?: boolean;
+}) {
+  const [historyTab, setHistoryTab] = useState<'usage' | 'grants'>('usage');
+  const { user } = useAppSelector((s) => s.auth);
+
+  const visibleGrants =
+    selfServeTopUp && user?.id
+      ? grants.filter((g) => !g.ownerUserId || g.ownerUserId === user.id)
+      : grants;
+
+  const showAdminAnalytics = !readOnly && Boolean(analytics);
+
+  return (
+    <Stack spacing={3}>
+      {showAdminAnalytics && analytics && (
+        <CreditAdminAnalyticsPanels
+          users={analytics.users}
+          byProvider={analytics.byProvider}
+          byModel={analytics.byModel}
+        />
+      )}
+
+      <Box>
+        <Tabs
+          value={historyTab}
+          onChange={(_, next: 'usage' | 'grants') => setHistoryTab(next)}
+          sx={{ mb: 2, minHeight: 36 }}
+        >
+          <Tab label="Usage history" value="usage" sx={{ minHeight: 36 }} />
+          <Tab label="Grants" value="grants" sx={{ minHeight: 36 }} />
+        </Tabs>
+        {historyTab === 'usage' ? (
+          <CreditUsageTable ledger={ledger} />
+        ) : (
+          <CreditGrantsTable grants={visibleGrants} />
+        )}
+      </Box>
     </Stack>
   );
 }

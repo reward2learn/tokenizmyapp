@@ -149,6 +149,8 @@ export function ComposerModelPicker() {
     return () => {
       cancelled = true;
     };
+    // selectedModel intentionally omitted: only seed a default when none is chosen yet.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [dispatch, effectiveProviderId]);
 
   const configuredProviders = useMemo(

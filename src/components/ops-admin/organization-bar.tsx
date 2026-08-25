@@ -336,9 +336,13 @@ export function OrganizationBar({ tenantSlug }: { tenantSlug?: string | null }) 
                   setSnackbar({ message: 'Organization deleted successfully', severity: 'success' });
                   setConfirmDeleteOrg(null);
                 })
-                .catch((err: any) => {
+                .catch((err: unknown) => {
+                  const message =
+                    err && typeof err === 'object' && 'data' in err
+                      ? String((err as { data?: { error?: string } }).data?.error ?? 'Failed to delete organization')
+                      : 'Failed to delete organization';
                   setSnackbar({
-                    message: err?.data?.error ?? 'Failed to delete organization',
+                    message,
                     severity: 'error',
                   });
                 });

@@ -40,15 +40,6 @@ export interface LinkResult {
 /** Timeout for CLI commands (5 minutes — builds can be slow). */
 const CLI_TIMEOUT_MS = 300_000;
 
-/**
- * Build the --token flag if VERCEL_TOKEN is set, otherwise return empty
- * string (falls back to Vercel CLI's built-in auth).
- */
-function tokenFlag(): string {
-  const token = process.env.VERCEL_TOKEN;
-  return token ? `--token=${token}` : '';
-}
-
 // ── Project linking ───────────────────────────────────────────────
 
 /**

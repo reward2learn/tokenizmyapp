@@ -126,6 +126,31 @@ export function setDynamicReviewParts(parts: ReviewPartDefinition[]): void {
 }
 
 /**
+ * Pure projection of seed `reviewPartDetails` → review part list.
+ * Prefer this in client components over setDynamicReviewParts + useEffect —
+ * RTK Query cache is the source of truth; derive during render.
+ */
+export function reviewPartsFromSeedDetails(
+  details?: { slug: string; partKey: string; title: string }[] | null,
+): ReviewPartDefinition[] {
+  if (!details?.length) return [];
+  const dynamic = Object.fromEntries(
+    details.map((p) => [
+      p.slug,
+      {
+        partSlug: p.slug,
+        partKey: p.partKey,
+        title: p.title,
+        authTier: 'google' as const,
+      } satisfies ReviewPartDefinition,
+    ]),
+  );
+  return Object.values({ ...STATIC_PARTS, ...dynamic }).sort((a, b) =>
+    a.partKey.localeCompare(b.partKey),
+  );
+}
+
+/**
  * Dynamic getter that merges static + any runtime-registered parts.
  * Use instead of REVIEW_PART_CATALOG so that setDynamicReviewParts() calls
  * are reflected immediately.

@@ -17,14 +17,13 @@ import Typography from '@mui/material/Typography';
 import {
   getReviewPartDisplayTitle,
   listReviewParts,
-  setDynamicReviewParts,
+  reviewPartsFromSeedDetails,
   tierAllowsAccess,
   type AuthTier,
-  type ReviewPartDefinition,
 } from '@/lib/page-catalog';
 import { useAppSelector } from '@/store/hooks';
 import { useGetSeedDetailsQuery } from '@/store/apis/config-api';
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo } from 'react';
 
 const TOUCH_TARGET = { minHeight: 48 };
 const PART_SELECT_LABEL = 'Jump between review sections';
@@ -32,30 +31,14 @@ const PART_SELECT_LABEL = 'Jump between review sections';
 export function ReviewNav({ currentSlug }: { currentSlug: string }) {
   const router = useRouter();
   const tier = useAppSelector((s) => s.auth.tier);
-
-  // Track catalog version so async-loaded DB parts trigger a re-render
-  const [catalogVersion, setCatalogVersion] = useState(0);
   const { data: seedData } = useGetSeedDetailsQuery();
 
-  // On mount, fetch all review parts from the DB and register in the catalog
-  useEffect(() => {
-    if (!seedData) return;
-    const details = seedData.data?.reviewPartDetails;
-    if (details?.length) {
-      const parts: ReviewPartDefinition[] = details.map(
-        (p: { slug: string; partKey: string; title: string }) => ({
-          partSlug: p.slug,
-          partKey: p.partKey,
-          title: p.title,
-          authTier: 'google' as const,
-        }),
-      );
-      setDynamicReviewParts(parts);
-      setCatalogVersion((v) => v + 1);
-    }
-  }, [seedData]);
-
-  const parts = useMemo(() => listReviewParts().filter((part) => tierAllowsAccess(tier, part.authTier)), [catalogVersion, tier]);
+  // Derive from RTK Query cache during render — no useEffect sync into local/module state.
+  const parts = useMemo(() => {
+    const fromSeed = reviewPartsFromSeedDetails(seedData?.data?.reviewPartDetails);
+    const catalog = fromSeed.length > 0 ? fromSeed : listReviewParts();
+    return catalog.filter((part) => tierAllowsAccess(tier, part.authTier));
+  }, [seedData?.data?.reviewPartDetails, tier]);
 
   const handlePartChange = (partSlug: string) => {
     router.push(`/review/${partSlug}` as Route);

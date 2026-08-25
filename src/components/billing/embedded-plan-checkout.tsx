@@ -75,7 +75,7 @@ export function EmbeddedPlanCheckout({
 
   const fetchClientSecret = useCallback(
     () => fetchEmbeddedClientSecret(orgId, target),
-    [orgId, target.planId, target.interval],
+    [orgId, target],
   );
 
   const options = useMemo(

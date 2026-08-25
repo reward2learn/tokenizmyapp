@@ -8,7 +8,7 @@ import { organizationApi } from '@/store/apis/organization-api';
 import type { AiUsageSummary } from '@/lib/billing/ai-usage-summary';
 
 export const AI_CREDITS_EMPTY_MESSAGE =
-  'No AI credits remaining — open Billing → AI Credits to add more';
+  'No AI credits remaining — open Settings → Topup to add more';
 
 /** Map RTK / fetch errors (including gate 402) to a user-facing string. */
 export function aiGenerateErrorMessage(err: unknown, fallback = 'Generation failed'): string {

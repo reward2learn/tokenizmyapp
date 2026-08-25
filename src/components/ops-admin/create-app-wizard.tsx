@@ -262,7 +262,10 @@ export function CreateAppWizard({ open, onClose, tenantSlug, sourceApp, onSnackb
   const tenantMeta = (tenant?.metadata ?? {}) as Record<string, unknown>;
   const tenantCfg = (tenantMeta.config ?? {}) as Record<string, unknown>;
   const tenantAppPack = tenantCfg.appPack as { apps?: SuiteAppInstance[] } | undefined;
-  const suiteApps: SuiteAppInstance[] = tenantAppPack?.apps ?? [];
+  const suiteApps: SuiteAppInstance[] = useMemo(
+    () => tenantAppPack?.apps ?? [],
+    [tenantAppPack?.apps],
+  );
   const hasApps = suiteApps.length > 0;
   const rolesList = rolesData?.data?.roles || [];
 

@@ -16,6 +16,7 @@ export const SEC_USER_AGENT_ENV_KEY = 'SEC_USER_AGENT';
  */
 export function sanitizeSecUserAgentName(raw: string): string {
   return raw
+    // eslint-disable-next-line no-control-regex -- intentional strip of C0 controls from UA strings
     .replace(/["'`\r\n\t\u0000-\u001f\u007f]/g, ' ')
     .replace(/\s+/g, ' ')
     .trim();

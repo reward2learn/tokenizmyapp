@@ -120,7 +120,7 @@ interface AppPackTabProps {
   onGenerated?: () => void;
 }
 
-export function AppPackTab({ tenantSlug: propTenantSlug, tenantName, onGenerated }: AppPackTabProps = {}) {
+export function AppPackTab({ tenantSlug: propTenantSlug, tenantName, onGenerated: _onGenerated }: AppPackTabProps = {}) {
   const [prompt, setPrompt] = useState('');
   const [mock, setMock] = useState(true);
   const [tenantSlug, setTenantSlug] = useState(propTenantSlug || 'tokenizmyapp');

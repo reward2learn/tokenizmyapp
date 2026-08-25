@@ -208,7 +208,6 @@ export function BlockScrollAnimate({
     return () => observer.disconnect();
   }, [animationKey, disabled, resolved.enabled]);
 
-  const showFinal = disabled || !resolved.enabled || visible;
   const content =
     staggerChildren ? (
       children

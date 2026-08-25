@@ -9,7 +9,7 @@
  * re-derive it from the plan id.
  */
 import { NextResponse } from 'next/server';
-import { createRawClient, createBillingRawClient } from '@/lib/db';
+import { createBillingRawClient } from '@/lib/db';
 import { requireWriteAuth } from '@/lib/auth/guards';
 import { jsonError, jsonOk } from '@/lib/api/response';
 import {

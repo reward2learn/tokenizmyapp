@@ -10,8 +10,7 @@ import { jsonError, jsonOk } from '@/lib/api/response';
 import { ensureTenantsTable } from '@/domain/tenant/tenant-service';
 import { ensureTenantConfigColumns } from '@/domain/tenant/tenant-config-service';
 import { DEFAULT_TENANT } from '@shared/lib/config/tenant';
-import { materializeAppPackForTenant, buildDeterministicAppPack } from '@/domain/app-pack/app-pack-tenant-materializer';
-import { provisionSuiteApps } from '@/domain/workflow/suite-provisioning';
+import { materializeAppPackForTenant } from '@/domain/app-pack/app-pack-tenant-materializer';
 
 // ── Helper: snake_case DB rows → camelCase TenantEntry ──
 

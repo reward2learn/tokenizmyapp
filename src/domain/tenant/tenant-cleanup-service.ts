@@ -10,7 +10,6 @@
  * All operations are designed to be safe for already-deleted resources.
  */
 import { getSecret, deleteSecret } from '@/lib/secrets';
-import { decrypt } from '@/lib/crypto';
 import { inngest } from '@/lib/inngest';
 import { deleteVercelProject } from './vercel-deploy-service';
 import { deprovisionTenantDatabase } from './neon-provision-service';
@@ -42,7 +41,7 @@ export async function cleanupTenant(context: CleanupContext): Promise<TenantClea
     cleanedResources: {},
   };
 
-  const { tenantSlug, tenantDbUrl, vercelProjectId, googleClientId, googleProjectId } = context;
+  const { tenantSlug, vercelProjectId, googleClientId, googleProjectId } = context;
 
   try {
     logger.info(`Starting cleanup for tenant: ${tenantSlug}`);

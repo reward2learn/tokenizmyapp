@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import type { Route } from 'next';
 import Alert from '@mui/material/Alert';
@@ -93,21 +93,6 @@ function flattenTree(items: NavItem[], depth = 0): (FlatItem & { depth: number }
   return result;
 }
 
-function buildTree(items: FlatItem[]): NavItem[] {
-  const map = new Map<string, NavItem>();
-  const roots: NavItem[] = [];
-  for (const item of items) map.set(item.id, { ...item, children: [] });
-  for (const item of map.values()) {
-    if (item.parentId && map.has(item.parentId)) {
-      map.get(item.parentId)!.children.push(item);
-    } else {
-      roots.push(item);
-    }
-  }
-  return roots;
-}
-
-/** Collect all descendant IDs of a given parent (recursive). */
 function collectDescendantIds(items: (FlatItem & { depth: number })[], parentId: string): string[] {
   const ids: string[] = [];
   for (const item of items) {
@@ -128,7 +113,7 @@ interface NavigationManagerProps {
 }
 
 export function NavigationManager({ tenantSlug, appId }: NavigationManagerProps = {}) {
-  const [items, setItems] = useState<NavItem[]>([]);
+  const [, setItems] = useState<NavItem[]>([]);
   const [flatItems, setFlatItems] = useState<(FlatItem & { depth: number })[]>([]);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -470,16 +455,6 @@ export function NavigationManager({ tenantSlug, appId }: NavigationManagerProps 
   }, [selectedIds, batchDialogMode, batchParentId, batchTier, batchGroups, flatItems, updateNav]);
 
   // ── Drag-to-reorder helpers ──────────────────────────
-  const moveItem = useCallback((fromIdx: number, toIdx: number) => {
-    if (fromIdx === toIdx) return;
-    const updated = [...flatItems];
-    const [moved] = updated.splice(fromIdx, 1);
-    updated.splice(toIdx, 0, moved);
-    // Re-assign sort orders
-    const reordered = updated.map((item, i) => ({ ...item, sortOrder: i }));
-    setFlatItems(reordered);
-  }, [flatItems]);
-
   const handleDrop = useCallback(async () => {
     if (dragIndex === null || dropIndex === null || dragIndex === dropIndex) return;
     setSaving(true);

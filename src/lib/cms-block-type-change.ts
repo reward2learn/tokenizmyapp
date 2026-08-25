@@ -176,7 +176,17 @@ function pickSourceBlockConfig(
   blockType: string,
   config: Record<string, unknown>,
 ): Record<string, unknown> {
-  const { animate: _a, grid: _g, contentGrid: _c, minTier: _m, ...rest } = config;
+  const {
+    animate: _animate,
+    grid: _grid,
+    contentGrid: _contentGrid,
+    minTier: _minTier,
+    ...rest
+  } = config;
+  void _animate;
+  void _grid;
+  void _contentGrid;
+  void _minTier;
   if (blockType === 'kpi_cards' || blockType === 'chart_financial' || blockType === 'pnl_table') {
     const subset: Record<string, unknown> = {};
     if (rest.period !== undefined) subset.period = rest.period;

@@ -126,7 +126,7 @@ export function BrandConfigTab({ tenantSlug, appId }: BrandConfigTabProps = {}) 
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     }
-  }, [config.tenantSlug, config.tenantDisplayName, config.tenantTemplate, config.brandLogoText, config.brandPrimaryColor, config.brandSecondaryColor, config.themeMode, logoPreview, updateBrandConfig, tenantSlug, appId]);
+  }, [config.tenantSlug, config.tenantDisplayName, config.tenantTemplate, config.brandLogoText, config.brandLogoUrl, config.brandPrimaryColor, config.brandSecondaryColor, config.themeMode, logoPreview, updateBrandConfig, tenantSlug, appId]);
 
   const handleFileSelect = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];

@@ -10,7 +10,7 @@ import { useAppDispatch } from '@/store/hooks';
 import { openSettingsDialog } from '@/store/ui-slice';
 import { useGetOrganizationCreditsQuery } from '@/store/apis/organization-api';
 import { useBillingOrgId, useSelfServeBillingEnabled } from '@/components/billing/use-billing-org';
-import { getClientTenantConfig, isPlatformApp } from '@shared/lib/config/tenant';
+import { isPlatformApp } from '@shared/lib/config/tenant';
 
 /**
  * AI credit balance and a top-up button, in the app header.
@@ -20,11 +20,10 @@ import { getClientTenantConfig, isPlatformApp } from '@shared/lib/config/tenant'
  * clicks deep meant the first sign of an empty balance was a generation
  * failing.
  *
- * Both controls open Settings → Billing → AI Credits rather than a top-up
- * dialog of their own. The pack picker, the plan/purchased/bonus breakdown and
- * the "payments are not configured" explanation all already live there, and a
- * second copy in the header would be a second thing to keep in step with the
- * credit packs.
+ * Both controls open Settings → Topup rather than a top-up dialog of their
+ * own. The pack picker, the plan/purchased/bonus breakdown and the "payments
+ * are not configured" explanation all already live there, and a second copy
+ * in the header would be a second thing to keep in step with the credit packs.
  *
  * Renders nothing when there is no balance to show — no organization resolved,
  * or a session that cannot read control-plane credits. An empty chip would
@@ -41,7 +40,7 @@ export function HeaderCredits() {
 
   if (!orgId || !balance) return null;
 
-  const open = () => dispatch(openSettingsDialog({ section: 'billing', billingTab: 'ai-credits' }));
+  const open = () => dispatch(openSettingsDialog({ section: 'topup' }));
 
   const canTopUp = onPlatform || selfServeBilling;
 

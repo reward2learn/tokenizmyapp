@@ -26,7 +26,7 @@
  */
 import type Stripe from 'stripe';
 import { z } from 'zod';
-import { createRawClient, createBillingRawClient } from '@/lib/db';
+import { createBillingRawClient } from '@/lib/db';
 import { requireWriteAuth } from '@/lib/auth/guards';
 import { sessionIsPlatformAdmin } from '@/lib/auth/jwt';
 import { jsonError, jsonOk } from '@/lib/api/response';

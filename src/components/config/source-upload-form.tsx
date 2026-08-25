@@ -320,6 +320,8 @@ export function SourceUploadForm({ showSummaryOnly }: { showSummaryOnly?: boolea
         setWorkflowComplete(true);
       }
     },
+    // startProgressStream is recreated each render; wrapping it would pull more deps.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     [refreshSeedDetails],
   );
 

@@ -13,6 +13,7 @@ let balance: Balance = null;
 
 vi.mock('@/components/billing/use-billing-org', () => ({
   useBillingOrgId: () => orgId,
+  useSelfServeBillingEnabled: () => false,
 }));
 
 vi.mock('@shared/lib/config/tenant', () => ({
@@ -95,7 +96,7 @@ describe('HeaderCredits', () => {
     expect(screen.queryByText('5')).toBeNull();
   });
 
-  it('opens Settings on Billing → AI Credits, in one dispatch', () => {
+  it('opens Settings on Topup, in one dispatch', () => {
     vi.mocked(isPlatformApp).mockReturnValue(true);
     orgId = 'org_1';
     balance = { available: 42, expiringSoon: 0, debt: 0, net: 42 };
@@ -105,8 +106,7 @@ describe('HeaderCredits', () => {
 
     const ui = store.getState().ui;
     expect(ui.settingsDialogOpen).toBe(true);
-    expect(ui.settingsSection).toBe('billing');
-    expect(ui.billingTab).toBe('ai-credits');
+    expect(ui.settingsSection).toBe('topup');
     // The drawer is what the cog lives in; leaving it open would put a scrim
     // over the dialog that just opened.
     expect(ui.drawerOpen).toBe(false);

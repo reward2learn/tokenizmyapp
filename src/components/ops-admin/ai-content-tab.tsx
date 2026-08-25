@@ -150,7 +150,7 @@ export function AiContentTab() {
   const [result, setResult] = useState<GenerateResult | null>(null);
   const [generateError, setGenerateError] = useState<string | null>(null);
   const [showFullPrompt, setShowFullPrompt] = useState(false);
-  const [showFullDataSummary, setShowFullDataSummary] = useState(false);
+  const [showFullDataSummary] = useState(false);
   const [editedPrompt, setEditedPrompt] = useState<string | null>(null);
 
   // RTK Query: GET /api/admin/ai-content — auto-fetches status on mount
@@ -205,7 +205,7 @@ export function AiContentTab() {
     if (status?.fullPrompt && editedPrompt === null) {
       setEditedPrompt(status.fullPrompt);
     }
-  }, [status?.fullPrompt]);
+  }, [status?.fullPrompt, editedPrompt]);
 
   // Clear-seed state
   const [clearConfirmOpen, setClearConfirmOpen] = useState(false);

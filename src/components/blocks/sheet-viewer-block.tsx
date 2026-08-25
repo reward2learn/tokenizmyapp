@@ -784,7 +784,10 @@ export function SheetViewerBlock({ config }: { config: Record<string, unknown> }
   );
   const [createCustomColumn, { isLoading: creatingCustom }] = useCreateCustomColumnMutation();
   const [deleteCustomColumn] = useDeleteCustomColumnMutation();
-  const customColumns = customsData?.data?.columns ?? [];
+  const customColumns = useMemo(
+    () => customsData?.data?.columns ?? [],
+    [customsData?.data?.columns],
+  );
   const [customName, setCustomName] = useState('');
   const [customPosition, setCustomPosition] = useState('end');
 
@@ -849,7 +852,10 @@ export function SheetViewerBlock({ config }: { config: Record<string, unknown> }
   );
   const [saveSheetViewerConfig] = useSaveSheetViewerConfigMutation();
   const viewerConfig = configPayload?.data;
-  const savedWidths = viewerConfig?.columnWidths ?? {};
+  const savedWidths = useMemo(
+    () => viewerConfig?.columnWidths ?? {},
+    [viewerConfig?.columnWidths],
+  );
   // Live width overrides — updated on EVERY resize so pinned sticky offsets and
   // batch-resized columns track the rendered widths immediately (the debounced
   // server save below only persists them; it never drives the UI mid-drag).
@@ -1092,7 +1098,7 @@ export function SheetViewerBlock({ config }: { config: Record<string, unknown> }
         throw error;
       }
     },
-    [updateSheetCell, sheet, formulaMode, dispatch],
+    [updateSheetCell, sheet, formulaMode, dispatch, refetch],
   );
 
   const columns: GridColDef[] = useMemo(() => {
@@ -2400,7 +2406,7 @@ export function SheetViewerBlock({ config }: { config: Record<string, unknown> }
         }
       }
     },
-    [dispatch, effectiveSelectionKeys.size, selectedCells, rowSelectionModel, handleCopySelection, copySelectedCells, clearSelectedCells]
+    [dispatch, effectiveSelectionKeys.size, rowSelectionModel, handleCopySelection, copySelectedCells, clearSelectedCells]
   );
 
   const CustomToolbar = () => (

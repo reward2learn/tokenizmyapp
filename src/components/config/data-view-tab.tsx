@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import Accordion from '@mui/material/Accordion';
 import AccordionDetails from '@mui/material/AccordionDetails';
@@ -136,7 +136,7 @@ export function DataViewTab() {
 
   // ── Derived categories ────────────────────────────────
 
-  const categories: CategoryConfig[] = details ? [
+  const categories: CategoryConfig[] = useMemo(() => details ? [
     {
       key: 'app_pages', table: 'app_pages', label: 'App Pages', icon: '📄',
       count: details.counts.appPages ?? 0, detail: details.pageDetails,
@@ -261,7 +261,7 @@ export function DataViewTab() {
         </Box>
       ) : <Typography variant="body2" color="text.secondary">No Z-reports found.</Typography>,
     },
-  ] : [];
+  ] : [], [details]);
 
   // ── Selection ─────────────────────────────────────────
 

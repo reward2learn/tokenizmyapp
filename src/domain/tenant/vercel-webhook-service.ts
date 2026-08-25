@@ -14,7 +14,7 @@
 
 import crypto from 'node:crypto';
 import { z } from 'zod';
-import { inngest, safeInngestSend } from '@/lib/inngest';
+import { safeInngestSend } from '@/lib/inngest';
 import { cleanupTenant } from './tenant-cleanup-service';
 import { createBaseClient } from '@/lib/db';
 
@@ -52,12 +52,21 @@ interface WebhookResult {
  * Prefer payload.project.*; for project.removed / project.* the project is at payload.id/name.
  * Never treat deployment.id as a project id.
  */
-function extractProjectRef(type: string, payload: Record<string, any>) {
+function extractProjectRef(type: string, payload: Record<string, unknown>) {
+  const project =
+    payload.project && typeof payload.project === 'object'
+      ? (payload.project as { id?: string; name?: string })
+      : undefined;
   const projectId: string | undefined =
-    payload.project?.id ??
-    (type === 'project.removed' || type.startsWith('project.') ? payload.id : undefined);
+    (typeof project?.id === 'string' ? project.id : undefined) ??
+    (type === 'project.removed' || type.startsWith('project.')
+      ? typeof payload.id === 'string'
+        ? payload.id
+        : undefined
+      : undefined);
   const projectName: string | undefined =
-    payload.project?.name ?? payload.name;
+    (typeof project?.name === 'string' ? project.name : undefined) ??
+    (typeof payload.name === 'string' ? payload.name : undefined);
   return { projectId, projectName };
 }
 

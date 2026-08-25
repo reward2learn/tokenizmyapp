@@ -540,7 +540,7 @@ export async function seedTenantDefaults(input: SeedTenantInput): Promise<{
  */
 export async function seedTemplateSecurityGroups(
   db: SeedSqlClient,
-  templateId: string,
+  _templateId: string,
 ): Promise<number> {
   const groups = [
     {

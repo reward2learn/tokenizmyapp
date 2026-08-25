@@ -10,7 +10,7 @@
  *
  * Footer: [Back] [Save Changes] [Continue / Deploy to Vercel]
  */
-import { useState, useCallback, useRef } from 'react';
+import { useState, useCallback, useMemo, useRef } from 'react';
 import { useTheme } from '@mui/material/styles';
 import useMediaQuery from '@mui/material/useMediaQuery';
 import Alert from '@mui/material/Alert';
@@ -88,7 +88,7 @@ import {
   type SubscriptionTierPricingState,
 } from '@/components/ops-admin/subscription-tier-pricing-section';
 import { defaultSubscriptionAmounts } from '@/lib/billing/subscription-pricing';
-import type { AppPackConfig, SuiteAppInstance } from '@/store/apis/tenant-api';
+import type { AppPackConfig } from '@/store/apis/tenant-api';
 import { useAppDispatch } from '@/store/hooks';
 import { setThemeColors } from '@/store/ui-slice';
 import { 
@@ -503,7 +503,10 @@ export function EditTenantModal({ open, tenant, onClose, onSnackbar }: EditTenan
   const tenantSlug = tenant?.slug ?? '';
   const { data: tenantOrgData } = useGetTenantOrganizationQuery(tenantSlug, { skip: !tenantSlug });
   const { data: orgListData } = useListOrganizationsQuery();
-  const organizations = orgListData?.data?.organizations ?? [];
+  const organizations = useMemo(
+    () => orgListData?.data?.organizations ?? [],
+    [orgListData?.data?.organizations],
+  );
   const currentOrg = tenantOrgData?.data?.organization ?? null;
   const currentPlan = tenantOrgData?.data?.plan ?? null;
   const currentSubscription = tenantOrgData?.data?.subscription ?? null;
@@ -512,7 +515,8 @@ export function EditTenantModal({ open, tenant, onClose, onSnackbar }: EditTenan
   const { data: creditsData } = useGetOrganizationCreditsQuery(effectiveOrgId ?? '', {
     skip: !effectiveOrgId,
   });
-  const [assignTenantOrg, { isLoading: assigningOrg }] = useAssignTenantOrganizationMutation();
+  const [assignTenantOrg, { isLoading: _assigningOrg }] = useAssignTenantOrganizationMutation();
+  void _assigningOrg;
   const [createOrg, { isLoading: creatingOrg }] = useCreateOrganizationMutation();
   const [newOrgName, setNewOrgName] = useState('');
 
@@ -884,7 +888,7 @@ export function EditTenantModal({ open, tenant, onClose, onSnackbar }: EditTenan
     } finally {
       setProvisioningOAuth(false);
     }
-  }, [tenant, displayName, googleOAuth.redirectUris, googleOAuth.gcpAccountEmail, provisionGoogleOAuth, handleOAuthChange, onSnackbar]);
+  }, [tenant, googleOAuth.redirectUris, googleOAuth.gcpAccountEmail, provisionGoogleOAuth, handleOAuthChange, onSnackbar]);
 
   // ── Provision: Neon Database ──────────────────────────────
   const handleProvisionDb = useCallback(async () => {
@@ -949,7 +953,7 @@ export function EditTenantModal({ open, tenant, onClose, onSnackbar }: EditTenan
         } else {
           setConnectionTestResult(`❌ Connection failed: ${testResult.error || 'Unknown error'}`);
         }
-      } catch (fetchErr: any) {
+      } catch {
         // Fallback: basic URL validation (also on timeout / network error)
         setConnectionTestResult(
           `✅ URL format valid: ${url.protocol}//${url.hostname}/${url.pathname.split('/').pop()}
@@ -1176,14 +1180,12 @@ export function EditTenantModal({ open, tenant, onClose, onSnackbar }: EditTenan
 
     // Fetch fresh tenant data to pick up any recent fixes
     let freshConfig: Record<string, unknown> = ((tenant.metadata as Record<string, unknown>)?.config ?? {}) as Record<string, unknown>;
-    let freshStatus = tenant.status;
     let freshVercelProjectId = tenant.vercelProjectId;
     try {
       const freshResult = await getTenant(slug).unwrap();
       if (freshResult.success && freshResult.data?.tenant) {
         const t = freshResult.data.tenant;
         freshConfig = ((t.metadata as Record<string, unknown>)?.config ?? {}) as Record<string, unknown>;
-        freshStatus = t.status;
         freshVercelProjectId = t.vercelProjectId;
       }
     } catch { /* use stale data */ }
@@ -1503,11 +1505,9 @@ export function EditTenantModal({ open, tenant, onClose, onSnackbar }: EditTenan
       addResult('Deployment Status', 'warn', 'API call failed');
     }
 
-    if (id === flightRunId || true) {
-      setFlightChecks(results);
-      setFlightRunning(false);
-    }
-  }, [tenant, flightRunId, getTenant, getDeployStatus, setActiveStep, testStripeWebhook, fetchMarketplaceStatus, onSnackbar]);
+    setFlightChecks(results);
+    setFlightRunning(false);
+  }, [tenant, flightRunId, getTenant, getDeployStatus, setActiveStep, testStripeWebhook, fetchMarketplaceStatus, onSnackbar, updateTenant]);
 
   // ── Export tenant config ────────────────────────────────
   const handleExport = useCallback(() => {
@@ -1629,37 +1629,6 @@ export function EditTenantModal({ open, tenant, onClose, onSnackbar }: EditTenan
     }
   }, [tenant, onSnackbar]);
 
-  // ── Deploy handler ────────────────────────────────────────
-  const handleDeploy = useCallback(async () => {
-    if (!tenant) return;
-    if (deployingSlug) return;
-
-    setDeployingSlug(tenant.slug);
-
-    try {
-      const payload = buildDeployPayload();
-      const deployResult = await deployTenant({ slug: tenant.slug, payload }).unwrap();
-      if (!deployResult.success) {
-        throw new Error(deployResult.error || 'Deploy API failed');
-      }
-
-      dispatch(setThemeColors({ primary: editPrimaryColor, secondary: editSecondaryColor }));
-      onSnackbar({
-        message: `🚀 ${tenant.displayName} deployment started — building in background. Status will update to live when ready.`,
-        severity: 'success',
-      });
-      // Close modal immediately — deployment continues in background
-      setDeployingSlug(null);
-      setActiveStep(0);
-      onClose();
-    } catch (err) {
-      const msg = getApiErrorMessage(err, 'Deploy failed');
-      onSnackbar({ message: `❌ Deploy failed: ${msg}`, severity: 'error' });
-    } finally {
-      setDeployingSlug(null);
-    }
-  }, [tenant, buildDeployPayload, editTemplate, editPrimaryColor, editSecondaryColor, deployTenant, dispatch, onSnackbar, onClose, deployingSlug]);
-
   // ── Deploy with Git handler ──────────────────────────────
   const handleDeployWithGit = useCallback(async () => {
     if (!tenant) return;
@@ -1707,7 +1676,7 @@ export function EditTenantModal({ open, tenant, onClose, onSnackbar }: EditTenan
       onSnackbar({ message: `❌ Git deploy failed: ${msg}`, severity: 'error' });
       setDeployingSlug(null);
     }
-  }, [tenant, buildDeployPayload, deployHookUrl, editTemplate, editPrimaryColor, editSecondaryColor, triggerDeployHook, deployTenant, dispatch, onSnackbar, onClose, deployingSlug, handleSave]);
+  }, [tenant, buildDeployPayload, deployHookUrl, editPrimaryColor, editSecondaryColor, triggerDeployHook, deployTenant, dispatch, onSnackbar, onClose, deployingSlug, handleSave]);
 
   // ── Close / Reset ─────────────────────────────────────────
   const handleClose = () => {
@@ -1727,7 +1696,6 @@ export function EditTenantModal({ open, tenant, onClose, onSnackbar }: EditTenan
   // ── Navigation ────────────────────────────────────────────
   const handleNext = () => setActiveStep((s) => Math.min(s + 1, EDIT_STEPS.length - 1));
   const handleBack = () => setActiveStep((s) => Math.max(s - 1, 0));
-  const isLastStep = activeStep === EDIT_STEPS.length - 1;
   const isSummaryStep = activeStep === EDIT_STEPS.length - 1;
 
   // ── Guard: no tenant ──────────────────────────────────────
@@ -3040,9 +3008,6 @@ export function EditTenantModal({ open, tenant, onClose, onSnackbar }: EditTenan
   const renderStepCustomDomain = () => {
     const isVercelDomain = customDomain.trim().endsWith('.vercel.app');
     const hasProjectInfo = projectInfo !== null;
-    const deployHint = !tenant?.vercelProjectId
-      ? 'No Vercel project deployed yet. Deploy the tenant first.'
-      : null;
 
     const fetchDomains = async () => {
       if (!tenant?.vercelProjectId) {
