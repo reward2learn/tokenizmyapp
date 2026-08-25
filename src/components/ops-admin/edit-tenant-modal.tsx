@@ -178,11 +178,13 @@ const EDIT_STEPS: Array<{ label: string; icon: React.ReactNode; key: string }> =
   { label: 'Preview', icon: <PaletteIcon fontSize="small" />, key: 'preview' },
   { label: 'Slug', icon: <EditIcon fontSize="small" />, key: 'slug' },
   { label: 'License', icon: <KeyIcon fontSize="small" />, key: 'license' },
+  // Database is 5th so Neon can be provisioned before steps that write into the tenant DB
+  // (AI providers, OAuth, roles, admin seed, flight check).
+  { label: 'Database', icon: <DnsIcon fontSize="small" />, key: 'database' },
   { label: 'Organization & Billing', icon: <CreditCardIcon fontSize="small" />, key: 'org' },
   { label: 'Features', icon: <AutoFixHighIcon fontSize="small" />, key: 'features' },
   { label: 'AI Providers', icon: <KeyIcon fontSize="small" />, key: 'openai' },
   { label: 'Google OAuth', icon: <VerifiedUserIcon fontSize="small" />, key: 'oauth' },
-  { label: 'Database', icon: <DnsIcon fontSize="small" />, key: 'database' },
   { label: 'Custom Env', icon: <CloudIcon fontSize="small" />, key: 'env' },
   { label: 'Deploy Hooks', icon: <RocketLaunchIcon fontSize="small" />, key: 'hooks' },
   { label: 'Functional Roles', icon: <PeopleIcon fontSize="small" />, key: 'roles' },
@@ -3787,23 +3789,24 @@ export function EditTenantModal({ open, tenant, onClose, onSnackbar }: EditTenan
   // ═══════════════════════════════════════════════════════════
 
   const stepContent = (index: number): React.ReactNode => {
-    switch (index) {
-      case 0: return renderStepTemplate();
-      case 1: return renderStepPreview();
-      case 2: return renderStepSlug();
-      case 3: return renderStepLicense();
-      case 4: return renderStepOrgBilling();
-      case 5: return renderStepFeatures();
-      case 6: return renderStepOpenAi();
-      case 7: return renderStepOAuth();
-      case 8: return renderStepDatabase();
-      case 9: return renderStepEnv();
-      case 10: return renderStepHooks();
-      case 11: return renderStepRoles();
-      case 12: return renderStepCustomDomain();
-      case 13: return renderStepAuth();
-      case 14: return renderStepFlightCheck();
-      case 15: return renderStepSummary();
+    // Dispatch by step key (not hard-coded index) so reordering EDIT_STEPS stays correct.
+    switch (EDIT_STEPS[index]?.key) {
+      case 'template': return renderStepTemplate();
+      case 'preview': return renderStepPreview();
+      case 'slug': return renderStepSlug();
+      case 'license': return renderStepLicense();
+      case 'database': return renderStepDatabase();
+      case 'org': return renderStepOrgBilling();
+      case 'features': return renderStepFeatures();
+      case 'openai': return renderStepOpenAi();
+      case 'oauth': return renderStepOAuth();
+      case 'env': return renderStepEnv();
+      case 'hooks': return renderStepHooks();
+      case 'roles': return renderStepRoles();
+      case 'domain': return renderStepCustomDomain();
+      case 'auth': return renderStepAuth();
+      case 'flightcheck': return renderStepFlightCheck();
+      case 'summary': return renderStepSummary();
       default: return null;
     }
   };

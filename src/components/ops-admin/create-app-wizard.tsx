@@ -1,11 +1,14 @@
 'use client';
 
 /**
- * CreateAppWizard — 15-step wizard for adding a NEW app to an existing suite
+ * CreateAppWizard — wizard for adding a NEW app to an existing suite
  * tenant, mirroring the EditTenantModal stepper (Template → Preview → Slug →
- * License → Features → OpenAI API-Keys → Google OAuth → Database → Custom Env
- * → Deploy Hooks → Functional Roles → Custom Domain → Admin & Auth → Flight
- * Check → Summary).
+ * License → Database → Features → OpenAI API-Keys → Google OAuth → Custom Env
+ * → Deploy Hooks → Stripe → Functional Roles → Custom Domain → Admin & Auth →
+ * Flight Check → Summary).
+ *
+ * Database is step 5 so the shared tenant DB is confirmed before steps that
+ * save into it (AI provider, OAuth, roles, admin seed).
  *
  * Everything is PREPOPULATED from the tenant's saved configuration
  * (tenants.metadata.config — the shared tenant-level defaults per
@@ -128,10 +131,11 @@ const CREATE_STEPS: Array<{ label: string; icon: React.ReactNode; key: string }>
   { label: 'Preview', icon: <PaletteIcon fontSize="small" />, key: 'preview' },
   { label: 'Slug', icon: <EditIcon fontSize="small" />, key: 'slug' },
   { label: 'License', icon: <KeyIcon fontSize="small" />, key: 'license' },
+  // Database is 5th — confirm shared tenant DB before AI/OAuth/auth writes.
+  { label: 'Database', icon: <DnsIcon fontSize="small" />, key: 'database' },
   { label: 'Features', icon: <AutoFixHighIcon fontSize="small" />, key: 'features' },
   { label: 'OpenAI API-Keys', icon: <KeyIcon fontSize="small" />, key: 'openai' },
   { label: 'Google OAuth', icon: <VerifiedUserIcon fontSize="small" />, key: 'oauth' },
-  { label: 'Database', icon: <DnsIcon fontSize="small" />, key: 'database' },
   { label: 'Custom Env', icon: <CloudIcon fontSize="small" />, key: 'env' },
   { label: 'Deploy Hooks', icon: <RocketLaunchIcon fontSize="small" />, key: 'hooks' },
   { label: 'Stripe (Vercel)', icon: <PaymentIcon fontSize="small" />, key: 'stripe' },
@@ -1345,7 +1349,7 @@ export function CreateAppWizard({ open, onClose, tenantSlug, sourceApp, onSnackb
     );
   };
 
-  // Step 7: Database — shared tenant DB via synthetic scope key
+  // Step 5: Database — shared tenant DB via synthetic scope key
   const renderStepDatabase = () => (
     <Stack spacing={3}>
       <Stack direction="row" spacing={1.5} sx={{ alignItems: 'center' }}>
@@ -1728,18 +1732,18 @@ export function CreateAppWizard({ open, onClose, tenantSlug, sourceApp, onSnackb
   );
 
   const stepContent = (index: number): React.ReactNode => {
-    switch (index) {
-      case 0: return renderStepTemplate();
-      case 1: return renderStepPreview();
-      case 2: return renderStepSlug();
-      case 3: return renderStepLicense();
-      case 4: return renderStepFeatures();
-      case 5: return renderStepOpenAi();
-      case 6: return renderStepOAuth();
-      case 7: return renderStepDatabase();
-      case 8: return renderStepEnv();
-      case 9: return renderStepHooks();
-      case 10: return (
+    switch (CREATE_STEPS[index]?.key) {
+      case 'template': return renderStepTemplate();
+      case 'preview': return renderStepPreview();
+      case 'slug': return renderStepSlug();
+      case 'license': return renderStepLicense();
+      case 'database': return renderStepDatabase();
+      case 'features': return renderStepFeatures();
+      case 'openai': return renderStepOpenAi();
+      case 'oauth': return renderStepOAuth();
+      case 'env': return renderStepEnv();
+      case 'hooks': return renderStepHooks();
+      case 'stripe': return (
         <StripeIntegrationStep
           value={stripeWizard}
           onChange={setStripeWizard}
@@ -1750,11 +1754,11 @@ export function CreateAppWizard({ open, onClose, tenantSlug, sourceApp, onSnackb
           )}
         />
       );
-      case 11: return renderStepRoles();
-      case 12: return renderStepDomain();
-      case 13: return renderStepAuth();
-      case 14: return renderStepFlightCheck();
-      case 15: return renderStepSummary();
+      case 'roles': return renderStepRoles();
+      case 'domain': return renderStepDomain();
+      case 'auth': return renderStepAuth();
+      case 'flightcheck': return renderStepFlightCheck();
+      case 'summary': return renderStepSummary();
       default: return null;
     }
   };

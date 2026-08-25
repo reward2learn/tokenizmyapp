@@ -133,4 +133,39 @@ describe('ChatCreditUsage', () => {
     renderUsage(state);
     expect(screen.getByLabelText('Chat credit usage')).toHaveTextContent('2 credits this chat');
   });
+
+  it('scopes the dialog to the chat container at full width', () => {
+    const state = chatStreamSlice.reducer(undefined, recordTurnUsage({
+      promptTokens: 1000,
+      completionTokens: 500,
+      credits: 2,
+      consumed: 2,
+      charged: true,
+      balance: 48,
+    }));
+    const chatRoot = document.createElement('div');
+    chatRoot.style.position = 'relative';
+    chatRoot.style.width = '640px';
+    chatRoot.style.height = '480px';
+    document.body.appendChild(chatRoot);
+
+    const store = configureStore({
+      reducer: { chatStream: chatStreamSlice.reducer },
+      preloadedState: { chatStream: state },
+    });
+    render(
+      <Provider store={store}>
+        <ChatCreditUsage containerEl={chatRoot} />
+      </Provider>,
+    );
+
+    fireEvent.click(screen.getByLabelText('Chat credit usage'));
+    const dialog = screen.getByRole('dialog');
+    expect(chatRoot.contains(dialog)).toBe(true);
+    // Paper must resolve against a full-size absolute container, not content width.
+    expect(dialog).toHaveStyle({ width: '100%', maxWidth: '100%' });
+
+    cleanup();
+    chatRoot.remove();
+  });
 });

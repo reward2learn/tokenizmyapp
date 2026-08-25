@@ -46,7 +46,7 @@ export interface ChatCreditUsageProps {
   containerEl?: HTMLElement | null;
   /**
    * Conversation message panel. Dialog paper height matches this element so
-   * the modal aligns with the transcript area.
+   * the modal aligns with the transcript area; width always spans the chat card.
    */
   messagesPanelEl?: HTMLElement | null;
 }
@@ -167,8 +167,14 @@ export function ChatCreditUsage({
           scopedToChat
             ? {
                 position: 'absolute',
+                // Absolute without inset/size shrink-wraps to the paper; then
+                // paper width:100% collapses to content width (see screenshot).
+                // Fill the chat card so fullWidth / width:100% resolve correctly.
                 '& .MuiDialog-container': {
                   position: 'absolute',
+                  inset: 0,
+                  width: '100%',
+                  height: '100%',
                   alignItems: 'center',
                   justifyContent: 'center',
                   p: 0,
@@ -182,18 +188,22 @@ export function ChatCreditUsage({
                 sx: {
                   position: 'absolute',
                   inset: 0,
+                  width: '100%',
+                  height: '100%',
                 },
               }
             : undefined,
           backdrop: scopedToChat
             ? {
-                sx: { position: 'absolute' },
+                sx: { position: 'absolute', inset: 0 },
               }
             : undefined,
           paper: {
             sx: {
+              // Span the chat card (portal container), not content intrinsic size.
               width: '100%',
               maxWidth: '100%',
+              boxSizing: 'border-box',
               m: 0,
               height: messagesPanelHeight != null ? `${messagesPanelHeight}px` : 'min(520px, 70%)',
               maxHeight: '100%',

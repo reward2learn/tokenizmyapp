@@ -151,10 +151,10 @@ const EDIT_STEPS: Array<{ label: string; icon: React.ReactNode; key: string }> =
   { label: 'Preview', icon: <PaletteIcon fontSize="small" />, key: 'preview' },
   { label: 'Slug', icon: <EditIcon fontSize="small" />, key: 'slug' },
   { label: 'License', icon: <KeyIcon fontSize="small" />, key: 'license' },
+  { label: 'Database', icon: <DnsIcon fontSize="small" />, key: 'database' },
   { label: 'Features', icon: <AutoFixHighIcon fontSize="small" />, key: 'features' },
   { label: 'OpenAI API-Keys', icon: <KeyIcon fontSize="small" />, key: 'openai' },
   { label: 'Google OAuth', icon: <VerifiedUserIcon fontSize="small" />, key: 'oauth' },
-  { label: 'Database', icon: <DnsIcon fontSize="small" />, key: 'database' },
   { label: 'Custom Env', icon: <CloudIcon fontSize="small" />, key: 'env' },
   { label: 'Deploy Hooks', icon: <RocketLaunchIcon fontSize="small" />, key: 'hooks' },
   { label: 'Functional Roles', icon: <PeopleIcon fontSize="small" />, key: 'roles' },
@@ -2857,22 +2857,22 @@ export function EditTenantModal({ open, tenant, onClose, onSnackbar }: EditTenan
   // ═══════════════════════════════════════════════════════════
 
   const stepContent = (index: number): React.ReactNode => {
-    switch (index) {
-      case 0: return renderStepTemplate();
-      case 1: return renderStepPreview();
-      case 2: return renderStepSlug();
-      case 3: return renderStepLicense();
-      case 4: return renderStepFeatures();
-      case 5: return renderStepOpenAi();
-      case 6: return renderStepOAuth();
-      case 7: return renderStepDatabase();
-      case 8: return renderStepEnv();
-      case 9: return renderStepHooks();
-      case 10: return renderStepRoles();
-      case 11: return renderStepCustomDomain();
-      case 12: return renderStepAuth();
-      case 13: return renderStepFlightCheck();
-      case 14: return renderStepSummary();
+    switch (EDIT_STEPS[index]?.key) {
+      case 'template': return renderStepTemplate();
+      case 'preview': return renderStepPreview();
+      case 'slug': return renderStepSlug();
+      case 'license': return renderStepLicense();
+      case 'database': return renderStepDatabase();
+      case 'features': return renderStepFeatures();
+      case 'openai': return renderStepOpenAi();
+      case 'oauth': return renderStepOAuth();
+      case 'env': return renderStepEnv();
+      case 'hooks': return renderStepHooks();
+      case 'roles': return renderStepRoles();
+      case 'domain': return renderStepCustomDomain();
+      case 'auth': return renderStepAuth();
+      case 'flightcheck': return renderStepFlightCheck();
+      case 'summary': return renderStepSummary();
       default: return null;
     }
   };
