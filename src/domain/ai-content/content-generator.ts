@@ -152,6 +152,7 @@ async function callAiProviderForDocument(
   tenantSlug: string,
   onProgress?: ProgressCallback,
   viewerEmail?: string | null,
+  viewerUserId?: string | null,
 ): Promise<{ text: string; usage: AiUsageSummary | null }> {
   const docLabel = documentType === 'businessReview' ? 'Business Review' : documentType === 'executiveSummary' ? 'Executive Summary' : 'Dashboard Data';
 
@@ -213,6 +214,8 @@ async function callAiProviderForDocument(
       refType: 'content_generation',
       refId: documentType,
       viewerEmail,
+      viewerUserId,
+      provider: ai.provider.id,
     });
     usage = toAiUsageSummary(meter, tokens, { model: ai.model });
   } catch (err) {
@@ -274,6 +277,7 @@ async function generateDashboardData(
   ai: ActiveAiConfig,
   tenantSlug: string,
   viewerEmail?: string | null,
+  viewerUserId?: string | null,
 ): Promise<{ data: DashboardData; usage: AiUsageSummary | null } | null> {
   const dashboardPrompt = buildDashboardPrompt(data, additionalContext);
 
@@ -327,6 +331,8 @@ async function generateDashboardData(
       refType: 'content_generation',
       refId: 'dashboardData',
       viewerEmail,
+      viewerUserId,
+      provider: ai.provider.id,
     });
     usage = toAiUsageSummary(meter, tokens, { model: ai.model });
   } catch (err) {
@@ -439,8 +445,9 @@ async function saveBusinessReviewParts(
  * @param tenantSlug Optional tenant slug for credit metering/gating. Defaults to
  *                   NEXT_PUBLIC_TENANT_SLUG (the root config app is itself a
  *                   tenant in the registry) or 'tokenizmyapp' when unset.
- * @param viewerEmail Optional signed-in email for operator exemption + metering
+ * @param viewerEmail Optional signed-in email for ledger attribution + metering
  *                    identity. Must match the pre-flight gate and ledger write.
+ * @param viewerUserId Optional `user_accounts.id` for per-user spend reports.
  */
 export async function generateAndSave(
   db: DbClient,
@@ -451,6 +458,7 @@ export async function generateAndSave(
   overridePrompt?: string,
   tenantSlug?: string,
   viewerEmail?: string | null,
+  viewerUserId?: string | null,
 ): Promise<GenerationResult & { saved?: SavedResult; prompt?: string }> {
   const tenant = tenantSlug ?? process.env.NEXT_PUBLIC_TENANT_SLUG ?? 'tokenizmyapp';
   try {
@@ -547,6 +555,7 @@ export async function generateAndSave(
         undefined,
         viewerEmail,
         CREDIT_FLOORS.contentGeneration,
+        viewerUserId,
       );
       if (!gate.ok) {
         throw new Error(
@@ -568,7 +577,7 @@ export async function generateAndSave(
       pct: 40,
     });
 
-    const dashboardPromise = generateDashboardData(data, additionalContext, ai, tenant, viewerEmail)
+    const dashboardPromise = generateDashboardData(data, additionalContext, ai, tenant, viewerEmail, viewerUserId)
       .catch((err) => {
         // Non-critical — dashboard just shows hardcoded fallbacks if this fails.
         console.error('[content-generator] Dashboard data generation failed:', err);
@@ -576,8 +585,8 @@ export async function generateAndSave(
       });
 
     const [businessReviewResult, executiveSummaryResult] = await Promise.all([
-      callAiProviderForDocument(prompt, ai, 'businessReview', tenant, onProgress, viewerEmail),
-      callAiProviderForDocument(prompt, ai, 'executiveSummary', tenant, onProgress, viewerEmail),
+      callAiProviderForDocument(prompt, ai, 'businessReview', tenant, onProgress, viewerEmail, viewerUserId),
+      callAiProviderForDocument(prompt, ai, 'executiveSummary', tenant, onProgress, viewerEmail, viewerUserId),
     ]);
 
     const businessReview = businessReviewResult.text;

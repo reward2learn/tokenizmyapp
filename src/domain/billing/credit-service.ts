@@ -18,66 +18,70 @@
  * Every app-user assistant call is metered against the org balance. The
  * platform supplies API keys and pays providers; tenants top up credits.
  * `keySource` is diagnostic only — tenant-stored keys are not an exemption.
- * Identity exemption (`isCreditExemptEmail`) is opt-in via
- * `CREDIT_EXEMPT_ENABLED=true` and only on tenant apps; default is charge everyone.
+ * Every signed-in user is charged and attributed (user id, provider, model,
+ * tokens, timestamp on the ledger row) — there is no operator free path.
  */
 import type { createRawClient } from '@/lib/db';
 import { getPlan, CREDIT_PACKS, type CreditPack } from '@/lib/billing/plans';
 import { creditsForUsage } from '@/lib/billing/credit-rates';
 import { jsonErrorLite } from '@/lib/api/response-lite';
-import { isPlatformApp } from '@/lib/tenant-config';
-import { DEFAULT_PLATFORM_ADMIN_EMAIL } from '@/domain/security/persons';
 
 /** Grants expire 30 days after issue (roadmap §3.2 — documented decision). */
 export const CREDIT_EXPIRY_DAYS = 30;
 
-/** Ledger reason for usage by an exempt operator — recorded, never charged. */
-const EXEMPT_USAGE_REASON = 'ai_generation_exempt';
-
 /**
- * Operators who may skip gating/charging when exemption is explicitly enabled.
- *
- * Exemption is **opt-in** via `CREDIT_EXEMPT_ENABLED=true` (default off) so
- * Stripe / credit-balance testing works for platform admins on every deployment
- * — factory and tenant apps alike.
- *
- * When enabled, it still only applies on **tenant** apps (`!isPlatformApp()`):
- * the listed emails skip gating/charging so an operator debugging inside a
- * customer's app does not spend that customer's credits.
- * `CREDIT_EXEMPT_EMAILS` (comma-separated) adds to the default.
- *
- * This is an *identity* exemption — it follows the signed-in person, not the org.
+ * @deprecated Always empty — identity exemption was removed; all users are charged.
+ * Kept so older call sites / env docs that read the list do not break.
  */
 export function creditExemptEmails(): string[] {
-  const extra = (process.env.CREDIT_EXEMPT_EMAILS ?? '')
-    .split(',')
-    .map((entry) => entry.trim().toLowerCase())
-    .filter(Boolean);
-  return [DEFAULT_PLATFORM_ADMIN_EMAIL.toLowerCase(), ...extra];
+  return [];
 }
 
-/** Opt-in switch — unset / anything other than `"true"` means nobody is exempt. */
+/** @deprecated Always false — identity exemption was removed. */
 export function isCreditExemptionEnabled(): boolean {
-  return process.env.CREDIT_EXEMPT_ENABLED === 'true';
+  return false;
 }
 
 /**
- * Is this viewer exempt from credit gating and charging?
- *
- * Default: never. Set `CREDIT_EXEMPT_ENABLED=true` to allow the operator email
- * list on tenant apps only. Always `false` on the factory
- * (`NEXT_PUBLIC_TENANT_SLUG=tokenizmyapp`) and when the flag is off.
- *
- * Keyed on email rather than the platform-admin *role*: every tenant seeds its
- * own admin accounts, so exempting the role would hand a free unmetered AI
- * budget to every customer's administrator.
+ * @deprecated Always false — every viewer is gated and charged.
+ * Prefer deleting call sites that still branch on exemption.
  */
-export function isCreditExemptEmail(email?: string | null): boolean {
-  if (!email) return false;
-  if (!isCreditExemptionEnabled()) return false;
-  // Factory must charge platform admins so Stripe test billing can be verified.
-  if (isPlatformApp()) return false;
-  return creditExemptEmails().includes(email.trim().toLowerCase());
+export function isCreditExemptEmail(_email?: string | null): boolean {
+  return false;
+}
+
+/**
+ * Ledger metadata written on every AI consumption row so usage reports can
+ * group by user, provider, and model without joining other tables.
+ *
+ * `created_at` on the ledger row is the timestamp; token fields are duplicated
+ * under both naming conventions for analytics queries that check either key.
+ */
+export function buildAiUsageLedgerMetadata(input: {
+  model: string | null;
+  promptTokens: number;
+  completionTokens: number;
+  keySource: 'db' | 'env';
+  viewerEmail?: string | null;
+  viewerUserId?: string | null;
+  provider?: string | null;
+}): Record<string, unknown> {
+  const promptTokens = Math.max(0, Math.floor(input.promptTokens));
+  const completionTokens = Math.max(0, Math.floor(input.completionTokens));
+  const totalTokens = promptTokens + completionTokens;
+  return {
+    model: input.model,
+    provider: input.provider ?? null,
+    viewerUserId: input.viewerUserId ?? null,
+    viewerEmail: input.viewerEmail ?? null,
+    promptTokens,
+    completionTokens,
+    totalTokens,
+    // Aliases — credit-analytics and older rows may use either naming.
+    inputTokens: promptTokens,
+    outputTokens: completionTokens,
+    keySource: input.keySource,
+  };
 }
 
 /**
@@ -160,8 +164,8 @@ export interface CreditLedgerEntry {
   orgId: string;
   grantId: string | null;
   /**
-   * Positive for grants, negative for consumption. Zero only for exempt usage
-   * (`ai_generation_exempt`), which is recorded for visibility but not charged.
+   * Positive for grants, negative for consumption. Zero only for write-offs
+   * (never collected) — every successful AI turn debits the balance.
    */
   delta: number;
   reason: string;
@@ -1147,7 +1151,7 @@ export async function resolvePlatformOrgId(db?: RawDb): Promise<string> {
 
 /** What metering actually did — `consumed` is authoritative, `credits` is the price. */
 export interface MeterResult {
-  /** False only for operator exemption — tenant keys are still charged. */
+  /** Always true after a successful meter write — every user is billed. */
   charged: boolean;
   /** What the usage cost at the rate card. */
   credits: number;
@@ -1181,79 +1185,29 @@ export interface MeterAiUsageForOrgInput {
   keySource: 'db' | 'env';
   refType?: string | null;
   refId?: string | null;
-  /**
-   * Email of the person the work is running for. When it matches
-   * `isCreditExemptEmail()` the usage is recorded but not charged.
-   */
+  /** Signed-in email — stored on the ledger for attribution / support. */
   viewerEmail?: string | null;
-  /** Limits spend to org-shared + this user's personal grants. */
+  /**
+   * `user_accounts.id` of the person who ran the turn. Attribution + spend
+   * order (personal grants first, then org-shared).
+   */
   viewerUserId?: string | null;
   /** AI provider id (openai, vercel-ai-gateway, …) when known. */
   provider?: string | null;
 }
 
 /**
- * Record usage that is exempt from charging.
- *
- * Writes one ledger entry with `delta = 0` rather than writing nothing. The
- * cost is real even when nobody is billed for it, and a silent path is exactly
- * the unmetered spend this phase exists to make visible — the waived amount is
- * in the metadata, so exempt usage can be reported on without ever touching a
- * grant or the balance.
- *
- * `delta = 0` keeps every invariant intact: the balance sum is unchanged, and
- * `getOutstandingDebt()` counts only the two debt reasons, so this can never
- * create arrears.
- */
-async function recordExemptUsage(
-  input: MeterAiUsageForOrgInput,
-  db: RawDb,
-): Promise<MeterResult> {
-  const credits = creditsForUsage(input.model, input.promptTokens, input.completionTokens);
-  await ensureCreditTables(db);
-
-  await db.$executeRawUnsafe(
-    `INSERT INTO credit_ledger (id, org_id, grant_id, delta, reason, ref_type, ref_id, metadata)
-     VALUES (gen_random_uuid()::TEXT, $1, NULL, 0, $2, $3, $4, $5::jsonb);`,
-    input.orgId,
-    EXEMPT_USAGE_REASON,
-    input.refType ?? null,
-    input.refId ?? null,
-    JSON.stringify({
-      waivedCredits: credits,
-      model: input.model,
-      promptTokens: input.promptTokens,
-      completionTokens: input.completionTokens,
-      viewerEmail: input.viewerEmail ?? null,
-      viewerUserId: input.viewerUserId ?? null,
-      provider: input.provider ?? null,
-      keySource: input.keySource,
-    }),
-  );
-
-  const { available } = await getCreditBalance(
-    input.orgId,
-    db,
-    input.viewerUserId !== undefined ? { forViewerUserId: input.viewerUserId } : {},
-  );
-  return { charged: false, credits, consumed: 0, shortfall: 0, debt: 0, writtenOff: 0, balance: available };
-}
-
-/**
  * Meter usage against a known org.
  *
  * The org-level primitive; `meterAiUsage()` is the tenant-scoped wrapper. Use
- * this directly for platform-level generation that has no tenant.
+ * this directly for platform-level generation that has no tenant. Every caller
+ * is charged — there is no identity exemption.
  */
 export async function meterAiUsageForOrg(
   input: MeterAiUsageForOrgInput,
   db?: RawDb,
 ): Promise<MeterResult> {
   db ??= await getDb();
-
-  if (isCreditExemptEmail(input.viewerEmail)) {
-    return recordExemptUsage(input, db);
-  }
 
   await grantMonthlyAllowanceIfDue(input.orgId, db);
 
@@ -1265,14 +1219,7 @@ export async function meterAiUsageForOrg(
       reason: 'ai_generation',
       refType: input.refType,
       refId: input.refId,
-      metadata: {
-        model: input.model,
-        promptTokens: input.promptTokens,
-        completionTokens: input.completionTokens,
-        viewerUserId: input.viewerUserId ?? null,
-        provider: input.provider ?? null,
-        keySource: input.keySource,
-      },
+      metadata: buildAiUsageLedgerMetadata(input),
       viewerUserId: input.viewerUserId,
       // The tokens are already spent by the time metering runs. Recording only
       // what the balance could cover would hand the rest of the work over for
@@ -1336,10 +1283,9 @@ export interface MeterAiUsageInput {
  * The single metering integration point for AI generation.
  *
  * Call this after every AI assistant call with the usage record from the
- * provider response. Debits the org credit balance regardless of whether the
- * key came from env or a tenant-stored secret. When
- * `CREDIT_EXEMPT_ENABLED=true` on a tenant app, operator emails matching
- * `isCreditExemptEmail` are recorded but not charged; otherwise everyone is charged.
+ * provider response. Debits the org credit balance for every viewer —
+ * platform admins, tenant admins, and end users alike. Pass `viewerUserId`
+ * and `provider` whenever known so the ledger can power per-user reports.
  */
 export async function meterAiUsage(
   input: MeterAiUsageInput,
@@ -1351,11 +1297,6 @@ export async function meterAiUsage(
 }
 
 export type CreditGateResult =
-  /**
-   * `exempt` viewers pass without any balance being read, so `balance` is
-   * `Infinity` — "no limit applies", not a real figure. Do not serialize it
-   * without checking `exempt` first; JSON.stringify turns Infinity into null.
-   */
   | { ok: true; balance: number; exempt?: boolean }
   | { ok: false; balance: number; response: Response };
 
@@ -1375,7 +1316,6 @@ export async function requireCreditsForTenant(
   minimum: number = MIN_CREDITS_TO_START,
   viewerUserId?: string | null,
 ): Promise<CreditGateResult> {
-  if (isCreditExemptEmail(viewerEmail)) return { ok: true, balance: Infinity, exempt: true };
   db ??= await getDb();
   const orgId = await resolvePayingOrgId(tenantSlug, db);
   return requireCreditsForOrg(orgId, db, minimum, viewerEmail, viewerUserId);
@@ -1389,13 +1329,9 @@ export async function requireCreditsForOrg(
   orgId: string,
   db?: RawDb,
   minimum: number = MIN_CREDITS_TO_START,
-  viewerEmail?: string | null,
+  _viewerEmail?: string | null,
   viewerUserId?: string | null,
 ): Promise<CreditGateResult> {
-  // Checked before any org resolution or balance read: the exemption follows
-  // the person, not the org, so there is nothing here worth looking up.
-  if (isCreditExemptEmail(viewerEmail)) return { ok: true, balance: Infinity, exempt: true };
-
   db ??= await getDb();
   await grantMonthlyAllowanceIfDue(orgId, db);
 

@@ -300,9 +300,6 @@ async function meterChatUsage(
       keySource: options.keySource,
       refType: options.refType ?? 'chat',
       refId: options.conversationId ?? null,
-      // Must match the identity the pre-flight gate used. An exempt viewer who
-      // passed the gate but got charged here would accrue debt that then blocks
-      // everyone else on the same org.
       viewerEmail: options.viewerEmail,
       viewerUserId: options.viewerUserId,
       provider: options.provider,

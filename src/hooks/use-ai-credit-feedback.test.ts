@@ -51,7 +51,7 @@ describe('formatUsageMessage', () => {
     ).toBe('Used 1 credit · 99 remaining');
   });
 
-  it('says Not billed only when charged is false (operator exemption)', () => {
+  it('says Not billed when charged is false (metering skipped / incomplete)', () => {
     expect(
       formatUsageMessage({
         promptTokens: 10,

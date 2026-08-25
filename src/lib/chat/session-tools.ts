@@ -518,14 +518,6 @@ export async function executeSessionTool(
         };
       }
 
-      const credits = await import('@/domain/billing/credit-service');
-      if (credits.isCreditExemptEmail(ctx.viewerEmail)) {
-        return {
-          toolMessage:
-            'This account is exempt from credit billing — no top-up is needed. Tell the user they can keep chatting.',
-        };
-      }
-
       if (!billing.canPurchaseCredits || !canPurchaseCreditPacks(billing.planId)) {
         return {
           toolMessage:

@@ -18,6 +18,7 @@ import {
 import { getCurrentAppId, getTenantConfig } from '@shared/lib/config/tenant';
 import { normalizeCmsScope } from '@shared/lib/cms-scope';
 import { CREDIT_FLOORS, requireCreditsForTenant } from '@/domain/billing/credit-service';
+import { resolveViewerUserId } from '@/lib/auth/resolve-viewer-user';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 120;
@@ -63,11 +64,13 @@ export async function POST(request: Request) {
     appId: body.appId ?? (getCurrentAppId() || undefined),
   });
 
+  const viewerUserId = await resolveViewerUserId(auth.session.sub);
   const gate = await requireCreditsForTenant(
     cmsScope.deploymentSlug,
     undefined,
     auth.session.email,
     CREDIT_FLOORS.contentGeneration,
+    viewerUserId,
   );
   if (!gate.ok) {
     return gate.response;
@@ -84,6 +87,8 @@ export async function POST(request: Request) {
       ai,
       tenantSlug: cmsScope.deploymentSlug,
       db,
+      viewerEmail: auth.session.email,
+      viewerUserId,
     });
     return jsonOk({
       slice: result.slice,

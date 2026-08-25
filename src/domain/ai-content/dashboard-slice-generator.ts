@@ -134,6 +134,8 @@ export interface GenerateDashboardSliceInput {
   ai: ActiveAiConfig;
   tenantSlug: string;
   db: DbClient;
+  viewerEmail?: string | null;
+  viewerUserId?: string | null;
 }
 
 export interface GenerateDashboardSliceResult {
@@ -214,6 +216,9 @@ export async function generateAndSaveDashboardSlice(
       keySource: input.ai.keySource,
       refType: 'content_generation',
       refId: `dashboard_slice:${input.slice}:${input.pageSlug}`,
+      viewerEmail: input.viewerEmail,
+      viewerUserId: input.viewerUserId,
+      provider: input.ai.provider.id,
     });
     usage = toAiUsageSummary(meter, tokens, { model: input.ai.model });
   } catch {

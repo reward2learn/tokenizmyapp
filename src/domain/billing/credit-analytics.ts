@@ -30,6 +30,7 @@ export interface CreditUsageByModel {
   credits: number;
   promptTokens: number;
   completionTokens: number;
+  totalTokens: number;
   runs: number;
 }
 
@@ -38,6 +39,7 @@ export interface CreditUsageByProvider {
   credits: number;
   promptTokens: number;
   completionTokens: number;
+  totalTokens: number;
   runs: number;
 }
 
@@ -198,6 +200,7 @@ export async function getCreditUsageByModel(
        COALESCE(SUM(CASE WHEN delta < 0 THEN -delta ELSE 0 END), 0)::int AS credits,
        COALESCE(SUM(COALESCE((metadata->>'promptTokens')::int, (metadata->>'inputTokens')::int, 0)), 0)::int AS prompt_tokens,
        COALESCE(SUM(COALESCE((metadata->>'completionTokens')::int, (metadata->>'outputTokens')::int, 0)), 0)::int AS completion_tokens,
+       COALESCE(SUM(COALESCE((metadata->>'totalTokens')::int, 0)), 0)::int AS total_tokens,
        COUNT(*)::int AS runs
      FROM credit_ledger
      WHERE org_id = $1
@@ -209,12 +212,16 @@ export async function getCreditUsageByModel(
 
   return rows.map((row) => {
     const model = String(row.model ?? 'unknown');
+    const promptTokens = Number(row.prompt_tokens ?? 0);
+    const completionTokens = Number(row.completion_tokens ?? 0);
+    const totalFromMeta = Number(row.total_tokens ?? 0);
     return {
       model,
       provider: inferProvider(model, String(row.provider ?? '') || null),
       credits: Number(row.credits ?? 0),
-      promptTokens: Number(row.prompt_tokens ?? 0),
-      completionTokens: Number(row.completion_tokens ?? 0),
+      promptTokens,
+      completionTokens,
+      totalTokens: totalFromMeta > 0 ? totalFromMeta : promptTokens + completionTokens,
       runs: Number(row.runs ?? 0),
     };
   });
@@ -232,11 +239,13 @@ export async function getCreditUsageByProvider(
       credits: 0,
       promptTokens: 0,
       completionTokens: 0,
+      totalTokens: 0,
       runs: 0,
     };
     existing.credits += row.credits;
     existing.promptTokens += row.promptTokens;
     existing.completionTokens += row.completionTokens;
+    existing.totalTokens += row.totalTokens;
     existing.runs += row.runs;
     map.set(row.provider, existing);
   }
@@ -259,11 +268,13 @@ export async function getCreditAdminAnalytics(
       credits: 0,
       promptTokens: 0,
       completionTokens: 0,
+      totalTokens: 0,
       runs: 0,
     };
     existing.credits += row.credits;
     existing.promptTokens += row.promptTokens;
     existing.completionTokens += row.completionTokens;
+    existing.totalTokens += row.totalTokens;
     existing.runs += row.runs;
     providerMap.set(row.provider, existing);
   }

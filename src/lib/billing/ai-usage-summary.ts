@@ -12,7 +12,10 @@ export interface AiUsageSummary {
   credits: number;
   /** Actually deducted from the balance (may be less than `credits` under debt). */
   consumed: number;
-  /** False only for operator exemption — nothing was taken from platform credits. */
+  /**
+   * True when credits were taken from the org balance. False only when metering
+   * failed or never ran (incomplete) — every successful turn is charged.
+   */
   charged: boolean;
   /**
    * Remaining spendable balance after this call, when known.

@@ -43,12 +43,8 @@ function makeDb() {
     ledger,
     $executeRawUnsafe: vi.fn(async (sql: string, ...args: unknown[]) => {
       if (sql.includes('INSERT INTO credit_ledger')) {
-        // Five INSERT shapes reach here and their placeholders do NOT line up:
-        // grant_id is either a bound parameter or the literal NULL (debt and
-        // exempt markers), delta is literal 0 on the exempt shape, and
-        // ref_type/ref_id are present only on consumption. Read the shape off
-        // the SQL rather than assuming fixed positions — that assumption is
-        // what made this double silently record NaN deltas.
+        // INSERT shapes: grant_id may be bound or literal NULL (debt / write-off);
+        // delta may be literal 0 on write-offs. Read the shape off the SQL.
         const grantIsNull = sql.includes(', NULL,');
         const deltaIsLiteralZero = sql.includes(', NULL, 0,');
         const hasRefColumns = sql.includes('ref_type');
@@ -600,12 +596,12 @@ describe('debt ceiling', () => {
   });
 });
 
-describe('credit exemption', () => {
-  const EXEMPT = 'reward2learn@gmail.com';
+describe('credit charging (no identity exemption)', () => {
+  const PLATFORM_ADMIN = 'reward2learn@gmail.com';
 
   beforeEach(() => {
-    // Exemption is opt-in and only applies on tenant deployments.
     vi.stubEnv('NEXT_PUBLIC_TENANT_SLUG', 'redrubybali');
+    // Legacy env flags must have no effect — exemption was removed.
     vi.stubEnv('CREDIT_EXEMPT_ENABLED', 'true');
   });
 
@@ -613,28 +609,17 @@ describe('credit exemption', () => {
     vi.unstubAllEnvs();
   });
 
-  it('does not exempt anyone when CREDIT_EXEMPT_ENABLED is unset', () => {
-    vi.stubEnv('CREDIT_EXEMPT_ENABLED', '');
-    expect(service.isCreditExemptEmail(EXEMPT)).toBe(false);
+  it('never exempts anyone, regardless of CREDIT_EXEMPT_ENABLED or email', () => {
     expect(service.isCreditExemptionEnabled()).toBe(false);
-  });
-
-  it('recognises the platform owner on tenant apps regardless of case or padding', () => {
-    expect(service.isCreditExemptEmail(EXEMPT)).toBe(true);
-    expect(service.isCreditExemptEmail('  Reward2Learn@Gmail.com  ')).toBe(true);
+    expect(service.creditExemptEmails()).toEqual([]);
+    expect(service.isCreditExemptEmail(PLATFORM_ADMIN)).toBe(false);
+    expect(service.isCreditExemptEmail('  Reward2Learn@Gmail.com  ')).toBe(false);
     expect(service.isCreditExemptEmail('someone@else.com')).toBe(false);
     expect(service.isCreditExemptEmail(undefined)).toBe(false);
     expect(service.isCreditExemptEmail('')).toBe(false);
   });
 
-  it('does not exempt anyone on the factory (tokenizmyapp) even when exemption is enabled', () => {
-    vi.stubEnv('NEXT_PUBLIC_TENANT_SLUG', 'tokenizmyapp');
-    expect(service.isCreditExemptEmail(EXEMPT)).toBe(false);
-    expect(service.isCreditExemptEmail('  Reward2Learn@Gmail.com  ')).toBe(false);
-  });
-
-  it('charges the platform owner on a tenant app when exemption is disabled', async () => {
-    vi.stubEnv('CREDIT_EXEMPT_ENABLED', 'false');
+  it('charges the platform owner on a tenant app', async () => {
     const db = makeDb();
     await service.grantCredits(ORG, { source: 'addon', amount: 100 }, db);
 
@@ -645,7 +630,9 @@ describe('credit exemption', () => {
         promptTokens: 200_000,
         completionTokens: 200_000,
         keySource: 'env',
-        viewerEmail: EXEMPT,
+        viewerEmail: PLATFORM_ADMIN,
+        viewerUserId: 'user_admin',
+        provider: 'openai',
       },
       db,
     );
@@ -653,63 +640,43 @@ describe('credit exemption', () => {
     expect(result.charged).toBe(true);
     expect(result.consumed).toBe(100);
     expect(db.ledger.find((l) => l.reason === 'ai_generation_exempt')).toBeUndefined();
+    expect(db.ledger.some((l) => l.reason === 'ai_generation' && l.delta < 0)).toBe(true);
+
+    const entry = db.ledger.find((l) => l.reason === 'ai_generation' && l.delta < 0);
+    const metadata =
+      typeof entry?.metadata === 'string'
+        ? (JSON.parse(entry.metadata) as Record<string, unknown>)
+        : (entry?.metadata as Record<string, unknown> | null);
+    expect(metadata).toMatchObject({
+      viewerUserId: 'user_admin',
+      viewerEmail: PLATFORM_ADMIN,
+      provider: 'openai',
+      model: 'gpt-4o',
+      promptTokens: 200_000,
+      completionTokens: 200_000,
+      totalTokens: 400_000,
+      inputTokens: 200_000,
+      outputTokens: 200_000,
+    });
   });
 
-  it('lets an exempt viewer through a gate with a zero balance', async () => {
+  it('gates the platform owner with a zero balance (no free pass)', async () => {
     const db = makeDb();
     const blocked = await service.requireCreditsForOrg(ORG, db);
     expect(blocked.ok).toBe(false);
 
-    const allowed = await service.requireCreditsForOrg(ORG, db, 1, EXEMPT);
-    expect(allowed.ok).toBe(true);
+    const stillBlocked = await service.requireCreditsForOrg(ORG, db, 1, PLATFORM_ADMIN);
+    expect(stillBlocked.ok).toBe(false);
   });
 
-  it('gates the platform owner on the factory even with a zero balance', async () => {
+  it('gates the platform owner on the factory with a zero balance', async () => {
     vi.stubEnv('NEXT_PUBLIC_TENANT_SLUG', 'tokenizmyapp');
     const db = makeDb();
-    const blocked = await service.requireCreditsForOrg(ORG, db, 1, EXEMPT);
+    const blocked = await service.requireCreditsForOrg(ORG, db, 1, PLATFORM_ADMIN);
     expect(blocked.ok).toBe(false);
   });
 
-  it('lets an exempt viewer through even while the org is in arrears', async () => {
-    const db = makeDb();
-    await service.grantCredits(ORG, { source: 'addon', amount: 1 }, db);
-    await meterExpensiveRun(db);
-    expect(await service.getOutstandingDebt(ORG, db)).toBeGreaterThan(0);
-
-    // Debt blocks before the balance check does, so this is the branch that
-    // would strand the owner if the exemption were checked any later.
-    expect((await service.requireCreditsForOrg(ORG, db, 1, EXEMPT)).ok).toBe(true);
-  });
-
-  it('records exempt usage at zero cost without touching the balance', async () => {
-    const db = makeDb();
-    await service.grantCredits(ORG, { source: 'addon', amount: 100 }, db);
-
-    const result = await service.meterAiUsageForOrg(
-      {
-        orgId: ORG,
-        model: 'gpt-4o',
-        promptTokens: 200_000,
-        completionTokens: 200_000,
-        keySource: 'env',
-        viewerEmail: EXEMPT,
-      },
-      db,
-    );
-
-    // The price is still reported — exempt means unbilled, not unmeasured.
-    expect(result.credits).toBeGreaterThan(0);
-    expect(result).toMatchObject({ charged: false, consumed: 0, shortfall: 0, balance: 100 });
-
-    const entry = db.ledger.find((l) => l.reason === 'ai_generation_exempt');
-    expect(entry).toBeDefined();
-    expect(entry?.delta).toBe(0);
-    expect(entry?.grant_id).toBeNull();
-    expect(db.grants[0].remaining).toBe(100);
-  });
-
-  it('charges the platform owner on the factory (no exempt ledger path)', async () => {
+  it('charges the platform owner on the factory', async () => {
     vi.stubEnv('NEXT_PUBLIC_TENANT_SLUG', 'tokenizmyapp');
     const db = makeDb();
     await service.grantCredits(ORG, { source: 'addon', amount: 100 }, db);
@@ -721,7 +688,7 @@ describe('credit exemption', () => {
         promptTokens: 200_000,
         completionTokens: 200_000,
         keySource: 'env',
-        viewerEmail: EXEMPT,
+        viewerEmail: PLATFORM_ADMIN,
       },
       db,
     );
@@ -734,27 +701,29 @@ describe('credit exemption', () => {
     expect(db.grants[0].remaining).toBe(0);
   });
 
-  it('never puts an exempt viewer into debt', async () => {
+  it('charges even when keySource is db (tenant-stored key)', async () => {
     const db = makeDb();
-    await service.meterAiUsageForOrg(
+    await service.grantCredits(ORG, { source: 'addon', amount: 100 }, db);
+
+    const result = await service.meterAiUsageForOrg(
       {
         orgId: ORG,
         model: 'gpt-4o',
-        promptTokens: 200_000,
-        completionTokens: 200_000,
-        keySource: 'env',
-        viewerEmail: EXEMPT,
+        promptTokens: 50_000,
+        completionTokens: 50_000,
+        keySource: 'db',
+        viewerEmail: PLATFORM_ADMIN,
       },
       db,
     );
 
-    // A zero-delta row must not read as arrears, or the owner's own usage would
-    // block every other generation on the platform org.
-    expect(await service.getOutstandingDebt(ORG, db)).toBe(0);
-    expect((await service.reconcileCredits(ORG, db)).balanced).toBe(true);
+    expect(result).toMatchObject({ charged: true });
+    expect(result.consumed).toBeGreaterThan(0);
+    expect(result.credits).toBeGreaterThan(0);
+    expect(db.ledger.filter((l) => l.delta < 0).length).toBeGreaterThan(0);
   });
 
-  it('charges a non-exempt viewer normally', async () => {
+  it('charges a regular tenant user normally', async () => {
     const db = makeDb();
     await service.grantCredits(ORG, { source: 'addon', amount: 100 }, db);
 
@@ -772,27 +741,6 @@ describe('credit exemption', () => {
 
     expect(result.charged).toBe(true);
     expect(result.consumed).toBe(100);
-  });
-
-  it('still exempts operator email even when keySource is db', async () => {
-    const db = makeDb();
-    await service.grantCredits(ORG, { source: 'addon', amount: 100 }, db);
-
-    const result = await service.meterAiUsageForOrg(
-      {
-        orgId: ORG,
-        model: 'gpt-4o',
-        promptTokens: 50_000,
-        completionTokens: 50_000,
-        keySource: 'db',
-        viewerEmail: EXEMPT,
-      },
-      db,
-    );
-
-    expect(result).toMatchObject({ charged: false, consumed: 0 });
-    expect(result.credits).toBeGreaterThan(0);
-    expect(db.ledger.filter((l) => l.delta < 0)).toHaveLength(0);
   });
 });
 

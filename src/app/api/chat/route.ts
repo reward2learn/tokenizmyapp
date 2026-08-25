@@ -488,8 +488,8 @@ async function handleChatPost(request: Request): Promise<Response> {
     // ── Pre-flight credit gate ──
     // Every assistant call draws from the org balance (platform pays providers;
     // tenants top up). Empty balance degrades to a friendly reply instead of a
-    // hard error — chat must keep working. Operator exemption is opt-in
-    // (`CREDIT_EXEMPT_ENABLED=true` on tenant apps only); default is charge all.
+    // hard error — chat must keep working. Every signed-in user is charged and
+    // attributed on the ledger (viewerUserId + provider + model + tokens).
     let creditBalance: number | null = null;
     let billingOrgId: string | null = null;
     let planId: import('@/lib/billing/plans').PlanId = 'free';
@@ -498,8 +498,8 @@ async function handleChatPost(request: Request): Promise<Response> {
 
     {
       const tenantSlug = process.env.NEXT_PUBLIC_TENANT_SLUG ?? 'tokenizmyapp';
-      const viewerUserId =
-        !isPlatformApp() && session?.sub ? await resolveViewerUserId(session.sub) : undefined;
+      // Always resolve — factory admins and tenant users alike must be attributed.
+      const viewerUserId = session?.sub ? await resolveViewerUserId(session.sub) : undefined;
       const gate = await requireCreditsForTenant(
         tenantSlug,
         undefined,
@@ -513,7 +513,7 @@ async function handleChatPost(request: Request): Promise<Response> {
           stream === true,
         );
       }
-      creditBalance = gate.balance === Infinity ? null : gate.balance;
+      creditBalance = gate.balance;
       // Credits / orgs live on the platform control-plane DB (PLATFORM_POSTGRES_URL
       // on tenant deploys). Never use the tenant data-plane client here — that
       // resolves the wrong org or creates orphan credit tables on the tenant DB.
@@ -565,8 +565,7 @@ async function handleChatPost(request: Request): Promise<Response> {
       content: systemSections.join('\n\n'),
     }];
 
-    const viewerUserId =
-      !isPlatformApp() && session?.sub ? await resolveViewerUserId(session.sub) : undefined;
+    const viewerUserId = session?.sub ? await resolveViewerUserId(session.sub) : undefined;
 
     // ── MapReduce: if system prompt is too large, extract relevant context in chunks ──
     const systemMsg = messages[0];

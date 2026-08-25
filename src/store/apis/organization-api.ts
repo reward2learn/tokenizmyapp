@@ -139,6 +139,7 @@ export interface CreditAdminAnalytics {
     credits: number;
     promptTokens: number;
     completionTokens: number;
+    totalTokens: number;
     runs: number;
   }>;
   byProvider: Array<{
@@ -146,6 +147,7 @@ export interface CreditAdminAnalytics {
     credits: number;
     promptTokens: number;
     completionTokens: number;
+    totalTokens: number;
     runs: number;
   }>;
 }

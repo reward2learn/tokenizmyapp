@@ -28,9 +28,8 @@ export function aiGenerateErrorMessage(err: unknown, fallback = 'Generation fail
 
 export function formatUsageMessage(usage: AiUsageSummary): string {
   if (!usage.charged) {
-    // Successful exemption still returns a finite balance. Null balance with
-    // tokens means metering never completed (threw / org unresolved) — not a
-    // clean "waived" turn.
+    // Successful turns are always charged. Null balance with tokens means
+    // metering never completed (threw / org unresolved) — not a clean waive.
     if (
       usage.balance == null
       && (usage.promptTokens > 0 || usage.completionTokens > 0)

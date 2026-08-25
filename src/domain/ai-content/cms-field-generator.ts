@@ -20,6 +20,8 @@ export interface GenerateCmsFieldInput {
   currentValue?: unknown;
   ai: ActiveAiConfig;
   tenantSlug: string;
+  viewerEmail?: string | null;
+  viewerUserId?: string | null;
 }
 
 export interface GenerateCmsFieldResult {
@@ -160,6 +162,9 @@ export async function generateCmsFieldValue(input: GenerateCmsFieldInput): Promi
       keySource: input.ai.keySource,
       refType: 'content_generation',
       refId: `cms_field:${input.pageSlug}:${input.blockType}:${input.fieldKey}`,
+      viewerEmail: input.viewerEmail,
+      viewerUserId: input.viewerUserId,
+      provider: input.ai.provider.id,
     });
     usage = toAiUsageSummary(meter, tokens, { model: input.ai.model });
   } catch {

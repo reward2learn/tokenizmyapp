@@ -81,7 +81,7 @@ describe('ChatCreditUsage', () => {
     expect(screen.getByLabelText('Chat credit usage')).toHaveTextContent('Metering incomplete');
   });
 
-  it('shows Not billed when last turn was operator-exempt', () => {
+  it('shows Not billed when last turn was uncharged (metering skipped)', () => {
     const state = chatStreamSlice.reducer(undefined, recordTurnUsage({
       promptTokens: 10,
       completionTokens: 5,
@@ -94,7 +94,7 @@ describe('ChatCreditUsage', () => {
     expect(screen.getByLabelText('Chat credit usage')).toHaveTextContent('Not billed');
   });
 
-  it('does not show rate-card credits as charged when operator-exempt', () => {
+  it('does not show rate-card credits as charged when turn was uncharged', () => {
     let state = chatStreamSlice.reducer(undefined, recordTurnUsage({
       promptTokens: 1000,
       completionTokens: 500,

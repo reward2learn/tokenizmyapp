@@ -18,6 +18,7 @@ import type { CmsFieldValueType } from '@/lib/cms-block-field-catalog';
 import { addTenantColumnsIfMissing } from '@/domain/tenant/tenant-seed-service';
 import { resolveTenantDbUrl } from '@/domain/tenant/tenant-db-resolver';
 import { PrismaClient } from '@/generated/prisma';
+import { resolveViewerUserId } from '@/lib/auth/resolve-viewer-user';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
@@ -73,11 +74,13 @@ export async function POST(request: Request) {
     appId: body.appId ?? (getCurrentAppId() || undefined),
   });
 
+  const viewerUserId = await resolveViewerUserId(auth.session.sub);
   const gate = await requireCreditsForTenant(
     cmsScope.deploymentSlug,
     undefined,
     auth.session.email,
     CREDIT_FLOORS.contentGeneration,
+    viewerUserId,
   );
   if (!gate.ok) {
     return gate.response;
@@ -95,6 +98,8 @@ export async function POST(request: Request) {
       currentValue: body.currentValue,
       ai,
       tenantSlug: cmsScope.deploymentSlug,
+      viewerEmail: auth.session.email,
+      viewerUserId,
     });
 
     const fieldType = body.fieldType ?? body.fieldKey;

@@ -31,6 +31,7 @@ import { createClient } from '@/lib/db';
 import type { DbSession } from '@/lib/db';
 import { requireWriteAuth } from '@/lib/auth/guards';
 import { sessionIsPlatformAdmin } from '@/lib/auth/jwt';
+import { resolveViewerUserId } from '@/lib/auth/resolve-viewer-user';
 import { jsonError } from '@/lib/api/response';
 import { extractExcelData, type ExcelData } from '@/domain/excel/excel-extractor';
 import { buildGenerationPrompt, buildDataSummary } from '@/domain/ai-content/prompt-builder';
@@ -372,6 +373,7 @@ export async function POST(request: Request): Promise<Response> {
 
   // Build a DbSession from the authenticated request (needed for ZenStack policy)
   const dbSession: DbSession = { tier: guard.session.tier as 'public' | 'pin' | 'google', sub: guard.session.sub };
+  const viewerUserId = await resolveViewerUserId(guard.session.sub);
 
   // Resolve the workbook source — prefer DB cache for the current appId
   // (fresh Upload & Seed), then disk, then broader appId fallbacks.
@@ -460,6 +462,7 @@ export async function POST(request: Request): Promise<Response> {
         overridePrompt,
         getTenantConfig().slug,
         guard.session.email,
+        viewerUserId,
       );
     });
 
@@ -484,6 +487,7 @@ export async function POST(request: Request): Promise<Response> {
       overridePrompt,
       getTenantConfig().slug,
       guard.session.email,
+      viewerUserId,
     );
 
     if (!result.success) {
