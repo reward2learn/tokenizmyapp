@@ -25,14 +25,18 @@ import DeleteIcon from '@mui/icons-material/Delete';
 import DragIndicatorIcon from '@mui/icons-material/DragIndicator';
 import EditIcon from '@mui/icons-material/Edit';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
+import LayersClearIcon from '@mui/icons-material/LayersClear';
 import FolderIcon from '@mui/icons-material/Folder';
 import InsertDriveFileIcon from '@mui/icons-material/InsertDriveFile';
 import SaveIcon from '@mui/icons-material/Save';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import ChevronRightIcon from '@mui/icons-material/ChevronRight';
+import UnfoldLessIcon from '@mui/icons-material/UnfoldLess';
+import UnfoldMoreIcon from '@mui/icons-material/UnfoldMore';
 import FormControlLabel from '@mui/material/FormControlLabel';
 import ListItemText from '@mui/material/ListItemText';
 import Checkbox from '@mui/material/Checkbox';
+import Tooltip from '@mui/material/Tooltip';
 import { NavIcon, NAV_ICON_NAMES } from '@/components/shared/nav-icon';
 import {
   useGetNavigationQuery,
@@ -640,27 +644,47 @@ export function NavigationManager() {
             useFlexGap
             sx={{ flexShrink: 0, flexWrap: 'wrap', alignItems: 'center', rowGap: 1 }}
           >
-            <Button
-              variant="outlined"
-              size="small"
-              onClick={() => setCollapsedIds(new Set())}
-              disabled={collapsedIds.size === 0}
-            >
-              Expand All
-            </Button>
-            <Button
-              variant="outlined"
-              size="small"
-              onClick={() => setCollapsedIds(new Set(flatItems.filter((i) => hasChildren(i.id)).map((i) => i.id)))}
-            >
-              Collapse All
-            </Button>
-            <Button variant="outlined" size="small" color="warning" onClick={handleFindDuplicates}>
-              Remove Duplicates
-            </Button>
-            <Button variant="contained" size="small" startIcon={<AddIcon />} onClick={() => setCreateDialogOpen(true)}>
-              Add Item
-            </Button>
+            <Tooltip title="Expand All">
+              <span>
+                <IconButton
+                  size="small"
+                  onClick={() => setCollapsedIds(new Set())}
+                  disabled={collapsedIds.size === 0}
+                  aria-label="Expand All"
+                >
+                  <UnfoldMoreIcon fontSize="small" />
+                </IconButton>
+              </span>
+            </Tooltip>
+            <Tooltip title="Collapse All">
+              <IconButton
+                size="small"
+                onClick={() => setCollapsedIds(new Set(flatItems.filter((i) => hasChildren(i.id)).map((i) => i.id)))}
+                aria-label="Collapse All"
+              >
+                <UnfoldLessIcon fontSize="small" />
+              </IconButton>
+            </Tooltip>
+            <Tooltip title="Remove Duplicates">
+              <IconButton
+                size="small"
+                color="warning"
+                onClick={handleFindDuplicates}
+                aria-label="Remove Duplicates"
+              >
+                <LayersClearIcon fontSize="small" />
+              </IconButton>
+            </Tooltip>
+            <Tooltip title="Add Item">
+              <IconButton
+                size="small"
+                color="primary"
+                onClick={() => setCreateDialogOpen(true)}
+                aria-label="Add Item"
+              >
+                <AddIcon fontSize="small" />
+              </IconButton>
+            </Tooltip>
           </Stack>
         </Stack>
         <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
