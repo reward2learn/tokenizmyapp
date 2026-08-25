@@ -172,6 +172,22 @@ No Prisma migration — catalog + keys reuse the `secrets` table (`AI_PROVIDERS_
 
 ---
 
+## Worked example: Mac Studio Ollama (factory proxy)
+
+Self-hosted models on the Mac Studio are exposed through the **factory** app (not each tenant):
+
+| Field | Value |
+|-------|--------|
+| Provider id | `ollama-studio` (custom catalog row) |
+| Chat | `https://tokenizmyapp.vercel.app/api/ollama/v1/chat/completions` |
+| Models | `https://tokenizmyapp.vercel.app/api/ollama/v1` **or** `…/v1/models` |
+| Key secret / env | `TOKENIZMYAPP_API_KEY` (must match factory `OLLAMA_PROXY_API_KEY` or `TOKENIZMYAPP_API_KEY`) |
+| Factory env | `OLLAMA_BASE_URL` → public tunnel to Studio `:11434` |
+
+Curated Studio model ids live in `src/lib/ollama-proxy.ts` (`STUDIO_OLLAMA_MODELS`). Chat rewrites `ollama/<tag>` → `<tag>` before forwarding to Ollama.
+
+---
+
 ## Worked example: Nous Research (builtin)
 
 | Field | Value |

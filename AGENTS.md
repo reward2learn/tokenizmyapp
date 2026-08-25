@@ -40,6 +40,9 @@ bun run dev          # Starts on localhost:3000
 | `SEC_USER_AGENT` | Descriptive User-Agent for SEC EDGAR filings (AI Credits Calculator). Identification only (not a mailbox). Factory seeded via CLI: `TokenizMyApp AI Credits Calculator alex@tokenizin.com`. Tenants: calculator button → `POST /api/admin/tenants/[slug]/sec-user-agent` with `{OrgName} AI Credits Calculator admin@{slug}.com`. Without it, SEC scrapes are skipped |
 | `COMPANIES_HOUSE_API_KEY` | Optional Companies House API key for UK filings enrichment. Without it, UK filings are skipped |
 | `VERCEL_TOKEN` / `VERCEL_PROJECT_ID` | Factory Vercel API access — used to mirror `STRIPE_PRICE_*` after catalog Stripe sync (DB remains source of truth) |
+| `OLLAMA_BASE_URL` | Public HTTPS base URL of the Mac Studio Ollama tunnel (no trailing slash). Powers `/api/ollama/v1/*` — e.g. `https://….trycloudflare.com`. Without it, model listing still works (curated catalog) but chat completions return 503 |
+| `OLLAMA_PROXY_API_KEY` | Preferred Bearer key for `/api/ollama/v1/*`. Store the same value as the tenant’s Studio provider API key (`TOKENIZMYAPP_API_KEY` secret) |
+| `TOKENIZMYAPP_API_KEY` | Fallback accepted Bearer key for the Ollama proxy (matches AI Providers key secret name for TokenizMyApp-Studio-AI) |
 
 ## Code layout
 
