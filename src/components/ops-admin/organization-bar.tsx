@@ -152,7 +152,20 @@ export function OrganizationBar({ tenantSlug }: { tenantSlug?: string | null }) 
           spacing={2}
           sx={{ alignItems: { xs: 'stretch', sm: 'center' } }}
         >
-          <FormControl size="small" sx={{ minWidth: 0, width: '100%', maxWidth: '100%', flex: 1 }}>
+          {/*
+            Keep a real min-width on sm+ — `minWidth: 0` + sibling `width: 100%`
+            in a row flex lets this FormControl collapse to a thin outlined
+            pill while the InputLabel / selected value overflow beside it.
+          */}
+          <FormControl
+            size="small"
+            sx={{
+              minWidth: { xs: 0, sm: 260 },
+              width: { xs: '100%', sm: 'auto' },
+              maxWidth: '100%',
+              flex: { xs: 'none', sm: '1 1 260px' },
+            }}
+          >
             {/*
               `shrink` and `notched` are required together with `displayEmpty`.
 
@@ -213,12 +226,15 @@ export function OrganizationBar({ tenantSlug }: { tenantSlug?: string | null }) 
               useFlexGap
               sx={{
                 alignItems: 'center',
-                width: '100%',
+                // Full width only in the column (xs) layout — claiming 100%
+                // beside the Select on sm+ starves the FormControl of flex space.
+                width: { xs: '100%', sm: 'auto' },
                 minWidth: 0,
                 maxWidth: '100%',
                 flexWrap: 'wrap',
                 rowGap: 0.5,
                 flex: { sm: '0 1 auto' },
+                flexShrink: { sm: 0 },
               }}
             >
               {/* Support asks users to read this out — keep it copyable. */}

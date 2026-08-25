@@ -246,7 +246,20 @@ export function TenantAdminPanel() {
       {/* Tenant Selector */}
       <Paper elevation={0} sx={{ p: 2, mb: 3, border: '1px solid', borderColor: 'divider', bgcolor: 'background.paper' }}>
         <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} sx={{ alignItems: { xs: 'stretch', sm: 'center' } }}>
-          <FormControl size="small" sx={{ minWidth: 0, width: '100%', maxWidth: '100%', flex: 1 }}>
+          {/*
+            Keep a real min-width on sm+ — `minWidth: 0` + sibling `width: 100%`
+            in a row flex lets this FormControl collapse to a thin outlined
+            pill while the InputLabel / selected value overflow beside it.
+          */}
+          <FormControl
+            size="small"
+            sx={{
+              minWidth: { xs: 0, sm: 280 },
+              width: { xs: '100%', sm: 'auto' },
+              maxWidth: '100%',
+              flex: { xs: 'none', sm: '1 1 280px' },
+            }}
+          >
             <InputLabel id="tenant-selector-label">Select Tenant</InputLabel>
             <Select
               labelId="tenant-selector-label"
@@ -306,12 +319,15 @@ export function TenantAdminPanel() {
               useFlexGap
               sx={{
                 alignItems: 'center',
-                width: '100%',
+                // Full width only in the column (xs) layout — claiming 100%
+                // beside the Select on sm+ starves the FormControl of flex space.
+                width: { xs: '100%', sm: 'auto' },
                 minWidth: 0,
                 maxWidth: '100%',
                 flexWrap: 'wrap',
                 rowGap: 0.5,
                 flex: { sm: '0 1 auto' },
+                flexShrink: { sm: 0 },
               }}
             >
               <Chip
