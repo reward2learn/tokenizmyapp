@@ -16,7 +16,7 @@ import Switch from '@mui/material/Switch';
 import TextField from '@mui/material/TextField';
 import Typography from '@mui/material/Typography';
 import AddIcon from '@mui/icons-material/Add';
-import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline';
+import DeleteOutlineIcon from '@mui/icons-material/DeleteOutlined';
 import { AI_PROVIDERS, type AiProviderDef } from '@/lib/ai-providers-catalog';
 import type { AiModelOption } from '@/store/apis/config-api';
 import {
