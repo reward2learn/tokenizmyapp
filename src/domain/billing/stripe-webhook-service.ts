@@ -439,6 +439,15 @@ async function handleInvoicePaid(
   const { saveStripeLinkage } = await import('@/domain/billing/stripe-service');
   await saveStripeLinkage(orgId, { gracePeriodEndsAt: null }, db);
 
+  const { clearDunningOnPaid } = await import('@/domain/billing/dunning-service');
+  await clearDunningOnPaid(orgId, db);
+
+  const { setPlan, getSubscription: getSub } = await import('@/domain/billing/entitlement-service');
+  const current = await getSub(orgId, db);
+  if (current.status === 'past_due') {
+    await setPlan(orgId, { planId: current.planId, status: 'active' }, db);
+  }
+
   if (plan.aiCreditsPerMonth <= 0) {
     return {
       handled: true,
@@ -509,12 +518,36 @@ async function handleInvoicePaymentFailed(
   await setPlan(orgId, { planId: current.planId, status: 'past_due' }, db);
   await saveStripeLinkage(orgId, { gracePeriodEndsAt: new Date(graceEnds) }, db);
 
+  const { recordPaymentFailure } = await import('@/domain/billing/dunning-service');
+  const dunning = await recordPaymentFailure(
+    orgId,
+    { stripeInvoiceId: typeof invoice.id === 'string' ? invoice.id : null },
+    db,
+  );
+
+  if (dunning.shouldDisableDefaultPm) {
+    try {
+      const { getStripe } = await import('@/lib/billing/stripe-client');
+      const stripe = getStripe();
+      if (stripe && customerId) {
+        await stripe.customers.update(customerId, {
+          invoice_settings: { default_payment_method: '' },
+        });
+      }
+    } catch (err) {
+      console.error(`[dunning] Failed to clear default payment method for org ${orgId}:`, err);
+    }
+  }
+
   return {
     handled: true,
     duplicate: false,
     eventType: 'invoice.payment_failed',
     orgId,
-    message: `Org ${orgId} marked past_due; grace period ends ${graceEnds}.`,
+    message:
+      `Org ${orgId} marked past_due; grace period ends ${graceEnds}; ` +
+      `attempts ${dunning.state.attemptCount}; notices ${dunning.state.noticeCount}` +
+      (dunning.shouldDisableDefaultPm ? '; default PM disabled' : ''),
   };
 }
 

@@ -38,6 +38,7 @@ import ExpandLessIcon from '@mui/icons-material/ExpandLess';
 import LightModeOutlined from '@mui/icons-material/LightModeOutlined';
 import DarkModeOutlined from '@mui/icons-material/DarkModeOutlined';
 import BrightnessAutoOutlined from '@mui/icons-material/BrightnessAutoOutlined';
+import { BillingLockRedirect } from '@/components/billing/billing-lock-redirect';
 import type { ReactNode } from 'react';
 import { SavedConversationsMenu } from '@/components/chat/saved-conversations-menu';
 import { HeaderCredits } from '@/components/billing/header-credits';
@@ -358,6 +359,7 @@ export function AppShell({ children }: { children: ReactNode }) {
 
   return (
     <Box sx={{ display: 'flex', flexDirection: 'row', width: '100%', minHeight: '100dvh', alignItems: 'stretch' }}>
+      <BillingLockRedirect />
       {/* Main column: full width on mobile; on md+ it shrinks when chat is open (push). */}
       <Box sx={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', minHeight: '100dvh' }}>
       <AppBar position="sticky" elevation={0} color="transparent">

@@ -418,6 +418,22 @@ export const organizationApi = createApi({
       providesTags: ['Subscription'],
     }),
 
+    getBillingLockStatus: builder.query<
+      ApiEnvelope<{
+        locked: boolean;
+        countdown: string | null;
+        attemptCount: number;
+        noticeCount: number;
+        canUnlock: boolean;
+        unlockUserId: string | null;
+        defaultPmDisabled: boolean;
+      }>,
+      string
+    >({
+      query: (orgId) => ({ url: `billing/lock-status?orgId=${encodeURIComponent(orgId)}` }),
+      providesTags: ['Subscription'],
+    }),
+
     /**
      * Start a paid plan change.
      *
@@ -874,6 +890,7 @@ export const {
   useGetOrganizationCreditsQuery,
   useGrantOrganizationCreditsMutation,
   useGetBillingCheckoutQuery,
+  useGetBillingLockStatusQuery,
   useGetOrganizationInvoicesQuery,
   useStartCheckoutMutation,
   useCreateTopUpIntentMutation,

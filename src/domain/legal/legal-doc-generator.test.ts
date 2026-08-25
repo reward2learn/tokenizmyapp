@@ -138,10 +138,16 @@ describe('legal-doc-generator', () => {
     expect(termsMarkdown).toContain('https://acme-co.vercel.app');
     expect(termsMarkdown).toContain('june-workbook.xlsx');
     expect(termsMarkdown).toContain('/terms-of-service');
+    expect(termsMarkdown).toContain('pending invoice');
+    expect(termsMarkdown).toContain('time remaining until restriction');
+    expect(termsMarkdown).toContain('billing owner');
 
     expect(privacyMarkdown).toContain('Acme Cantina');
     expect(privacyMarkdown).toContain('daily sales');
     expect(privacyMarkdown).toContain('profit & loss');
+    expect(privacyMarkdown).toContain('pending invoices');
+    expect(privacyMarkdown).toContain('time remaining until restriction');
+    expect(privacyMarkdown).toContain('Payment providers');
   });
 
   it('generateLegalDocuments works without a workbook analysis', () => {

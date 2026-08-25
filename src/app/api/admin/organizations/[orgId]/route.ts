@@ -2,7 +2,8 @@
  * Single organization + its subscription.
  *
  * GET   /api/admin/organizations/[orgId] — org, members, subscription, plan
- * PATCH /api/admin/organizations/[orgId] — rename, re-slug, set logo, set plan
+ * PATCH /api/admin/organizations/[orgId] — rename, re-slug, set logo, billing details
+ *         (planId is rejected — plans change only via Checkout + webhooks)
  */
 import { NextResponse } from 'next/server';
 import { createRawClient } from '@/lib/db';
@@ -15,7 +16,7 @@ import {
   updateOrganization,
   deleteOrganization,
 } from '@/domain/billing/organization-service';
-import { getPlan, getSubscription, isPlanId, setPlan } from '@/domain/billing/entitlement-service';
+import { getPlan, getSubscription } from '@/domain/billing/entitlement-service';
 
 export const dynamic = 'force-dynamic';
 
@@ -115,20 +116,16 @@ export async function PATCH(
       ...billingDetails(body),
     });
 
-    // Plan changes go through setPlan() so the billing anchor is preserved.
-    let subscription = await getSubscription(orgId, db);
+    // Plans change only via Stripe Checkout + webhooks — never a free PATCH.
+    // Letting this endpoint set planId would skip payment and break dunning.
     if (body.planId !== undefined) {
-      if (!isPlanId(body.planId)) return jsonError(`Unknown planId: ${String(body.planId)}`, 400);
-      subscription = await setPlan(
-        orgId,
-        {
-          planId: body.planId,
-          interval: body.interval === 'yearly' ? 'yearly' : body.interval === 'monthly' ? 'monthly' : undefined,
-        },
-        db,
+      return jsonError(
+        'Plan changes require a completed purchase. Open Settings → Billing → Plan (or the tenant Choose Plan dialog) to check out.',
+        403,
       );
     }
 
+    const subscription = await getSubscription(orgId, db);
     return jsonOk({ organization, subscription, plan: getPlan(subscription.planId) });
   } catch (err) {
     const message = (err as Error).message;

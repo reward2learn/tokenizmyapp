@@ -120,9 +120,12 @@ export function BillingPanel({
   const reconcileNote = checkoutData?.data?.reconcileNote ?? null;
   const priceMismatches = checkoutData?.data?.priceMismatches ?? [];
 
-  const visibleTabs: BillingTab[] = readOnly
-    ? ['plan', 'credit-history']
-    : ['plan', 'credit-history', 'cloud-credits', 'billing-details', 'payment-methods', 'invoices'];
+  const visibleTabs: BillingTab[] =
+    readOnly && !selfServeBilling
+      ? ['plan', 'credit-history']
+      : readOnly && selfServeBilling
+        ? ['plan', 'credit-history', 'billing-details', 'payment-methods', 'invoices']
+        : ['plan', 'credit-history', 'cloud-credits', 'billing-details', 'payment-methods', 'invoices'];
 
   const activeTab = visibleTabs.includes(tab) ? tab : visibleTabs[0];
 
@@ -161,9 +164,11 @@ export function BillingPanel({
       },
     ];
 
-    if (!readOnly) {
+    if (!readOnly || selfServeBilling) {
+      if (!readOnly) {
+        items.push({ id: 'cloud-credits', label: 'Cloud Credits', content: <CloudCreditsTab orgId={orgId} /> });
+      }
       items.push(
-        { id: 'cloud-credits', label: 'Cloud Credits', content: <CloudCreditsTab orgId={orgId} /> },
         { id: 'billing-details', label: 'Billing Details', content: <BillingDetailsTab orgId={orgId} /> },
         { id: 'payment-methods', label: 'Payment Methods', content: <PaymentMethodsTab orgId={orgId} /> },
         { id: 'invoices', label: 'Invoices', content: <InvoicesTab orgId={orgId} /> },
@@ -907,70 +912,83 @@ function AiCreditsHistory({
 function InvoicesTab({ orgId }: { orgId: string }) {
   const { data, isLoading } = useGetOrganizationInvoicesQuery(orgId, { skip: !orgId });
   const invoices = data?.data?.invoices ?? [];
+  const pending = invoices.filter((inv) => inv.status === 'open' || inv.status === 'uncollectible');
+  const supportHref = process.env.NEXT_PUBLIC_SUPPORT_URL || 'mailto:support@tokenizmyapp.com';
 
   if (isLoading) {
     return <Typography variant="body2" color="text.secondary">Loading…</Typography>;
   }
 
-  if (invoices.length === 0) {
-    return (
-      <Typography variant="body2" color="text.secondary" sx={{ py: 3 }}>
-        {data?.data?.stripeConfigured
-          ? 'No invoices yet.'
-          : 'Payments are not configured on this deployment.'}
-      </Typography>
-    );
-  }
-
   return (
-    <TableContainer sx={{ width: '100%', maxWidth: '100%', overflowX: 'auto' }}>
-      <Table size="small" sx={{ minWidth: 560 }}>
-        <TableHead>
-          <TableRow>
-            <TableCell>Invoice</TableCell>
-            <TableCell>Date</TableCell>
-            <TableCell>Period</TableCell>
-            <TableCell>Status</TableCell>
-            <TableCell align="right">Amount</TableCell>
-            <TableCell />
-          </TableRow>
-        </TableHead>
-        <TableBody>
-          {invoices.map((invoice) => (
-            <TableRow key={invoice.id}>
-              <TableCell sx={{ wordBreak: 'break-word', overflowWrap: 'anywhere' }}>{invoice.number ?? invoice.id}</TableCell>
-              <TableCell>{new Date(invoice.created).toLocaleDateString()}</TableCell>
-              <TableCell>
-                {new Date(invoice.periodStart).toLocaleDateString()} –{' '}
-                {new Date(invoice.periodEnd).toLocaleDateString()}
-              </TableCell>
-              <TableCell>
-                <Chip
-                  label={invoice.status ?? 'unknown'}
-                  size="small"
-                  color={invoice.status === 'paid' ? 'success' : 'default'}
-                  variant="outlined"
-                />
-              </TableCell>
-              <TableCell align="right" sx={{ fontVariantNumeric: 'tabular-nums' }}>
-                {formatMoney(invoice.amountPaid || invoice.amountDue, invoice.currency)}
-              </TableCell>
-              <TableCell align="right">
-                {invoice.hostedInvoiceUrl && (
-                  <Link
-                    href={invoice.hostedInvoiceUrl}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.5 }}
-                  >
-                    View <OpenInNewIcon sx={{ fontSize: 14 }} />
-                  </Link>
-                )}
-              </TableCell>
-            </TableRow>
-          ))}
-        </TableBody>
-      </Table>
-    </TableContainer>
+    <Stack spacing={2}>
+      <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} sx={{ alignItems: { sm: 'center' }, justifyContent: 'space-between' }}>
+        <Typography variant="body2" color="text.secondary">
+          {pending.length > 0
+            ? `${pending.length} pending invoice(s) — pay to restore full access.`
+            : 'No pending invoices. Your account stays unlocked while invoices are current.'}
+        </Typography>
+        <Button size="small" variant="outlined" href={supportHref} target="_blank" rel="noopener noreferrer">
+          Contact support
+        </Button>
+      </Stack>
+
+      {invoices.length === 0 ? (
+        <Typography variant="body2" color="text.secondary" sx={{ py: 2 }}>
+          {data?.data?.stripeConfigured
+            ? 'No invoices yet.'
+            : 'Payments are not configured on this deployment.'}
+        </Typography>
+      ) : (
+        <TableContainer sx={{ width: '100%', maxWidth: '100%', overflowX: 'auto' }}>
+          <Table size="small" sx={{ minWidth: 560 }}>
+            <TableHead>
+              <TableRow>
+                <TableCell>Invoice</TableCell>
+                <TableCell>Date</TableCell>
+                <TableCell>Period</TableCell>
+                <TableCell>Status</TableCell>
+                <TableCell align="right">Amount</TableCell>
+                <TableCell />
+              </TableRow>
+            </TableHead>
+            <TableBody>
+              {invoices.map((invoice) => (
+                <TableRow key={invoice.id}>
+                  <TableCell sx={{ wordBreak: 'break-word', overflowWrap: 'anywhere' }}>{invoice.number ?? invoice.id}</TableCell>
+                  <TableCell>{new Date(invoice.created).toLocaleDateString()}</TableCell>
+                  <TableCell>
+                    {new Date(invoice.periodStart).toLocaleDateString()} –{' '}
+                    {new Date(invoice.periodEnd).toLocaleDateString()}
+                  </TableCell>
+                  <TableCell>
+                    <Chip
+                      label={invoice.status ?? 'unknown'}
+                      size="small"
+                      color={invoice.status === 'paid' ? 'success' : invoice.status === 'open' ? 'warning' : 'default'}
+                      variant="outlined"
+                    />
+                  </TableCell>
+                  <TableCell align="right" sx={{ fontVariantNumeric: 'tabular-nums' }}>
+                    {formatMoney(invoice.amountPaid || invoice.amountDue, invoice.currency)}
+                  </TableCell>
+                  <TableCell align="right">
+                    {invoice.hostedInvoiceUrl && (
+                      <Link
+                        href={invoice.hostedInvoiceUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.5 }}
+                      >
+                        {invoice.status === 'open' ? 'Pay' : 'View'} <OpenInNewIcon sx={{ fontSize: 14 }} />
+                      </Link>
+                    )}
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </TableContainer>
+      )}
+    </Stack>
   );
 }

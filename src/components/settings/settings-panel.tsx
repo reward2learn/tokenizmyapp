@@ -65,10 +65,18 @@ const PLATFORM_ORGANIZATION_SECTIONS: SectionDef[] = [
   { id: 'branding', label: 'Branding', icon: PaletteIcon },
 ];
 
-/** Tenant apps: org identity, usage and team are read-only — only Profile is editable. */
+/** Tenant apps without self-serve: usage is read-only. */
 const TENANT_ORGANIZATION_SECTIONS: SectionDef[] = [
   { id: 'general', label: 'General', icon: HomeIcon },
   { id: 'billing', label: 'Usage', icon: InsightsIcon },
+  { id: 'topup', label: 'Topup', icon: BoltIcon },
+  { id: 'teammates', label: 'Team', icon: GroupIcon },
+];
+
+/** Tenant apps with self-serve billing: full Billing (pay to unlock). */
+const TENANT_SELF_SERVE_SECTIONS: SectionDef[] = [
+  { id: 'general', label: 'General', icon: HomeIcon },
+  { id: 'billing', label: 'Billing', icon: CreditCardIcon },
   { id: 'topup', label: 'Topup', icon: BoltIcon },
   { id: 'teammates', label: 'Team', icon: GroupIcon },
 ];
@@ -109,10 +117,17 @@ export function SettingsPanel({
   // getByRole('button') queries stay stable.
   const isCompact = useMediaQuery(theme.breakpoints.down('md'), { defaultMatches: false });
   const onPlatform = isPlatformApp();
-  const organizationSections = onPlatform ? PLATFORM_ORGANIZATION_SECTIONS : TENANT_ORGANIZATION_SECTIONS;
+  const organizationSections = onPlatform
+    ? PLATFORM_ORGANIZATION_SECTIONS
+    : selfServeBilling
+      ? TENANT_SELF_SERVE_SECTIONS
+      : TENANT_ORGANIZATION_SECTIONS;
   const organizationTitle = onPlatform ? 'Organization' : 'Your organization';
   const embedded = variant === 'dialog';
   const selectSection = (id: SettingsSection) => dispatch(setSettingsSection(id));
+
+  // Self-serve tenant admins need write access to pay invoices / unlock.
+  const billingReadOnly = onPlatform ? false : !selfServeBilling;
 
   return (
     <Paper
@@ -179,13 +194,13 @@ export function SettingsPanel({
           ))}
         {section === 'billing' &&
           (orgId ? (
-            <BillingPanel orgId={orgId} readOnly={!onPlatform} selfServeBilling={selfServeBilling} />
+            <BillingPanel orgId={orgId} readOnly={billingReadOnly} selfServeBilling={selfServeBilling} />
           ) : (
-            <NoOrganization what={onPlatform ? 'Billing' : 'Usage'} />
+            <NoOrganization what={onPlatform || selfServeBilling ? 'Billing' : 'Usage'} />
           ))}
         {section === 'topup' &&
           (orgId ? (
-            <AiCreditsPanel orgId={orgId} readOnly={!onPlatform} selfServeBilling={selfServeBilling} />
+            <AiCreditsPanel orgId={orgId} readOnly={billingReadOnly} selfServeBilling={selfServeBilling} />
           ) : (
             <NoOrganization what="Topup" />
           ))}

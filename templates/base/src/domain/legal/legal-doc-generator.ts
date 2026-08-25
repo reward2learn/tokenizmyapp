@@ -143,6 +143,18 @@ export function buildCapabilityLegalClauses(
     );
     dataProcessed.push('Uploaded Excel workbooks and derived sheet metadata');
   }
+  // Billing applies to every tenant app that can purchase a plan (seed + runtime).
+  serviceFeatures.push(
+    'Subscription billing, invoice management, and plan entitlement controls for the paying organization',
+  );
+  dataProcessed.push(
+    'Billing contact details (name, email, address, tax identifiers where provided)',
+    'Subscription plan, invoice status, and payment attempt records',
+    'Payment method tokens processed by the payment provider (we do not store full card numbers)',
+  );
+  dataUses.push(
+    'Collect subscription fees, send payment notices stating time remaining until restriction, and enforce plan entitlements and account restrictions for unpaid invoices',
+  );
   if (pages.some((p) => p.slug.startsWith('sheet-') || p.slug === 'workbook')) {
     serviceFeatures.push(
       'Workbook sheet viewers that mirror tabs from the uploaded Excel file',
@@ -336,6 +348,49 @@ function buildWorkbookSection(ctx: LegalDocContext): string {
     .join('\n');
 }
 
+/**
+ * Formal billing / dunning clauses for generated Terms and Privacy pages.
+ * Mirrors the product workflow: auto-debit → failed attempts → notices → restriction → unlock by billing owner.
+ */
+export function buildBillingRestrictionsSection(ctx: LegalDocContext): string {
+  return [
+    `## Subscription plans, pending invoices, and account restrictions`,
+    ``,
+    `Access to paid features of the Site is governed by the subscription plan purchased for the paying organization that owns this tenant application (**${ctx.businessName}**, tenant \`${ctx.tenantSlug}\`).`,
+    ``,
+    `### Plans and entitlements`,
+    ``,
+    `- Plan changes take effect only after a completed purchase through the configured payment provider (Checkout). Plans are not changed by administrative selection alone.`,
+    `- Each plan defines included AI credit allowances, feature entitlements (for example custom domains, teammates, multi-app), and billing interval (monthly or yearly).`,
+    `- Features not included in the active plan remain unavailable until a qualifying plan is purchased and the subscription is in good standing.`,
+    ``,
+    `### Pending invoices`,
+    ``,
+    `- A **pending invoice** is any subscription or related invoice that remains unpaid (for example status open) after the due collection attempt.`,
+    `- The Site and the payment provider will attempt to collect payment automatically using the default payment method on file.`,
+    `- Failed collection attempts are recorded. After **three (3)** failed payment attempts, the default payment method may be disabled, and a new payment method must be provided before automatic collection can resume.`,
+    ``,
+    `### Notices and time remaining until restriction`,
+    ``,
+    `- When invoices remain unpaid, we may send up to **three (3)** formal notices by email (to the billing email on file) and in-app notification, spaced approximately **two (2) days** apart.`,
+    `- Each notice states the **time remaining until restriction** in days, hours, and minutes.`,
+    `- Notices are sent to the billing contact configured in Billing Details for the organization.`,
+    ``,
+    `### Restriction of service`,
+    ``,
+    `- If pending invoices remain unpaid after the notice period and failed attempts described above, the organization and its tenant applications may be **restricted**.`,
+    `- While restricted, signed-in users may be redirected to **Settings → Billing → Invoices** and denied normal use of the application until outstanding amounts are settled.`,
+    `- **Only the billing owner** (the user associated with the organization's payment registration / first successful purchase) may unlock the account by paying all pending invoices.`,
+    `- Other users cannot clear the restriction; they should contact the billing owner or support.`,
+    ``,
+    `### Restoration of access`,
+    ``,
+    `- Upon successful payment of all pending invoices, restriction is lifted and subscription status returns to good standing, subject to the entitlements of the purchased plan.`,
+    `- Contact support from the Billing page if you require assistance with invoices or payment methods.`,
+    ``,
+  ].join('\n');
+}
+
 export function generateTermsOfService(ctx: LegalDocContext): string {
   const { businessName, appUrl, templateLabel, domain, currency, capabilityClauses } = ctx;
 
@@ -362,6 +417,8 @@ export function generateTermsOfService(ctx: LegalDocContext): string {
     ``,
     buildWorkbookSection(ctx),
     ``,
+    buildBillingRestrictionsSection(ctx),
+    ``,
     `## 3. Acceptable Use`,
     ``,
     `You agree to use the Site only for lawful purposes and in accordance with these Terms. You agree not to:`,
@@ -371,6 +428,7 @@ export function generateTermsOfService(ctx: LegalDocContext): string {
     `- Misrepresent your identity or authority when signing in`,
     `- Scrape, reverse engineer, or overload the Site except as allowed by applicable law`,
     `- Use AI chat or exported reports to violate confidentiality obligations you owe to ${businessName}`,
+    `- Circumvent billing, plan entitlements, or account restrictions arising from pending invoices`,
     ``,
     `## 4. Intellectual Property`,
     ``,
@@ -380,11 +438,11 @@ export function generateTermsOfService(ctx: LegalDocContext): string {
     ``,
     `Financial analyses, AI responses, and generated documents are provided for internal business decision support. They are **not** formal accounting, tax, or legal advice. Always verify figures against source systems before relying on them for statutory filings.`,
     ``,
-    `THE SITE IS PROVIDED "AS IS" WITHOUT WARRANTIES OF ANY KIND, EXPRESS OR IMPLIED, TO THE MAXIMUM EXTENT PERMITTED BY LAW.`,
+    `THE SITE IS PROVIDED "AS IS" WITHOUT WARRANTIES OF ANY KIND, EXPRESS OR IMPLIED, TO THE MAXIMUM EXTENT PERMITTED BY LAW. Paid features may be unavailable while invoices are pending or the account is restricted as described above.`,
     ``,
     `## 6. Limitation of Liability`,
     ``,
-    `To the fullest extent permitted by law, ${businessName} is not liable for indirect, incidental, special, consequential, or punitive damages, or for loss of profits, data, or business opportunities arising from use of the Site.`,
+    `To the fullest extent permitted by law, ${businessName} is not liable for indirect, incidental, special, consequential, or punitive damages, or for loss of profits, data, or business opportunities arising from use of the Site, including interruption of service during account restriction for unpaid invoices.`,
     ``,
     `## 7. Changes`,
     ``,
@@ -392,7 +450,7 @@ export function generateTermsOfService(ctx: LegalDocContext): string {
     ``,
     `## 8. Contact`,
     ``,
-    `Questions about these Terms: contact the administrators of **${businessName}** (tenant \`${ctx.tenantSlug}\`).`,
+    `Questions about these Terms or billing restrictions: contact the administrators of **${businessName}** (tenant \`${ctx.tenantSlug}\`), or use Contact support on the Billing page.`,
     ``,
   ]
     .filter((l) => l !== undefined)
@@ -436,49 +494,62 @@ export function generatePrivacyPolicy(ctx: LegalDocContext): string {
     ``,
     bulletList(capabilityClauses.dataUses),
     `- Improve reliability, diagnose errors, and secure the Site`,
+    `- Collect subscription fees, send formal payment notices (including time remaining until restriction), and enforce plan entitlements`,
     `- We do **not** sell personal information or use contact details for unrelated marketing`,
     ``,
-    `## 4. AI processing`,
+    `## 4. Billing, invoices, and payment data`,
+    ``,
+    `When subscription billing is enabled for this tenant:`,
+    ``,
+    `- We process **billing contact information** (billing email, name, address, and tax identifiers where provided) to issue invoices and send formal notices regarding pending invoices.`,
+    `- **Payment methods** are handled by the payment provider. We store provider references (for example customer and payment-method identifiers), not full card numbers.`,
+    `- We retain records of **subscription plan**, **invoice status**, **payment attempts**, and **account restriction** state as needed to operate billing and restore access after payment.`,
+    `- Formal notices of unpaid invoices may be sent by email to the billing address on file and as in-app notifications, and will state the **time remaining until restriction**.`,
+    `- While an account is restricted for unpaid invoices, access may be limited to billing and payment surfaces until the billing owner settles pending invoices.`,
+    ``,
+    `## 5. AI processing`,
     ``,
     `When you use AI features (chat, content generation, workbook comprehension), prompts and relevant business context may be sent to the configured AI provider to produce responses. Do not paste secrets or unnecessary personal data into chat.`,
     ``,
-    `## 5. Data storage and security`,
+    `## 6. Data storage and security`,
     ``,
     `- Application data is stored in a PostgreSQL database bound to this deployment`,
     `- Sensitive credentials (PIN hashes, API keys) are encrypted or hashed before storage`,
     `- Session cookies are transmitted over HTTPS in production`,
+    `- Billing credentials and card data are processed by the payment provider under their security and privacy terms`,
     ``,
     `No method of transmission or storage is 100% secure; we apply industry-standard safeguards appropriate to a business operations app.`,
     ``,
-    `## 6. Data sharing`,
+    `## 7. Data sharing`,
     ``,
     `We share data only with:`,
     ``,
     `- **Infrastructure providers** (hosting, database) under their data processing terms`,
+    `- **Payment providers** to process subscriptions, invoices, and payment methods`,
     `- **AI providers** when you use AI features, limited to the content needed for the request`,
     `- **Authorities** when required by law`,
     ``,
     `We do not sell personal data.`,
     ``,
-    `## 7. Retention`,
+    `## 8. Retention`,
     ``,
-    `Business and workbook-derived data is retained while the tenant application is active and until an authorized administrator deletes or reseeds it. Session and log data is retained for shorter operational windows.`,
+    `Business and workbook-derived data is retained while the tenant application is active and until an authorized administrator deletes or reseeds it. Billing and invoice records are retained as required for accounting, dispute resolution, and restoration of access after payment. Session and log data is retained for shorter operational windows.`,
     ``,
-    `## 8. Your rights`,
+    `## 9. Your rights`,
     ``,
-    `Depending on your jurisdiction, you may have rights to access, correct, or delete personal data we hold about you. Contact the administrators of **${businessName}** (tenant \`${ctx.tenantSlug}\`) to make a request.`,
+    `Depending on your jurisdiction, you may have rights to access, correct, or delete personal data we hold about you. Contact the administrators of **${businessName}** (tenant \`${ctx.tenantSlug}\`) to make a request. Billing questions and pending invoices may also be addressed via Contact support on the Billing page.`,
     ``,
-    `## 9. Children's privacy`,
+    `## 10. Children's privacy`,
     ``,
     `The Site is intended for business users and is not directed at children under 16.`,
     ``,
-    `## 10. Changes`,
+    `## 11. Changes`,
     ``,
     `This policy may be regenerated when the application is reconfigured from a new workbook or template capabilities change. The "Last updated" date reflects the latest generation.`,
     ``,
-    `## 11. Contact`,
+    `## 12. Contact`,
     ``,
-    `Privacy questions: contact the administrators of **${businessName}**.`,
+    `Privacy or billing questions: contact the administrators of **${businessName}**.`,
     ``,
   ]
     .join('\n')

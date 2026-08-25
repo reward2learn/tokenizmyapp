@@ -4,7 +4,6 @@ import { useState } from 'react';
 import { useAppDispatch, useAppSelector } from '@/store/hooks';
 import { setAdminSelectedOrg } from '@/store/ui-slice';
 import Alert from '@mui/material/Alert';
-import Box from '@mui/material/Box';
 import Button from '@mui/material/Button';
 import Chip from '@mui/material/Chip';
 import Dialog from '@mui/material/Dialog';
@@ -32,22 +31,14 @@ import {
   useDeleteOrganizationMutation,
   useGetTenantOrganizationQuery,
   useListOrganizationsQuery,
-  useUpdateOrganizationMutation,
 } from '@/store/apis/organization-api';
-import { PLANS, type PlanId } from '@/lib/billing/plans';
-
-function formatPrice(cents: number | null): string {
-  if (cents === null) return 'Custom';
-  if (cents === 0) return 'Free';
-  return `$${(cents / 100).toFixed(0)}/mo`;
-}
 
 /**
  * Organization context bar — sits above the tenant selector.
  *
- * The Organization is the billing owner (Organization → Tenant → Apps), so this
- * is where plan and entitlements are read and changed. When a tenant is
- * selected it also shows which org pays for that tenant and allows moving it.
+ * Plans are purchased at the tenant / app billing surface (Settings → Billing),
+ * not here. This bar only scopes which organization is in view and who pays
+ * for the selected tenant.
  */
 export function OrganizationBar({ tenantSlug }: { tenantSlug?: string | null }) {
   const { data: orgList, isLoading } = useListOrganizationsQuery();
@@ -58,7 +49,6 @@ export function OrganizationBar({ tenantSlug }: { tenantSlug?: string | null }) 
   });
 
   const [createOrganization, { isLoading: isCreating }] = useCreateOrganizationMutation();
-  const [updateOrganization, { isLoading: isUpdating }] = useUpdateOrganizationMutation();
   const [assignTenant, { isLoading: isAssigning }] = useAssignTenantOrganizationMutation();
   const [deleteOrg, { isLoading: isDeleting }] = useDeleteOrganizationMutation();
 
@@ -73,25 +63,16 @@ export function OrganizationBar({ tenantSlug }: { tenantSlug?: string | null }) 
     severity: 'success' | 'error';
   } | null>(null);
 
-
-
   // The picker drives the panel, not the other way round.
   //
   // It used to derive from the selected tenant's owning org, which made sense
   // while this bar only displayed billing context. Now that the tenant list
   // below filters on it, that direction is inverted: choosing an organization
   // scopes the panel, and '' means "all organizations".
-  //
-  // The billing controls still need a concrete target, so with no filter set
-  // they follow the selected tenant's org, falling back to the first.
   const activeOrgId =
     selectedOrgId || tenantOrg?.data?.organization.id || organizations[0]?.id || '';
   const activeOrg = organizations.find((o) => o.id === activeOrgId) ?? null;
-  const plan = tenantOrg?.data?.plan ?? null;
   const subscription = tenantOrg?.data?.subscription ?? null;
-
-
-
 
   const handleCreate = async () => {
     const displayName = newName.trim();
@@ -104,19 +85,11 @@ export function OrganizationBar({ tenantSlug }: { tenantSlug?: string | null }) 
     setCreateOpen(false);
   };
 
-  const handlePlanChange = async (planId: PlanId) => {
-    if (!activeOrgId) return;
-    await updateOrganization({ orgId: activeOrgId, planId }).unwrap().catch(() => null);
-  };
-
   const handleDeleteOrg = async (orgId: string) => {
     setConfirmDeleteOrg(orgId);
   };
 
-  // Filtering only. This used to reassign the selected tenant's billing owner
-  // as a side effect of changing the picker — with the picker now driving the
-  // tenant list, that would silently move a tenant every time someone browsed
-  // to another organization. Moving a tenant is an explicit action below.
+  // Filtering only. Moving a tenant is an explicit action below.
   const handleOrgChange = (orgId: string) => {
     dispatch(setAdminSelectedOrg(orgId || null));
   };
@@ -127,19 +100,10 @@ export function OrganizationBar({ tenantSlug }: { tenantSlug?: string | null }) 
     await assignTenant({ tenantSlug, orgId: activeOrgId }).unwrap().catch(() => null);
   };
 
-  // Shown only when the selected tenant is somewhere else — the move is
-  // meaningless otherwise, and an always-visible button invites a misclick
-  // that changes who pays for a tenant.
   const tenantOrgId = tenantOrg?.data?.organization.id ?? null;
   const canMoveTenant = Boolean(tenantSlug && activeOrgId && tenantOrgId && tenantOrgId !== activeOrgId);
 
-
-
-
-
-
-
-  const busy = isLoading || isCreating || isUpdating || isAssigning;
+  const busy = isLoading || isCreating || isAssigning;
 
   return (
     <>
@@ -152,11 +116,6 @@ export function OrganizationBar({ tenantSlug }: { tenantSlug?: string | null }) 
           spacing={2}
           sx={{ alignItems: { xs: 'stretch', sm: 'center' } }}
         >
-          {/*
-            Keep a real min-width on sm+ — `minWidth: 0` + sibling `width: 100%`
-            in a row flex lets this FormControl collapse to a thin outlined
-            pill while the InputLabel / selected value overflow beside it.
-          */}
           <FormControl
             size="small"
             sx={{
@@ -166,16 +125,6 @@ export function OrganizationBar({ tenantSlug }: { tenantSlug?: string | null }) 
               flex: { xs: 'none', sm: '1 1 260px' },
             }}
           >
-            {/*
-              `shrink` and `notched` are required together with `displayEmpty`.
-
-              An outlined Select floats its label only when the value is
-              non-empty. `displayEmpty` renders the "All organizations" row at
-              rest — the default filter state — while the label was still
-              sitting in the middle of the field, so the two overlapped on load.
-              Pinning the label up and cutting the outline notch to match makes
-              the empty state look like every other populated field.
-            */}
             <InputLabel id="org-selector-label" shrink>
               Organization
             </InputLabel>
@@ -188,8 +137,6 @@ export function OrganizationBar({ tenantSlug }: { tenantSlug?: string | null }) 
               displayEmpty
               notched
             >
-              {/* Clears the filter. Without it the panel could never get back
-                  to showing every tenant once an organization was picked. */}
               <MenuItem value="">
                 <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
                   <CorporateFareIcon fontSize="small" color="disabled" />
@@ -205,9 +152,6 @@ export function OrganizationBar({ tenantSlug }: { tenantSlug?: string | null }) 
                     <Typography variant="body2" sx={{ fontWeight: 500 }}>
                       {o.displayName}
                     </Typography>
-                    {/* Tenant count in the picker itself: an org that pays for
-                        nothing and an org whose tenants were orphaned used to
-                        look identical here. */}
                     <Typography variant="caption" color="text.secondary">
                       {(o.tenants?.length ?? 0) === 1
                         ? '1 tenant'
@@ -219,19 +163,12 @@ export function OrganizationBar({ tenantSlug }: { tenantSlug?: string | null }) 
             </Select>
           </FormControl>
 
-          {/*
-            Org meta + actions share one horizontal Stack so the ID chip, Plan
-            select, and + / delete icons stay on the same line even when the
-            outer Stack switches to column on xs.
-          */}
           <Stack
             direction="row"
             spacing={0.5}
             useFlexGap
             sx={{
               alignItems: 'center',
-              // Full width only in the column (xs) layout — claiming 100%
-              // beside the Select on sm+ starves the FormControl of flex space.
               width: { xs: '100%', sm: 'auto' },
               minWidth: 0,
               maxWidth: '100%',
@@ -243,7 +180,6 @@ export function OrganizationBar({ tenantSlug }: { tenantSlug?: string | null }) 
           >
             {activeOrg ? (
               <>
-                {/* Support asks users to read this out — keep it copyable. */}
                 <Tooltip title="Copy organization ID">
                   <Chip
                     label={activeOrg.id}
@@ -276,36 +212,10 @@ export function OrganizationBar({ tenantSlug }: { tenantSlug?: string | null }) 
                   </Button>
                 ) : null}
 
-                {plan ? (
-                  <Chip
-                    label={`${plan.label} · ${formatPrice(plan.priceMonthly)}`}
-                    size="small"
-                    color={plan.id === 'free' ? 'default' : 'primary'}
-                  />
-                ) : null}
                 {subscription && subscription.status !== 'active' ? (
                   <Chip label={subscription.status} size="small" color="warning" />
                 ) : null}
               </>
-            ) : null}
-
-            {tenantSlug ? (
-              <FormControl size="small" sx={{ minWidth: 160 }}>
-                <InputLabel id="plan-selector-label">Plan</InputLabel>
-                <Select
-                  labelId="plan-selector-label"
-                  label="Plan"
-                  value={subscription?.planId ?? 'free'}
-                  onChange={(e) => handlePlanChange(e.target.value as PlanId)}
-                  disabled={busy || !activeOrgId}
-                >
-                  {PLANS.map((p) => (
-                    <MenuItem key={p.id} value={p.id}>
-                      {p.label} — {formatPrice(p.priceMonthly)}
-                    </MenuItem>
-                  ))}
-                </Select>
-              </FormControl>
             ) : null}
 
             <Tooltip title="New organization">
@@ -319,7 +229,7 @@ export function OrganizationBar({ tenantSlug }: { tenantSlug?: string | null }) 
                   size="small"
                   onClick={() => handleDeleteOrg(activeOrg.id)}
                   aria-label="Delete organization"
-                  disabled={busy}
+                  disabled={busy || isDeleting}
                 >
                   <DeleteIcon />
                 </IconButton>
@@ -327,16 +237,6 @@ export function OrganizationBar({ tenantSlug }: { tenantSlug?: string | null }) 
             ) : null}
           </Stack>
         </Stack>
-
-        {tenantSlug && plan && (
-          <Box sx={{ mt: 1.5 }}>
-            <Typography variant="caption" color="text.secondary">
-              {plan.features.length > 0
-                ? `Includes: ${plan.features.join(', ')}`
-                : 'No paid features. Custom domains, teammates and RBAC are blocked on this plan.'}
-            </Typography>
-          </Box>
-        )}
       </Paper>
 
       <Dialog open={createOpen} onClose={() => setCreateOpen(false)} fullWidth maxWidth="xs">

@@ -1,3 +1,4 @@
+import { Suspense } from 'react';
 import Box from '@mui/material/Box';
 import Stack from '@mui/material/Stack';
 import { AuthGate } from '@/components/auth/auth-gate';
@@ -14,13 +15,17 @@ export const dynamic = 'force-dynamic';
  * Gated at `google` rather than `pin`: everything above the divider reaches
  * billing, and the PIN tier is a shared per-tenant credential rather than a
  * person.
+ *
+ * Deep-link: `/settings?section=billing&tab=invoices` (dunning unlock).
  */
 export default function SettingsPage() {
   return (
     <AuthGate requiredTier="google" fallback={<SignInPanelGate requiredTier="google" />}>
       <Box sx={{ p: { xs: 2, md: 3 }, maxWidth: 1200, mx: 'auto' }}>
         <Stack spacing={2}>
-          <SettingsGate />
+          <Suspense fallback={null}>
+            <SettingsGate />
+          </Suspense>
           <Box sx={{ display: 'flex', justifyContent: 'flex-start' }}>
             <SettingsLogoutButton />
           </Box>
