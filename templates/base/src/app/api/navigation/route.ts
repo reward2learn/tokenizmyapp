@@ -12,6 +12,8 @@
 
 import { PrismaClient } from '@/generated/prisma';
 import { jsonOk } from '@/lib/api/response';
+import { tierAllowsAccess } from '@/lib/auth/tier-access';
+import type { AuthTier } from '@/lib/page-catalog';
 import {
   ensureNavigationTable,
   reconcileNavigationDuplicates,
@@ -26,8 +28,6 @@ function getClient() {
   if (!url) throw new Error('POSTGRES_URL is not set');
   return new PrismaClient({ datasources: { db: { url } } });
 }
-
-const TIER_RANK: Record<string, number> = { public: 0, pin: 1, google: 2 };
 
 interface NavItem {
   id: string;
@@ -46,10 +46,9 @@ interface NavItem {
 
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
-  const tier = searchParams.get('tier') || 'public';
+  const tier = (searchParams.get('tier') || 'public') as AuthTier;
   const groupsParam = searchParams.get('groups') || '';
   const userGroups = groupsParam.split(',').map((g) => g.trim()).filter(Boolean);
-  const userTierRank = TIER_RANK[tier] ?? 0;
 
   // If no DB is configured, return empty nav (graceful fallback for dev/demo)
   const dbUrl = process.env.POSTGRES_URL ?? process.env.DATABASE_URL;
@@ -91,8 +90,8 @@ export async function GET(request: Request) {
     const filtered: NavItem[] = [];
     const seenPaths = new Set<string>();
     for (const r of rows) {
-      const itemTierRank = TIER_RANK[String(r.authTier ?? 'public')] ?? 0;
-      if (itemTierRank > userTierRank) continue;
+      const itemTier = String(r.authTier ?? 'public');
+      if (!tierAllowsAccess(tier, itemTier)) continue;
 
       const reqGroups = String(r.requiredGroups ?? '');
       if (reqGroups) {

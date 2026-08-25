@@ -68,6 +68,20 @@ export async function ensureNavigationTable(prisma: PrismaClient): Promise<void>
     /* index may already exist */
   }
 
+  // Allow comma-separated multi-tier allowlists (e.g. pin,google).
+  try {
+    await prisma.$executeRawUnsafe(
+      `ALTER TABLE navigation_items
+       ALTER COLUMN auth_tier DROP DEFAULT,
+       ALTER COLUMN auth_tier TYPE TEXT USING auth_tier::text`,
+    );
+    await prisma.$executeRawUnsafe(
+      `ALTER TABLE navigation_items ALTER COLUMN auth_tier SET DEFAULT 'public'`,
+    );
+  } catch {
+    /* already TEXT, or column missing */
+  }
+
   // Per-app unique path under a parent (expression index — NULL-safe).
   try {
     await prisma.$executeRawUnsafe(`

@@ -5,7 +5,11 @@
  *
  * DB AppPage/PageSection seeded in P6; catalog wins at runtime.
  */
+import { tierAllowsAccess } from '@/lib/auth/tier-access';
+
 export type AuthTier = 'public' | 'pin' | 'google';
+
+export { tierAllowsAccess, parseAuthTiers, serializeAuthTiers } from '@/lib/auth/tier-access';
 
 export type BlockType =
   | 'hero'
@@ -222,16 +226,6 @@ export const PAGE_CATALOG: Record<string, PageDefinition> = {
     sections: [{ blockType: 'doc_markdown', config: { source: 'privacy-policy.html' } }],
   },
 };
-
-const TIER_RANK: Record<AuthTier, number> = {
-  public: 0,
-  pin: 1,
-  google: 2,
-};
-
-export function tierAllowsAccess(current: AuthTier, required: AuthTier): boolean {
-  return TIER_RANK[current] >= TIER_RANK[required];
-}
 
 export function listNavPages(tier: AuthTier, groups: string[] = []): PageDefinition[] {
   return Object.values(getFullCatalog())

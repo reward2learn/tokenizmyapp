@@ -393,12 +393,12 @@ export function TenantDashboard() {
           </Box>
           <Stack direction="row" spacing={1} sx={{ alignItems: 'center', flexShrink: 0, justifyContent: { xs: 'flex-end', sm: 'unset' } }}>
             <Tooltip title="Refresh">
-              <IconButton onClick={() => refetch()} size="small">
-                <RefreshIcon />
+              <IconButton onClick={() => refetch()} size="small" aria-label="Refresh">
+                <RefreshIcon fontSize="small" />
               </IconButton>
             </Tooltip>
             <VercelConnectButton />
-            <TenantWizard />
+            <TenantWizard iconOnly />
           </Stack>
         </Stack>
 

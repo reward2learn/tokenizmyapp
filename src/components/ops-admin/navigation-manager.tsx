@@ -43,6 +43,11 @@ import ListItemText from '@mui/material/ListItemText';
 import Checkbox from '@mui/material/Checkbox';
 import { NavIcon, NAV_ICON_NAMES } from '@/components/shared/nav-icon';
 import {
+  parseAuthTiers,
+  serializeAuthTiers,
+} from '@/lib/auth/tier-access';
+import type { AuthTier } from '@/lib/page-catalog';
+import {
   useGetNavigationQuery,
   useCreateNavigationItemMutation,
   useUpdateNavigationItemsMutation,
@@ -50,6 +55,18 @@ import {
   useReconcileNavigationMutation,
   useListAdminGroupsQuery,
 } from '@/store/apis/admin-api';
+
+const AUTH_TIER_OPTIONS: { value: AuthTier; label: string }[] = [
+  { value: 'public', label: 'Public' },
+  { value: 'pin', label: 'PIN' },
+  { value: 'google', label: 'Google' },
+];
+
+function formatAuthTierLabel(value: string): string {
+  return parseAuthTiers(value)
+    .map((t) => AUTH_TIER_OPTIONS.find((o) => o.value === t)?.label ?? t)
+    .join(', ');
+}
 
 // ── Types ──────────────────────────────────────────────
 
@@ -145,7 +162,7 @@ export function NavigationManager({ tenantSlug, appId }: NavigationManagerProps 
   const [batchDialogOpen, setBatchDialogOpen] = useState(false);
   const [batchDialogMode, setBatchDialogMode] = useState<'delete' | 'parent' | 'tier' | 'groups' | null>(null);
   const [batchParentId, setBatchParentId] = useState<string>('');
-  const [batchTier, setBatchTier] = useState<'public' | 'pin' | 'google'>('public');
+  const [batchTier, setBatchTier] = useState<AuthTier[]>(['public']);
   const [batchGroups, setBatchGroups] = useState<string[]>([]);
 
   // ── Dedup / reconcile ──────────────────────────────────
@@ -248,7 +265,7 @@ export function NavigationManager({ tenantSlug, appId }: NavigationManagerProps 
   const [newTitle, setNewTitle] = useState('');
   const [newPath, setNewPath] = useState('');
   const [newParentId, setNewParentId] = useState<string>('');
-  const [newTier, setNewTier] = useState<'public' | 'pin' | 'google'>('public');
+  const [newTier, setNewTier] = useState<AuthTier[]>(['public']);
   const [newType, setNewType] = useState<'folder' | 'page' | 'link'>('page');
   const [newRequiredGroups, setNewRequiredGroups] = useState<string[]>([]);
   const [newIcon, setNewIcon] = useState('');
@@ -267,7 +284,7 @@ export function NavigationManager({ tenantSlug, appId }: NavigationManagerProps 
         title: newTitle.trim(),
         path,
         parentId: newParentId || null,
-        authTier: newTier,
+        authTier: serializeAuthTiers(newTier),
         icon: newIcon,
         requiredGroups: newRequiredGroups.join(','),
         ...(tenantSlug ? { tenantSlug } : {}),
@@ -279,6 +296,7 @@ export function NavigationManager({ tenantSlug, appId }: NavigationManagerProps 
         setNewPath('');
         setNewParentId('');
         setNewType('page');
+        setNewTier(['public']);
         setNewRequiredGroups([]);
         setNewIcon('');
         // RTKQ invalidatesTags:['Navigation'] auto-refetches
@@ -435,7 +453,7 @@ export function NavigationManager({ tenantSlug, appId }: NavigationManagerProps 
         if (!orig) return [];
         const patch: Partial<FlatItem> = {};
         if (batchDialogMode === 'parent') patch.parentId = batchParentId || null;
-        if (batchDialogMode === 'tier') patch.authTier = batchTier;
+        if (batchDialogMode === 'tier') patch.authTier = serializeAuthTiers(batchTier);
         if (batchDialogMode === 'groups') patch.requiredGroups = batchGroups.join(',');
         return { ...orig, ...patch };
       }).filter(Boolean);
@@ -653,7 +671,7 @@ export function NavigationManager({ tenantSlug, appId }: NavigationManagerProps 
               sx={{ height: 20, fontSize: { xs: '0.7rem', md: '0.75rem' }, cursor: 'pointer' }}
             />
           ) : null}
-          <Chip label={item.authTier} size="small" variant="outlined" sx={{ height: 20, fontSize: { xs: '0.7rem', md: '0.75rem' } }} />
+          <Chip label={formatAuthTierLabel(item.authTier)} size="small" variant="outlined" sx={{ height: 20, fontSize: { xs: '0.7rem', md: '0.75rem' } }} />
           {item.requiredGroups ? (
             <Chip label={item.requiredGroups} size="small" color="info" variant="outlined" sx={{ height: 20, fontSize: { xs: '0.7rem', md: '0.75rem' }, maxWidth: 160 }} />
           ) : null}
@@ -887,12 +905,28 @@ export function NavigationManager({ tenantSlug, appId }: NavigationManagerProps 
             </FormControl>
 
             <FormControl fullWidth size="small">
-              <InputLabel>Auth Tier</InputLabel>
-              <Select value={newTier} label="Auth Tier" onChange={(e) => setNewTier(e.target.value as 'public' | 'pin' | 'google')}>
-                <MenuItem value="public">Public</MenuItem>
-                <MenuItem value="pin">PIN</MenuItem>
-                <MenuItem value="google">Google</MenuItem>
+              <InputLabel id="create-auth-tier-label">Auth Tier</InputLabel>
+              <Select
+                labelId="create-auth-tier-label"
+                label="Auth Tier"
+                multiple
+                value={newTier}
+                onChange={(e) => {
+                  const next = e.target.value as AuthTier[];
+                  setNewTier(next.length > 0 ? next : ['public']);
+                }}
+                renderValue={(selected) => formatAuthTierLabel((selected as AuthTier[]).join(','))}
+              >
+                {AUTH_TIER_OPTIONS.map((opt) => (
+                  <MenuItem key={opt.value} value={opt.value}>
+                    <Checkbox checked={newTier.includes(opt.value)} size="small" />
+                    <ListItemText primary={opt.label} />
+                  </MenuItem>
+                ))}
               </Select>
+              <Typography variant="caption" color="text.secondary" sx={{ mt: 0.75, display: 'block' }}>
+                Select one or more tiers. Multiple selections (e.g. PIN + Google) show the item only to those signed-in users. A single selection keeps minimum-tier behavior (Google also sees PIN/Public).
+              </Typography>
             </FormControl>
 
             <FormControl fullWidth size="small">
@@ -976,14 +1010,29 @@ export function NavigationManager({ tenantSlug, appId }: NavigationManagerProps 
                 </Select>
               </FormControl>
               <FormControl fullWidth size="small">
-                <InputLabel>Auth Tier</InputLabel>
-                <Select value={editingItem.authTier} label="Auth Tier" onChange={(e) => setEditingItem((p) => p ? { ...p, authTier: e.target.value } : p)}>
-                  <MenuItem value="public">Public</MenuItem>
-                  <MenuItem value="pin">PIN</MenuItem>
-                  <MenuItem value="google">Google</MenuItem>
+                <InputLabel id="edit-auth-tier-label">Auth Tier</InputLabel>
+                <Select
+                  labelId="edit-auth-tier-label"
+                  label="Auth Tier"
+                  multiple
+                  value={parseAuthTiers(editingItem.authTier)}
+                  onChange={(e) => {
+                    const next = e.target.value as AuthTier[];
+                    setEditingItem((p) =>
+                      p ? { ...p, authTier: serializeAuthTiers(next.length > 0 ? next : ['public']) } : p,
+                    );
+                  }}
+                  renderValue={(selected) => formatAuthTierLabel((selected as AuthTier[]).join(','))}
+                >
+                  {AUTH_TIER_OPTIONS.map((opt) => (
+                    <MenuItem key={opt.value} value={opt.value}>
+                      <Checkbox checked={parseAuthTiers(editingItem.authTier).includes(opt.value)} size="small" />
+                      <ListItemText primary={opt.label} />
+                    </MenuItem>
+                  ))}
                 </Select>
                 <Typography variant="caption" color="text.secondary" sx={{ mt: 0.75, display: 'block' }}>
-                  Minimum tier required — Google users also see PIN and Public items; PIN users see Public and PIN only.
+                  Select one or more tiers. Multiple selections (e.g. PIN + Google) show the item only to those signed-in users. A single selection keeps minimum-tier behavior (Google also sees PIN/Public).
                 </Typography>
               </FormControl>
               <FormControl fullWidth size="small">
@@ -1069,12 +1118,28 @@ export function NavigationManager({ tenantSlug, appId }: NavigationManagerProps 
 
           {batchDialogMode === 'tier' ? (
             <FormControl fullWidth size="small" sx={{ mt: 1 }}>
-              <InputLabel>Auth Tier</InputLabel>
-              <Select value={batchTier} label="Auth Tier" onChange={(e) => setBatchTier(e.target.value as 'public' | 'pin' | 'google')}>
-                <MenuItem value="public">Public</MenuItem>
-                <MenuItem value="pin">PIN</MenuItem>
-                <MenuItem value="google">Google</MenuItem>
+              <InputLabel id="batch-auth-tier-label">Auth Tier</InputLabel>
+              <Select
+                labelId="batch-auth-tier-label"
+                label="Auth Tier"
+                multiple
+                value={batchTier}
+                onChange={(e) => {
+                  const next = e.target.value as AuthTier[];
+                  setBatchTier(next.length > 0 ? next : ['public']);
+                }}
+                renderValue={(selected) => formatAuthTierLabel((selected as AuthTier[]).join(','))}
+              >
+                {AUTH_TIER_OPTIONS.map((opt) => (
+                  <MenuItem key={opt.value} value={opt.value}>
+                    <Checkbox checked={batchTier.includes(opt.value)} size="small" />
+                    <ListItemText primary={opt.label} />
+                  </MenuItem>
+                ))}
               </Select>
+              <Typography variant="caption" color="text.secondary" sx={{ mt: 0.75, display: 'block' }}>
+                Select one or more tiers that may see these items.
+              </Typography>
             </FormControl>
           ) : null}
 

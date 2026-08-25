@@ -15,7 +15,6 @@ import { jsonOk } from '@/lib/api/response';
 import { sessionIsPlatformAdmin } from '@/lib/auth/jwt';
 import { getSessionFromRequest } from '@/lib/auth/session';
 import { resolveViewerAuthTier, tierAllowsAccess } from '@/lib/auth/tier-access';
-import type { AuthTier } from '@/lib/page-catalog';
 import {
   ensureNavigationTable,
   reconcileNavigation,
@@ -94,7 +93,7 @@ export async function GET(request: Request) {
     const filtered: NavItem[] = [];
     const seenPaths = new Set<string>();
     for (const r of rows) {
-      const itemTier = String(r.authTier ?? 'public') as AuthTier;
+      const itemTier = String(r.authTier ?? 'public');
       if (!tierAllowsAccess(viewerTier, itemTier)) continue;
 
       const reqGroups = String(r.requiredGroups ?? '');

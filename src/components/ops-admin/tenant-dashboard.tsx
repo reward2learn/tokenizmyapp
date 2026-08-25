@@ -596,29 +596,27 @@ export function TenantDashboard() {
               maxWidth: '100%',
             }}
           >
-            <Tooltip title="Redeploy only apps registered in the DB. Other Vercel projects are listed but not redeployed.">
+            <Tooltip title="Hot Deploy (DB apps)">
               <span>
-                <Button
-                  variant="outlined"
+                <IconButton
                   size="small"
-                  fullWidth
-                  startIcon={isHotDeploying ? <CircularProgress size={14} /> : <RocketLaunchIcon />}
+                  color="error"
                   onClick={() => void handleHotDeployRegistered()}
                   disabled={isHotDeploying}
-                  sx={{ width: { xs: '100%', sm: 'auto' } }}
+                  aria-label="Hot Deploy (DB apps)"
                 >
-                  Hot Deploy (DB apps)
-                </Button>
+                  {isHotDeploying ? <CircularProgress size={18} color="inherit" /> : <RocketLaunchIcon fontSize="small" />}
+                </IconButton>
               </span>
             </Tooltip>
             <Stack direction="row" spacing={1} useFlexGap sx={{ flexWrap: 'wrap', alignItems: 'center', justifyContent: { xs: 'flex-start', sm: 'unset' } }}>
               <Tooltip title="Refresh">
-                <IconButton onClick={() => refetch()} size="small">
-                  <RefreshIcon />
+                <IconButton onClick={() => refetch()} size="small" aria-label="Refresh">
+                  <RefreshIcon fontSize="small" />
                 </IconButton>
               </Tooltip>
               <VercelConnectButton />
-              <TenantWizard />
+              <TenantWizard iconOnly />
             </Stack>
           </Stack>
         </Stack>

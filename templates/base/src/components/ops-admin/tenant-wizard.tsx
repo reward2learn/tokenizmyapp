@@ -32,6 +32,7 @@ import OpenInNewIcon from '@mui/icons-material/OpenInNew';
 import AutoFixHighIcon from '@mui/icons-material/AutoFixHigh';
 import TravelExploreIcon from '@mui/icons-material/TravelExplore';
 import PaletteIcon from '@mui/icons-material/Palette';
+import IconButton from '@mui/material/IconButton';
 import {
   getTemplate,
   listTemplates,
@@ -88,7 +89,7 @@ export const PIPELINE_STEPS = [
   { label: 'Vercel Deployment', key: 'deploy' },
 ];
 
-export function TenantWizard() {
+export function TenantWizard({ iconOnly = false }: { iconOnly?: boolean }) {
   const theme = useTheme();
   // Mobile: vertical stepper layout; non-mobile keeps the current horizontal layout.
   const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
@@ -260,15 +261,26 @@ export function TenantWizard() {
 
   return (
     <>
-      <Tooltip title="Create a new tenant application with AI-powered scraping, schema generation, and deployment">
-        <Button
-          variant="contained"
-          startIcon={<AddIcon />}
-          onClick={handleOpen}
-          sx={{ fontWeight: 600 }}
-        >
-          New Tenant
-        </Button>
+      <Tooltip title="New Tenant">
+        {iconOnly ? (
+          <IconButton
+            color="primary"
+            size="small"
+            onClick={handleOpen}
+            aria-label="New Tenant"
+          >
+            <AddIcon fontSize="small" />
+          </IconButton>
+        ) : (
+          <Button
+            variant="contained"
+            startIcon={<AddIcon />}
+            onClick={handleOpen}
+            sx={{ fontWeight: 600 }}
+          >
+            New Tenant
+          </Button>
+        )}
       </Tooltip>
 
       <Dialog open={open} onClose={handleClose} maxWidth="md" fullWidth>

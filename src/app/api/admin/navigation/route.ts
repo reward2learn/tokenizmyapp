@@ -28,12 +28,18 @@ function getClient(url: string) {
 
 // ── Schemas ─────────────────────────────────────────────
 
+const authTierSchema = z
+  .string()
+  .max(50)
+  .regex(/^(public|pin|google)(,(public|pin|google))*$/, 'Invalid auth tier list')
+  .optional();
+
 const createSchema = z.object({
   parentId: z.string().nullable().optional(),
   title: z.string().min(1).max(100),
   path: z.string().max(500).optional(),
   icon: z.string().max(50).optional(),
-  authTier: z.enum(['public', 'pin', 'google']).optional(),
+  authTier: authTierSchema,
   requiredGroups: z.string().max(500).optional(),
   isVisible: z.boolean().optional(),
   // isDynamic is accepted but ignored — admin-created items are always dynamic
@@ -50,7 +56,7 @@ const updateSchema = z.object({
     title: z.string().min(1).max(100).optional(),
     path: z.string().max(500).optional(),
     icon: z.string().max(50).optional(),
-    authTier: z.enum(['public', 'pin', 'google']).optional(),
+    authTier: authTierSchema,
     requiredGroups: z.string().max(500).optional(),
     isVisible: z.boolean().optional(),
     isDynamic: z.boolean().optional(),
@@ -156,7 +162,7 @@ export async function POST(request: Request): Promise<NextResponse> {
     await ensureNavigationTable(prisma);
     await prisma.$executeRawUnsafe(
       `INSERT INTO navigation_items (id, parent_id, sort_order, title, path, icon, auth_tier, required_groups, is_visible, is_dynamic, tenant_slug, app_id, updated_at)
-       VALUES (gen_random_uuid()::text, $1, (SELECT COALESCE(MAX(sort_order), 0) + 1 FROM navigation_items WHERE parent_id IS NULL), $2, $3, $4, CAST($5 AS "AuthTier"), $6, $7, TRUE, $8, $9, CURRENT_TIMESTAMP)`,
+       VALUES (gen_random_uuid()::text, $1, (SELECT COALESCE(MAX(sort_order), 0) + 1 FROM navigation_items WHERE parent_id IS NULL), $2, $3, $4, $5, $6, $7, TRUE, $8, $9, CURRENT_TIMESTAMP)`,
       parentId ?? null, title, path ?? '', icon ?? '', authTier ?? 'public', requiredGroups ?? '', isVisible ?? true,
       tenantSlug ?? null, appId ?? null,
     );
@@ -194,7 +200,7 @@ export async function PUT(request: Request): Promise<NextResponse> {
       if (item.title !== undefined) { sets.push(`title = $${idx++}`); params.push(item.title); }
       if (item.path !== undefined) { sets.push(`path = $${idx++}`); params.push(item.path); }
       if (item.icon !== undefined) { sets.push(`icon = $${idx++}`); params.push(item.icon); }
-      if (item.authTier !== undefined) { sets.push(`auth_tier = CAST($${idx++} AS "AuthTier")`); params.push(item.authTier); }
+      if (item.authTier !== undefined) { sets.push(`auth_tier = $${idx++}`); params.push(item.authTier); }
       if (item.requiredGroups !== undefined) { sets.push(`required_groups = $${idx++}`); params.push(item.requiredGroups); }
       if (item.isVisible !== undefined) { sets.push(`is_visible = $${idx++}`); params.push(item.isVisible); }
       if (item.isDynamic !== undefined) { sets.push(`is_dynamic = $${idx++}`); params.push(item.isDynamic); }

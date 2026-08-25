@@ -1,10 +1,11 @@
 'use client';
 
-import Button from '@mui/material/Button';
 import Chip from '@mui/material/Chip';
+import IconButton from '@mui/material/IconButton';
 import Tooltip from '@mui/material/Tooltip';
 import Box from '@mui/material/Box';
 import OpenInNewIcon from '@mui/icons-material/OpenInNew';
+import CheckCircleOutlineIcon from '@mui/icons-material/CheckCircleOutline';
 import { useGetVercelTokenStatusQuery } from '@/store/apis/config-api';
 
 export function VercelConnectButton() {
@@ -19,7 +20,11 @@ export function VercelConnectButton() {
   if (status === 'loading') {
     return (
       <Tooltip title="Checking Vercel connection…">
-        <Chip label="Vercel…" size="small" variant="outlined" />
+        <span>
+          <IconButton size="small" disabled aria-label="Checking Vercel connection">
+            <OpenInNewIcon fontSize="small" />
+          </IconButton>
+        </span>
       </Tooltip>
     );
   }
@@ -28,38 +33,43 @@ export function VercelConnectButton() {
     return (
       <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
         <Tooltip title="Vercel is connected and ready for auto-deploy">
-          <Chip label="Vercel ✓" size="small" color="success" variant="outlined" />
+          <Chip
+            icon={<CheckCircleOutlineIcon />}
+            label="Vercel"
+            size="small"
+            color="success"
+            variant="outlined"
+          />
         </Tooltip>
         {oauthUrl && (
-          <Tooltip title="Reconnect to Vercel">
-            <Button
+          <Tooltip title="Reconnect Vercel">
+            <IconButton
               component="a"
               href={oauthUrl}
               size="small"
-              variant="text"
-              sx={{ minWidth: 'auto', px: 0.5, fontSize: '0.75rem', textTransform: 'none' }}
+              aria-label="Reconnect Vercel"
             >
-              Reconnect
-            </Button>
+              <OpenInNewIcon fontSize="small" />
+            </IconButton>
           </Tooltip>
         )}
       </Box>
     );
   }
 
+  const label = status === 'expired' ? 'Reconnect Vercel' : 'Connect Vercel';
+
   return (
-    <Tooltip title={status === 'expired' ? 'Vercel token expired — reconnect' : 'Connect to Vercel for auto-deploy'}>
-      <Button
+    <Tooltip title={label}>
+      <IconButton
         component="a"
         href={oauthUrl || '/api/auth/vercel/authorize'}
         size="small"
-        variant="outlined"
         color={status === 'expired' ? 'warning' : 'primary'}
-        startIcon={<OpenInNewIcon />}
-        sx={{ textTransform: 'none', whiteSpace: 'nowrap' }}
+        aria-label={label}
       >
-        {status === 'expired' ? 'Reconnect Vercel' : 'Connect Vercel'}
-      </Button>
+        <OpenInNewIcon fontSize="small" />
+      </IconButton>
     </Tooltip>
   );
 }
