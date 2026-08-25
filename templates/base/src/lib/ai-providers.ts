@@ -12,6 +12,7 @@ import type { DbClient } from '@/lib/db';
 import {
   AI_PROVIDERS,
   findProviderInCatalog,
+  withBuiltinAiProviders,
   type AiProviderDef,
   type AiModelOption,
   listProviderModels,
@@ -20,8 +21,10 @@ import {
 export {
   AI_PROVIDER_IDS,
   AI_PROVIDERS,
+  FACTORY_OLLAMA_V1_BASE,
   getAiProvider,
   findProviderInCatalog,
+  withBuiltinAiProviders,
   listProviderModels,
   type AiProviderDef,
   type AiProviderId,
@@ -93,13 +96,15 @@ export function parseAiProvidersCatalogJson(raw: string | null | undefined): AiP
 
 /**
  * Load the AI provider catalog from DB secrets, falling back to the static
- * builtin seed template when missing or invalid.
+ * builtin seed template when missing or invalid. Always merges in any
+ * builtin seed entries that are absent from a saved catalog so OpenAI /
+ * Gateway / Zen / Nous / Studio stay available after partial custom saves.
  */
 export async function loadAiProvidersCatalog(db?: DbClient): Promise<AiProviderDef[]> {
   try {
     const raw = await getSecretPlaintext(AI_PROVIDERS_CATALOG_KEY, db);
     const parsed = parseAiProvidersCatalogJson(raw);
-    if (parsed) return parsed;
+    if (parsed) return withBuiltinAiProviders(parsed);
   } catch (err) {
     console.warn(
       '[ai-providers] catalog load failed, using builtin fallback:',

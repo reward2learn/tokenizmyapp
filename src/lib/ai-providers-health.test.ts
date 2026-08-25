@@ -37,7 +37,21 @@ describe('parseAiProvidersCatalogJson', () => {
     expect(parsed).not.toBeNull();
     expect(parsed).toHaveLength(AI_PROVIDERS.length);
     expect(parsed?.[0].id).toBe('openai');
-    expect(parsed?.every((p) => p.modelsRequireAuth === true)).toBe(true);
+    expect(parsed?.find((p) => p.id === 'openai')?.modelsRequireAuth).toBe(true);
+    expect(parsed?.find((p) => p.id === 'ollama-studio')?.modelsRequireAuth).toBe(false);
+  });
+
+  it('merges missing builtins back into a partial catalog', async () => {
+    const { withBuiltinAiProviders } = await import('@/lib/ai-providers-catalog');
+    const partial = [AI_PROVIDERS.find((p) => p.id === 'ollama-studio')!];
+    const merged = withBuiltinAiProviders(partial);
+    expect(merged.map((p) => p.id)).toEqual([
+      'openai',
+      'vercel-ai-gateway',
+      'opencode-zen',
+      'nous-research',
+      'ollama-studio',
+    ]);
   });
 
   it('rejects duplicate ids', () => {

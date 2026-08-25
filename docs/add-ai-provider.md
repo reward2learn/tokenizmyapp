@@ -174,17 +174,19 @@ No Prisma migration — catalog + keys reuse the `secrets` table (`AI_PROVIDERS_
 
 ## Worked example: Mac Studio Ollama (factory proxy)
 
-Self-hosted models on the Mac Studio are exposed through the **factory** app (not each tenant):
+Self-hosted models on the Mac Studio are exposed through the **factory** catch-all proxy (`src/app/api/ollama/[...path]/route.ts`), which streams to `OLLAMA_TUNNEL_HOST` (default `https://ollama.tokenizin.com`). No proxy auth.
 
 | Field | Value |
 |-------|--------|
-| Provider id | `ollama-studio` (custom catalog row) |
+| Provider id | `ollama-studio` (**builtin seed** — alongside OpenAI / Gateway / Zen / Nous) |
+| Label | TokenizMyApp-Studio-AI |
 | Chat | `https://tokenizmyapp.vercel.app/api/ollama/v1/chat/completions` |
-| Models | `https://tokenizmyapp.vercel.app/api/ollama/v1` **or** `…/v1/models` |
-| Key secret / env | `TOKENIZMYAPP_API_KEY` (must match factory `OLLAMA_PROXY_API_KEY` or `TOKENIZMYAPP_API_KEY`) |
-| Factory env | `OLLAMA_BASE_URL` → public tunnel to Studio `:11434` |
+| Models | `https://tokenizmyapp.vercel.app/api/ollama/v1/models` |
+| `modelsRequireAuth` | `false` |
+| Default model | `qwen2.5:14b` |
+| Factory env | `OLLAMA_TUNNEL_HOST=https://ollama.tokenizin.com` |
 
-Curated Studio model ids live in `src/lib/ollama-proxy.ts` (`STUDIO_OLLAMA_MODELS`). Chat rewrites `ollama/<tag>` → `<tag>` before forwarding to Ollama.
+`withBuiltinAiProviders()` merges any missing seed providers into a saved DB catalog so partial custom catalogs still expose all builtins.
 
 ---
 

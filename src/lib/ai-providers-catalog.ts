@@ -26,7 +26,12 @@
  *   agents. See https://opencode.ai/docs/zen/.
  * - Nous Research: https://inference-api.nousresearch.com/v1 — Hermes and
  *   other OpenAI-compatible models. See https://portal.nousresearch.com.
+ * - TokenizMyApp-Studio-AI: factory `/api/ollama` catch-all → Mac Studio
+ *   (OLLAMA_TUNNEL_HOST, default https://ollama.tokenizin.com).
  */
+
+/** Factory OpenAI-compatible surface for Mac Studio Ollama (no proxy auth). */
+export const FACTORY_OLLAMA_V1_BASE = 'https://tokenizmyapp.vercel.app/api/ollama/v1';
 
 /** Canonical builtin provider id list — seed template + defaults. */
 export const AI_PROVIDER_IDS = [
@@ -34,6 +39,7 @@ export const AI_PROVIDER_IDS = [
   'vercel-ai-gateway',
   'opencode-zen',
   'nous-research',
+  'ollama-studio',
 ] as const;
 
 /** Builtin provider ids only. Runtime / DB catalog ids are plain `string`. */
@@ -111,7 +117,40 @@ export const AI_PROVIDERS: AiProviderDef[] = [
     // Free-tier default; paid Hermes models remain available via /models.
     defaultModel: 'tencent/hy3:free',
   },
+  {
+    id: 'ollama-studio',
+    label: 'TokenizMyApp-Studio-AI',
+    keySecretName: 'TOKENIZMYAPP_API_KEY',
+    keyEnvVar: 'TOKENIZMYAPP_API_KEY',
+    keyPlaceholder: 'optional — factory proxy has no auth',
+    chatCompletionsUrl: `${FACTORY_OLLAMA_V1_BASE}/chat/completions`,
+    modelsUrl: `${FACTORY_OLLAMA_V1_BASE}/models`,
+    // Proxy does not require a key; listing hits the factory catch-all.
+    modelsRequireAuth: false,
+    docsUrl: FACTORY_OLLAMA_V1_BASE,
+    defaultModel: 'qwen2.5:14b',
+  },
 ];
+
+/**
+ * Ensure every builtin seed provider is present. Saved / DB entries win on
+ * id collision; extras (custom backends) are kept after the builtins.
+ */
+export function withBuiltinAiProviders(catalog: AiProviderDef[]): AiProviderDef[] {
+  const byId = new Map(catalog.map((p) => [p.id, p]));
+  const merged: AiProviderDef[] = [];
+  for (const builtin of AI_PROVIDERS) {
+    merged.push(byId.get(builtin.id) ?? { ...builtin });
+    byId.delete(builtin.id);
+  }
+  for (const p of catalog) {
+    if (byId.has(p.id)) {
+      merged.push(p);
+      byId.delete(p.id);
+    }
+  }
+  return merged;
+}
 
 /** Lookup in the static builtin seed catalog only. Prefer findProviderInCatalog
  *  / loadAiProvidersCatalog at runtime for DB-backed catalogs. */
@@ -199,6 +238,9 @@ export async function listProviderModels(provider: AiProviderDef, apiKey: string
         .filter((m) => !/embed/i.test(m.id))
         .map((m) => ({ id: m.id, label: m.name || m.id, description: m.description }))
         .sort((a, b) => a.label.localeCompare(b.label));
+    case 'ollama-studio':
+      // Live tags from Mac Studio via factory /api/ollama → OLLAMA_TUNNEL_HOST.
+      return mapGenericChatModels(raw);
     default:
       return mapGenericChatModels(raw);
   }

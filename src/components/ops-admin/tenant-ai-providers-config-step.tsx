@@ -17,7 +17,7 @@ import TextField from '@mui/material/TextField';
 import Typography from '@mui/material/Typography';
 import AddIcon from '@mui/icons-material/Add';
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutlined';
-import { AI_PROVIDERS, type AiProviderDef } from '@/lib/ai-providers-catalog';
+import { AI_PROVIDERS, withBuiltinAiProviders, type AiProviderDef } from '@/lib/ai-providers-catalog';
 import type { AiModelOption } from '@/store/apis/config-api';
 import {
   useGetTenantAiProviderStatusQuery,
@@ -112,9 +112,11 @@ export function TenantAiProvidersConfigStep({
   useEffect(() => {
     if (isControlled || !data?.data || hydrated) return;
     const status = data.data;
-    const catalog = status.catalog?.length
-      ? status.catalog.map((p) => ({ ...p }))
-      : AI_PROVIDERS.map((p) => ({ ...p }));
+    const catalog = withBuiltinAiProviders(
+      status.catalog?.length
+        ? status.catalog.map((p) => ({ ...p }))
+        : AI_PROVIDERS.map((p) => ({ ...p })),
+    );
     setLocalValue({
       catalog,
       apiKeysBySecretName: {},
