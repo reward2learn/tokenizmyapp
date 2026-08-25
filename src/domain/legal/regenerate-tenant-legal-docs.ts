@@ -123,7 +123,7 @@ export async function regenerateTenantLegalDocs(tenantSlug: string): Promise<{
 }> {
   const root = createRawClient();
   const rows = (await root.$queryRawUnsafe(
-    `SELECT slug, display_name, template, vercel_url, metadata, db_url
+    `SELECT slug, display_name, template, app_url, metadata, db_url
      FROM tenants WHERE slug = $1 LIMIT 1`,
     tenantSlug,
   )) as Record<string, unknown>[];
@@ -137,7 +137,7 @@ export async function regenerateTenantLegalDocs(tenantSlug: string): Promise<{
   const description =
     (typeof cfg.description === 'string' && cfg.description) ||
     `${displayName} business operations application`;
-  const vercelUrl = typeof tenant.vercel_url === 'string' ? tenant.vercel_url : '';
+  const appUrl = typeof tenant.app_url === 'string' ? tenant.app_url : '';
   const templateId = String(tenant.template ?? 'default');
 
   const targets: Array<{ appId: string; appUrl: string; templateId: string }> = [];
@@ -145,14 +145,14 @@ export async function regenerateTenantLegalDocs(tenantSlug: string): Promise<{
     for (const app of appPack.apps) {
       targets.push({
         appId: app.appId,
-        appUrl: app.vercelUrl || vercelUrl || `https://${tenantSlug}-${app.appId}.vercel.app`,
+        appUrl: app.vercelUrl || appUrl || `https://${tenantSlug}-${app.appId}.vercel.app`,
         templateId: app.templateId || templateId,
       });
     }
   } else {
     targets.push({
       appId: '',
-      appUrl: vercelUrl || `https://${tenantSlug}.vercel.app`,
+      appUrl: appUrl || `https://${tenantSlug}.vercel.app`,
       templateId,
     });
   }
