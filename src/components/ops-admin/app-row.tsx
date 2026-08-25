@@ -41,21 +41,42 @@ export function AppRow({ tenantSlug, tenantName, app, selected, onSelect, onSnac
         '&:hover': onSelect ? { borderColor: 'primary.main' } : undefined,
       }}
     >
-      <Stack direction="row" sx={{ alignItems: 'center', justifyContent: 'space-between' }}>
-        <Box sx={{ minWidth: 0, flex: 1 }}>
-          <Typography variant="body2" sx={{ fontWeight: selected ? 700 : 500 }}>
+      <Stack
+        direction="row"
+        spacing={0.5}
+        useFlexGap
+        sx={{
+          alignItems: 'center',
+          width: '100%',
+          minWidth: 0,
+          maxWidth: '100%',
+          flexWrap: 'wrap',
+          rowGap: 0.5,
+        }}
+      >
+        <Box sx={{ flex: '1 1 140px', minWidth: 0 }}>
+          <Typography variant="body2" sx={{ fontWeight: selected ? 700 : 500, wordBreak: 'break-word' }}>
             {app.name}
           </Typography>
-          <Typography variant="caption" color="text.secondary">
+          <Typography variant="caption" color="text.secondary" sx={{ display: 'block', wordBreak: 'break-word' }}>
             {app.appId}{app.department !== '—' ? ` • ${app.department}` : ''} • {tpl.label}
           </Typography>
           {app.appUrl && (
-            <Typography variant="caption" sx={{ display: 'block', color: 'primary.main' }}>
+            <Typography
+              variant="caption"
+              sx={{
+                display: 'block',
+                color: 'primary.main',
+                wordBreak: 'break-all',
+                overflowWrap: 'anywhere',
+                maxWidth: '100%',
+              }}
+            >
               {app.appUrl}
             </Typography>
           )}
         </Box>
-        <Stack direction="row" spacing={0.5} sx={{ alignItems: 'center', flexShrink: 0 }}>
+        <Stack direction="row" spacing={0.5} useFlexGap sx={{ flexShrink: 0, flexWrap: 'wrap', alignItems: 'center' }}>
           {selected && <Chip label="Selected" size="small" color="primary" variant="filled" />}
           <Chip
             label={app.status}

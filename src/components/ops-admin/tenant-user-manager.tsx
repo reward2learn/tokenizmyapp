@@ -242,7 +242,7 @@ export function TenantUserManager({ open, onClose, tenantSlug, tenantDisplayName
                 </Button>
               </Stack>
 
-              <Box sx={{ overflowX: 'auto' }}><Table size="small">
+              <Box sx={{ overflowX: 'auto' }}><Table size="small" sx={{ minWidth: 640 }}>
                 <TableHead>
                   <TableRow>
                     <TableCell>Person / Sub</TableCell>
@@ -259,11 +259,11 @@ export function TenantUserManager({ open, onClose, tenantSlug, tenantDisplayName
                     const protectedAdmin = isProtectedDefaultAdmin(user);
                     return (
                       <TableRow key={user.id}>
-                        <TableCell>
-                          <Typography variant="body2" sx={{ fontWeight: 600 }}>
+                        <TableCell sx={{ wordBreak: 'break-word' }}>
+                          <Typography variant="body2" sx={{ fontWeight: 600, wordBreak: 'break-word' }}>
                             {user.name ?? '-'}
                           </Typography>
-                          <Typography variant="caption" color="text.secondary">
+                          <Typography variant="caption" color="text.secondary" sx={{ wordBreak: 'break-all', overflowWrap: 'anywhere' }}>
                             {user.sub}
                           </Typography>
                         </TableCell>

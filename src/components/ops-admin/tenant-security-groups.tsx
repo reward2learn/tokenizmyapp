@@ -25,6 +25,7 @@ import Stack from '@mui/material/Stack';
 import Table from '@mui/material/Table';
 import TableBody from '@mui/material/TableBody';
 import TableCell from '@mui/material/TableCell';
+import TableContainer from '@mui/material/TableContainer';
 import TableHead from '@mui/material/TableHead';
 import TableRow from '@mui/material/TableRow';
 import TextField from '@mui/material/TextField';
@@ -124,17 +125,30 @@ export function TenantSecurityGroups({ tenantSlug, tenantName, appId }: TenantSe
   const globalGroups = groups.filter((g) => !g.tenantSlug);
 
   return (
-    <Paper variant="outlined" sx={{ p: 3 }}>
-      <Stack direction="row" sx={{ mb: 2, alignItems: 'center', justifyContent: 'space-between' }}>
-        <Box>
-          <Typography variant="h6" sx={{ fontWeight: 700 }}>
+    <Paper variant="outlined" sx={{ p: 3, overflow: 'hidden', maxWidth: '100%' }}>
+      <Stack
+        direction={{ xs: 'column', sm: 'row' }}
+        spacing={1}
+        useFlexGap
+        sx={{
+          mb: 2,
+          alignItems: { xs: 'stretch', sm: 'center' },
+          justifyContent: 'space-between',
+          width: '100%',
+          minWidth: 0,
+          flexWrap: 'wrap',
+          rowGap: 1,
+        }}
+      >
+        <Box sx={{ minWidth: 0, flex: '1 1 200px' }}>
+          <Typography variant="h6" sx={{ fontWeight: 700, wordBreak: 'break-word' }}>
             Security Groups — {tenantName || tenantSlug}
           </Typography>
           <Typography variant="body2" color="text.secondary">
             Groups gate API calls and routes by membership. Tenant-scoped groups are prefixed with the tenant slug.
           </Typography>
         </Box>
-        <Stack direction="row" spacing={1}>
+        <Stack direction="row" spacing={1} useFlexGap sx={{ flexShrink: 0, flexWrap: 'wrap', alignItems: 'center' }}>
           <Button size="small" variant="outlined" startIcon={<RefreshIcon />} onClick={() => refetch()}>
             Refresh
           </Button>
@@ -148,53 +162,55 @@ export function TenantSecurityGroups({ tenantSlug, tenantName, appId }: TenantSe
       <Typography variant="subtitle2" sx={{ fontWeight: 600, mt: 3, mb: 1 }}>
         Tenant Groups ({tenantGroups.length})
       </Typography>
-      <Table size="small">
-        <TableHead>
-          <TableRow>
-            <TableCell>Code</TableCell>
-            <TableCell>Name</TableCell>
-            <TableCell>Description</TableCell>
-            <TableCell>Capabilities</TableCell>
-            <TableCell align="right">Members</TableCell>
-            <TableCell align="right">Actions</TableCell>
-          </TableRow>
-        </TableHead>
-        <TableBody>
-          {tenantGroups.length === 0 ? (
+      <TableContainer sx={{ width: '100%', maxWidth: '100%', overflowX: 'auto' }}>
+        <Table size="small" sx={{ minWidth: 720 }}>
+          <TableHead>
             <TableRow>
-              <TableCell colSpan={6} align="center">
-                <Typography variant="body2" color="text.secondary">
-                  No tenant-specific groups. Create one to get started.
-                </Typography>
-              </TableCell>
+              <TableCell>Code</TableCell>
+              <TableCell>Name</TableCell>
+              <TableCell>Description</TableCell>
+              <TableCell>Capabilities</TableCell>
+              <TableCell align="right">Members</TableCell>
+              <TableCell align="right">Actions</TableCell>
             </TableRow>
-          ) : (
-            tenantGroups.map((g) => (
-              <TableRow key={g.code}>
-                <TableCell sx={{ fontFamily: 'monospace', fontSize: '0.75rem' }}>{g.code}</TableCell>
-                <TableCell sx={{ fontWeight: 600 }}>{g.name}</TableCell>
-                <TableCell>{g.description || '—'}</TableCell>
-                <TableCell>
-                  <Stack direction="row" spacing={0.5} sx={{ flexWrap: 'wrap' }}>
-                    {g.permissions.slice(0, 3).map((p) => (
-                      <Chip key={p} label={p} size="small" variant="outlined" sx={{ fontSize: '0.65rem' }} />
-                    ))}
-                    {g.permissions.length > 3 && (
-                      <Chip label={`+${g.permissions.length - 3}`} size="small" variant="outlined" sx={{ fontSize: '0.65rem' }} />
-                    )}
-                  </Stack>
-                </TableCell>
-                <TableCell align="right">{g.memberCount ?? 0}</TableCell>
-                <TableCell align="right">
-                  <IconButton size="small" onClick={() => openEditor(g)}>
-                    <EditIcon fontSize="small" />
-                  </IconButton>
+          </TableHead>
+          <TableBody>
+            {tenantGroups.length === 0 ? (
+              <TableRow>
+                <TableCell colSpan={6} align="center">
+                  <Typography variant="body2" color="text.secondary">
+                    No tenant-specific groups. Create one to get started.
+                  </Typography>
                 </TableCell>
               </TableRow>
-            ))
-          )}
-        </TableBody>
-      </Table>
+            ) : (
+              tenantGroups.map((g) => (
+                <TableRow key={g.code}>
+                  <TableCell sx={{ fontFamily: 'monospace', fontSize: '0.75rem', wordBreak: 'break-word', overflowWrap: 'anywhere' }}>{g.code}</TableCell>
+                  <TableCell sx={{ fontWeight: 600, wordBreak: 'break-word' }}>{g.name}</TableCell>
+                  <TableCell sx={{ wordBreak: 'break-word' }}>{g.description || '—'}</TableCell>
+                  <TableCell>
+                    <Stack direction="row" spacing={0.5} useFlexGap sx={{ flexWrap: 'wrap' }}>
+                      {g.permissions.slice(0, 3).map((p) => (
+                        <Chip key={p} label={p} size="small" variant="outlined" sx={{ fontSize: '0.65rem', maxWidth: 160 }} />
+                      ))}
+                      {g.permissions.length > 3 && (
+                        <Chip label={`+${g.permissions.length - 3}`} size="small" variant="outlined" sx={{ fontSize: '0.65rem' }} />
+                      )}
+                    </Stack>
+                  </TableCell>
+                  <TableCell align="right">{g.memberCount ?? 0}</TableCell>
+                  <TableCell align="right">
+                    <IconButton size="small" onClick={() => openEditor(g)}>
+                      <EditIcon fontSize="small" />
+                    </IconButton>
+                  </TableCell>
+                </TableRow>
+              ))
+            )}
+          </TableBody>
+        </Table>
+      </TableContainer>
 
       {/* Global groups (read-only reference) */}
       {globalGroups.length > 0 && (
@@ -202,35 +218,37 @@ export function TenantSecurityGroups({ tenantSlug, tenantName, appId }: TenantSe
           <Typography variant="subtitle2" sx={{ fontWeight: 600, mt: 4, mb: 1 }}>
             Global Groups (Reference)
           </Typography>
-          <Table size="small">
-            <TableHead>
-              <TableRow>
-                <TableCell>Code</TableCell>
-                <TableCell>Name</TableCell>
-                <TableCell>Description</TableCell>
-                <TableCell>Capabilities</TableCell>
-              </TableRow>
-            </TableHead>
-            <TableBody>
-              {globalGroups.map((g) => (
-                <TableRow key={g.code} sx={{ opacity: 0.7 }}>
-                  <TableCell sx={{ fontFamily: 'monospace', fontSize: '0.75rem' }}>{g.code}</TableCell>
-                  <TableCell>{g.name}</TableCell>
-                  <TableCell>{g.description || '—'}</TableCell>
-                  <TableCell>
-                    <Stack direction="row" spacing={0.5} sx={{ flexWrap: 'wrap' }}>
-                      {g.permissions.slice(0, 3).map((p) => (
-                        <Chip key={p} label={p} size="small" variant="outlined" sx={{ fontSize: '0.65rem' }} />
-                      ))}
-                      {g.permissions.length > 3 && (
-                        <Chip label={`+${g.permissions.length - 3}`} size="small" variant="outlined" sx={{ fontSize: '0.65rem' }} />
-                      )}
-                    </Stack>
-                  </TableCell>
+          <TableContainer sx={{ width: '100%', maxWidth: '100%', overflowX: 'auto' }}>
+            <Table size="small" sx={{ minWidth: 560 }}>
+              <TableHead>
+                <TableRow>
+                  <TableCell>Code</TableCell>
+                  <TableCell>Name</TableCell>
+                  <TableCell>Description</TableCell>
+                  <TableCell>Capabilities</TableCell>
                 </TableRow>
-              ))}
-            </TableBody>
-          </Table>
+              </TableHead>
+              <TableBody>
+                {globalGroups.map((g) => (
+                  <TableRow key={g.code} sx={{ opacity: 0.7 }}>
+                    <TableCell sx={{ fontFamily: 'monospace', fontSize: '0.75rem', wordBreak: 'break-word', overflowWrap: 'anywhere' }}>{g.code}</TableCell>
+                    <TableCell sx={{ wordBreak: 'break-word' }}>{g.name}</TableCell>
+                    <TableCell sx={{ wordBreak: 'break-word' }}>{g.description || '—'}</TableCell>
+                    <TableCell>
+                      <Stack direction="row" spacing={0.5} useFlexGap sx={{ flexWrap: 'wrap' }}>
+                        {g.permissions.slice(0, 3).map((p) => (
+                          <Chip key={p} label={p} size="small" variant="outlined" sx={{ fontSize: '0.65rem', maxWidth: 160 }} />
+                        ))}
+                        {g.permissions.length > 3 && (
+                          <Chip label={`+${g.permissions.length - 3}`} size="small" variant="outlined" sx={{ fontSize: '0.65rem' }} />
+                        )}
+                      </Stack>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </TableContainer>
         </>
       )}
 
@@ -281,7 +299,7 @@ export function TenantSecurityGroups({ tenantSlug, tenantName, appId }: TenantSe
             {CAPABILITY_AREAS.map((area) => (
               <Box key={area.area}>
                 <Typography variant="subtitle2" sx={{ mb: 0.5 }}>{area.label}</Typography>
-                <Stack direction="row" spacing={2} flexWrap="wrap" useFlexGap>
+                <Stack direction="row" spacing={2} useFlexGap sx={{ flexWrap: 'wrap' }}>
                   {area.accesses.map((acc) => {
                     const cap = capability(area.area, acc);
                     return (

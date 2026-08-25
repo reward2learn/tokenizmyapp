@@ -16,6 +16,7 @@ import Stack from '@mui/material/Stack';
 import Table from '@mui/material/Table';
 import TableBody from '@mui/material/TableBody';
 import TableCell from '@mui/material/TableCell';
+import TableContainer from '@mui/material/TableContainer';
 import TableHead from '@mui/material/TableHead';
 import TableRow from '@mui/material/TableRow';
 import TextField from '@mui/material/TextField';
@@ -156,12 +157,25 @@ export function TenantInlineUserManager({ tenantSlug, tenantName, appId }: Props
   }
 
   return (
-    <Paper variant="outlined" sx={{ p: 3 }}>
-      <Stack direction="row" sx={{ mb: 2, alignItems: 'center', justifyContent: 'space-between' }}>
-        <Typography variant="h6" sx={{ fontWeight: 700 }}>
+    <Paper variant="outlined" sx={{ p: 3, overflow: 'hidden', maxWidth: '100%' }}>
+      <Stack
+        direction={{ xs: 'column', sm: 'row' }}
+        spacing={1}
+        useFlexGap
+        sx={{
+          mb: 2,
+          alignItems: { xs: 'stretch', sm: 'center' },
+          justifyContent: 'space-between',
+          width: '100%',
+          minWidth: 0,
+          flexWrap: 'wrap',
+          rowGap: 1,
+        }}
+      >
+        <Typography variant="h6" sx={{ fontWeight: 700, minWidth: 0, wordBreak: 'break-word' }}>
           User Accounts — {tenantName || tenantSlug}
         </Typography>
-        <Stack direction="row" spacing={1}>
+        <Stack direction="row" spacing={1} useFlexGap sx={{ flexShrink: 0, flexWrap: 'wrap', alignItems: 'center' }}>
           <Button size="small" variant="contained" startIcon={<AddIcon />} onClick={() => setAddOpen(true)}>
             Add User
           </Button>
@@ -174,55 +188,57 @@ export function TenantInlineUserManager({ tenantSlug, tenantName, appId }: Props
       {isError ? (
         <Alert severity="error">Failed to load users for tenant {tenantSlug}.</Alert>
       ) : (
-        <Table size="small">
-          <TableHead>
-            <TableRow>
-              <TableCell>Person</TableCell>
-              <TableCell>Role</TableCell>
-              <TableCell>Email</TableCell>
-              <TableCell>PIN</TableCell>
-              <TableCell align="right">Actions</TableCell>
-            </TableRow>
-          </TableHead>
-          <TableBody>
-            {users.length === 0 ? (
+        <TableContainer sx={{ width: '100%', maxWidth: '100%', overflowX: 'auto' }}>
+          <Table size="small" sx={{ minWidth: 640 }}>
+            <TableHead>
               <TableRow>
-                <TableCell colSpan={5} align="center">
-                  <Typography variant="body2" color="text.secondary">No users found.</Typography>
-                </TableCell>
+                <TableCell>Person</TableCell>
+                <TableCell>Role</TableCell>
+                <TableCell>Email</TableCell>
+                <TableCell>PIN</TableCell>
+                <TableCell align="right">Actions</TableCell>
               </TableRow>
-            ) : (
-              users.map((u) => {
-                const hasPin = u.roleCode ? (pinStatus[u.roleCode] ?? false) : false;
-                const protectedAdmin = isProtectedDefaultAdmin(u);
-                return (
-                  <TableRow key={u.id}>
-                    <TableCell sx={{ fontWeight: 600 }}>
-                      {u.name || u.sub}
-                      {!u.isActive && <Chip label="disabled" size="small" color="error" variant="outlined" sx={{ ml: 1 }} />}
-                      {protectedAdmin && <Chip label="protected" size="small" color="info" variant="outlined" sx={{ ml: 1 }} />}
-                    </TableCell>
-                    <TableCell>{roleOptions.find((r) => r.code === u.roleCode)?.name || u.roleCode || '—'}</TableCell>
-                    <TableCell>{u.email || '—'}</TableCell>
-                    <TableCell>
-                      <Chip label={hasPin ? 'configured' : 'not set'} size="small" color={hasPin ? 'success' : 'warning'} variant="outlined" />
-                    </TableCell>
-                    <TableCell align="right">
-                      <Stack direction="row" spacing={0.5} sx={{ justifyContent: 'flex-end' }}>
-                        <Button size="small" variant="outlined" onClick={() => openEdit(u)}>Edit</Button>
-                        <Tooltip title={protectedAdmin ? "This is the platform administrator's own default account and can't be deleted." : ''}>
-                          <span>
-                            <Button size="small" color="error" variant="text" onClick={() => setDeleteConfirm(u.id)} disabled={isDeleting || protectedAdmin}>Delete</Button>
-                          </span>
-                        </Tooltip>
-                      </Stack>
-                    </TableCell>
-                  </TableRow>
-                );
-              })
-            )}
-          </TableBody>
-        </Table>
+            </TableHead>
+            <TableBody>
+              {users.length === 0 ? (
+                <TableRow>
+                  <TableCell colSpan={5} align="center">
+                    <Typography variant="body2" color="text.secondary">No users found.</Typography>
+                  </TableCell>
+                </TableRow>
+              ) : (
+                users.map((u) => {
+                  const hasPin = u.roleCode ? (pinStatus[u.roleCode] ?? false) : false;
+                  const protectedAdmin = isProtectedDefaultAdmin(u);
+                  return (
+                    <TableRow key={u.id}>
+                      <TableCell sx={{ fontWeight: 600, wordBreak: 'break-word' }}>
+                        {u.name || u.sub}
+                        {!u.isActive && <Chip label="disabled" size="small" color="error" variant="outlined" sx={{ ml: 1 }} />}
+                        {protectedAdmin && <Chip label="protected" size="small" color="info" variant="outlined" sx={{ ml: 1 }} />}
+                      </TableCell>
+                      <TableCell sx={{ wordBreak: 'break-word' }}>{roleOptions.find((r) => r.code === u.roleCode)?.name || u.roleCode || '—'}</TableCell>
+                      <TableCell sx={{ wordBreak: 'break-word', overflowWrap: 'anywhere' }}>{u.email || '—'}</TableCell>
+                      <TableCell>
+                        <Chip label={hasPin ? 'configured' : 'not set'} size="small" color={hasPin ? 'success' : 'warning'} variant="outlined" />
+                      </TableCell>
+                      <TableCell align="right">
+                        <Stack direction="row" spacing={0.5} useFlexGap sx={{ justifyContent: 'flex-end', flexWrap: 'wrap' }}>
+                          <Button size="small" variant="outlined" onClick={() => openEdit(u)}>Edit</Button>
+                          <Tooltip title={protectedAdmin ? "This is the platform administrator's own default account and can't be deleted." : ''}>
+                            <span>
+                              <Button size="small" color="error" variant="text" onClick={() => setDeleteConfirm(u.id)} disabled={isDeleting || protectedAdmin}>Delete</Button>
+                            </span>
+                          </Tooltip>
+                        </Stack>
+                      </TableCell>
+                    </TableRow>
+                  );
+                })
+              )}
+            </TableBody>
+          </Table>
+        </TableContainer>
       )}
 
       {/* Edit Dialog */}

@@ -59,6 +59,8 @@ import StepLabel from '@mui/material/StepLabel';
 import Stepper from '@mui/material/Stepper';
 import TextField from '@mui/material/TextField';
 import Typography from '@mui/material/Typography';
+import { useTheme } from '@mui/material/styles';
+import useMediaQuery from '@mui/material/useMediaQuery';
 import AutoFixHighIcon from '@mui/icons-material/AutoFixHigh';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import CloseIcon from '@mui/icons-material/Close';
@@ -201,6 +203,8 @@ export interface CreateAppWizardProps {
 }
 
 export function CreateAppWizard({ open, onClose, tenantSlug, sourceApp, onSnackbar }: CreateAppWizardProps) {
+  const theme = useTheme();
+  const isMobile = useMediaQuery(theme.breakpoints.down('md'));
   const [activeStep, setActiveStep] = useState(0);
   const [mode, setMode] = useState<'blank' | 'duplicate'>(sourceApp ? 'duplicate' : 'blank');
   const [sourceAppId, setSourceAppId] = useState(sourceApp?.appId ?? '');
@@ -1769,12 +1773,32 @@ export function CreateAppWizard({ open, onClose, tenantSlug, sourceApp, onSnackb
   const isSummaryStep = activeStep === CREATE_STEPS.length - 1;
 
   return (
-    <Dialog open={open} onClose={handleClose} maxWidth={false} fullWidth aria-labelledby="create-app-wizard-title">
+    <Dialog open={open} onClose={handleClose} maxWidth={false} fullWidth fullScreen={isMobile} aria-labelledby="create-app-wizard-title">
       <DialogTitle id="create-app-wizard-title" sx={{ p: 0 }}>
-        <Stack direction="row" sx={{ alignItems: 'center', justifyContent: 'space-between', px: 3, pt: 2, pb: 1 }}>
-          <Stack direction="row" spacing={1.5} sx={{ alignItems: 'center' }}>
-            <AutoFixHighIcon color="primary" />
-            <Typography variant="h6" sx={{ fontWeight: 700 }}>New App — {tenant?.displayName ?? tenantSlug}</Typography>
+        <Stack
+          direction="row"
+          spacing={1}
+          useFlexGap
+          sx={{
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            px: 3,
+            pt: 2,
+            pb: 1,
+            width: '100%',
+            minWidth: 0,
+            flexWrap: 'wrap',
+            rowGap: 0.5,
+          }}
+        >
+          <Stack
+            direction="row"
+            spacing={1}
+            useFlexGap
+            sx={{ alignItems: 'center', minWidth: 0, flex: '1 1 160px', flexWrap: 'wrap', rowGap: 0.5 }}
+          >
+            <AutoFixHighIcon color="primary" sx={{ flexShrink: 0 }} />
+            <Typography variant="h6" sx={{ fontWeight: 700, minWidth: 0, wordBreak: 'break-word' }}>New App — {tenant?.displayName ?? tenantSlug}</Typography>
             <Chip label={tenant?.templateMode === 'suite' ? 'Suite' : 'Single'} size="small" color="primary" variant="outlined" />
           </Stack>
           <IconButton onClick={handleClose} size="small" aria-label="close"><CloseIcon /></IconButton>
@@ -1782,23 +1806,29 @@ export function CreateAppWizard({ open, onClose, tenantSlug, sourceApp, onSnackb
       </DialogTitle>
 
       <DialogContent dividers sx={{ p: { xs: 0, md: 0 }, minHeight: 400 }}>
-        <Stepper activeStep={activeStep} sx={{
-          zIndex: 1000,
-          backgroundColor: 'background.default',
-          padding: '19px 0px',
-          position: 'sticky',
-          top: 0,
-          mb: 4,
-          overflowX: 'auto',
-          flexWrap: 'wrap',
-          '& .MuiStepLabel-root': { cursor: 'pointer' },
-        }} nonLinear>
+        <Stepper
+          activeStep={activeStep}
+          orientation={isMobile ? 'vertical' : 'horizontal'}
+          nonLinear
+          sx={{
+            zIndex: 1000,
+            backgroundColor: 'background.default',
+            padding: isMobile ? '12px 16px' : '19px 0px',
+            position: 'sticky',
+            top: 0,
+            mb: 4,
+            ...(isMobile
+              ? { '& .MuiStepConnector-root': { ml: 1.5 } }
+              : { overflowX: 'auto', flexWrap: 'wrap' }),
+            '& .MuiStepLabel-root': { cursor: 'pointer' },
+          }}
+        >
           {CREATE_STEPS.map((s, idx) => (
             <Step key={s.key} onClick={() => setActiveStep(idx)}>
               <StepLabel sx={{
                 '& .MuiStepLabel-label': {
-                  fontSize: { xs: '0.7rem', md: '0.8rem' },
-                  fontWeight: activeStep === CREATE_STEPS.indexOf(s) ? 700 : 400,
+                  fontSize: { xs: '0.8rem', md: '0.8rem' },
+                  fontWeight: activeStep === idx ? 700 : 400,
                 },
               }}>
                 {s.label}
@@ -1810,14 +1840,28 @@ export function CreateAppWizard({ open, onClose, tenantSlug, sourceApp, onSnackb
         <Box sx={{ mt: 2, padding: '24px' }}>{stepContent(activeStep)}</Box>
       </DialogContent>
 
-      <DialogActions sx={{ px: 3, py: 2.5, gap: 2, position: 'sticky', bottom: 0, left: 0, right: 0, zIndex: 1, backgroundColor: 'background.default' }}>
+      <DialogActions
+        sx={{
+          px: 3,
+          py: 2.5,
+          gap: 1,
+          position: 'sticky',
+          bottom: 0,
+          left: 0,
+          right: 0,
+          zIndex: 1,
+          backgroundColor: 'background.default',
+          flexWrap: 'wrap',
+          justifyContent: { xs: 'stretch', sm: 'flex-end' },
+        }}
+      >
         {activeStep > 0 ? (
           <Button onClick={() => setActiveStep((s) => s - 1)} disabled={creating}>Back</Button>
         ) : (
           <Button onClick={handleClose} disabled={creating}>Cancel</Button>
         )}
 
-        <Box sx={{ flex: 1 }} />
+        <Box sx={{ flex: { xs: '1 1 100%', sm: 1 }, display: { xs: 'none', sm: 'block' } }} />
         {isSummaryStep ? (
           <Button
             variant="contained"
@@ -1826,12 +1870,17 @@ export function CreateAppWizard({ open, onClose, tenantSlug, sourceApp, onSnackb
             onClick={() => void handleCreate()}
             disabled={!valid || creating}
             startIcon={creating ? <CircularProgress size={20} color="inherit" /> : <CloudUploadIcon />}
-            sx={{ fontWeight: 700, minWidth: { xs: '100%', sm: 220 } }}
+            sx={{ fontWeight: 700, minWidth: { xs: '100%', sm: 220 }, flex: { xs: '1 1 100%', sm: '0 0 auto' } }}
           >
             {creating ? 'CREATING...' : mode === 'duplicate' ? 'Duplicate & Deploy' : suiteMode ? 'Create Pack & Deploy' : 'Create & Deploy'}
           </Button>
         ) : (
-          <Button variant="contained" onClick={() => setActiveStep((s) => s + 1)} disabled={creating} sx={{ fontWeight: 600 }}>
+          <Button
+            variant="contained"
+            onClick={() => setActiveStep((s) => s + 1)}
+            disabled={creating}
+            sx={{ fontWeight: 600, flex: { xs: '1 1 auto', sm: '0 0 auto' } }}
+          >
             Continue
           </Button>
         )}

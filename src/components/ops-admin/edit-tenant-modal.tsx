@@ -3780,10 +3780,30 @@ export function EditTenantModal({ open, tenant, onClose, onSnackbar }: EditTenan
     <Dialog open={open} onClose={handleClose} maxWidth={false} fullWidth fullScreen={isMobile} aria-labelledby="edit-tenant-modal-title">
       {/* HEADER */}
       <DialogTitle id="edit-tenant-modal-title" sx={{ p: 0 }}>
-        <Stack direction="row" sx={{ alignItems: 'center', justifyContent: 'space-between', px: 3, pt: 2, pb: 1 }}>
-          <Stack direction="row" spacing={1.5} sx={{ alignItems: 'center' }}>
-            <EditIcon color="primary" />
-            <Typography variant="h6" sx={{ fontWeight: 700 }}>{tenant.displayName || tenant.slug}</Typography>
+        <Stack
+          direction="row"
+          spacing={1}
+          useFlexGap
+          sx={{
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            px: 3,
+            pt: 2,
+            pb: 1,
+            width: '100%',
+            minWidth: 0,
+            flexWrap: 'wrap',
+            rowGap: 0.5,
+          }}
+        >
+          <Stack
+            direction="row"
+            spacing={1}
+            useFlexGap
+            sx={{ alignItems: 'center', minWidth: 0, flex: '1 1 160px', flexWrap: 'wrap', rowGap: 0.5 }}
+          >
+            <EditIcon color="primary" sx={{ flexShrink: 0 }} />
+            <Typography variant="h6" sx={{ fontWeight: 700, minWidth: 0, wordBreak: 'break-word' }}>{tenant.displayName || tenant.slug}</Typography>
             <Chip label={tenant.status} size="small" color={
               tenant.status === 'live' ? 'success' : tenant.status === 'deploying' ? 'warning' : 'default'
             } />
@@ -3794,24 +3814,32 @@ export function EditTenantModal({ open, tenant, onClose, onSnackbar }: EditTenan
 
       {/* BODY WITH STEPPER */}
       <DialogContent dividers sx={{ p: { xs: 0, md: 0 }, minHeight: 400 }}>
-        <Stepper activeStep={activeStep} sx={{ zIndex: 1000,
-          backgroundColor: 'background.default', 
-          padding: '19px 0px',
-          position: 'sticky',
-          top: 0,
-          mb: 4, 
-          overflowX: 'auto', 
-          flexWrap: 'wrap', '& .MuiStepLabel-root': { cursor: 'pointer' } 
-          }} nonLinear>
+        <Stepper
+          activeStep={activeStep}
+          orientation={isMobile ? 'vertical' : 'horizontal'}
+          nonLinear
+          sx={{
+            zIndex: 1000,
+            backgroundColor: 'background.default',
+            padding: isMobile ? '12px 16px' : '19px 0px',
+            position: 'sticky',
+            top: 0,
+            mb: 4,
+            ...(isMobile
+              ? { '& .MuiStepConnector-root': { ml: 1.5 } }
+              : { overflowX: 'auto', flexWrap: 'wrap' }),
+            '& .MuiStepLabel-root': { cursor: 'pointer' },
+          }}
+        >
           {EDIT_STEPS.map((s, idx) => (
             <Step key={s.key} onClick={() => setActiveStep(idx)}>
               <StepLabel sx={{
                 '& .MuiStepLabel-label': {
-                  fontSize: { xs: '0.7rem', md: '0.8rem' },
-                  fontWeight: activeStep === EDIT_STEPS.indexOf(s) ? 700 : 400,
+                  fontSize: { xs: '0.8rem', md: '0.8rem' },
+                  fontWeight: activeStep === idx ? 700 : 400,
                 },
               }}>
-                {isMobile ? s.label.substring(0, 8) + '\u2026' : s.label}
+                {s.label}
               </StepLabel>
             </Step>
           ))}
@@ -3857,33 +3885,57 @@ export function EditTenantModal({ open, tenant, onClose, onSnackbar }: EditTenan
       </DialogContent>
 
       {/* FOOTER */}
-      <DialogActions sx={{ px: 3, py: 2.5, gap: 2, position: 'sticky',
-        bottom: 0,
-        left: 0,
-        right: 0,
-        zIndex: 1,
-        backgroundColor: 'background.default' }}>
+      <DialogActions
+        sx={{
+          px: 3,
+          py: 2.5,
+          gap: 1,
+          position: 'sticky',
+          bottom: 0,
+          left: 0,
+          right: 0,
+          zIndex: 1,
+          backgroundColor: 'background.default',
+          flexWrap: 'wrap',
+          justifyContent: { xs: 'stretch', sm: 'flex-end' },
+        }}
+      >
         {activeStep > 0 ? (
           <Button onClick={handleBack} disabled={!!deployingSlug || saving}>Back</Button>
         ) : (
           <Button onClick={handleClose} disabled={!!deployingSlug || saving}>Cancel</Button>
         )}
 
-        <Button variant="outlined" onClick={handleSave} disabled={!!deployingSlug || saving}
-          startIcon={saving ? <CircularProgress size={18} color="inherit" /> : <SaveIcon />} sx={{ fontWeight: 600 }}>
+        <Button
+          variant="outlined"
+          onClick={handleSave}
+          disabled={!!deployingSlug || saving}
+          startIcon={saving ? <CircularProgress size={18} color="inherit" /> : <SaveIcon />}
+          sx={{ fontWeight: 600, flex: { xs: '1 1 auto', sm: '0 0 auto' } }}
+        >
           {saving ? 'Saving...' : 'Save Changes'}
         </Button>
 
-        <Box sx={{ flex: 1 }} />
+        <Box sx={{ flex: { xs: '1 1 100%', sm: 1 }, display: { xs: 'none', sm: 'block' } }} />
         {isSummaryStep ? (
-          <Button variant="contained" color="primary" size="large" onClick={handleDeployWithGit}
+          <Button
+            variant="contained"
+            color="primary"
+            size="large"
+            onClick={handleDeployWithGit}
             disabled={!!deployingSlug || saving}
             startIcon={deployingSlug ? <CircularProgress size={20} color="inherit" /> : <CloudUploadIcon />}
-            sx={{ fontWeight: 700, minWidth: { xs: '100%', sm: 220 } }}>
+            sx={{ fontWeight: 700, minWidth: { xs: '100%', sm: 220 }, flex: { xs: '1 1 100%', sm: '0 0 auto' } }}
+          >
             {deployingSlug ? 'DEPLOYING...' : 'Deploy with Git'}
           </Button>
         ) : (
-          <Button variant="contained" onClick={handleNext} disabled={!!deployingSlug || saving} sx={{ fontWeight: 600 }}>
+          <Button
+            variant="contained"
+            onClick={handleNext}
+            disabled={!!deployingSlug || saving}
+            sx={{ fontWeight: 600, flex: { xs: '1 1 auto', sm: '0 0 auto' } }}
+          >
             Continue
           </Button>
         )}

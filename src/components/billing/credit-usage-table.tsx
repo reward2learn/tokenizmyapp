@@ -8,6 +8,7 @@ import Stack from '@mui/material/Stack';
 import Table from '@mui/material/Table';
 import TableBody from '@mui/material/TableBody';
 import TableCell from '@mui/material/TableCell';
+import TableContainer from '@mui/material/TableContainer';
 import TableHead from '@mui/material/TableHead';
 import TableRow from '@mui/material/TableRow';
 import TextField from '@mui/material/TextField';
@@ -171,47 +172,49 @@ export function CreditUsageTable({ ledger }: { ledger: CreditLedgerEntry[] }) {
             {rows.length} of {ledger.length} shown · {spent} credit{spent === 1 ? '' : 's'} spent
             in this view
           </Typography>
-          <Table size="small">
-            <TableHead>
-              <TableRow>
-                <TableCell>When</TableCell>
-                <TableCell>Reason</TableCell>
-                <TableCell>Model</TableCell>
-                <TableCell>Tokens</TableCell>
-                <TableCell align="right">Credits</TableCell>
-              </TableRow>
-            </TableHead>
-            <TableBody>
-              {rows.map((entry) => {
-                const dir = directionOf(entry.delta);
-                return (
-                  <TableRow key={entry.id}>
-                    <TableCell>
-                      <Tooltip title={new Date(entry.createdAt).toLocaleString()}>
-                        <span>{new Date(entry.createdAt).toLocaleDateString()}</span>
-                      </Tooltip>
-                    </TableCell>
-                    <TableCell>{humanise(entry.reason)}</TableCell>
-                    <TableCell sx={{ fontSize: '0.78rem' }}>{modelOf(entry) ?? '—'}</TableCell>
-                    <TableCell sx={{ fontSize: '0.78rem' }}>{tokensOf(entry) ?? '—'}</TableCell>
-                    <TableCell align="right">
-                      {dir === 'exempt' ? (
-                        <Chip label="Exempt" size="small" variant="outlined" />
-                      ) : (
-                        <Typography
-                          variant="body2"
-                          color={dir === 'grant' ? 'success.main' : 'text.primary'}
-                          sx={{ fontVariantNumeric: 'tabular-nums' }}
-                        >
-                          {entry.delta > 0 ? `+${entry.delta}` : entry.delta}
-                        </Typography>
-                      )}
-                    </TableCell>
-                  </TableRow>
-                );
-              })}
-            </TableBody>
-          </Table>
+          <TableContainer sx={{ width: '100%', maxWidth: '100%', overflowX: 'auto' }}>
+            <Table size="small" sx={{ minWidth: 520 }}>
+              <TableHead>
+                <TableRow>
+                  <TableCell>When</TableCell>
+                  <TableCell>Reason</TableCell>
+                  <TableCell>Model</TableCell>
+                  <TableCell>Tokens</TableCell>
+                  <TableCell align="right">Credits</TableCell>
+                </TableRow>
+              </TableHead>
+              <TableBody>
+                {rows.map((entry) => {
+                  const dir = directionOf(entry.delta);
+                  return (
+                    <TableRow key={entry.id}>
+                      <TableCell>
+                        <Tooltip title={new Date(entry.createdAt).toLocaleString()}>
+                          <span>{new Date(entry.createdAt).toLocaleDateString()}</span>
+                        </Tooltip>
+                      </TableCell>
+                      <TableCell sx={{ wordBreak: 'break-word' }}>{humanise(entry.reason)}</TableCell>
+                      <TableCell sx={{ fontSize: '0.78rem', wordBreak: 'break-all', overflowWrap: 'anywhere' }}>{modelOf(entry) ?? '—'}</TableCell>
+                      <TableCell sx={{ fontSize: '0.78rem' }}>{tokensOf(entry) ?? '—'}</TableCell>
+                      <TableCell align="right">
+                        {dir === 'exempt' ? (
+                          <Chip label="Exempt" size="small" variant="outlined" />
+                        ) : (
+                          <Typography
+                            variant="body2"
+                            color={dir === 'grant' ? 'success.main' : 'text.primary'}
+                            sx={{ fontVariantNumeric: 'tabular-nums' }}
+                          >
+                            {entry.delta > 0 ? `+${entry.delta}` : entry.delta}
+                          </Typography>
+                        )}
+                      </TableCell>
+                    </TableRow>
+                  );
+                })}
+              </TableBody>
+            </Table>
+          </TableContainer>
         </>
       )}
     </Stack>

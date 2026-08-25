@@ -22,6 +22,7 @@ import Stack from '@mui/material/Stack';
 import Table from '@mui/material/Table';
 import TableBody from '@mui/material/TableBody';
 import TableCell from '@mui/material/TableCell';
+import TableContainer from '@mui/material/TableContainer';
 import TableHead from '@mui/material/TableHead';
 import TableRow from '@mui/material/TableRow';
 import TextField from '@mui/material/TextField';
@@ -105,17 +106,30 @@ export function TenantRoles({ tenantSlug, tenantName, appId }: TenantRolesProps)
   };
 
   return (
-    <Paper variant="outlined" sx={{ p: 3 }}>
-      <Stack direction="row" sx={{ mb: 2, alignItems: 'center', justifyContent: 'space-between' }}>
-        <Box>
-          <Typography variant="h6" sx={{ fontWeight: 700 }}>
+    <Paper variant="outlined" sx={{ p: 3, overflow: 'hidden', maxWidth: '100%' }}>
+      <Stack
+        direction={{ xs: 'column', sm: 'row' }}
+        spacing={1}
+        useFlexGap
+        sx={{
+          mb: 2,
+          alignItems: { xs: 'stretch', sm: 'center' },
+          justifyContent: 'space-between',
+          width: '100%',
+          minWidth: 0,
+          flexWrap: 'wrap',
+          rowGap: 1,
+        }}
+      >
+        <Box sx={{ minWidth: 0, flex: '1 1 200px' }}>
+          <Typography variant="h6" sx={{ fontWeight: 700, wordBreak: 'break-word' }}>
             Functional Roles — {tenantName || tenantSlug}
           </Typography>
           <Typography variant="body2" color="text.secondary">
             Roles define functional responsibilities. Tenant-scoped roles are prefixed with the tenant slug.
           </Typography>
         </Box>
-        <Stack direction="row" spacing={1}>
+        <Stack direction="row" spacing={1} useFlexGap sx={{ flexShrink: 0, flexWrap: 'wrap', alignItems: 'center' }}>
           <Button size="small" variant="outlined" startIcon={<RefreshIcon />} onClick={() => refetch()}>
             Refresh
           </Button>
@@ -135,52 +149,54 @@ export function TenantRoles({ tenantSlug, tenantName, appId }: TenantRolesProps)
       <Typography variant="subtitle2" sx={{ fontWeight: 600, mt: 3, mb: 1 }}>
         Tenant Roles ({tenantRoles.length})
       </Typography>
-      <Table size="small">
-        <TableHead>
-          <TableRow>
-            <TableCell>Role</TableCell>
-            <TableCell>Code</TableCell>
-            <TableCell>PIN Status</TableCell>
-            <TableCell align="right">Actions</TableCell>
-          </TableRow>
-        </TableHead>
-        <TableBody>
-          {tenantRoles.length === 0 ? (
+      <TableContainer sx={{ width: '100%', maxWidth: '100%', overflowX: 'auto' }}>
+        <Table size="small" sx={{ minWidth: 480 }}>
+          <TableHead>
             <TableRow>
-              <TableCell colSpan={4} align="center">
-                <Typography variant="body2" color="text.secondary">
-                  No tenant-specific roles. Create one to get started.
-                </Typography>
-              </TableCell>
+              <TableCell>Role</TableCell>
+              <TableCell>Code</TableCell>
+              <TableCell>PIN Status</TableCell>
+              <TableCell align="right">Actions</TableCell>
             </TableRow>
-          ) : (
-            tenantRoles.map((r) => (
-              <TableRow key={r.code}>
-                <TableCell sx={{ fontWeight: 600 }}>{r.name}</TableCell>
-                <TableCell sx={{ fontFamily: 'monospace', fontSize: '0.75rem' }}>{r.code}</TableCell>
-                <TableCell>
-                  {'pinConfigured' in r ? (
-                    (r as { pinConfigured: boolean }).pinConfigured ? (
-                      <Chip label="Configured" size="small" color="success" variant="outlined" />
-                    ) : (
-                      <Chip label="Not Set" size="small" color="warning" variant="outlined" />
-                    )
-                  ) : (
-                    <Chip label="—" size="small" variant="outlined" />
-                  )}
-                </TableCell>
-                <TableCell align="right">
-                  <Tooltip title="Set PIN">
-                    <IconButton size="small" onClick={() => setPinDialog({ code: r.code, name: r.name })}>
-                      <KeyIcon fontSize="small" />
-                    </IconButton>
-                  </Tooltip>
+          </TableHead>
+          <TableBody>
+            {tenantRoles.length === 0 ? (
+              <TableRow>
+                <TableCell colSpan={4} align="center">
+                  <Typography variant="body2" color="text.secondary">
+                    No tenant-specific roles. Create one to get started.
+                  </Typography>
                 </TableCell>
               </TableRow>
-            ))
-          )}
-        </TableBody>
-      </Table>
+            ) : (
+              tenantRoles.map((r) => (
+                <TableRow key={r.code}>
+                  <TableCell sx={{ fontWeight: 600, wordBreak: 'break-word' }}>{r.name}</TableCell>
+                  <TableCell sx={{ fontFamily: 'monospace', fontSize: '0.75rem', wordBreak: 'break-word', overflowWrap: 'anywhere' }}>{r.code}</TableCell>
+                  <TableCell>
+                    {'pinConfigured' in r ? (
+                      (r as { pinConfigured: boolean }).pinConfigured ? (
+                        <Chip label="Configured" size="small" color="success" variant="outlined" />
+                      ) : (
+                        <Chip label="Not Set" size="small" color="warning" variant="outlined" />
+                      )
+                    ) : (
+                      <Chip label="—" size="small" variant="outlined" />
+                    )}
+                  </TableCell>
+                  <TableCell align="right">
+                    <Tooltip title="Set PIN">
+                      <IconButton size="small" onClick={() => setPinDialog({ code: r.code, name: r.name })}>
+                        <KeyIcon fontSize="small" />
+                      </IconButton>
+                    </Tooltip>
+                  </TableCell>
+                </TableRow>
+              ))
+            )}
+          </TableBody>
+        </Table>
+      </TableContainer>
 
       {/* Global roles (read-only reference) */}
       {globalRoles.length > 0 && (
@@ -188,30 +204,32 @@ export function TenantRoles({ tenantSlug, tenantName, appId }: TenantRolesProps)
           <Typography variant="subtitle2" sx={{ fontWeight: 600, mt: 4, mb: 1 }}>
             Platform Roles (Reference)
           </Typography>
-          <Table size="small">
-            <TableHead>
-              <TableRow>
-                <TableCell>Role</TableCell>
-                <TableCell>Code</TableCell>
-                <TableCell>Type</TableCell>
-              </TableRow>
-            </TableHead>
-            <TableBody>
-              {globalRoles.map((r) => (
-                <TableRow key={r.code} sx={{ opacity: 0.7 }}>
-                  <TableCell>{r.name}</TableCell>
-                  <TableCell sx={{ fontFamily: 'monospace', fontSize: '0.75rem' }}>{r.code}</TableCell>
-                  <TableCell>
-                    {'isPlatformAdmin' in r && r.isPlatformAdmin ? (
-                      <Chip label="Platform Admin" size="small" color="primary" variant="outlined" />
-                    ) : (
-                      <Chip label="Standard" size="small" variant="outlined" />
-                    )}
-                  </TableCell>
+          <TableContainer sx={{ width: '100%', maxWidth: '100%', overflowX: 'auto' }}>
+            <Table size="small" sx={{ minWidth: 400 }}>
+              <TableHead>
+                <TableRow>
+                  <TableCell>Role</TableCell>
+                  <TableCell>Code</TableCell>
+                  <TableCell>Type</TableCell>
                 </TableRow>
-              ))}
-            </TableBody>
-          </Table>
+              </TableHead>
+              <TableBody>
+                {globalRoles.map((r) => (
+                  <TableRow key={r.code} sx={{ opacity: 0.7 }}>
+                    <TableCell sx={{ wordBreak: 'break-word' }}>{r.name}</TableCell>
+                    <TableCell sx={{ fontFamily: 'monospace', fontSize: '0.75rem', wordBreak: 'break-word', overflowWrap: 'anywhere' }}>{r.code}</TableCell>
+                    <TableCell>
+                      {'isPlatformAdmin' in r && r.isPlatformAdmin ? (
+                        <Chip label="Platform Admin" size="small" color="primary" variant="outlined" />
+                      ) : (
+                        <Chip label="Standard" size="small" variant="outlined" />
+                      )}
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </TableContainer>
         </>
       )}
 

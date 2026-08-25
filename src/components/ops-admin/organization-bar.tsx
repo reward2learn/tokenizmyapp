@@ -145,14 +145,14 @@ export function OrganizationBar({ tenantSlug }: { tenantSlug?: string | null }) 
     <>
       <Paper
         elevation={0}
-        sx={{ p: 2, mb: 2, border: '1px solid', borderColor: 'divider', bgcolor: 'background.paper' }}
+        sx={{ p: 2, mb: 2, border: '1px solid', borderColor: 'divider', bgcolor: 'background.paper', overflow: 'hidden', maxWidth: '100%' }}
       >
         <Stack
           direction={{ xs: 'column', sm: 'row' }}
           spacing={2}
           sx={{ alignItems: { xs: 'stretch', sm: 'center' } }}
         >
-          <FormControl size="small" sx={{ minWidth: 260, flex: 1 }}>
+          <FormControl size="small" sx={{ minWidth: 0, width: '100%', maxWidth: '100%', flex: 1 }}>
             {/*
               `shrink` and `notched` are required together with `displayEmpty`.
 
@@ -207,7 +207,20 @@ export function OrganizationBar({ tenantSlug }: { tenantSlug?: string | null }) 
           </FormControl>
 
           {activeOrg && (
-            <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
+            <Stack
+              direction="row"
+              spacing={0.5}
+              useFlexGap
+              sx={{
+                alignItems: 'center',
+                width: '100%',
+                minWidth: 0,
+                maxWidth: '100%',
+                flexWrap: 'wrap',
+                rowGap: 0.5,
+                flex: { sm: '0 1 auto' },
+              }}
+            >
               {/* Support asks users to read this out — keep it copyable. */}
               <Tooltip title="Copy organization ID">
                 <Chip
@@ -216,7 +229,16 @@ export function OrganizationBar({ tenantSlug }: { tenantSlug?: string | null }) 
                   variant="outlined"
                   onDelete={() => navigator.clipboard?.writeText(activeOrg.id)}
                   deleteIcon={<ContentCopyIcon sx={{ fontSize: 14 }} />}
-                  sx={{ fontFamily: 'var(--font-geist-mono, monospace)', fontSize: '0.7rem' }}
+                  sx={{
+                    fontFamily: 'var(--font-geist-mono, monospace)',
+                    fontSize: '0.7rem',
+                    maxWidth: '100%',
+                    '& .MuiChip-label': {
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis',
+                      wordBreak: 'break-all',
+                    },
+                  }}
                 />
               </Tooltip>
 
@@ -226,6 +248,7 @@ export function OrganizationBar({ tenantSlug }: { tenantSlug?: string | null }) 
                   variant="outlined"
                   onClick={handleMoveTenant}
                   disabled={isAssigning}
+                  sx={{ maxWidth: '100%', wordBreak: 'break-word' }}
                 >
                   {isAssigning ? 'Moving…' : `Move ${tenantSlug} here`}
                 </Button>
@@ -241,9 +264,6 @@ export function OrganizationBar({ tenantSlug }: { tenantSlug?: string | null }) 
               {subscription && subscription.status !== 'active' && (
                 <Chip label={subscription.status} size="small" color="warning" />
               )}
-
-
-
             </Stack>
           )}
 

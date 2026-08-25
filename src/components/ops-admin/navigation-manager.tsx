@@ -529,7 +529,12 @@ export function NavigationManager({ tenantSlug, appId }: NavigationManagerProps 
           borderColor: isDrop ? 'primary.main' : isHidden ? 'warning.light' : 'divider',
           opacity: isDrag ? 0.5 : isHidden ? 0.72 : 1,
           cursor: 'grab',
-          ml: item.depth * 3,
+          ml: { xs: Math.min(item.depth, 2) * 1.5, sm: item.depth * 3 },
+          flexWrap: 'wrap',
+          rowGap: 0.5,
+          minWidth: 0,
+          maxWidth: '100%',
+          overflow: 'hidden',
           '&:hover': { bgcolor: 'action.hover' },
           '&:active': { bgcolor: 'action.selected' },
         }}
@@ -551,7 +556,7 @@ export function NavigationManager({ tenantSlug, appId }: NavigationManagerProps 
             {collapsedIds.has(item.id) ? <ChevronRightIcon fontSize="small" /> : <ExpandMoreIcon fontSize="small" />}
           </IconButton>
         ) : (
-          <Box sx={{ width: 28 }} />
+          <Box sx={{ width: 28, flexShrink: 0 }} />
         )}
         <DragIndicatorIcon fontSize="small" color="disabled" sx={{ cursor: 'grab', flexShrink: 0 }} />
         {isHidden ? (
@@ -570,16 +575,16 @@ export function NavigationManager({ tenantSlug, appId }: NavigationManagerProps 
             <InsertDriveFileIcon fontSize="small" />
           )}
         </Box>
-        <Box sx={{ flex: 1, minWidth: 0 }}>
+        <Box sx={{ flex: '1 1 140px', minWidth: 0 }}>
           {internalPath ? (
             <Link href={internalPath} style={linkSx}>
               <Typography
                 variant="body2"
                 component="span"
-                sx={{ fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', display: 'inline-flex', alignItems: 'center', gap: 0.5 }}
+                sx={{ fontWeight: 600, wordBreak: 'break-word', display: 'inline-flex', alignItems: 'center', gap: 0.5 }}
               >
                 {item.title}
-                <OpenInNewIcon sx={{ fontSize: 14, opacity: 0.6 }} />
+                <OpenInNewIcon sx={{ fontSize: 14, opacity: 0.6, flexShrink: 0 }} />
               </Typography>
             </Link>
           ) : isExternalPath ? (
@@ -589,19 +594,24 @@ export function NavigationManager({ tenantSlug, appId }: NavigationManagerProps 
               href={item.path}
               target="_blank"
               rel="noopener noreferrer"
-              sx={{ fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: 'inherit', textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 0.5, '&:hover': { textDecoration: 'underline', color: 'primary.main' } }}
+              sx={{ fontWeight: 600, wordBreak: 'break-word', color: 'inherit', textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 0.5, '&:hover': { textDecoration: 'underline', color: 'primary.main' } }}
             >
               {item.title}
-              <OpenInNewIcon sx={{ fontSize: 14, opacity: 0.6 }} />
+              <OpenInNewIcon sx={{ fontSize: 14, opacity: 0.6, flexShrink: 0 }} />
             </Typography>
           ) : (
-            <Typography variant="body2" sx={{ fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            <Typography variant="body2" sx={{ fontWeight: 600, wordBreak: 'break-word' }}>
               {item.title}
             </Typography>
           )}
           {internalPath ? (
             <Link href={internalPath} style={linkSx}>
-              <Typography variant="caption" color="text.secondary" component="span" sx={{ display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              <Typography
+                variant="caption"
+                color="text.secondary"
+                component="span"
+                sx={{ display: 'block', wordBreak: 'break-all', overflowWrap: 'anywhere', maxWidth: '100%' }}
+              >
                 {item.path}
               </Typography>
             </Link>
@@ -613,34 +623,40 @@ export function NavigationManager({ tenantSlug, appId }: NavigationManagerProps 
               href={item.path}
               target="_blank"
               rel="noopener noreferrer"
-              sx={{ display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: 'text.secondary', textDecoration: 'none', '&:hover': { textDecoration: 'underline', color: 'primary.main' } }}
+              sx={{ display: 'block', wordBreak: 'break-all', overflowWrap: 'anywhere', maxWidth: '100%', color: 'text.secondary', textDecoration: 'none', '&:hover': { textDecoration: 'underline', color: 'primary.main' } }}
             >
               {item.path}
             </Typography>
           ) : (
-            <Typography variant="caption" color="text.secondary" sx={{ display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            <Typography
+              variant="caption"
+              color="text.secondary"
+              sx={{ display: 'block', wordBreak: 'break-all', overflowWrap: 'anywhere', maxWidth: '100%' }}
+            >
               {item.path || '(no path)'}
             </Typography>
           )}
         </Box>
-        {item.isDefault ? (
-          <Chip label="Default" size="small" color="primary" variant="filled" sx={{ height: 20, fontSize: { xs: '0.7rem', md: '0.75rem' } }} />
-        ) : item.path && !item.path.startsWith('http') ? (
-          <Chip
-            label="Set Default"
-            size="small"
-            variant="outlined"
-            clickable
-            onClick={() => handleSetDefault(item)}
-            sx={{ height: 20, fontSize: { xs: '0.7rem', md: '0.75rem' }, cursor: 'pointer' }}
-          />
-        ) : null}
-        <Chip label={item.authTier} size="small" variant="outlined" sx={{ height: 20, fontSize: { xs: '0.7rem', md: '0.75rem' } }} />
-        {item.requiredGroups ? (
-          <Chip label={item.requiredGroups} size="small" color="info" variant="outlined" sx={{ height: 20, fontSize: { xs: '0.7rem', md: '0.75rem' } }} />
-        ) : null}
-        <IconButton size="small" onClick={() => openEdit(item)}><EditIcon fontSize="small" /></IconButton>
-        <IconButton size="small" color="error" onClick={() => handleDelete(item.id)}><DeleteIcon fontSize="small" /></IconButton>
+        <Stack direction="row" spacing={0.5} useFlexGap sx={{ flexShrink: 0, flexWrap: 'wrap', alignItems: 'center' }}>
+          {item.isDefault ? (
+            <Chip label="Default" size="small" color="primary" variant="filled" sx={{ height: 20, fontSize: { xs: '0.7rem', md: '0.75rem' } }} />
+          ) : item.path && !item.path.startsWith('http') ? (
+            <Chip
+              label="Set Default"
+              size="small"
+              variant="outlined"
+              clickable
+              onClick={() => handleSetDefault(item)}
+              sx={{ height: 20, fontSize: { xs: '0.7rem', md: '0.75rem' }, cursor: 'pointer' }}
+            />
+          ) : null}
+          <Chip label={item.authTier} size="small" variant="outlined" sx={{ height: 20, fontSize: { xs: '0.7rem', md: '0.75rem' } }} />
+          {item.requiredGroups ? (
+            <Chip label={item.requiredGroups} size="small" color="info" variant="outlined" sx={{ height: 20, fontSize: { xs: '0.7rem', md: '0.75rem' }, maxWidth: 160 }} />
+          ) : null}
+          <IconButton size="small" onClick={() => openEdit(item)}><EditIcon fontSize="small" /></IconButton>
+          <IconButton size="small" color="error" onClick={() => handleDelete(item.id)}><DeleteIcon fontSize="small" /></IconButton>
+        </Stack>
       </Paper>
     );
   }
@@ -651,12 +667,30 @@ export function NavigationManager({ tenantSlug, appId }: NavigationManagerProps 
 
   return (
     <Stack spacing={3}>
-      <Paper variant="outlined" sx={{ p: 3 }}>
-        <Stack direction="row" sx={{ justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
-          <Typography variant="h6" sx={{ fontWeight: 700 }}>
+      <Paper variant="outlined" sx={{ p: 3, overflow: 'hidden', maxWidth: '100%' }}>
+        <Stack
+          direction={{ xs: 'column', sm: 'row' }}
+          spacing={1}
+          useFlexGap
+          sx={{
+            justifyContent: 'space-between',
+            alignItems: { xs: 'stretch', sm: 'center' },
+            mb: 2,
+            width: '100%',
+            minWidth: 0,
+            flexWrap: 'wrap',
+            rowGap: 1,
+          }}
+        >
+          <Typography variant="h6" sx={{ fontWeight: 700, minWidth: 0 }}>
             Navigation Manager
           </Typography>
-          <Stack direction="row" spacing={1}>
+          <Stack
+            direction="row"
+            spacing={1}
+            useFlexGap
+            sx={{ flexShrink: 0, flexWrap: 'wrap', alignItems: 'center', rowGap: 1 }}
+          >
             <Button
               variant="outlined"
               size="small"

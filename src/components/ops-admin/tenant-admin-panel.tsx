@@ -179,7 +179,7 @@ export function TenantAdminPanel() {
       {/* Tenant Selector */}
       <Paper elevation={0} sx={{ p: 2, mb: 3, border: '1px solid', borderColor: 'divider', bgcolor: 'background.paper' }}>
         <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} sx={{ alignItems: { xs: 'stretch', sm: 'center' } }}>
-          <FormControl size="small" sx={{ minWidth: 280, flex: 1 }}>
+          <FormControl size="small" sx={{ minWidth: 0, width: '100%', maxWidth: '100%', flex: 1 }}>
             <InputLabel id="tenant-selector-label">Select Tenant</InputLabel>
             <Select
               labelId="tenant-selector-label"
@@ -233,7 +233,20 @@ export function TenantAdminPanel() {
           </FormControl>
 
           {selectedTenant && (
-            <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
+            <Stack
+              direction="row"
+              spacing={0.5}
+              useFlexGap
+              sx={{
+                alignItems: 'center',
+                width: '100%',
+                minWidth: 0,
+                maxWidth: '100%',
+                flexWrap: 'wrap',
+                rowGap: 0.5,
+                flex: { sm: '0 1 auto' },
+              }}
+            >
               <Chip
                 label={getTemplate(selectedTenant.template).label}
                 size="small"
@@ -252,26 +265,28 @@ export function TenantAdminPanel() {
                 size="small"
                 color={selectedTenant.status === 'live' ? 'success' : selectedTenant.status === 'error' ? 'error' : 'default'}
               />
-              <Tooltip title="Edit tenant configuration">
-                <IconButton size="small" onClick={() => setEditModalOpen(true)} aria-label="Edit tenant">
-                  <EditIcon fontSize="small" />
-                </IconButton>
-              </Tooltip>
-              <Tooltip title="Unified App Bundle — tenant-level, not per-app">
-                <IconButton
-                  size="small"
-                  onClick={() => setShowAppBundle((v) => !v)}
-                  aria-label="Toggle Unified App Bundle"
-                  color={showAppBundle ? 'primary' : 'default'}
-                >
-                  <AutoFixHighIcon fontSize="small" />
-                </IconButton>
-              </Tooltip>
-              <Tooltip title="Clear selection — back to all tenants">
-                <IconButton size="small" onClick={handleClearSelection} aria-label="Clear tenant selection">
-                  <ClearIcon fontSize="small" />
-                </IconButton>
-              </Tooltip>
+              <Stack direction="row" spacing={0.5} useFlexGap sx={{ flexShrink: 0, flexWrap: 'wrap', alignItems: 'center' }}>
+                <Tooltip title="Edit tenant configuration">
+                  <IconButton size="small" onClick={() => setEditModalOpen(true)} aria-label="Edit tenant">
+                    <EditIcon fontSize="small" />
+                  </IconButton>
+                </Tooltip>
+                <Tooltip title="Unified App Bundle — tenant-level, not per-app">
+                  <IconButton
+                    size="small"
+                    onClick={() => setShowAppBundle((v) => !v)}
+                    aria-label="Toggle Unified App Bundle"
+                    color={showAppBundle ? 'primary' : 'default'}
+                  >
+                    <AutoFixHighIcon fontSize="small" />
+                  </IconButton>
+                </Tooltip>
+                <Tooltip title="Clear selection — back to all tenants">
+                  <IconButton size="small" onClick={handleClearSelection} aria-label="Clear tenant selection">
+                    <ClearIcon fontSize="small" />
+                  </IconButton>
+                </Tooltip>
+              </Stack>
             </Stack>
           )}
         </Stack>
@@ -298,9 +313,32 @@ export function TenantAdminPanel() {
           {/* Apps under this tenant */}
           {selectedTenant && (
             <Paper elevation={0} sx={{ mb: 3, p: 2, border: '1px solid', borderColor: 'divider', bgcolor: 'background.paper' }}>
-              <Stack direction="row" sx={{ alignItems: 'center', justifyContent: 'space-between', mb: 2 }}>
-                <Typography variant="subtitle2" sx={{ fontWeight: 600, display: 'flex', alignItems: 'center', gap: 1 }}>
-                  <ApartmentIcon fontSize="small" />
+              <Stack
+                direction={{ xs: 'column', sm: 'row' }}
+                spacing={1}
+                useFlexGap
+                sx={{
+                  alignItems: { xs: 'stretch', sm: 'center' },
+                  justifyContent: 'space-between',
+                  mb: 2,
+                  width: '100%',
+                  minWidth: 0,
+                  flexWrap: 'wrap',
+                  rowGap: 1,
+                }}
+              >
+                <Typography
+                  variant="subtitle2"
+                  sx={{
+                    fontWeight: 600,
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 1,
+                    minWidth: 0,
+                    wordBreak: 'break-word',
+                  }}
+                >
+                  <ApartmentIcon fontSize="small" sx={{ flexShrink: 0 }} />
                   {isSuite && selectedAppPack
                     ? `Suite Hierarchy — ${selectedAppPack.name} (${tenantApps.length} apps)`
                     : 'Apps'}

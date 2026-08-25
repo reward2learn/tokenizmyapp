@@ -580,27 +580,44 @@ export function TenantDashboard() {
               Manage registered tenant applications. Create new tenants, monitor deployment status, and configure settings.
             </Typography>
           </Box>
-          <Stack direction="row" spacing={1} sx={{ alignItems: 'center', flexShrink: 0, justifyContent: { xs: 'flex-end', sm: 'unset' } }}>
+          <Stack
+            direction={{ xs: 'column', sm: 'row' }}
+            spacing={1}
+            useFlexGap
+            sx={{
+              alignItems: { xs: 'stretch', sm: 'center' },
+              flexShrink: 0,
+              flexWrap: 'wrap',
+              rowGap: 1,
+              width: { xs: '100%', sm: 'auto' },
+              minWidth: 0,
+              maxWidth: '100%',
+            }}
+          >
             <Tooltip title="Redeploy only apps registered in the DB. Other Vercel projects are listed but not redeployed.">
               <span>
                 <Button
                   variant="outlined"
                   size="small"
+                  fullWidth
                   startIcon={isHotDeploying ? <CircularProgress size={14} /> : <RocketLaunchIcon />}
                   onClick={() => void handleHotDeployRegistered()}
                   disabled={isHotDeploying}
+                  sx={{ width: { xs: '100%', sm: 'auto' } }}
                 >
                   Hot Deploy (DB apps)
                 </Button>
               </span>
             </Tooltip>
-            <Tooltip title="Refresh">
-              <IconButton onClick={() => refetch()} size="small">
-                <RefreshIcon />
-              </IconButton>
-            </Tooltip>
-            <VercelConnectButton />
-            <TenantWizard />
+            <Stack direction="row" spacing={1} useFlexGap sx={{ flexWrap: 'wrap', alignItems: 'center', justifyContent: { xs: 'flex-start', sm: 'unset' } }}>
+              <Tooltip title="Refresh">
+                <IconButton onClick={() => refetch()} size="small">
+                  <RefreshIcon />
+                </IconButton>
+              </Tooltip>
+              <VercelConnectButton />
+              <TenantWizard />
+            </Stack>
           </Stack>
         </Stack>
 

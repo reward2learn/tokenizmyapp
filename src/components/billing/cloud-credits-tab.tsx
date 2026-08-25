@@ -10,6 +10,7 @@ import Stack from '@mui/material/Stack';
 import Table from '@mui/material/Table';
 import TableBody from '@mui/material/TableBody';
 import TableCell from '@mui/material/TableCell';
+import TableContainer from '@mui/material/TableContainer';
 import TableHead from '@mui/material/TableHead';
 import TableRow from '@mui/material/TableRow';
 import Tooltip from '@mui/material/Tooltip';
@@ -84,8 +85,8 @@ export function CloudCreditsTab({ orgId }: { orgId: string }) {
         remaining Phase 5 work; see <code>/api/cron/cloud-credits</code>.
       </Alert>
 
-      <Box sx={{ overflowX: 'auto' }}>
-        <Table size="small">
+      <TableContainer sx={{ width: '100%', maxWidth: '100%', overflowX: 'auto' }}>
+        <Table size="small" sx={{ minWidth: 520 }}>
           <TableHead>
             <TableRow>
               <TableCell>Resource</TableCell>
@@ -101,7 +102,7 @@ export function CloudCreditsTab({ orgId }: { orgId: string }) {
               return (
                 <TableRow key={r.resource}>
                   <TableCell>
-                    <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
+                    <Stack direction="row" spacing={1} useFlexGap sx={{ alignItems: 'center', flexWrap: 'wrap' }}>
                       <span>{r.label}</span>
                       {!metered && (
                         <Tooltip title="No collector is reading this resource yet">
@@ -136,7 +137,7 @@ export function CloudCreditsTab({ orgId }: { orgId: string }) {
             })}
           </TableBody>
         </Table>
-      </Box>
+      </TableContainer>
     </Stack>
   );
 }

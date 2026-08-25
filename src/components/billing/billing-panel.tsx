@@ -16,6 +16,7 @@ import Tab from '@mui/material/Tab';
 import Table from '@mui/material/Table';
 import TableBody from '@mui/material/TableBody';
 import TableCell from '@mui/material/TableCell';
+import TableContainer from '@mui/material/TableContainer';
 import TableHead from '@mui/material/TableHead';
 import TableRow from '@mui/material/TableRow';
 import Tabs from '@mui/material/Tabs';
@@ -878,52 +879,54 @@ function InvoicesTab({ orgId }: { orgId: string }) {
   }
 
   return (
-    <Table size="small">
-      <TableHead>
-        <TableRow>
-          <TableCell>Invoice</TableCell>
-          <TableCell>Date</TableCell>
-          <TableCell>Period</TableCell>
-          <TableCell>Status</TableCell>
-          <TableCell align="right">Amount</TableCell>
-          <TableCell />
-        </TableRow>
-      </TableHead>
-      <TableBody>
-        {invoices.map((invoice) => (
-          <TableRow key={invoice.id}>
-            <TableCell>{invoice.number ?? invoice.id}</TableCell>
-            <TableCell>{new Date(invoice.created).toLocaleDateString()}</TableCell>
-            <TableCell>
-              {new Date(invoice.periodStart).toLocaleDateString()} –{' '}
-              {new Date(invoice.periodEnd).toLocaleDateString()}
-            </TableCell>
-            <TableCell>
-              <Chip
-                label={invoice.status ?? 'unknown'}
-                size="small"
-                color={invoice.status === 'paid' ? 'success' : 'default'}
-                variant="outlined"
-              />
-            </TableCell>
-            <TableCell align="right" sx={{ fontVariantNumeric: 'tabular-nums' }}>
-              {formatMoney(invoice.amountPaid || invoice.amountDue, invoice.currency)}
-            </TableCell>
-            <TableCell align="right">
-              {invoice.hostedInvoiceUrl && (
-                <Link
-                  href={invoice.hostedInvoiceUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.5 }}
-                >
-                  View <OpenInNewIcon sx={{ fontSize: 14 }} />
-                </Link>
-              )}
-            </TableCell>
+    <TableContainer sx={{ width: '100%', maxWidth: '100%', overflowX: 'auto' }}>
+      <Table size="small" sx={{ minWidth: 560 }}>
+        <TableHead>
+          <TableRow>
+            <TableCell>Invoice</TableCell>
+            <TableCell>Date</TableCell>
+            <TableCell>Period</TableCell>
+            <TableCell>Status</TableCell>
+            <TableCell align="right">Amount</TableCell>
+            <TableCell />
           </TableRow>
-        ))}
-      </TableBody>
-    </Table>
+        </TableHead>
+        <TableBody>
+          {invoices.map((invoice) => (
+            <TableRow key={invoice.id}>
+              <TableCell sx={{ wordBreak: 'break-word', overflowWrap: 'anywhere' }}>{invoice.number ?? invoice.id}</TableCell>
+              <TableCell>{new Date(invoice.created).toLocaleDateString()}</TableCell>
+              <TableCell>
+                {new Date(invoice.periodStart).toLocaleDateString()} –{' '}
+                {new Date(invoice.periodEnd).toLocaleDateString()}
+              </TableCell>
+              <TableCell>
+                <Chip
+                  label={invoice.status ?? 'unknown'}
+                  size="small"
+                  color={invoice.status === 'paid' ? 'success' : 'default'}
+                  variant="outlined"
+                />
+              </TableCell>
+              <TableCell align="right" sx={{ fontVariantNumeric: 'tabular-nums' }}>
+                {formatMoney(invoice.amountPaid || invoice.amountDue, invoice.currency)}
+              </TableCell>
+              <TableCell align="right">
+                {invoice.hostedInvoiceUrl && (
+                  <Link
+                    href={invoice.hostedInvoiceUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.5 }}
+                  >
+                    View <OpenInNewIcon sx={{ fontSize: 14 }} />
+                  </Link>
+                )}
+              </TableCell>
+            </TableRow>
+          ))}
+        </TableBody>
+      </Table>
+    </TableContainer>
   );
 }
