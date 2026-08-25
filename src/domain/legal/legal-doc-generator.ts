@@ -225,6 +225,7 @@ function formatAuthTierLabel(tier: string): string {
 export function buildLegalDocContext(
   analysis?: WorkbookAnalysis | null,
   catalogPages?: PageDefinition[],
+  overrides?: Partial<Pick<LegalDocContext, 'businessName' | 'tenantSlug' | 'description' | 'appUrl' | 'templateId' | 'templateLabel' | 'domain' | 'currency' | 'capabilities'>>,
 ): LegalDocContext {
   const tenant = getTenantConfig();
   const identity = getTemplateIdentity();
@@ -239,7 +240,7 @@ export function buildLegalDocContext(
   const workbook = analysis
     ? {
         fileName: analysis.fileName,
-        company: analysis.company || tenant.displayName,
+        company: analysis.company || overrides?.businessName || tenant.displayName,
         period: analysis.period || 'Not specified',
         sheetCount: analysis.sheetCount,
         categories: analysis.categoriesFound,
@@ -249,24 +250,28 @@ export function buildLegalDocContext(
     : null;
 
   const businessName =
-    workbook?.company?.trim() || tenant.displayName || 'the Business';
+    overrides?.businessName?.trim() ||
+    workbook?.company?.trim() ||
+    tenant.displayName ||
+    'the Business';
 
+  const capabilities = overrides?.capabilities ?? profile.capabilities;
   const capabilityClauses = buildCapabilityLegalClauses(
-    profile.capabilities,
+    capabilities,
     workbook?.categories ?? [],
     pages,
   );
 
   return {
     businessName,
-    tenantSlug: tenant.slug,
-    description: tenant.description,
-    appUrl: getTenantAppUrl(),
-    templateId: identity.id || 'default',
-    templateLabel: identity.label || 'Business application',
-    domain: profile.domain,
-    currency: profile.currency,
-    capabilities: profile.capabilities,
+    tenantSlug: overrides?.tenantSlug ?? tenant.slug,
+    description: overrides?.description ?? tenant.description,
+    appUrl: overrides?.appUrl ?? getTenantAppUrl(),
+    templateId: overrides?.templateId ?? (identity.id || 'default'),
+    templateLabel: overrides?.templateLabel ?? (identity.label || 'Business application'),
+    domain: overrides?.domain ?? profile.domain,
+    currency: overrides?.currency ?? profile.currency,
+    capabilities,
     capabilityClauses,
     pages,
     workbook,
@@ -564,8 +569,9 @@ export function generatePrivacyPolicy(ctx: LegalDocContext): string {
 export function generateLegalDocuments(
   analysis?: WorkbookAnalysis | null,
   catalogPages?: PageDefinition[],
+  overrides?: Parameters<typeof buildLegalDocContext>[2],
 ): GeneratedLegalDocs {
-  const context = buildLegalDocContext(analysis, catalogPages);
+  const context = buildLegalDocContext(analysis, catalogPages, overrides);
   return {
     termsMarkdown: generateTermsOfService(context),
     privacyMarkdown: generatePrivacyPolicy(context),

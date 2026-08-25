@@ -324,6 +324,23 @@ export const tenantApi = createApi({
       invalidatesTags: ['Tenants'],
     }),
 
+    generateTenantLegalDocs: builder.mutation<
+      ApiEnvelope<{
+        generated: boolean;
+        updated: number;
+        failed: number;
+        message?: string;
+        results?: Array<{ appId: string; ok: boolean; businessName?: string; error?: string }>;
+      }>,
+      string
+    >({
+      query: (slug) => ({
+        url: `admin/tenants/${slug}/generate-legal-docs`,
+        method: 'POST',
+      }),
+      invalidatesTags: ['Tenants'],
+    }),
+
     migrateTenant: builder.mutation<ApiEnvelope<{ migrated: boolean; results?: Record<string, string> }>, string>({
       query: (slug) => ({
         url: `admin/tenants/${slug}/migrate`,
@@ -1015,6 +1032,7 @@ export const {
   useUpsertTenantUserMutation,
   useDeleteTenantUserMutation,
   useSeedTenantMutation,
+  useGenerateTenantLegalDocsMutation,
   useMigrateTenantMutation,
   useDeployTenantMutation,
   useGetDeployStatusQuery,

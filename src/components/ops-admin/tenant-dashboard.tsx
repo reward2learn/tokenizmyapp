@@ -51,6 +51,7 @@ import ApartmentIcon from '@mui/icons-material/Apartment';
 import AddBoxIcon from '@mui/icons-material/AddBox';
 import CreditCardIcon from '@mui/icons-material/CreditCard';
 import SyncIcon from '@mui/icons-material/Sync';
+import GavelIcon from '@mui/icons-material/Gavel';
 import SelectAllIcon from '@mui/icons-material/SelectAll';
 import ExpandLessIcon from '@mui/icons-material/ExpandLess';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
@@ -58,6 +59,7 @@ import {
   useListTenantsQuery,
   useDeleteTenantMutation,
   useSeedTenantMutation,
+  useGenerateTenantLegalDocsMutation,
   useMigrateTenantMutation,
   useDeployTenantMutation,
   useUpdateTenantMutation,
@@ -203,6 +205,7 @@ export function TenantDashboard() {
 
   // Seed/migrate state
   const [seedTenant, { isLoading: isSeeding }] = useSeedTenantMutation();
+  const [generateLegalDocs, { isLoading: isGeneratingLegal }] = useGenerateTenantLegalDocsMutation();
   const [migrateTenant, { isLoading: isMigrating }] = useMigrateTenantMutation();
   const [deployToVercel, { isLoading: isDeploying }] = useDeployTenantMutation();
   const [hotDeployRegistered, { isLoading: isHotDeploying }] = useHotDeployRegisteredMutation();
@@ -289,6 +292,23 @@ export function TenantDashboard() {
       }
     } catch {
       setSnackbar({ message: 'Failed to seed tenant', severity: 'error' });
+    }
+  };
+
+  const handleGenerateLegalDocs = async (slug: string) => {
+    handleMenuClose();
+    try {
+      const result = await generateLegalDocs(slug).unwrap();
+      const d = result.data;
+      setSnackbar({
+        message:
+          d?.message ??
+          `Legal docs updated for ${d?.updated ?? 0} app(s)` +
+            ((d?.failed ?? 0) > 0 ? `; ${d?.failed} failed` : ''),
+        severity: (d?.failed ?? 0) > 0 ? 'error' : 'success',
+      });
+    } catch {
+      setSnackbar({ message: 'Failed to generate legal docs', severity: 'error' });
     }
   };
 
@@ -768,6 +788,10 @@ export function TenantDashboard() {
                           <ListItemIcon><SyncIcon fontSize="small" /></ListItemIcon>
                           <ListItemText>Sync All DB Schemas</ListItemText>
                         </MenuItem>
+                        <MenuItem onClick={() => void handleGenerateLegalDocs(t.slug)} disabled={isGeneratingLegal}>
+                          <ListItemIcon><GavelIcon fontSize="small" /></ListItemIcon>
+                          <ListItemText>{isGeneratingLegal ? 'Generating…' : 'Generate Legal Docs'}</ListItemText>
+                        </MenuItem>
                         <MenuItem onClick={() => { handleMenuClose(); void handleBulkSuiteAction(t.slug, suite, 'deploy'); }} disabled={isDeploying}>
                           <ListItemIcon><CloudUploadIcon fontSize="small" /></ListItemIcon>
                           <ListItemText>Deploy All Apps</ListItemText>
@@ -783,6 +807,12 @@ export function TenantDashboard() {
                       <ListItemIcon><BuildIcon fontSize="small" /></ListItemIcon>
                       <ListItemText>{isMigrating ? 'Syncing…' : 'Sync DB Schema'}</ListItemText>
                     </MenuItem>
+                    {!isSuite ? (
+                      <MenuItem onClick={() => void handleGenerateLegalDocs(t.slug)} disabled={isGeneratingLegal}>
+                        <ListItemIcon><GavelIcon fontSize="small" /></ListItemIcon>
+                        <ListItemText>{isGeneratingLegal ? 'Generating…' : 'Generate Legal Docs'}</ListItemText>
+                      </MenuItem>
+                    ) : null}
                     {(() => {
                       const cfg = (t.metadata as Record<string, unknown>)?.config as Record<string, unknown> || {};
                       const hookUrl = ((cfg.hooks as Record<string, unknown>)?.deployHookUrl as string) || '';
@@ -944,6 +974,10 @@ export function TenantDashboard() {
                                   <ListItemIcon><SyncIcon fontSize="small" /></ListItemIcon>
                                   <ListItemText>Sync All DB Schemas</ListItemText>
                                 </MenuItem>
+                                <MenuItem onClick={() => void handleGenerateLegalDocs(t.slug)} disabled={isGeneratingLegal}>
+                                  <ListItemIcon><GavelIcon fontSize="small" /></ListItemIcon>
+                                  <ListItemText>{isGeneratingLegal ? 'Generating…' : 'Generate Legal Docs'}</ListItemText>
+                                </MenuItem>
                                 <MenuItem onClick={() => { handleMenuClose(); void handleBulkSuiteAction(t.slug, suite!, 'deploy'); }} disabled={isDeploying}>
                                   <ListItemIcon><CloudUploadIcon fontSize="small" /></ListItemIcon>
                                   <ListItemText>Deploy All Apps</ListItemText>
@@ -959,6 +993,12 @@ export function TenantDashboard() {
                               <ListItemIcon><BuildIcon fontSize="small" /></ListItemIcon>
                               <ListItemText>{isMigrating ? 'Syncing…' : 'Sync DB Schema'}</ListItemText>
                             </MenuItem>
+                            {!isSuite ? (
+                              <MenuItem onClick={() => void handleGenerateLegalDocs(t.slug)} disabled={isGeneratingLegal}>
+                                <ListItemIcon><GavelIcon fontSize="small" /></ListItemIcon>
+                                <ListItemText>{isGeneratingLegal ? 'Generating…' : 'Generate Legal Docs'}</ListItemText>
+                              </MenuItem>
+                            ) : null}
                             {(() => {
                               const cfg = (t.metadata as Record<string, unknown>)?.config as Record<string, unknown> || {};
                               const hookUrl = ((cfg.hooks as Record<string, unknown>)?.deployHookUrl as string) || '';
