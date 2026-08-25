@@ -46,8 +46,23 @@ function connectionLimit(): number {
   return process.env.VERCEL ? 1 : 10;
 }
 
+/**
+ * Keep today's secure SSL semantics without the pg-connection-string warning.
+ * Neon / Vercel often ship `sslmode=require`; node-pg currently aliases that to
+ * verify-full and will change meaning in pg v9 — pin verify-full explicitly.
+ */
+export function withExplicitVerifyFullSsl(url: string): string {
+  if (!url || url.includes('sslmode=disable') || url.includes('sslmode=verify-full')) {
+    return url;
+  }
+  if (/[?&]sslmode=(prefer|require|verify-ca)\b/i.test(url)) {
+    return url.replace(/([?&])sslmode=(prefer|require|verify-ca)\b/gi, '$1sslmode=verify-full');
+  }
+  return `${url}${url.includes('?') ? '&' : '?'}sslmode=verify-full`;
+}
+
 function getPostgresUrl(): string {
-  const url = process.env.POSTGRES_URL ?? process.env.DATABASE_URL;
+  const url = withExplicitVerifyFullSsl(process.env.POSTGRES_URL ?? process.env.DATABASE_URL ?? '');
   if (!url) {
     throw new Error('POSTGRES_URL is not set');
   }

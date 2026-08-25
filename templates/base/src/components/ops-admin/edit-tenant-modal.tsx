@@ -1839,7 +1839,7 @@ export function EditTenantModal({ open, tenant, onClose, onSnackbar }: EditTenan
           setDbConfig({ dbUrl: url, pooledUrl: url, directUrl: url.replace('-pooler', '') });
         }}
         fullWidth multiline rows={2}
-        placeholder="postgresql://user:pass@ep-xxx-pooler.neon.tech/db?sslmode=require"
+        placeholder="postgresql://user:pass@ep-xxx-pooler.neon.tech/db?sslmode=verify-full"
         slotProps={{ input: { sx: { fontFamily: 'monospace', fontSize: '0.8rem' } } }}
       />
       <TextField

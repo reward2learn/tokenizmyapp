@@ -118,18 +118,20 @@ export function formatNeonConnectionStrings(
   const effectivePooled = pooledUrl || directUrl.replace('.neon.tech', '-pooler.neon.tech');
   const effectiveDirect = directUrl || pooledUrl.replace('-pooler', '');
 
-  // Build all connection string variants
-  const pooledParams = 'channel_binding=require&sslmode=require';
-  const directParams = 'sslmode=require';
+  // Build all connection string variants.
+  // sslmode=verify-full matches current pg/node behavior for `require` and
+  // avoids the pg-connection-string v3 deprecation warning on builds.
+  const pooledParams = 'channel_binding=require&sslmode=verify-full';
+  const directParams = 'sslmode=verify-full';
 
   const databaseUrl = `${effectivePooled.includes('?') ? effectivePooled : effectivePooled + '?' + pooledParams}`;
   const databaseUrlUnpooled = `${effectiveDirect.includes('?') ? effectiveDirect : effectiveDirect + '?' + directParams}`;
 
   // Build the POSTGRES_* variants (matching Vercel integration format)
   const postgresUrl = databaseUrl;
-  const postgresUrlNonPooling = `${effectiveDirect.includes('?') ? effectiveDirect.split('?')[0] : effectiveDirect}?channel_binding=require&sslmode=require`;
+  const postgresUrlNonPooling = `${effectiveDirect.includes('?') ? effectiveDirect.split('?')[0] : effectiveDirect}?channel_binding=require&sslmode=verify-full`;
   const postgresUrlNoSsl = effectivePooled.split('?')[0];
-  const postgresPrismaUrl = `${effectivePooled.split('?')[0]}?channel_binding=require&connect_timeout=15&sslmode=require`;
+  const postgresPrismaUrl = `${effectivePooled.split('?')[0]}?channel_binding=require&connect_timeout=15&sslmode=verify-full`;
 
   const envVars: Record<string, string> = {
     DATABASE_URL: databaseUrl,

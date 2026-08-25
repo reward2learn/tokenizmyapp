@@ -38,6 +38,22 @@ function withConnectTimeout(url) {
   return `${url}${url.includes('?') ? '&' : '?'}connect_timeout=${Math.ceil(connectTimeoutMs / 1000)}`;
 }
 
+/**
+ * pg-connection-string currently treats prefer/require/verify-ca as verify-full
+ * and warns that v3 will change that. Opt into today's secure semantics explicitly
+ * so Neon URLs (`sslmode=require`) stop emitting the build warning.
+ * See https://www.postgresql.org/docs/current/libpq-ssl.html
+ */
+function withExplicitVerifyFullSsl(url) {
+  if (!url || url.includes('sslmode=disable') || url.includes('sslmode=verify-full')) {
+    return url;
+  }
+  if (/[?&]sslmode=(prefer|require|verify-ca)\b/i.test(url)) {
+    return url.replace(/([?&])sslmode=(prefer|require|verify-ca)\b/gi, '$1sslmode=verify-full');
+  }
+  return `${url}${url.includes('?') ? '&' : '?'}sslmode=verify-full`;
+}
+
 /** Derive a direct Neon host from a pooler URL when no unpooled env is set. */
 function poolerToDirect(url) {
   if (!url || !isPoolerHost(url)) return null;
@@ -81,8 +97,11 @@ function candidateUrls() {
 
   const add = (raw) => {
     if (!raw || seen.has(raw)) return;
+    const normalized = withExplicitVerifyFullSsl(raw);
+    if (seen.has(normalized)) return;
     seen.add(raw);
-    urls.push(withConnectTimeout(raw));
+    seen.add(normalized);
+    urls.push(withConnectTimeout(normalized));
   };
 
   const pooled = process.env.POSTGRES_URL ?? process.env.DATABASE_URL ?? '';

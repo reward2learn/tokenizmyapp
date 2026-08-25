@@ -382,8 +382,8 @@ async function getConnectionStrings(
         const directHost = ep.hosts?.read_write_host ?? ep.host;
         const pooledHost = ep.hosts?.read_write_pooled_host ?? derivePooledHost(directHost);
 
-        directUrl = `postgresql://${pgUser}:${pgPass}@${directHost}/${pgDb}?sslmode=require`;
-        pooledUrl = `postgresql://${pgUser}:${pgPass}@${pooledHost}/${pgDb}?sslmode=require`;
+        directUrl = `postgresql://${pgUser}:${pgPass}@${directHost}/${pgDb}?sslmode=verify-full`;
+        pooledUrl = `postgresql://${pgUser}:${pgPass}@${pooledHost}/${pgDb}?sslmode=verify-full`;
       }
 
       // Fallback: derive pooled from direct
