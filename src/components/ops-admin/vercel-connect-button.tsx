@@ -5,7 +5,7 @@ import IconButton from '@mui/material/IconButton';
 import Tooltip from '@mui/material/Tooltip';
 import Box from '@mui/material/Box';
 import OpenInNewIcon from '@mui/icons-material/OpenInNew';
-import CheckCircleOutlineIcon from '@mui/icons-material/CheckCircleOutline';
+import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import { useGetVercelTokenStatusQuery } from '@/store/apis/config-api';
 
 export function VercelConnectButton() {
@@ -34,7 +34,7 @@ export function VercelConnectButton() {
       <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
         <Tooltip title="Vercel is connected and ready for auto-deploy">
           <Chip
-            icon={<CheckCircleOutlineIcon />}
+            icon={<CheckCircleIcon />}
             label="Vercel"
             size="small"
             color="success"
