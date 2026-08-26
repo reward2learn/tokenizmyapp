@@ -128,7 +128,9 @@ import {
   useUpdateRoleMutation,
   useDeleteRoleMutation,
   useSetRolePinMutation,
+  useUpdateAdminBrandConfigMutation,
 } from '@/store/apis/admin-api';
+import { BrandColorFields, brandColorFormData } from '@/components/branding/brand-color-fields';
 import {
   useListOrganizationsQuery,
   useGetTenantOrganizationQuery,
@@ -491,6 +493,7 @@ export function EditTenantModal({ open, tenant, onClose, onSnackbar }: EditTenan
   const [roleSaving, setRoleSaving] = useState(false);
 
   const [updateTenant] = useUpdateTenantMutation();
+  const [updateBrandConfig] = useUpdateAdminBrandConfigMutation();
   const [uploadFavicon, { isLoading: uploadingFavicon }] = useUploadTenantFaviconMutation();
   const [removeFavicon] = useRemoveTenantFaviconMutation();
   const [uploadTenantLoadingGraphic, { isLoading: uploadingLoadingGraphic }] = useUploadTenantLoadingGraphicMutation();
@@ -1021,6 +1024,14 @@ export function EditTenantModal({ open, tenant, onClose, onSnackbar }: EditTenan
       if (!result.success) {
         throw new Error(result.error || 'Save failed');
       }
+      try {
+        await updateBrandConfig({
+          data: brandColorFormData(editPrimaryColor, editSecondaryColor),
+          tenantSlug: tenant.slug,
+        }).unwrap();
+      } catch {
+        // Registry colors saved — app_settings sync is best-effort
+      }
       let message = `✅ ${tenant.displayName} saved successfully`;
       // Persist the organization assignment (billing owner) when changed.
       if (orgId && orgId !== currentOrg?.id) {
@@ -1072,7 +1083,7 @@ export function EditTenantModal({ open, tenant, onClose, onSnackbar }: EditTenan
     } finally {
       setSaving(false);
     }
-  }, [tenant, displayName, editTemplate, editPrimaryColor, editSecondaryColor, license, googleOAuth, dbConfig, envPairs, deployHookUrl, vercelProjectId, adminEmail, pinSignInEnabled, updateTenant, onSnackbar, orgId, currentOrg, organizations, assignTenantOrg, stripeKeys, pushStripeEnv]);
+  }, [tenant, displayName, editTemplate, editPrimaryColor, editSecondaryColor, license, googleOAuth, dbConfig, envPairs, deployHookUrl, vercelProjectId, adminEmail, pinSignInEnabled, updateTenant, updateBrandConfig, onSnackbar, orgId, currentOrg, organizations, assignTenantOrg, stripeKeys, pushStripeEnv]);
 
   const handleApplyCatalogDefaultsAndSync = useCallback(async () => {
     if (!tenant) return;
@@ -1870,22 +1881,14 @@ export function EditTenantModal({ open, tenant, onClose, onSnackbar }: EditTenan
           </Stack>
         </Paper>
 
-        {/* Theme colors */}
-        <Typography variant="caption" sx={{ fontWeight: 600, color: 'text.secondary', display: 'block', mb: 1.5 }}>
-          THEME COLORS
-        </Typography>
-        <Stack direction="row" sx={{ gap: 3, mb: 3 }}>
-          <Stack spacing={1} sx={{ alignItems: 'center' }}>
-            <Typography variant="caption">Primary</Typography>
-            <Box sx={{ width: 56, height: 56, borderRadius: 2, bgcolor: editPrimaryColor, border: '3px solid', borderColor: 'background.paper', boxShadow: 2 }} />
-            <Typography variant="caption" sx={{ fontFamily: 'monospace', fontSize: '0.7rem' }}>{editPrimaryColor}</Typography>
-          </Stack>
-          <Stack spacing={1} sx={{ alignItems: 'center' }}>
-            <Typography variant="caption">Secondary</Typography>
-            <Box sx={{ width: 56, height: 56, borderRadius: 2, bgcolor: editSecondaryColor, border: '3px solid', borderColor: 'background.paper', boxShadow: 2 }} />
-            <Typography variant="caption" sx={{ fontFamily: 'monospace', fontSize: '0.7rem' }}>{editSecondaryColor}</Typography>
-          </Stack>
-        </Stack>
+        {/* Theme colors — editable */}
+        <BrandColorFields
+          showSwatches
+          primaryColor={editPrimaryColor}
+          secondaryColor={editSecondaryColor}
+          onPrimaryChange={setEditPrimaryColor}
+          onSecondaryChange={setEditSecondaryColor}
+        />
 
         {/* Favicon upload — reads from RTK Query cache directly */}
         <Typography variant="caption" sx={{ fontWeight: 600, color: 'text.secondary', display: 'block', mb: 1 }}>

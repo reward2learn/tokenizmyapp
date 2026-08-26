@@ -101,6 +101,14 @@ vi.mock('@/domain/billing/credit-service', () => ({
   redeemCreditPack: (...args: Parameters<typeof redeemCreditPack>) => redeemCreditPack(...args),
 }));
 
+vi.mock('@/domain/billing/dunning-service', () => ({
+  clearDunningOnPaid: vi.fn(async () => {}),
+  recordPaymentFailure: vi.fn(async () => ({
+    state: { attemptCount: 1, noticeCount: 0 },
+    shouldDisableDefaultPm: false,
+  })),
+}));
+
 vi.mock('@/domain/billing/stripe-service', () => ({
   ensureStripeColumns: vi.fn(async () => {}),
   saveStripeLinkage: vi.fn(async () => {}),

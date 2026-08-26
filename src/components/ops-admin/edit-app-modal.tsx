@@ -35,7 +35,6 @@ import Divider from '@mui/material/Divider';
 import FormControlLabel from '@mui/material/FormControlLabel';
 import Grid from '@mui/material/Grid';
 import IconButton from '@mui/material/IconButton';
-import InputAdornment from '@mui/material/InputAdornment';
 import LinearProgress from '@mui/material/LinearProgress';
 import Paper from '@mui/material/Paper';
 import Stack from '@mui/material/Stack';
@@ -89,6 +88,7 @@ import {
 } from '@/store/apis/tenant-api';
 import { useListRoleConfigsQuery, useGetAdminBrandConfigQuery, useUpdateAdminBrandConfigMutation } from '@/store/apis/admin-api';
 import { LoadingGraphicUpload } from '@/components/branding/loading-graphic-upload';
+import { BrandColorFields, brandColorFormData } from '@/components/branding/brand-color-fields';
 import { TenantAiProvidersConfigStep } from './tenant-ai-providers-config-step';
 import {
   EMPTY_STRIPE_WIZARD,
@@ -301,8 +301,16 @@ export function EditAppModal({ open, onClose, tenantSlug, app, onSnackbar }: Edi
     setName(app.name);
     setDepartment(app.department);
     setTemplateId(app.templateId);
-    setPrimaryColor(app.primaryColor || getTemplate(app.templateId).defaultColors.primary);
-    setSecondaryColor(app.secondaryColor || getTemplate(app.templateId).defaultColors.secondary);
+    setPrimaryColor(
+      app.primaryColor
+        || (brandData?.data as { brandPrimaryColor?: string } | undefined)?.brandPrimaryColor
+        || getTemplate(app.templateId).defaultColors.primary,
+    );
+    setSecondaryColor(
+      app.secondaryColor
+        || (brandData?.data as { brandSecondaryColor?: string } | undefined)?.brandSecondaryColor
+        || getTemplate(app.templateId).defaultColors.secondary,
+    );
     setDeployHookUrl(app.deployHookUrl || '');
     setActiveStep(0);
     setShowSecret(false);
@@ -577,7 +585,16 @@ export function EditAppModal({ open, onClose, tenantSlug, app, onSnackbar }: Edi
       googleAuth,
       config: appConfig,
     }).unwrap();
-  }, [editApp, tenantSlug, app, name, department, templateId, primaryColor, secondaryColor, deployHookUrl, oauthClientId, oauthClientSecret, oauthProjectId, oauthAuthUri, oauthTokenUri, oauthGcpEmail, oauthSupportEmail, licenseKey, licenseTier, validUntil, features, setupToken, openaiApiKey, dbUrl, dbDirectUrl, envPairs, adminEmail, pinSignInEnabled, pins, rolesEnabled]);
+    try {
+      await updateBrandConfig({
+        data: brandColorFormData(primaryColor, secondaryColor),
+        tenantSlug,
+        appId: app.appId,
+      }).unwrap();
+    } catch {
+      // Suite metadata saved — app_settings sync is best-effort
+    }
+  }, [editApp, updateBrandConfig, tenantSlug, app, name, department, templateId, primaryColor, secondaryColor, deployHookUrl, oauthClientId, oauthClientSecret, oauthProjectId, oauthAuthUri, oauthTokenUri, oauthGcpEmail, oauthSupportEmail, licenseKey, licenseTier, validUntil, features, setupToken, openaiApiKey, dbUrl, dbDirectUrl, envPairs, adminEmail, pinSignInEnabled, pins, rolesEnabled]);
 
   const handleSave = async (stayOpen = false) => {
     if (!valid || saving || pushingEnv) return;
@@ -757,28 +774,13 @@ export function EditAppModal({ open, onClose, tenantSlug, app, onSnackbar }: Edi
         </Stack>
       </Paper>
 
-      <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
-        <Box sx={{ flex: 1 }}>
-          <TextField
-            label="Primary Color"
-            value={primaryColor}
-            onChange={(e) => setPrimaryColor(e.target.value)}
-            fullWidth
-            size="small"
-            slotProps={{ input: { startAdornment: <InputAdornment position="start"><Box sx={{ width: 20, height: 20, borderRadius: 0.5, bgcolor: primaryColor, border: '1px solid', borderColor: 'divider' }} /></InputAdornment> } }}
-          />
-        </Box>
-        <Box sx={{ flex: 1 }}>
-          <TextField
-            label="Secondary Color"
-            value={secondaryColor}
-            onChange={(e) => setSecondaryColor(e.target.value)}
-            fullWidth
-            size="small"
-            slotProps={{ input: { startAdornment: <InputAdornment position="start"><Box sx={{ width: 20, height: 20, borderRadius: 0.5, bgcolor: secondaryColor, border: '1px solid', borderColor: 'divider' }} /></InputAdornment> } }}
-          />
-        </Box>
-      </Stack>
+      <BrandColorFields
+        showSwatches
+        primaryColor={primaryColor}
+        secondaryColor={secondaryColor}
+        onPrimaryChange={setPrimaryColor}
+        onSecondaryChange={setSecondaryColor}
+      />
 
       <LoadingGraphicUpload
         value={appLoadingGraphic}

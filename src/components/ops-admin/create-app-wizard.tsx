@@ -24,7 +24,7 @@
  *   2. Duplicate — clone an existing app already in the tenant's list
  *      (identity + app-scoped content rows — see the duplicate API route).
  */
-import { useState, useCallback, useMemo } from 'react';
+import { useState, useCallback, useMemo, useEffect } from 'react';
 import Alert from '@mui/material/Alert';
 import AlertTitle from '@mui/material/AlertTitle';
 import Avatar from '@mui/material/Avatar';
@@ -103,7 +103,8 @@ import {
   useTestStripeWebhookMutation,
   type SuiteAppInstance,
 } from '@/store/apis/tenant-api';
-import { useListRoleConfigsQuery } from '@/store/apis/admin-api';
+import { useListRoleConfigsQuery, useUpdateAdminBrandConfigMutation } from '@/store/apis/admin-api';
+import { BrandColorFields, brandColorFormData } from '@/components/branding/brand-color-fields';
 import { CreateAppAiProviderStep, type AiProviderWizardValue } from './create-app-ai-provider-step';
 import { emptyAiProviderWizardValue } from './tenant-ai-providers-config-step';
 import {
@@ -244,6 +245,9 @@ export function CreateAppWizard({ open, onClose, tenantSlug, sourceApp, onSnackb
   const [testStripeWebhook] = useTestStripeWebhookMutation();
   const [provisionGoogleOAuth] = useProvisionGoogleOAuthMutation();
   const [saveTenantAiProvider] = useSaveTenantAiProviderMutation();
+  const [updateBrandConfig] = useUpdateAdminBrandConfigMutation();
+  const [primaryColor, setPrimaryColor] = useState('#eb3d28');
+  const [secondaryColor, setSecondaryColor] = useState('#0af9fe');
   const { data: rolesData, isLoading: rolesLoading } = useListRoleConfigsQuery();
 
   // Built-ins come from the compiled catalog; custom (AI-generated) templates —
@@ -274,6 +278,13 @@ export function CreateAppWizard({ open, onClose, tenantSlug, sourceApp, onSnackb
   );
   const hasApps = suiteApps.length > 0;
   const rolesList = rolesData?.data?.roles || [];
+
+  useEffect(() => {
+    if (!open) return;
+    const tpl = resolveTemplate(templateId);
+    setPrimaryColor(tenant?.primaryColor ?? tpl.defaultColors.primary);
+    setSecondaryColor(tenant?.secondaryColor ?? tpl.defaultColors.secondary);
+  }, [open, tenant?.primaryColor, tenant?.secondaryColor, templateId, templates]);
 
   // ── Tenant config (shared defaults the new app inherits) ──
   const cfg = ((tenant?.metadata as Record<string, unknown>)?.config ?? {}) as Record<string, unknown>;
@@ -652,16 +663,24 @@ export function CreateAppWizard({ open, onClose, tenantSlug, sourceApp, onSnackb
           copyContent: true,
         }).unwrap();
       } else {
-        const tpl = resolveTemplate(templateId);
         await addApp({
           slug: tenantSlug,
           appId,
           name: name.trim(),
           department: department.trim() || undefined,
           templateId,
-          primaryColor: tpl.defaultColors.primary,
-          secondaryColor: tpl.defaultColors.secondary,
+          primaryColor,
+          secondaryColor,
         }).unwrap();
+        try {
+          await updateBrandConfig({
+            data: brandColorFormData(primaryColor, secondaryColor),
+            tenantSlug,
+            appId,
+          }).unwrap();
+        } catch {
+          // Suite registry updated — app_settings color sync is best-effort
+        }
       }
       mark('create', 'success', `${mode === 'duplicate' ? 'Duplicated' : 'Created'} "${name.trim()}" (${appId})`);
       setCreateProgress(1);
@@ -1001,11 +1020,11 @@ export function CreateAppWizard({ open, onClose, tenantSlug, sourceApp, onSnackb
     </Stack>
   );
 
-  // Step 1: Preview — branding inherited from tenant
+  // Step 1: Preview — branding for the new app (inherits tenant defaults, editable)
   const renderStepPreview = () => (
     <Stack spacing={2.5}>
       <Typography variant="body2" color="text.secondary">
-        The app inherits the tenant&apos;s brand identity — logo and colors below are shown for reference.
+        Set brand colors for this app. Defaults come from the tenant; override here if this app needs its own palette.
       </Typography>
       <Paper variant="outlined" sx={{ p: 2, borderColor: 'primary.main' }}>
         <Stack direction="row" spacing={2} sx={{ alignItems: 'center' }}>
@@ -1018,32 +1037,41 @@ export function CreateAppWizard({ open, onClose, tenantSlug, sourceApp, onSnackb
           )}
           <Stack spacing={0.5}>
             <Typography variant="body2" sx={{ fontWeight: 600 }}>
-              {tenant?.displayName ?? tenantSlug} — tenant branding
+              {name.trim() || tenant?.displayName || tenantSlug}
             </Typography>
             <Stack direction="row" spacing={0.5}>
-              <Chip label={tenant?.primaryColor ?? '#eb3d28'} size="small" sx={{ bgcolor: tenant?.primaryColor ?? '#eb3d28', color: '#fff' }} />
-              <Chip label={tenant?.secondaryColor ?? '#0af9fe'} size="small" sx={{ bgcolor: tenant?.secondaryColor ?? '#0af9fe', color: '#000' }} />
+              <Chip label={primaryColor} size="small" sx={{ bgcolor: primaryColor, color: '#fff' }} />
+              <Chip label={secondaryColor} size="small" sx={{ bgcolor: secondaryColor, color: '#000' }} />
             </Stack>
           </Stack>
         </Stack>
       </Paper>
+
+      <BrandColorFields
+        showSwatches
+        primaryColor={primaryColor}
+        secondaryColor={secondaryColor}
+        onPrimaryChange={setPrimaryColor}
+        onSecondaryChange={setSecondaryColor}
+      />
+
       <Paper variant="outlined" sx={{ p: 2.5, bgcolor: 'background.default' }}>
         <Stack direction="row" spacing={1} sx={{ alignItems: 'center', mb: 1.5 }}>
           <PaletteIcon color="primary" fontSize="small" />
-          <Typography variant="caption" color="text.secondary">Preview</Typography>
+          <Typography variant="caption" color="text.secondary">Live Preview</Typography>
         </Stack>
-        <Stack direction="row" spacing={1.5}>
+        <Stack direction="row" spacing={1.5} sx={{ flexWrap: 'wrap', gap: 1 }}>
           {tenant?.faviconData ? (
             <Avatar src={tenant.faviconData} sx={{ width: 32, height: 32 }} variant="rounded" />
           ) : null}
-          <Box sx={{ px: 2, py: 1, borderRadius: 1, bgcolor: tenant?.primaryColor ?? '#eb3d28', color: '#fff', fontSize: '0.8rem', fontWeight: 700 }}>
+          <Box sx={{ px: 2, py: 1, borderRadius: 1, bgcolor: primaryColor, color: '#fff', fontSize: '0.8rem', fontWeight: 700 }}>
             Primary Button
           </Box>
-          <Box sx={{ px: 2, py: 1, borderRadius: 1, border: '1px solid', borderColor: tenant?.secondaryColor ?? '#0af9fe', color: tenant?.secondaryColor ?? '#0af9fe', fontSize: '0.8rem', fontWeight: 700 }}>
+          <Box sx={{ px: 2, py: 1, borderRadius: 1, border: '1px solid', borderColor: secondaryColor, color: secondaryColor, fontSize: '0.8rem', fontWeight: 700 }}>
             Secondary
           </Box>
-          <Box sx={{ width: 16, height: 16, borderRadius: '50%', bgcolor: tenant?.primaryColor ?? '#eb3d28' }} />
-          <Box sx={{ width: 16, height: 16, borderRadius: '50%', bgcolor: tenant?.secondaryColor ?? '#0af9fe' }} />
+          <Box sx={{ width: 16, height: 16, borderRadius: '50%', bgcolor: primaryColor }} />
+          <Box sx={{ width: 16, height: 16, borderRadius: '50%', bgcolor: secondaryColor }} />
         </Stack>
       </Paper>
     </Stack>

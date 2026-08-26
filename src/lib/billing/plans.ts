@@ -14,9 +14,10 @@
  * panel now compares them on every read and refuses to sell a plan whose
  * Stripe price disagrees. Update the Stripe price object first, then this.
  *
- * Changing `aiCreditsPerMonth` is not display-only: it is the amount
- * `grantMonthlyAllowanceIfDue` mints at the start of each period, and it
- * applies to existing organizations from their next period onward.
+ * Changing `aiCreditsPerMonth` is not display-only: it is the monthly-billing amount
+ * `grantMonthlyAllowanceIfDue` mints at the start of each period. Yearly subscribers
+ * receive an extra YEARLY_DISCOUNT (15%) via `planAiCreditsPerMonth(plan, 'yearly')`.
+ * Changes apply to existing organizations from their next grant or mid-period sync.
  *
  * AI credit sizing (plans + top-ups) targets ~30% markup on OpenAI gpt-4o list
  * COGS while keeping the gpt-4o-class RATE_CARD (0.4 / 1.6 cr per 1K). Cheaper
