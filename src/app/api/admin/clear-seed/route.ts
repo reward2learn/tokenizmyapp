@@ -38,6 +38,8 @@ import { sessionIsPlatformAdmin } from '@/lib/auth/jwt';
 import { jsonError, jsonOk } from '@/lib/api/response';
 import { resolveTenantDbUrl } from '@/domain/tenant/tenant-db-resolver';
 import { addTenantColumnsIfMissing } from '@/domain/tenant/tenant-seed-service';
+import { isPlatformApp } from '@shared/lib/config/tenant';
+import { seedPlatformKnowledge } from '@/domain/knowledge/platform-knowledge-seed';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 120;
@@ -218,6 +220,23 @@ export async function POST(request: Request): Promise<NextResponse> {
       const { setDynamicPages, setDynamicReviewParts } = await import('@/lib/page-catalog');
       setDynamicPages([]);
       setDynamicReviewParts([]);
+    }
+
+    // After clearing knowledge on the factory app, restore platform-scoped
+    // assistant briefs so chat does not fall back to empty or stale tenant data.
+    const clearedKnowledge =
+      parsed.data.mode === 'all' ||
+      (parsed.data.mode === 'selected' && parsed.data.tables.includes('knowledge_snippets'));
+    if (!parsed.data.tenantSlug && isPlatformApp() && clearedKnowledge) {
+      try {
+        const seeded = await seedPlatformKnowledge(prisma, parsed.data.appId ?? '');
+        console.log(`[clear-seed] Re-seeded ${seeded} platform knowledge snippet(s)`);
+      } catch (err) {
+        console.warn(
+          '[clear-seed] Platform knowledge re-seed failed (non-fatal):',
+          err instanceof Error ? err.message : err,
+        );
+      }
     }
 
     console.log(`[clear-seed] Cleared (${parsed.data.tenantSlug ?? 'self'}${parsed.data.appId ? `/${parsed.data.appId}` : ''}):`, JSON.stringify(deleted));

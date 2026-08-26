@@ -540,8 +540,8 @@ export function ChatPanel({
         elevation={0}
         sx={
           isDrawer
-            ? { position: 'relative', flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden', p: { xs: 1.5, sm: 2 }, border: '1px solid', borderColor: 'divider', bgcolor: 'action.hover' }
-            : { position: 'relative', p: { xs: 2, md: 2.5 }, border: '1px solid', borderColor: 'divider', bgcolor: 'action.hover' }
+            ? { position: 'relative', flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden', p: { xs: 1.5, sm: 2 }, border: '1px solid', borderColor: 'divider', bgcolor: 'var(--app-surface)' }
+            : { position: 'relative', p: { xs: 2, md: 2.5 }, border: '1px solid', borderColor: 'divider', bgcolor: 'var(--app-surface)' }
         }
       >
         <Stack spacing={2} sx={isDrawer ? { flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', width: '100%' } : undefined}>

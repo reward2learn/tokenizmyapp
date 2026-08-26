@@ -9,7 +9,6 @@ import Button from '@mui/material/Button';
 import CircularProgress from '@mui/material/CircularProgress';
 import { BrandedLoadingIndicator } from '@/components/branding/branded-loading-indicator';
 import FormControlLabel from '@mui/material/FormControlLabel';
-import InputAdornment from '@mui/material/InputAdornment';
 import Paper from '@mui/material/Paper';
 import Radio from '@mui/material/Radio';
 import RadioGroup from '@mui/material/RadioGroup';
@@ -17,6 +16,7 @@ import Stack from '@mui/material/Stack';
 import TextField from '@mui/material/TextField';
 import Typography from '@mui/material/Typography';
 import { LoadingGraphicUpload } from '@/components/branding/loading-graphic-upload';
+import { BrandColorFields } from '@/components/branding/brand-color-fields';
 import SaveIcon from '@mui/icons-material/Save';
 import ImageIcon from '@mui/icons-material/Image';
 import DeleteIcon from '@mui/icons-material/Delete';
@@ -355,110 +355,12 @@ export function BrandConfigTab({ tenantSlug, appId }: BrandConfigTabProps = {}) 
               (buttons, links, highlights, accents). Enter hex values (e.g. <code>#eb3d28</code>).
             </Typography>
 
-            <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
-              {/* Primary color */}
-              <Box sx={{ flex: 1 }}>
-                <TextField
-                  label="Primary Color"
-                  placeholder="#eb3d28"
-                  value={config.brandPrimaryColor}
-                  onChange={(e) => setConfig((prev) => ({ ...prev, brandPrimaryColor: e.target.value }))}
-                  error={config.brandPrimaryColor.length > 0 && !isValidHex(config.brandPrimaryColor)}
-                  helperText={
-                    config.brandPrimaryColor.length > 0 && !isValidHex(config.brandPrimaryColor)
-                      ? 'Invalid hex color'
-                      : 'Used for buttons, links, and highlights'
-                  }
-                  fullWidth
-                  slotProps={{
-                    input: {
-                      startAdornment: (
-                        <InputAdornment position="start">
-                          <Box
-                            sx={{
-                              width: 24,
-                              height: 24,
-                              borderRadius: '4px',
-                              bgcolor: isValidHex(config.brandPrimaryColor) ? config.brandPrimaryColor : '#eb3d28',
-                              border: '1px solid',
-                              borderColor: 'divider',
-                              flexShrink: 0,
-                            }}
-                          />
-                        </InputAdornment>
-                      ),
-                    },
-                  }}
-                />
-                {/* Native color picker */}
-                <input
-                  type="color"
-                  value={isValidHex(config.brandPrimaryColor) ? config.brandPrimaryColor : '#eb3d28'}
-                  onChange={(e) => setConfig((prev) => ({ ...prev, brandPrimaryColor: e.target.value }))}
-                  style={{
-                    width: '100%',
-                    height: 32,
-                    marginTop: 4,
-                    padding: 0,
-                    border: '1px solid', borderColor: 'divider',
-                    borderRadius: 6,
-                    background: 'none',
-                    cursor: 'pointer',
-                  }}
-                />
-              </Box>
-
-              {/* Secondary color */}
-              <Box sx={{ flex: 1 }}>
-                <TextField
-                  label="Secondary Color"
-                  placeholder="#0af9fe"
-                  value={config.brandSecondaryColor}
-                  onChange={(e) => setConfig((prev) => ({ ...prev, brandSecondaryColor: e.target.value }))}
-                  error={config.brandSecondaryColor.length > 0 && !isValidHex(config.brandSecondaryColor)}
-                  helperText={
-                    config.brandSecondaryColor.length > 0 && !isValidHex(config.brandSecondaryColor)
-                      ? 'Invalid hex color'
-                      : 'Used for accents and secondary elements'
-                  }
-                  fullWidth
-                  slotProps={{
-                    input: {
-                      startAdornment: (
-                        <InputAdornment position="start">
-                          <Box
-                            sx={{
-                              width: 24,
-                              height: 24,
-                              borderRadius: '4px',
-                              bgcolor: isValidHex(config.brandSecondaryColor) ? config.brandSecondaryColor : '#0af9fe',
-                              border: '1px solid',
-                              borderColor: 'divider',
-                              flexShrink: 0,
-                            }}
-                          />
-                        </InputAdornment>
-                      ),
-                    },
-                  }}
-                />
-                <input
-                  type="color"
-                  value={isValidHex(config.brandSecondaryColor) ? config.brandSecondaryColor : '#0af9fe'}
-                  onChange={(e) => setConfig((prev) => ({ ...prev, brandSecondaryColor: e.target.value }))}
-                  style={{
-                    width: '100%',
-                    height: 32,
-                    marginTop: 4,
-                    padding: 0,
-                    border: '1px solid', borderColor: 'divider',
-                    borderRadius: 6,
-                    background: 'none',
-                    cursor: 'pointer',
-                  }}
-                />
-              </Box>
-            </Stack>
+            <BrandColorFields
+              primaryColor={config.brandPrimaryColor}
+              secondaryColor={config.brandSecondaryColor}
+              onPrimaryChange={(value) => setConfig((prev) => ({ ...prev, brandPrimaryColor: value }))}
+              onSecondaryChange={(value) => setConfig((prev) => ({ ...prev, brandSecondaryColor: value }))}
+            />
 
             {/* Color preview bar */}
             <Paper

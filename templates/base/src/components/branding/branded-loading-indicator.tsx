@@ -2,12 +2,15 @@
 
 import Box from '@mui/material/Box';
 import CircularProgress from '@mui/material/CircularProgress';
+import type { CircularProgressProps } from '@mui/material/CircularProgress';
 import type { SxProps, Theme } from '@mui/material/styles';
 import { useGetBrandConfigQuery } from '@shared/store/apis/brand-config-api';
 
 interface BrandedLoadingIndicatorProps {
   /** Pixel size — applies to both the built-in spinner and custom graphic. */
   size?: number;
+  /** Passed to the fallback CircularProgress (ignored for custom loading graphics). */
+  color?: CircularProgressProps['color'];
   sx?: SxProps<Theme>;
 }
 
@@ -15,7 +18,7 @@ interface BrandedLoadingIndicatorProps {
  * Page/content loading indicator — uses the tenant or app brand loading graphic
  * when configured, otherwise the built-in circular spinner.
  */
-export function BrandedLoadingIndicator({ size = 28, sx }: BrandedLoadingIndicatorProps) {
+export function BrandedLoadingIndicator({ size = 28, color, sx }: BrandedLoadingIndicatorProps) {
   const { data } = useGetBrandConfigQuery();
   const loadingGraphicUrl = data?.data?.loadingGraphicUrl ?? null;
 
@@ -38,5 +41,5 @@ export function BrandedLoadingIndicator({ size = 28, sx }: BrandedLoadingIndicat
     );
   }
 
-  return <CircularProgress size={size} sx={sx} />;
+  return <CircularProgress size={size} color={color} sx={sx} />;
 }

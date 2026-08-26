@@ -33,19 +33,9 @@ import {
   type SourceFileKey,
 } from '@/domain/seed/source-files';
 import { buildWorkbookCacheMeta, WORKBOOK_META_KEY } from '@/lib/workbook-cache';
-import {
-  BUSINESS_NAME,
-  CURRENT_METRICS,
-  FIVE_LEVERS,
-  KEY_RISKS,
-  LOCATION,
-  MONTHLY_TARGETS,
-  PRIORITY_ACTIONS,
-  SITUATION_SUMMARY,
-  STRATEGIC_PARTNERSHIPS,
-  TARGET_METRICS,
-  TASK_PLAYBOOK,
-} from '../../../lib/knowledge-base.js';
+import { getRedRubySeedCorpus } from '@/domain/seed/seed-knowledge-corpus';
+import { buildPlatformKnowledgeSnippets } from '@/domain/knowledge/platform-knowledge-seed';
+import { isPlatformApp } from '@shared/lib/config/tenant';
 import {
   analyzeWorkbook,
   generatePagesFromAnalysis,
@@ -308,6 +298,34 @@ function buildKnowledgeSnippets(
   termsMd: string,
   privacyMd: string,
 ): { key: string; category: string; content: string }[] {
+  const documentSnippets = [
+    { key: 'executive_summary', category: 'document', content: executiveSummaryMd.trim() },
+    { key: 'terms_of_service', category: 'document', content: termsMd },
+    { key: 'privacy_policy', category: 'document', content: privacyMd },
+  ].filter((s) => s.content.length > 0);
+
+  if (isPlatformApp()) {
+    return [...buildPlatformKnowledgeSnippets(), ...documentSnippets];
+  }
+
+  const corpus = getRedRubySeedCorpus();
+  if (!corpus) {
+    return documentSnippets;
+  }
+
+  const {
+    BUSINESS_NAME,
+    LOCATION,
+    SITUATION_SUMMARY,
+    CURRENT_METRICS,
+    TARGET_METRICS,
+    FIVE_LEVERS,
+    PRIORITY_ACTIONS,
+    KEY_RISKS,
+    STRATEGIC_PARTNERSHIPS,
+    MONTHLY_TARGETS,
+  } = corpus;
+
   return [
     { key: 'business_name', category: 'meta', content: BUSINESS_NAME },
     { key: 'location', category: 'meta', content: LOCATION },
@@ -365,22 +383,23 @@ function buildKnowledgeSnippets(
           `${t.month}: revenue ${t.revenue}, ebitda ${t.ebitda}, guests ${t.guests}/day, spend ${t.spend}, staff ${t.staffPct}%`,
       ).join('\n'),
     },
-    { key: 'executive_summary', category: 'document', content: executiveSummaryMd.trim() },
-    { key: 'terms_of_service', category: 'document', content: termsMd },
-    { key: 'privacy_policy', category: 'document', content: privacyMd },
+    ...documentSnippets,
   ];
 }
 
 function buildActionItems(): { priority: ActionPriority; label: string; sortOrder: number }[] {
+  const corpus = getRedRubySeedCorpus();
+  if (!corpus) return [];
+
   const items: { priority: ActionPriority; label: string; sortOrder: number }[] = [];
   let order = 0;
-  for (const label of PRIORITY_ACTIONS.P0_THIS_WEEK) {
+  for (const label of corpus.PRIORITY_ACTIONS.P0_THIS_WEEK) {
     items.push({ priority: 'P0', label, sortOrder: order++ });
   }
-  for (const label of PRIORITY_ACTIONS.P1_THIS_MONTH) {
+  for (const label of corpus.PRIORITY_ACTIONS.P1_THIS_MONTH) {
     items.push({ priority: 'P1', label, sortOrder: order++ });
   }
-  for (const label of PRIORITY_ACTIONS.P2_THIS_QUARTER) {
+  for (const label of corpus.PRIORITY_ACTIONS.P2_THIS_QUARTER) {
     items.push({ priority: 'P2', label, sortOrder: order++ });
   }
   return items;
@@ -575,6 +594,10 @@ function resolveOwnerCodes(ownerCodes: string[]): string[] {
 }
 
 function buildTasks(): BuiltTask[] {
+  const corpus = getRedRubySeedCorpus();
+  if (!corpus) return [];
+
+  const { PRIORITY_ACTIONS, TASK_PLAYBOOK } = corpus;
   const tasks: BuiltTask[] = [];
   const push = (labels: string[], priority: ActionPriority, dueOffsetDays: number) => {
     for (const label of labels) {
@@ -1267,13 +1290,16 @@ export async function seedFromSources(options: SeedOptions = {}): Promise<SeedRe
   const actionItems = buildActionItems();
   const builtTasks = buildTasks();
   const pageEntries = Object.values(getFullCatalog());
+  const seedCorpus = getRedRubySeedCorpus();
+  const seedLevers = seedCorpus?.FIVE_LEVERS ?? [];
+  const seedMonthlyTargets = seedCorpus?.MONTHLY_TARGETS ?? [];
 
   const counts: SeedCounts = {
     financialProjections: projections ? projections.length : 0,
     businessReviewParts: reviewParts.length,
-    levers: FIVE_LEVERS.length,
+    levers: seedLevers.length,
     actionItems: actionItems.length,
-    monthlyTargets: MONTHLY_TARGETS.length,
+    monthlyTargets: seedMonthlyTargets.length,
     knowledgeSnippets: knowledgeSnippets.length,
     appPages: pageEntries.length,
     pageSections: pageEntries.reduce((n, p) => n + p.sections.length, 0),
@@ -1351,7 +1377,7 @@ export async function seedFromSources(options: SeedOptions = {}): Promise<SeedRe
       });
     }
 
-    for (const lever of FIVE_LEVERS) {
+    for (const lever of seedLevers) {
       const description = [
         `Target: ${lever.target}`,
         '',
@@ -1433,7 +1459,7 @@ export async function seedFromSources(options: SeedOptions = {}): Promise<SeedRe
       }
     }
 
-    for (const target of MONTHLY_TARGETS) {
+    for (const target of seedMonthlyTargets) {
       await prisma.monthlyTarget.upsert({
         where: { month_appId: { month: target.month, appId } },
         create: {
