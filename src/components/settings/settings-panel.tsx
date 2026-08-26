@@ -221,21 +221,30 @@ export function SettingsPanel({
       <Paper
         variant="outlined"
         sx={{
-          display: 'flex',
-          flexDirection: 'column',
-          ...(embedded ? { flex: 1, minHeight: 0 } : { minHeight: 560 }),
           width: '100%',
           borderRadius: `${RADIUS.card}px`,
-          overflow: 'hidden',
+          // Dialog mobile: body scrolls in DialogContent — don't clip or nest scroll here.
+          ...(embedded
+            ? { overflow: 'visible' }
+            : {
+                display: 'flex',
+                flexDirection: 'column',
+                minHeight: 560,
+                overflow: 'hidden',
+              }),
         }}
       >
         <Box
           sx={{
-            flex: 1,
-            minHeight: 0,
-            overflow: 'auto',
-            px: { xs: 1, sm: 1.5 },
-            py: 1,
+            ...(embedded
+              ? { px: { xs: 1, sm: 1.5 }, py: 1 }
+              : {
+                  flex: 1,
+                  minHeight: 0,
+                  overflow: 'auto',
+                  px: { xs: 1, sm: 1.5 },
+                  py: 1,
+                }),
           }}
         >
           <MobileSectionAccordion

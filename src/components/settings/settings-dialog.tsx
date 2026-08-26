@@ -71,13 +71,15 @@ export function SettingsDialog() {
           p: { xs: 1.5, md: 2 },
           flex: 1,
           minHeight: 0,
-          overflow: 'hidden',
+          // Desktop: sidebar + content pane manage their own scroll regions.
+          // Mobile accordion: scroll the whole body so expanded panels stay reachable.
+          overflow: isCompact ? 'auto' : 'hidden',
           display: 'flex',
           flexDirection: 'column',
         }}
       >
         <AuthGate requiredTier="google" fallback={<SignInPanelGate requiredTier="google" />}>
-          <Box sx={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
+          <Box sx={{ flex: isCompact ? undefined : 1, minHeight: isCompact ? undefined : 0, display: 'flex', flexDirection: 'column' }}>
             <SettingsGate variant="dialog" />
           </Box>
         </AuthGate>
