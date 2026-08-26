@@ -141,8 +141,12 @@ async function requestOpenAiCompletion(
   webSearchEnabled: boolean,
   sessionToolsEnabled: boolean,
   billingToolsEnabled: boolean,
+  providerId?: string | null,
 ): Promise<Response> {
-  const tools = buildOpenAiTools(webSearchEnabled, sessionToolsEnabled, billingToolsEnabled);
+  const studioLocal = providerId === STUDIO_PROVIDER_ID;
+  const tools = studioLocal
+    ? undefined
+    : buildOpenAiTools(webSearchEnabled, sessionToolsEnabled, billingToolsEnabled);
   const body = {
     model,
     messages,
@@ -150,17 +154,13 @@ async function requestOpenAiCompletion(
     max_tokens: 1200,
     ...(webSearchEnabled ? {} : { temperature: 0.7 }),
     stream,
-    // Ask for a final usage chunk so streaming calls can be metered — OpenAI
-    // sends a last chunk with empty choices and a `usage` field when set.
-    ...(stream ? { stream_options: { include_usage: true } } : {}),
+    // OpenAI-only — Ollama streams do not emit a final usage chunk.
+    ...(stream && !studioLocal ? { stream_options: { include_usage: true } } : {}),
   };
 
   return fetch(chatCompletionsUrl, {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${apiKey}`,
-    },
+    headers: buildProviderFetchHeaders(apiKey),
     body: JSON.stringify(body),
   });
 }
@@ -377,10 +377,11 @@ async function completeChatWithoutStreaming(options: {
       options.webSearchEnabled,
       options.sessionToolsEnabled,
       options.billingToolsEnabled,
+      options.provider,
     );
 
     if (!chatResp.ok) {
-      const errReply = await readOpenAiError(chatResp);
+      const errReply = await readOpenAiError(chatResp, options.provider);
       return Response.json({
         success: true,
         data: { reply: errReply, actions: clientActions, usage: turnUsage },
@@ -495,12 +496,13 @@ async function completeChatWithStreaming(options: {
           options.webSearchEnabled,
           options.sessionToolsEnabled,
           options.billingToolsEnabled,
+          options.provider,
         );
 
         if (!chatResp.ok || !chatResp.body) {
           const errMessage = chatResp.ok
             ? 'The AI service returned an empty stream.'
-            : await readOpenAiError(chatResp);
+            : await readOpenAiError(chatResp, options.provider);
           await writeLine({ error: errMessage });
           emittedError = true;
           break;

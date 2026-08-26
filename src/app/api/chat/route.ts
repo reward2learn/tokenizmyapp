@@ -5,7 +5,7 @@ import { NextResponse } from 'next/server';
 import { z } from 'zod';
 import { createClient, createBillingRawClient } from '@/lib/db';
 import { resolveOpenAiKey } from '@/lib/openai';
-import { resolveActiveAiConfig, resolveChatCompletionsUrl } from '@/lib/ai-providers';
+import { resolveActiveAiConfig, resolveChatCompletionsUrl, buildProviderFetchHeaders } from '@/lib/ai-providers';
 import { KnowledgeService } from '@/domain/knowledge/knowledge-service';
 import { getSessionFromRequest } from '@/lib/auth/session';
 import { sessionIsPlatformAdmin } from '@/lib/auth/jwt';
@@ -320,10 +320,7 @@ async function mapReduceContext(
     try {
       const response = await fetch(chatCompletionsUrl, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${apiKey}`,
-        },
+        headers: buildProviderFetchHeaders(apiKey),
         body: JSON.stringify({
           model,
           messages: [

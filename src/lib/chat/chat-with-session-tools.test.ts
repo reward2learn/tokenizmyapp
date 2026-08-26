@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { consumeOpenAiStream } from '@/lib/chat/chat-with-session-tools';
+import { consumeOpenAiStream, openAiErrorMessage } from '@/lib/chat/chat-with-session-tools';
 
 function sseBody(lines: string[]): ReadableStream<Uint8Array> {
   const encoder = new TextEncoder();
@@ -49,5 +49,17 @@ describe('consumeOpenAiStream', () => {
       type: 'function',
       function: { name: 'save_conversation', arguments: '{}' },
     }]);
+  });
+});
+
+describe('openAiErrorMessage', () => {
+  it('returns studio-specific guidance on 502', () => {
+    const msg = openAiErrorMessage(502, undefined, 'ollama-studio');
+    expect(msg).toContain('Mac Studio');
+    expect(msg).toContain('OLLAMA_TUNNEL_HOST');
+  });
+
+  it('returns generic message for other providers', () => {
+    expect(openAiErrorMessage(502, undefined, 'openai')).toContain('temporarily unavailable');
   });
 });

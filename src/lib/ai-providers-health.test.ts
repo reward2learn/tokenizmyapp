@@ -96,4 +96,15 @@ describe('keyless provider helpers', () => {
     expect(resolveChatCompletionsUrl(studio)).toBe('https://ollama.tokenizin.com/v1/chat/completions');
     expect(studio.chatCompletionsUrl).toContain('tokenizmyapp.vercel.app/api/ollama');
   });
+
+  it('buildProviderFetchHeaders omits Authorization for keyless bearer', async () => {
+    const { buildProviderFetchHeaders, KEYLESS_PROVIDER_BEARER } = await import('@/lib/ai-providers-catalog');
+    expect(buildProviderFetchHeaders(KEYLESS_PROVIDER_BEARER)).toEqual({
+      'Content-Type': 'application/json',
+    });
+    expect(buildProviderFetchHeaders('sk-real-key')).toEqual({
+      'Content-Type': 'application/json',
+      Authorization: 'Bearer sk-real-key',
+    });
+  });
 });
