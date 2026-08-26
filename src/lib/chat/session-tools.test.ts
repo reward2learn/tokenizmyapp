@@ -17,17 +17,30 @@ function ctx(overrides: Partial<SessionToolContext> = {}): SessionToolContext {
 }
 
 describe('availableComposerTools', () => {
-  it('offers the template builder only to a platform admin inside /admin', () => {
-    expect(availableComposerTools({ isPlatformAdmin: true, isAdminRoute: true }))
+  it('offers admin tools to a platform admin inside /admin on the factory app', () => {
+    expect(availableComposerTools({ isPlatformAdmin: true, isAdminRoute: true, isPlatformApp: true }))
       .toHaveLength(CHAT_COMPOSER_TOOLS.length);
   });
 
-  it('hides it from a platform admin outside /admin', () => {
-    // Scope, not security: the tool writes platform-wide configuration, so
-    // offering it from a tenant dashboard invites confusion about what is being
-    // changed and for whom.
-    expect(availableComposerTools({ isPlatformAdmin: true, isAdminRoute: false }))
-      .toEqual([]);
+  it('offers platform data lookup outside /admin on the factory app', () => {
+    const tools = availableComposerTools({ isPlatformAdmin: true, isAdminRoute: false, isPlatformApp: true });
+    expect(tools.map((t) => t.id)).toEqual(['query_platform_data']);
+  });
+
+  it('hides platform-only tools on tenant deployments', () => {
+    const tools = availableComposerTools({ isPlatformAdmin: true, isAdminRoute: true, isPlatformApp: false });
+    expect(tools.map((t) => t.id)).toEqual(['build_custom_template']);
+  });
+
+  it('hides template builder from a platform admin outside /admin', () => {
+    expect(availableComposerTools({ isPlatformAdmin: true, isAdminRoute: false, isPlatformApp: true }))
+      .toEqual(expect.arrayContaining([
+        expect.objectContaining({ id: 'query_platform_data' }),
+      ]));
+    expect(
+      availableComposerTools({ isPlatformAdmin: true, isAdminRoute: false, isPlatformApp: true })
+        .some((t) => t.id === 'build_custom_template'),
+    ).toBe(false);
   });
 
   it('hides it from a non-admin even inside /admin', () => {

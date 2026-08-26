@@ -87,6 +87,7 @@ import {
 import { ActiveToolBadge, ComposerToolPicker } from '@/components/chat/composer-tool-picker';
 import { ComposerModelPicker } from '@/components/chat/composer-model-picker';
 import { StudioWarmBanner } from '@/components/chat/studio-warm-banner';
+import { isPlatformApp } from '@shared/lib/config/tenant';
 import { availableComposerTools, CHAT_COMPOSER_TOOLS } from '@/lib/chat/session-tools';
 import { TemplateDraftCard } from '@/components/chat/template-draft-card';
 import { ChatCreditUsage } from '@/components/chat/chat-credit-usage';
@@ -167,6 +168,7 @@ export function ChatPanel({
   const composerTools = availableComposerTools({
     isPlatformAdmin,
     isAdminRoute: (pathname ?? '').startsWith('/admin'),
+    isPlatformApp: isPlatformApp(),
   });
 
   const emptyStateMessage = useMemo(() => {

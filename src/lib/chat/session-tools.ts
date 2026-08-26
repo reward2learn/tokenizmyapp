@@ -30,7 +30,7 @@ export const CHAT_SESSION_ACTIONS: ChatSessionAction[] = [
  * to the chat route as `activeTool`, which attaches the tool regardless of how
  * the message happens to be phrased.
  */
-export type ChatComposerTool = 'build_custom_template';
+export type ChatComposerTool = 'build_custom_template' | 'query_platform_data';
 
 export interface ChatComposerToolDef {
   id: ChatComposerTool;
@@ -49,8 +49,15 @@ export interface ChatComposerToolDef {
    * configuration that has nothing to do with the tenant app a user is looking
    * at, so offering it from a tenant dashboard invites confusion about what is
    * being changed and for whom.
+   *
+   * Set `requiresAdminRoute: false` for read-only platform lookups that are
+   * useful from ops-chat on the factory app.
    */
   adminOnly?: boolean;
+  /** When false, an adminOnly tool is offered on any factory route. Default true. */
+  requiresAdminRoute?: boolean;
+  /** Only on the tokenizmyapp control-plane app. */
+  platformOnly?: boolean;
 }
 
 export const CHAT_COMPOSER_TOOLS: ChatComposerToolDef[] = [
@@ -61,16 +68,30 @@ export const CHAT_COMPOSER_TOOLS: ChatComposerToolDef[] = [
     placeholder: 'Describe the app template — paste a website URL or the requirements…',
     adminOnly: true,
   },
+  {
+    id: 'query_platform_data',
+    label: 'Platform Data Lookup',
+    description: 'Query live tenant registry, org billing/credits, or Vercel project inventory.',
+    placeholder: 'Ask about tenants, apps, deployments, org credits, or unregistered Vercel projects…',
+    adminOnly: true,
+    requiresAdminRoute: false,
+    platformOnly: true,
+  },
 ];
 
 /** Composer tools offered on this surface. */
 export function availableComposerTools(options: {
   isPlatformAdmin: boolean;
   isAdminRoute: boolean;
+  isPlatformApp?: boolean;
 }): ChatComposerToolDef[] {
-  return CHAT_COMPOSER_TOOLS.filter(
-    (tool) => !tool.adminOnly || (options.isPlatformAdmin && options.isAdminRoute),
-  );
+  return CHAT_COMPOSER_TOOLS.filter((tool) => {
+    if (tool.platformOnly && !options.isPlatformApp) return false;
+    if (!tool.adminOnly) return true;
+    if (!options.isPlatformAdmin) return false;
+    if (tool.requiresAdminRoute === false) return true;
+    return options.isAdminRoute;
+  });
 }
 
 export function isChatSessionAction(value: unknown): value is ChatSessionAction {

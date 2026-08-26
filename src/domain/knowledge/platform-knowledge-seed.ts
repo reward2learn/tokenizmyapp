@@ -53,7 +53,7 @@ export function buildPlatformKnowledgeSnippets(): KnowledgeSeedSnippet[] {
       category: 'metrics',
       content:
         `Platform metrics that matter: ${profile.keyMetrics.join(', ')}. ` +
-        'None are populated from a tenant workbook in this workspace.',
+        'Live tenant/app counts, org billing, and Vercel inventory are available via platform query tools — look for [PLATFORM REGISTRY DATA] blocks or call query_platform_registry / query_organizations_billing / query_vercel_inventory.',
     },
   ];
 

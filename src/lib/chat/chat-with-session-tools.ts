@@ -7,6 +7,11 @@ import {
   PURCHASE_CREDITS_OPENAI_TOOL,
   type SessionToolContext,
 } from '@/lib/chat/session-tools';
+import {
+  executePlatformTool,
+  isPlatformToolName,
+  PLATFORM_OPENAI_TOOLS,
+} from '@/lib/chat/platform-tools';
 import { meterAiUsage, type MeterResult } from '@/domain/billing/credit-service';
 import {
   emptyAiUsageSummary,
@@ -21,17 +26,26 @@ function buildOpenAiTools(
   webSearchEnabled: boolean,
   sessionToolsEnabled: boolean,
   billingToolsEnabled: boolean,
+  platformToolsEnabled: boolean,
 ) {
   if (webSearchEnabled) return undefined;
   const tools = sessionToolsEnabled ? [...CHAT_SESSION_OPENAI_TOOLS] : [];
   if (billingToolsEnabled && !tools.some((tool) => tool.function.name === 'purchase_credits')) {
     tools.push(PURCHASE_CREDITS_OPENAI_TOOL);
   }
+  if (platformToolsEnabled) {
+    for (const tool of PLATFORM_OPENAI_TOOLS) {
+      if (!tools.some((existing) => existing.function.name === tool.function.name)) {
+        tools.push(tool);
+      }
+    }
+  }
   return tools.length > 0 ? tools : undefined;
 }
 
-function isSessionFunctionToolCall(toolCall: OpenAiToolCall): boolean {
+function isChatFunctionToolCall(toolCall: OpenAiToolCall): boolean {
   if (toolCall.function.name === 'purchase_credits') return true;
+  if (isPlatformToolName(toolCall.function.name)) return true;
   return CHAT_SESSION_OPENAI_TOOLS.some((tool) => tool.function.name === toolCall.function.name);
 }
 
@@ -90,6 +104,27 @@ const SSE_HEADERS = {
   'X-Accel-Buffering': 'no',
 } as const;
 
+async function executeChatToolCall(
+  toolCall: OpenAiToolCall,
+  toolContext: SessionToolContext,
+): Promise<{ toolMessage: string; sessionResult: Awaited<ReturnType<typeof executeSessionTool>> | null }> {
+  if (isPlatformToolName(toolCall.function.name)) {
+    const toolMessage = await executePlatformTool(
+      toolCall.function.name,
+      toolCall.function.arguments,
+      { isPlatformAdmin: Boolean(toolContext.isPlatformAdmin) },
+    );
+    return { toolMessage, sessionResult: null };
+  }
+
+  const sessionResult = await executeSessionTool(
+    toolCall.function.name,
+    toolCall.function.arguments,
+    toolContext,
+  );
+  return { toolMessage: sessionResult.toolMessage, sessionResult };
+}
+
 const MAX_TOOL_ROUNDS = 4;
 
 const STUDIO_PROVIDER_ID = 'ollama-studio';
@@ -141,12 +176,13 @@ async function requestOpenAiCompletion(
   webSearchEnabled: boolean,
   sessionToolsEnabled: boolean,
   billingToolsEnabled: boolean,
+  platformToolsEnabled: boolean,
   providerId?: string | null,
 ): Promise<Response> {
   const studioLocal = providerId === STUDIO_PROVIDER_ID;
   const tools = studioLocal
     ? undefined
-    : buildOpenAiTools(webSearchEnabled, sessionToolsEnabled, billingToolsEnabled);
+    : buildOpenAiTools(webSearchEnabled, sessionToolsEnabled, billingToolsEnabled, platformToolsEnabled);
   const body = {
     model,
     messages,
@@ -349,6 +385,7 @@ async function completeChatWithoutStreaming(options: {
   webSearchEnabled: boolean;
   sessionToolsEnabled: boolean;
   billingToolsEnabled: boolean;
+  platformToolsEnabled: boolean;
   tenantSlug: string;
   keySource: 'db' | 'env';
   /** Signed-in viewer; exempt operators are recorded but never charged. */
@@ -377,6 +414,7 @@ async function completeChatWithoutStreaming(options: {
       options.webSearchEnabled,
       options.sessionToolsEnabled,
       options.billingToolsEnabled,
+      options.platformToolsEnabled,
       options.provider,
     );
 
@@ -405,22 +443,18 @@ async function completeChatWithoutStreaming(options: {
     turnUsage = applyMeterRound(turnUsage, metered, options);
 
     if (message.tool_calls?.length) {
-      const sessionToolCalls = message.tool_calls.filter(isSessionFunctionToolCall);
-      if (sessionToolCalls.length) {
+      const chatToolCalls = message.tool_calls.filter(isChatFunctionToolCall);
+      if (chatToolCalls.length) {
         currentMessages.push(message);
-        for (const toolCall of sessionToolCalls) {
-          const result = await executeSessionTool(
-            toolCall.function.name,
-            toolCall.function.arguments,
-            options.toolContext,
-          );
-          if (result.clientAction) clientActions.push(result.clientAction);
-          if (result.templateDraft) templateDraft = result.templateDraft;
-          if (result.creditTopUp) creditTopUp = result.creditTopUp;
+        for (const toolCall of chatToolCalls) {
+          const { toolMessage, sessionResult } = await executeChatToolCall(toolCall, options.toolContext);
+          if (sessionResult?.clientAction) clientActions.push(sessionResult.clientAction);
+          if (sessionResult?.templateDraft) templateDraft = sessionResult.templateDraft;
+          if (sessionResult?.creditTopUp) creditTopUp = sessionResult.creditTopUp;
           currentMessages.push({
             role: 'tool',
             tool_call_id: toolCall.id,
-            content: result.toolMessage,
+            content: toolMessage,
           });
         }
         continue;
@@ -459,6 +493,7 @@ async function completeChatWithStreaming(options: {
   webSearchEnabled: boolean;
   sessionToolsEnabled: boolean;
   billingToolsEnabled: boolean;
+  platformToolsEnabled: boolean;
   tenantSlug: string;
   keySource: 'db' | 'env';
   /** Signed-in viewer; exempt operators are recorded but never charged. */
@@ -496,6 +531,7 @@ async function completeChatWithStreaming(options: {
           options.webSearchEnabled,
           options.sessionToolsEnabled,
           options.billingToolsEnabled,
+          options.platformToolsEnabled,
           options.provider,
         );
 
@@ -521,39 +557,32 @@ async function completeChatWithStreaming(options: {
         turnUsage = applyMeterRound(turnUsage, metered, options);
 
         if (finishReason === 'tool_calls' && toolCalls.length) {
-          const sessionToolCalls = toolCalls.filter(isSessionFunctionToolCall);
-          if (sessionToolCalls.length) {
+          const chatToolCalls = toolCalls.filter(isChatFunctionToolCall);
+          if (chatToolCalls.length) {
             currentMessages.push({
               role: 'assistant',
               content: content || null,
-              tool_calls: sessionToolCalls,
+              tool_calls: chatToolCalls,
             });
 
-            for (const toolCall of sessionToolCalls) {
-              const result = await executeSessionTool(
-                toolCall.function.name,
-                toolCall.function.arguments,
-                options.toolContext,
-              );
-              if (result.clientAction) {
-                await writeLine({ type: 'chat_action', action: result.clientAction });
+            for (const toolCall of chatToolCalls) {
+              const { toolMessage, sessionResult } = await executeChatToolCall(toolCall, options.toolContext);
+              if (sessionResult?.clientAction) {
+                await writeLine({ type: 'chat_action', action: sessionResult.clientAction });
               }
-              if (result.templateDraft) {
-                // Sent as its own event rather than folded into the reply text:
-                // the client renders it as a confirmation card with a save
-                // button, and the model's prose cannot carry a payload.
-                await writeLine({ type: 'template_draft', draft: result.templateDraft });
+              if (sessionResult?.templateDraft) {
+                await writeLine({ type: 'template_draft', draft: sessionResult.templateDraft });
               }
-              if (result.creditTopUp) {
-                await writeLine({ type: 'credit_topup', creditTopUp: result.creditTopUp });
+              if (sessionResult?.creditTopUp) {
+                await writeLine({ type: 'credit_topup', creditTopUp: sessionResult.creditTopUp });
               }
-              if (result.clientAction === 'open_credit_topup' && result.creditTopUp) {
-                await writeLine({ type: 'chat_action', action: result.clientAction });
+              if (sessionResult?.clientAction === 'open_credit_topup' && sessionResult.creditTopUp) {
+                await writeLine({ type: 'chat_action', action: sessionResult.clientAction });
               }
               currentMessages.push({
                 role: 'tool',
                 tool_call_id: toolCall.id,
-                content: result.toolMessage,
+                content: toolMessage,
               });
             }
             continue;
@@ -607,6 +636,7 @@ export async function completeChatWithSessionTools(options: {
   webSearchEnabled: boolean;
   sessionToolsEnabled: boolean;
   billingToolsEnabled: boolean;
+  platformToolsEnabled: boolean;
   tenantSlug: string;
   keySource: 'db' | 'env';
   /** Signed-in viewer; exempt operators are recorded but never charged. */

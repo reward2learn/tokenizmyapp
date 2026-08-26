@@ -42,6 +42,8 @@ import { getSubscription } from '@/domain/billing/entitlement-service';
 import { isAgenticCatalogLive, resolveTenantAgenticCommerce } from '@/domain/billing/agentic-catalog-service';
 import { resolveTenantSelfServeBilling } from '@/domain/billing/self-serve-billing-service';
 import { resolveViewerUserId } from '@/lib/auth/resolve-viewer-user';
+import { detectPlatformQuery, fetchPlatformContext } from '@/lib/chat/platform-context';
+import { PLATFORM_TOOL_INSTRUCTIONS } from '@/lib/chat/platform-tools';
 
 export const dynamic = 'force-dynamic';
 /** Large local models (ollama-studio / 72B) can exceed 60s before first token. */
@@ -84,7 +86,7 @@ const chatBodySchema = z.object({
    * business questions. An explicit pick from the composer is a stronger signal
    * than any phrasing heuristic, so it turns them on directly.
    */
-  activeTool: z.enum(['build_custom_template']).optional(),
+  activeTool: z.enum(['build_custom_template', 'query_platform_data']).optional(),
   /** Optional per-request provider override from the chat Tools picker (must exist in loaded catalog). */
   providerId: z.string().trim().min(1).max(64).optional(),
   /** Optional per-request model override from the chat Tools picker. */
@@ -471,6 +473,17 @@ async function handleChatPost(request: Request): Promise<Response> {
       }
     }
 
+    // Factory control plane: inject live tenant/app registry when the question
+    // is about provisioning, deployments, or inventory — not POS metrics.
+    let platformContext = '';
+    if (isPlatformApp() && detectPlatformQuery(message)) {
+      try {
+        platformContext = await fetchPlatformContext();
+      } catch {
+        // non-fatal
+      }
+    }
+
     const systemPrompt = await knowledge.buildSystemPrompt();
 
     // Resolve the active AI provider early — needed for MapReduce phase below.
@@ -535,6 +548,7 @@ async function handleChatPost(request: Request): Promise<Response> {
       billingOrgId && canPurchaseCredits,
     );
     const sessionToolsEnabled = Boolean(activeTool) || isExplicitSessionRequest(message) || lowBalance;
+    const platformToolsEnabled = isPlatformApp() && sessionIsPlatformAdmin(session);
 
     await getAppSettings(db); // still loads settings; webSearchEnabled reserved for Responses API migration
     // OpenAI's Chat Completions `*-search-preview` models are deprecated
@@ -545,6 +559,7 @@ async function handleChatPost(request: Request): Promise<Response> {
 
     const systemSections = [
       systemPrompt,
+      ...(platformToolsEnabled ? [PLATFORM_TOOL_INSTRUCTIONS] : []),
       ...(sessionToolsEnabled || billingToolsEnabled ? [CHAT_SESSION_TOOL_INSTRUCTIONS] : []),
       ...(lowBalance && billingToolsEnabled
         ? [`The organization's AI credit balance is low (${creditBalance} remaining). Proactively offer a credit top-up via purchase_credits when appropriate.`]
@@ -554,6 +569,9 @@ async function handleChatPost(request: Request): Promise<Response> {
       // anyway — belt and braces, since this arms a privileged tool.
       ...(activeTool === 'build_custom_template' && sessionIsPlatformAdmin(session)
         ? ['The administrator selected the Custom Template Build tool. Gather the four details listed in your instructions (what the business does, who uses the app, what they need to track, and the source) before calling build_custom_template. The tool designs the template but does not save it — tell them to press "Save & Create Template" to add it.']
+        : []),
+      ...(activeTool === 'query_platform_data' && platformToolsEnabled
+        ? ['The administrator selected Platform Data Lookup. Call the appropriate platform query tool (query_platform_registry, query_organizations_billing, or query_vercel_inventory) before answering — do not guess counts or statuses.']
         : []),
       ...(webSearchEnabled ? [CHAT_WEB_SEARCH_INSTRUCTIONS] : []),
     ];
@@ -614,6 +632,13 @@ async function handleChatPost(request: Request): Promise<Response> {
       });
     }
 
+    if (platformContext) {
+      messages.push({
+        role: 'system',
+        content: `[PLATFORM REGISTRY DATA — Live tenant and app inventory from the database]\n${platformContext}\n\nUse these counts and rows to answer the user's question about tenants, apps, or deployments.`,
+      });
+    }
+
     messages.push(buildUserMessage(message, attachments));
 
     const sessionMessages = [
@@ -661,6 +686,7 @@ async function handleChatPost(request: Request): Promise<Response> {
       webSearchEnabled,
       sessionToolsEnabled,
       billingToolsEnabled,
+      platformToolsEnabled,
       tenantSlug: tenantSlugForTools,
       keySource: ai.keySource,
       viewerEmail: session?.email,
