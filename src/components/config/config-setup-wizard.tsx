@@ -11,6 +11,7 @@ import Paper from '@mui/material/Paper';
 import Stack from '@mui/material/Stack';
 import Step from '@mui/material/Step';
 import StepButton from '@mui/material/StepButton';
+import StepContent from '@mui/material/StepContent';
 import StepLabel from '@mui/material/StepLabel';
 import Stepper from '@mui/material/Stepper';
 import Typography from '@mui/material/Typography';
@@ -238,9 +239,143 @@ export function ConfigSetupWizard({
     [aiConfigured, workbookSeeded, dataReviewedReady, contentGenerated, steps],
   );
 
-  const current = steps[activeStep]!;
-  const isLast = activeStep >= steps.length - 1;
-  const isFirst = activeStep <= 0;
+  const renderStepAlerts = (stepIndex: number) => (
+    <>
+      {stepIndex === 1 && !aiConfigured ? (
+        <Alert severity="warning">
+          AI provider is not configured yet. You can still upload and seed, but Generate Content
+          will need a provider — go back to step 1 when ready.
+        </Alert>
+      ) : null}
+      {stepIndex === 2 && !workbookSeeded ? (
+        <Alert severity="info">
+          No seeded workbook inventory detected yet. Complete Upload &amp; Seed first, then refresh
+          this step.
+        </Alert>
+      ) : null}
+      {stepIndex === 3 && !workbookSeeded ? (
+        <Alert severity="warning">
+          Generate Content needs a seeded workbook. Finish Upload &amp; Seed (and Review Data)
+          before generating.
+        </Alert>
+      ) : null}
+    </>
+  );
+
+  const renderStepPanels = (stepId: string) => {
+    switch (stepId) {
+      case 'ai-provider':
+        return (
+          <Stack spacing={3}>
+            <AiProviderForm />
+            <OpenAiKeyForm />
+            <ChatSettingsForm />
+          </Stack>
+        );
+      case 'upload-seed':
+        return <SourceUploadForm />;
+      case 'review-data':
+        return <DataViewTab />;
+      case 'generate-content':
+        return <AiContentTab />;
+      case 'template':
+        return <TemplateConfigPlaceholder template={template} />;
+      default:
+        return null;
+    }
+  };
+
+  const renderStepNav = (stepIndex: number) => {
+    const last = stepIndex >= steps.length - 1;
+    const first = stepIndex <= 0;
+    return (
+      <Stack
+        direction={{ xs: 'column', sm: 'row' }}
+        spacing={1.5}
+        sx={{ justifyContent: 'space-between', pt: 1, borderTop: 1, borderColor: 'divider' }}
+      >
+        <Button
+          variant="outlined"
+          startIcon={<ArrowBackIcon />}
+          disabled={first}
+          onClick={() => goToStep(stepIndex - 1)}
+        >
+          Back
+        </Button>
+        <Stack direction="row" spacing={1} sx={{ justifyContent: 'flex-end' }}>
+          {!last ? (
+            <Button
+              variant="contained"
+              endIcon={<ArrowForwardIcon />}
+              onClick={() => goToStep(stepIndex + 1)}
+            >
+              Continue to {steps[stepIndex + 1]?.label}
+            </Button>
+          ) : (
+            <Button
+              variant="contained"
+              color="success"
+              onClick={() => goToStep(0)}
+              startIcon={<CheckCircleIcon />}
+            >
+              Back to start
+            </Button>
+          )}
+        </Stack>
+      </Stack>
+    );
+  };
+
+  const renderStepBody = (stepIndex: number, { showHeading = true }: { showHeading?: boolean } = {}) => {
+    const step = steps[stepIndex]!;
+    return (
+      <Stack spacing={2.5}>
+        {showHeading ? (
+          <Box>
+            <Typography variant="h6" sx={{ fontWeight: 700 }}>
+              Step {stepIndex + 1} of {steps.length}: {step.label}
+            </Typography>
+            <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
+              {step.description}
+            </Typography>
+          </Box>
+        ) : (
+          <Typography variant="body2" color="text.secondary">
+            {step.description}
+          </Typography>
+        )}
+
+        {renderStepAlerts(stepIndex)}
+        {renderStepPanels(step.id)}
+        {renderStepNav(stepIndex)}
+      </Stack>
+    );
+  };
+
+  const renderStepLabel = (step: ConfigWizardStepDef, index: number, done: boolean) => (
+    <StepLabel
+      slots={
+        done
+          ? {
+              stepIcon: () => <CheckCircleIcon color="success" sx={{ fontSize: 22 }} />,
+            }
+          : undefined
+      }
+      optional={
+        done ? (
+          <Typography variant="caption" color="success.main">
+            Ready
+          </Typography>
+        ) : index === activeStep ? (
+          <Typography variant="caption" color="primary.main">
+            Current
+          </Typography>
+        ) : undefined
+      }
+    >
+      {step.label}
+    </StepLabel>
+  );
 
   return (
     <Stack spacing={3} data-testid="config-setup-wizard">
@@ -261,137 +396,61 @@ export function ConfigSetupWizard({
         </Typography>
       </Stack>
 
-      <Paper variant="outlined" sx={{ p: { xs: 2, md: 2.5 } }}>
-        <Stepper
-          activeStep={activeStep}
-          orientation={isMobile ? 'vertical' : 'horizontal'}
-          nonLinear
-          sx={{
-            ...(isMobile
-              ? { '& .MuiStepConnector-root': { ml: 1.5 } }
-              : { flexWrap: 'wrap', gap: 1 }),
-          }}
-        >
-          {steps.map((step, index) => {
-            const done = stepCompleted[index];
-            return (
-              <Step key={step.id} completed={done}>
-                <StepButton
-                  onClick={() => goToStep(index)}
-                  optional={
-                    done ? (
-                      <Typography variant="caption" color="success.main">
-                        Ready
-                      </Typography>
-                    ) : index === activeStep ? (
-                      <Typography variant="caption" color="primary.main">
-                        Current
-                      </Typography>
-                    ) : undefined
-                  }
-                >
-                  <StepLabel
-                    slots={
-                      done
-                        ? {
-                            stepIcon: () => (
-                              <CheckCircleIcon color="success" sx={{ fontSize: 22 }} />
-                            ),
-                          }
-                        : undefined
-                    }
-                  >
-                    {step.label}
-                  </StepLabel>
-                </StepButton>
-              </Step>
-            );
-          })}
-        </Stepper>
-      </Paper>
-
-      <Paper variant="outlined" sx={{ p: { xs: 2, md: 3 } }}>
-        <Stack spacing={2.5}>
-          <Box>
-            <Typography variant="h6" sx={{ fontWeight: 700 }}>
-              Step {activeStep + 1} of {steps.length}: {current.label}
-            </Typography>
-            <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
-              {current.description}
-            </Typography>
-          </Box>
-
-          {activeStep === 1 && !aiConfigured ? (
-            <Alert severity="warning">
-              AI provider is not configured yet. You can still upload and seed, but Generate Content
-              will need a provider — go back to step 1 when ready.
-            </Alert>
-          ) : null}
-          {activeStep === 2 && !workbookSeeded ? (
-            <Alert severity="info">
-              No seeded workbook inventory detected yet. Complete Upload &amp; Seed first, then refresh
-              this step.
-            </Alert>
-          ) : null}
-          {activeStep === 3 && !workbookSeeded ? (
-            <Alert severity="warning">
-              Generate Content needs a seeded workbook. Finish Upload &amp; Seed (and Review Data)
-              before generating.
-            </Alert>
-          ) : null}
-
-          {current.id === 'ai-provider' ? (
-            <Stack spacing={3}>
-              <AiProviderForm />
-              <OpenAiKeyForm />
-              <ChatSettingsForm />
-            </Stack>
-          ) : null}
-
-          {current.id === 'upload-seed' ? <SourceUploadForm /> : null}
-
-          {current.id === 'review-data' ? <DataViewTab /> : null}
-
-          {current.id === 'generate-content' ? <AiContentTab /> : null}
-
-          {current.id === 'template' ? <TemplateConfigPlaceholder template={template} /> : null}
-
-          <Stack
-            direction={{ xs: 'column', sm: 'row' }}
-            spacing={1.5}
-            sx={{ justifyContent: 'space-between', pt: 1, borderTop: 1, borderColor: 'divider' }}
+      {isMobile ? (
+        <Paper variant="outlined" sx={{ p: { xs: 1.5, md: 2.5 }, minWidth: 0, overflow: 'hidden' }}>
+          <Stepper
+            activeStep={activeStep}
+            orientation="vertical"
+            nonLinear
+            sx={{ '& .MuiStepConnector-root': { ml: 1.5 } }}
           >
-            <Button
-              variant="outlined"
-              startIcon={<ArrowBackIcon />}
-              disabled={isFirst}
-              onClick={() => goToStep(activeStep - 1)}
-            >
-              Back
-            </Button>
-            <Stack direction="row" spacing={1} sx={{ justifyContent: 'flex-end' }}>
-              {!isLast ? (
-                <Button
-                  variant="contained"
-                  endIcon={<ArrowForwardIcon />}
-                  onClick={() => goToStep(activeStep + 1)}
-                >
-                  Continue to {steps[activeStep + 1]?.label}
-                </Button>
-              ) : (
-                <Button
-                  variant="contained"
-                  color="success"
-                  onClick={() => goToStep(0)}
-                  startIcon={<CheckCircleIcon />}
-                >
-                  Back to start
-                </Button>
-              )}
-            </Stack>
-          </Stack>
-        </Stack>
-      </Paper>
+            {steps.map((step, index) => {
+              const done = stepCompleted[index];
+              return (
+                <Step key={step.id} completed={done} expanded={activeStep === index}>
+                  <StepButton onClick={() => goToStep(index)}>{renderStepLabel(step, index, done)}</StepButton>
+                  {activeStep === index ? (
+                    <StepContent
+                      sx={{
+                        maxWidth: '100%',
+                        pr: 0,
+                        borderLeftWidth: 1,
+                        ml: 1.5,
+                        pl: 1.5,
+                        minWidth: 0,
+                        '& .MuiCollapse-wrapperInner': { minWidth: 0, maxWidth: '100%' },
+                      }}
+                    >
+                      <Box sx={{ py: 1, pb: 2, minWidth: 0, maxWidth: '100%', overflowX: 'hidden' }}>
+                        {renderStepBody(index, { showHeading: false })}
+                      </Box>
+                    </StepContent>
+                  ) : null}
+                </Step>
+              );
+            })}
+          </Stepper>
+        </Paper>
+      ) : (
+        <>
+          <Paper variant="outlined" sx={{ p: { xs: 2, md: 2.5 } }}>
+            <Stepper activeStep={activeStep} orientation="horizontal" nonLinear sx={{ flexWrap: 'wrap', gap: 1 }}>
+              {steps.map((step, index) => {
+                const done = stepCompleted[index];
+                return (
+                  <Step key={step.id} completed={done}>
+                    <StepButton onClick={() => goToStep(index)}>{renderStepLabel(step, index, done)}</StepButton>
+                  </Step>
+                );
+              })}
+            </Stepper>
+          </Paper>
+
+          <Paper variant="outlined" sx={{ p: { xs: 2, md: 3 } }}>
+            {renderStepBody(activeStep)}
+          </Paper>
+        </>
+      )}
     </Stack>
   );
 }
