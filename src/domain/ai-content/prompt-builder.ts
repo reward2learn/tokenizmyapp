@@ -25,9 +25,15 @@ function fmtPct(n: number): string {
 
 function buildCompanyInfoSection(data: ExcelData): string {
   const tenant = getTenantConfig();
-  return [
+  const lines = [
     `## Company Information`,
-    `- **Company**: ${data.company || tenant.displayName}`,
+    `- **Business**: ${tenant.displayName}`,
+  ];
+  if (data.company?.trim() && data.company.trim() !== tenant.displayName.trim()) {
+    lines.push(`- **Workbook entity**: ${data.company.trim()}`);
+  }
+  return [
+    ...lines,
     `- **Period**: ${data.period}`,
     `- **Workbook**: ${data.workbookName}`,
     `- **Tenant**: ${tenant.slug}`,
@@ -275,7 +281,7 @@ function buildDashboardInstructions(businessName: string): string[] {
 
 export function buildGenerationPrompt(data: ExcelData, additionalContext?: string): string {
   const tenant = getTenantConfig();
-  const businessName = data.company || tenant.displayName;
+  const businessName = tenant.displayName;
   const sections: string[] = [
     `# ${businessName} — AI Content Generation Prompt`,
     ``,
@@ -361,7 +367,7 @@ export function buildDataSummary(data: ExcelData): string {
  */
 export function buildDashboardPrompt(data: ExcelData, additionalContext?: string): string {
   const tenant = getTenantConfig();
-  const businessName = data.company || tenant.displayName;
+  const businessName = tenant.displayName;
   const sections: string[] = [
     ...buildDashboardInstructions(businessName),
     buildCompanyInfoSection(data),

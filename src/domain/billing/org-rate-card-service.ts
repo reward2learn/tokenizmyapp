@@ -35,14 +35,10 @@ CREATE TABLE IF NOT EXISTS org_billing_rate_cards (
   updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );`;
 
-let ensured = false;
-
+/** Idempotent DDL — safe on every request; must run on the same db handle as queries. */
 export async function ensureOrgRateCardTable(db?: RawDb): Promise<RawDb> {
   db ??= createRawClient();
-  if (!ensured) {
-    await db.$executeRawUnsafe(DDL);
-    ensured = true;
-  }
+  await db.$executeRawUnsafe(DDL);
   return db;
 }
 

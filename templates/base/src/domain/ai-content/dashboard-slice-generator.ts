@@ -149,7 +149,7 @@ export async function generateAndSaveDashboardSlice(
 ): Promise<GenerateDashboardSliceResult> {
   const data = await resolveWorkbookForSlice(input.db);
   const tenant = getTenantConfig();
-  const businessName = data.company || tenant.displayName;
+  const businessName = tenant.displayName;
 
   const basePrompt = buildDashboardPrompt(data, input.additionalContext);
   const userPrompt = [

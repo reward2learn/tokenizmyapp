@@ -8,7 +8,7 @@ import {
   type Prisma,
   type TaskStatus,
 } from '@/generated/prisma';
-import { getCurrentAppId } from '@shared/lib/config/tenant';
+import { getTenantConfig, getCurrentAppId, isPlatformApp } from '@shared/lib/config/tenant';
 import { resolveRegistryTenantSlug } from '@shared/lib/cms-scope';
 import { toStoragePageSlug } from '@shared/lib/page-slug';
 import { addTenantColumnsIfMissing } from '@/domain/tenant/tenant-seed-service';
@@ -314,7 +314,6 @@ function buildKnowledgeSnippets(
   }
 
   const {
-    BUSINESS_NAME,
     LOCATION,
     SITUATION_SUMMARY,
     CURRENT_METRICS,
@@ -326,8 +325,10 @@ function buildKnowledgeSnippets(
     MONTHLY_TARGETS,
   } = corpus;
 
+  const { displayName } = getTenantConfig();
+
   return [
-    { key: 'business_name', category: 'meta', content: BUSINESS_NAME },
+    { key: 'business_name', category: 'meta', content: displayName },
     { key: 'location', category: 'meta', content: LOCATION },
     { key: 'situation_summary', category: 'overview', content: SITUATION_SUMMARY.trim() },
     {

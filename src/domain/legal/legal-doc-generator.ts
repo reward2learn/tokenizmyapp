@@ -251,8 +251,8 @@ export function buildLegalDocContext(
 
   const businessName =
     overrides?.businessName?.trim() ||
-    workbook?.company?.trim() ||
     tenant.displayName ||
+    workbook?.company?.trim() ||
     'the Business';
 
   const capabilities = overrides?.capabilities ?? profile.capabilities;

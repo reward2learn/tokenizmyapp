@@ -249,7 +249,10 @@ export function buildLegalDocContext(
     : null;
 
   const businessName =
-    workbook?.company?.trim() || tenant.displayName || 'the Business';
+    overrides?.businessName?.trim() ||
+    tenant.displayName ||
+    workbook?.company?.trim() ||
+    'the Business';
 
   const capabilityClauses = buildCapabilityLegalClauses(
     profile.capabilities,

@@ -17,6 +17,29 @@ afterEach(() => {
 });
 
 describe('buildStructuredPromptFromSnippets', () => {
+  it('uses tenant display name even when business_name snippet is stale', () => {
+    const envBackup: Record<string, string | undefined> = {};
+    const stub = (key: string, value: string) => {
+      if (!(key in envBackup)) envBackup[key] = process.env[key];
+      process.env[key] = value;
+    };
+    stub('NEXT_PUBLIC_TENANT_DISPLAY_NAME', 'Harbour View Hotel');
+    stub('NEXT_PUBLIC_TENANT_SLUG', 'harbour-view');
+
+    const prompt = buildStructuredPromptFromSnippets([
+      { key: 'business_name', category: 'meta', content: 'Red Ruby Club & Terrace Bar' },
+      { key: 'app_overview', category: 'overview', content: 'Legacy overview text.' },
+    ]);
+
+    expect(prompt).toContain('Harbour View Hotel AI');
+    expect(prompt).not.toContain('Red Ruby Club & Terrace Bar');
+
+    for (const [key, value] of Object.entries(envBackup)) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+  });
+
   it('takes its persona from the deployment template', () => {
     vi.stubEnv('NEXT_PUBLIC_TENANT_DISPLAY_NAME', 'Grand Harbour Hotel');
     stampTemplate('hotel', 'Hotel & Hospitality');

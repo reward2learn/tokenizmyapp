@@ -236,6 +236,8 @@ export async function ensureCreditTables(db: RawDb): Promise<void> {
   // Subscriptions must exist first — the monthly allowance logic reads them.
   const { ensureBillingTables } = await import('@/domain/billing/entitlement-service');
   await ensureBillingTables(db);
+  const { ensureOrgRateCardTable } = await import('@/domain/billing/org-rate-card-service');
+  await ensureOrgRateCardTable(db);
   await db.$executeRawUnsafe(CREDIT_GRANTS_DDL);
   await db.$executeRawUnsafe(CREDIT_GRANTS_OWNER_USER_ID_COL);
   await db.$executeRawUnsafe(CREDIT_LEDGER_DDL);

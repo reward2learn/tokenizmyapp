@@ -38,6 +38,16 @@ export interface KnowledgeSeedSnippet {
   content: string;
 }
 
+/** Ensure stored snippets never contradict the deployment's tenant display name. */
+function normalizeSnippetsForTenant(
+  snippets: { key: string; category: string; content: string }[],
+  tenantName: string,
+): { key: string; category: string; content: string }[] {
+  return snippets.map((s) =>
+    s.key === 'business_name' ? { ...s, content: tenantName } : s,
+  );
+}
+
 function buildStructuredPromptFromSnippetsImpl(
   snippets: { key: string; category: string; content: string }[],
   tenantName: string,
@@ -142,7 +152,7 @@ export function buildStructuredPromptFromSnippets(
 ): string {
   const tenant = getTenantConfig();
   return buildStructuredPromptFromSnippetsImpl(
-    snippets,
+    normalizeSnippetsForTenant(snippets, tenant.displayName),
     tenant.displayName,
     getAssistantProfile(),
   );

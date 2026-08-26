@@ -130,11 +130,12 @@ describe('legal-doc-generator', () => {
   it('generateLegalDocuments embeds tenant, workbook, and catalog pages', () => {
     const { termsMarkdown, privacyMarkdown, context } = generateLegalDocuments(sampleAnalysis);
 
-    expect(context.businessName).toBe('Acme Cantina');
+    expect(context.businessName).toBe('Acme Co');
     expect(context.tenantSlug).toBe('acme-co');
     expect(context.workbook?.fileName).toBe('june-workbook.xlsx');
+    expect(context.workbook?.company).toBe('Acme Cantina');
 
-    expect(termsMarkdown).toContain('Acme Cantina');
+    expect(termsMarkdown).toContain('Acme Co');
     expect(termsMarkdown).toContain('https://acme-co.vercel.app');
     expect(termsMarkdown).toContain('june-workbook.xlsx');
     expect(termsMarkdown).toContain('/terms-of-service');
@@ -142,7 +143,7 @@ describe('legal-doc-generator', () => {
     expect(termsMarkdown).toContain('time remaining until restriction');
     expect(termsMarkdown).toContain('billing owner');
 
-    expect(privacyMarkdown).toContain('Acme Cantina');
+    expect(privacyMarkdown).toContain('Acme Co');
     expect(privacyMarkdown).toContain('daily sales');
     expect(privacyMarkdown).toContain('profit & loss');
     expect(privacyMarkdown).toContain('pending invoices');
