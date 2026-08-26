@@ -98,3 +98,51 @@ describe('pushOllamaTunnelHostForTenant', () => {
     );
   });
 });
+
+describe('pushOllamaTunnelHostForAllTenants', () => {
+  it('dedupes projects and upserts OLLAMA_TUNNEL_HOST on each', async () => {
+    const upsert = vi.fn().mockResolvedValue(true);
+    vi.doMock('@/domain/tenant/vercel-deploy-service', () => ({
+      upsertProjectEnvVar: upsert,
+    }));
+    vi.doMock('@/domain/tenant/vercel-sdk-client', () => ({
+      listVercelBearerTokens: vi.fn().mockResolvedValue(['tok']),
+    }));
+    vi.doMock('@/domain/tenant/tenant-service', () => ({
+      ensureTenantsTable: vi.fn(),
+    }));
+    vi.doMock('@/domain/billing/sec-user-agent-service', () => ({
+      collectTenantVercelProjectIds: vi.fn()
+        .mockResolvedValueOnce({
+          projectRefs: [{ projectId: 'prj_a', appId: null }],
+          skippedNoProject: [],
+        })
+        .mockResolvedValueOnce({
+          projectRefs: [{ projectId: 'prj_b', appId: 'suite-1' }, { projectId: 'prj_factory', appId: null }],
+          skippedNoProject: ['suite-2'],
+        }),
+    }));
+
+    const db = {
+      $executeRawUnsafe: vi.fn(),
+      $queryRawUnsafe: vi.fn().mockResolvedValue([
+        { slug: 'tenant-a', vercel_project_id: 'prj_a', metadata: {} },
+        { slug: 'tenant-b', vercel_project_id: 'prj_b', metadata: {} },
+      ]),
+    };
+
+    const { pushOllamaTunnelHostForAllTenants } = await import(
+      '@/domain/config/ollama-tunnel-host-service'
+    );
+
+    const result = await pushOllamaTunnelHostForAllTenants(
+      { confirm: true, tunnelHost: DEFAULT_OLLAMA_TUNNEL_HOST },
+      db as never,
+    );
+
+    expect(result.tenantSlugs).toEqual(['tenant-a', 'tenant-b']);
+    expect(result.updated.filter((u) => u.ok).length).toBe(3);
+    expect(upsert).toHaveBeenCalledTimes(3);
+    expect(result.skippedNoProject).toEqual(['tenant-b:suite-2']);
+  });
+});

@@ -16,6 +16,7 @@
     "seed:chatbot-key": "bun run scripts/seed-chatbot-openai-key.ts",
     "test-webhook": "bun run scripts/test-webhook.ts",
     "register-webhooks": "bun run scripts/register-vercel-webhooks.ts",
+    "push-ollama-tunnel-host": "bun run scripts/push-ollama-tunnel-host.ts",
     "enforce:index-names": "node scripts/enforce-index-names.mjs",
     "enforce:required-columns": "node scripts/enforce-required-columns.mjs"
   },

@@ -192,3 +192,147 @@ export async function pushOllamaTunnelHostForTenant(
 
   return result;
 }
+
+export interface PushOllamaTunnelHostAllResult {
+  tunnelHost: string;
+  tenantSlugs: string[];
+  updated: OllamaTunnelHostProjectResult[];
+  skippedNoProject: string[];
+  errors: string[];
+}
+
+/**
+ * Collect unique Vercel project ids across every tenant (root + suite apps) plus
+ * the factory control-plane project.
+ */
+export async function collectAllOllamaTunnelHostProjectRefs(
+  db: RawDb = createRawClient(),
+): Promise<{
+  projectRefs: Array<{ projectId: string; appId: string | null; tenantSlug: string | null }>;
+  skippedNoProject: string[];
+  tenantSlugs: string[];
+}> {
+  await ensureTenantsTable(db);
+  const rows = (await db.$queryRawUnsafe(
+    `SELECT slug, vercel_project_id, metadata FROM tenants ORDER BY slug;`,
+  )) as Record<string, unknown>[];
+
+  const projectRefs: Array<{ projectId: string; appId: string | null; tenantSlug: string | null }> = [];
+  const seen = new Set<string>();
+  const skippedNoProject: string[] = [];
+  const tenantSlugs: string[] = [];
+
+  const add = (projectId: string, appId: string | null, tenantSlug: string | null) => {
+    const id = projectId.trim();
+    if (!id || seen.has(id)) return;
+    seen.add(id);
+    projectRefs.push({ projectId: id, appId, tenantSlug });
+  };
+
+  for (const row of rows) {
+    const slug = String(row.slug ?? '').trim();
+    if (!slug) continue;
+    tenantSlugs.push(slug);
+    const { projectRefs: tenantRefs, skippedNoProject: tenantSkipped } =
+      await collectOllamaTunnelHostProjectIds(slug, row);
+    for (const ref of tenantRefs) {
+      add(ref.projectId, ref.appId, slug);
+    }
+    for (const appId of tenantSkipped) {
+      skippedNoProject.push(`${slug}:${appId}`);
+    }
+  }
+
+  if (rows.length === 0) {
+    const factoryId = await resolveFactoryProjectId();
+    if (factoryId) add(factoryId, null, null);
+  }
+
+  return { projectRefs, skippedNoProject, tenantSlugs };
+}
+
+/**
+ * Upsert OLLAMA_TUNNEL_HOST on every linked tenant Vercel project (deduped) and
+ * the factory control-plane project.
+ */
+export async function pushOllamaTunnelHostForAllTenants(
+  opts: {
+    tunnelHost?: string;
+    confirm: true;
+  },
+  db: RawDb = createRawClient(),
+): Promise<PushOllamaTunnelHostAllResult> {
+  if (opts.confirm !== true) {
+    throw new Error('Pushing OLLAMA_TUNNEL_HOST requires confirm: true');
+  }
+
+  const tunnelHost = normalizeOllamaTunnelHost(opts.tunnelHost || DEFAULT_OLLAMA_TUNNEL_HOST);
+
+  const result: PushOllamaTunnelHostAllResult = {
+    tunnelHost,
+    tenantSlugs: [],
+    updated: [],
+    skippedNoProject: [],
+    errors: [],
+  };
+
+  const { projectRefs, skippedNoProject, tenantSlugs } =
+    await collectAllOllamaTunnelHostProjectRefs(db);
+  result.tenantSlugs = tenantSlugs;
+  result.skippedNoProject = skippedNoProject;
+
+  if (projectRefs.length === 0) {
+    result.errors.push(
+      'No Vercel project ids found — link tenant projects or set VERCEL_PROJECT_ID on the factory.',
+    );
+    return result;
+  }
+
+  try {
+    const { listVercelBearerTokens } = await import('@/domain/tenant/vercel-sdk-client');
+    const tokens = await listVercelBearerTokens();
+    if (tokens.length === 0) {
+      result.errors.push(
+        'No Vercel token (set VERCEL_TOKEN or Connect to Vercel) — OLLAMA_TUNNEL_HOST not pushed.',
+      );
+      return result;
+    }
+  } catch (err) {
+    result.errors.push(
+      `Vercel token check failed: ${err instanceof Error ? err.message : String(err)}`,
+    );
+    return result;
+  }
+
+  const { upsertProjectEnvVar } = await import('@/domain/tenant/vercel-deploy-service');
+
+  for (const ref of projectRefs) {
+    try {
+      const ok = await upsertProjectEnvVar(
+        ref.projectId,
+        OLLAMA_TUNNEL_HOST_ENV_KEY,
+        tunnelHost,
+      );
+      result.updated.push({
+        projectId: ref.projectId,
+        appId: ref.appId,
+        ok,
+        error: ok ? undefined : 'upsertProjectEnvVar returned false',
+      });
+      if (!ok) {
+        result.errors.push(`${ref.projectId}: upsert failed`);
+      }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      result.updated.push({
+        projectId: ref.projectId,
+        appId: ref.appId,
+        ok: false,
+        error: message,
+      });
+      result.errors.push(`${ref.projectId}: ${message}`);
+    }
+  }
+
+  return result;
+}
