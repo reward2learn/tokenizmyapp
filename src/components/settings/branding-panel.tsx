@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import Box from '@mui/material/Box';
 import Button from '@mui/material/Button';
 import CircularProgress from '@mui/material/CircularProgress';
@@ -11,6 +11,7 @@ import Typography from '@mui/material/Typography';
 import Alert from '@mui/material/Alert';
 import CloudUploadIcon from '@mui/icons-material/CloudUpload';
 import DownloadIcon from '@mui/icons-material/Download';
+import PhotoCameraIcon from '@mui/icons-material/PhotoCamera';
 import { useGetOrganizationBrandingQuery, useUpdateOrganizationBrandingMutation } from '@/store/apis/auth-api';
 
 interface BrandingPanelProps {
@@ -20,7 +21,7 @@ interface BrandingPanelProps {
 /**
  * Organization branding — customize the tenant app's appearance.
  *
- * Allows uploading logo, background image/video, and custom CSS.
+ * Allows uploading logo, background image/video, loading graphic, and custom CSS.
  */
 export function BrandingPanel({ orgId }: BrandingPanelProps) {
   const { data: brandingData } = useGetOrganizationBrandingQuery(orgId);
@@ -30,9 +31,14 @@ export function BrandingPanel({ orgId }: BrandingPanelProps) {
   const [logoInput, setLogoInput] = useState('');
   const [bgImageInput, setBgImageInput] = useState('');
   const [bgVideoInput, setBgVideoInput] = useState('');
-  const [cssContent, setCssContent] = useState(brandingData?.data?.customCss || '');
+  const [loadingGraphicInput, setLoadingGraphicInput] = useState('');
+  const [cssContent, setCssContent] = useState('');
 
   const branding = brandingData?.data || {};
+
+  useEffect(() => {
+    setCssContent(branding.customCss || '');
+  }, [branding.customCss]);
 
   const handleLogoUpload = useCallback(async () => {
     if (!logoInput.trim()) return;
@@ -66,6 +72,41 @@ export function BrandingPanel({ orgId }: BrandingPanelProps) {
       setError((err as Error).message);
     }
   }, [bgVideoInput, orgId, updateBranding]);
+
+  const handleLoadingGraphicSave = useCallback(
+    async (value: string | null) => {
+      setError(null);
+      try {
+        await updateBranding({ orgId, branding: { loadingGraphicUrl: value } }).unwrap();
+        setLoadingGraphicInput('');
+      } catch (err) {
+        setError((err as Error).message);
+      }
+    },
+    [orgId, updateBranding],
+  );
+
+  const handleLoadingGraphicFile = useCallback(
+    async (e: React.ChangeEvent<HTMLInputElement>) => {
+      const file = e.target.files?.[0];
+      if (!file) return;
+      setError(null);
+      try {
+        const dataUrl = await new Promise<string>((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = () => resolve(reader.result as string);
+          reader.onerror = () => reject(new Error('Failed to read file'));
+          reader.readAsDataURL(file);
+        });
+        await handleLoadingGraphicSave(dataUrl);
+      } catch (err) {
+        setError((err as Error).message);
+      } finally {
+        e.target.value = '';
+      }
+    },
+    [handleLoadingGraphicSave],
+  );
 
   const handleCssSave = useCallback(async () => {
     setError(null);
@@ -171,6 +212,92 @@ export function BrandingPanel({ orgId }: BrandingPanelProps) {
               endAdornment: bgVideoInput && (
                 <Button size="small" onClick={handleBgVideoUpload} disabled={isUpdating}>
                   {isUpdating ? <CircularProgress size={20} /> : 'Upload'}
+                </Button>
+              ),
+            },
+          }}
+        />
+      </Box>
+
+      <Divider />
+
+      {/* Loading Graphic */}
+      <Box>
+        <Typography variant="subtitle2" sx={{ mb: 1 }}>
+          Loading Graphic
+        </Typography>
+        <Typography variant="caption" color="text.secondary" sx={{ mb: 1, display: 'block' }}>
+          Shown while pages and content load. Paste a URL or data URI, or upload a GIF or image.
+        </Typography>
+        <Box
+          sx={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            width: 72,
+            height: 72,
+            mb: 1,
+            border: '1px solid',
+            borderColor: 'divider',
+            borderRadius: 1,
+            bgcolor: 'background.default',
+          }}
+        >
+          {branding.loadingGraphicUrl ? (
+            <Box
+              component="img"
+              src={branding.loadingGraphicUrl}
+              alt="Loading graphic preview"
+              sx={{ width: 40, height: 40, objectFit: 'contain' }}
+            />
+          ) : (
+            <CircularProgress size={40} />
+          )}
+        </Box>
+        <Stack direction="row" spacing={1} sx={{ mb: 1, alignItems: 'center' }}>
+          <Button
+            variant="outlined"
+            component="label"
+            size="small"
+            startIcon={<PhotoCameraIcon />}
+            disabled={isUpdating}
+          >
+            Upload file
+            <input
+              type="file"
+              hidden
+              accept="image/*"
+              onChange={handleLoadingGraphicFile}
+              disabled={isUpdating}
+            />
+          </Button>
+          {branding.loadingGraphicUrl ? (
+            <Button
+              size="small"
+              color="inherit"
+              onClick={() => void handleLoadingGraphicSave(null)}
+              disabled={isUpdating}
+            >
+              Reset to default spinner
+            </Button>
+          ) : null}
+        </Stack>
+        <TextField
+          size="small"
+          fullWidth
+          placeholder="https://example.com/spinner.gif or data:image/gif;base64,..."
+          value={loadingGraphicInput}
+          onChange={(e) => setLoadingGraphicInput(e.target.value)}
+          disabled={isUpdating}
+          slotProps={{
+            input: {
+              endAdornment: loadingGraphicInput && (
+                <Button
+                  size="small"
+                  onClick={() => void handleLoadingGraphicSave(loadingGraphicInput.trim())}
+                  disabled={isUpdating}
+                >
+                  {isUpdating ? <CircularProgress size={20} /> : 'Save'}
                 </Button>
               ),
             },

@@ -3,7 +3,7 @@
 import { useMemo, useState } from 'react';
 import dynamic from 'next/dynamic';
 import Box from '@mui/material/Box';
-import CircularProgress from '@mui/material/CircularProgress';
+import { BrandedLoadingIndicator } from '@/components/branding/branded-loading-indicator';
 import Paper from '@mui/material/Paper';
 import Tab from '@mui/material/Tab';
 import Table from '@mui/material/Table';
@@ -23,7 +23,7 @@ const DataGrid = dynamic(
     ssr: false,
     loading: () => (
       <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}>
-        <CircularProgress size={24} />
+        <BrandedLoadingIndicator size={24} />
       </Box>
     ),
   },
@@ -98,7 +98,7 @@ function SheetDataView({ sheet, title: _title }: { sheet: string; title?: string
         {title ?? `${sheet} — Data`}
       </Typography> */}
       {isLoading ? (
-        <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}><CircularProgress size={24} /></Box>
+        <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}><BrandedLoadingIndicator size={24} /></Box>
       ) : error ? (
         <Typography color="error">{error}</Typography>
       ) : data ? (

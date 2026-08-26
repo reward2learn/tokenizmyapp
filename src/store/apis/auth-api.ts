@@ -12,6 +12,7 @@ export interface OrganizationBranding {
   backgroundImageUrl?: string | null;
   backgroundVideoUrl?: string | null;
   customCss?: string | null;
+  loadingGraphicUrl?: string | null;
 }
 
 export const authApi = createApi({

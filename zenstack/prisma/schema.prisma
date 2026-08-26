@@ -709,6 +709,8 @@ model Organization {
   backgroundVideoUrl String?         @map("background_video_url")
   /// Custom CSS for the tenant app (stored as-is).
   customCss          String?         @map("custom_css")
+  /// Loading spinner graphic — URL or data URI (gif/png). Null = built-in spinner.
+  loadingGraphicUrl  String?         @map("loading_graphic_url")
   /// Account that owns billing for this organization.
   ownerUserId        String?         @map("owner_user_id")
   /// Affiliate attribution. Recorded at signup — impossible to backfill later.

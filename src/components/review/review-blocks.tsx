@@ -6,6 +6,7 @@ import type { Route } from 'next';
 import Box from '@mui/material/Box';
 import Button from '@mui/material/Button';
 import CircularProgress from '@mui/material/CircularProgress';
+import { BrandedLoadingIndicator } from '@/components/branding/branded-loading-indicator';
 import Grid from '@mui/material/Grid';
 import Paper from '@mui/material/Paper';
 import Stack from '@mui/material/Stack';
@@ -131,7 +132,7 @@ export function ReviewBlocks() {
   if (dbState === 'loading') {
     return (
       <Box component="section" sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', py: 12 }}>
-        <CircularProgress size={28} />
+        <BrandedLoadingIndicator size={28} />
       </Box>
     );
   }

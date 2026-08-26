@@ -70,7 +70,7 @@ describe('SettingsPanel', () => {
     // and quietly promise one.
     renderPanel('org_1');
 
-    for (const present of ['General', 'Billing', 'Topup', 'Teammates', 'Profile', 'Security']) {
+    for (const present of ['General', 'Billing', 'Topup', 'Teammates', 'Branding', 'Profile', 'Security']) {
       expect(screen.getByRole('button', { name: present })).toBeInTheDocument();
     }
     for (const absent of ['SSO', 'Data residency', 'Commerce', 'Skills', 'Chat Integrations']) {
@@ -78,15 +78,15 @@ describe('SettingsPanel', () => {
     }
   });
 
-  it('shows tenant-app usage, topup and team sections without billing controls', () => {
+  it('shows tenant-app usage, topup, team and branding sections without billing controls', () => {
     vi.mocked(isPlatformApp).mockReturnValue(false);
     renderPanel('org_1');
 
     expect(screen.getByRole('button', { name: 'Usage' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Topup' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Team' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Branding' })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Billing' })).toBeNull();
-    expect(screen.queryByRole('button', { name: 'Branding' })).toBeNull();
 
     fireEvent.click(screen.getByRole('button', { name: 'Usage' }));
     expect(screen.getByText(/billing for org_1 \(read-only\)/i)).toBeInTheDocument();

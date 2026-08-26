@@ -1,20 +1,19 @@
 /**
- * Organization branding — logo, background, custom CSS.
+ * Organization branding — logo, background, loading graphic, custom CSS.
  *
  * GET  /api/admin/organizations/[orgId]/branding
  *   Returns the current branding configuration.
  *
  * PATCH /api/admin/organizations/[orgId]/branding
- *   Body: { logoUrl?, backgroundImageUrl?, backgroundVideoUrl?, customCss? }
+ *   Body: { logoUrl?, backgroundImageUrl?, backgroundVideoUrl?, loadingGraphicUrl?, customCss? }
  *   Updates the branding configuration.
  *
- * Auth: requireWriteAuth + platform admin (or org member).
+ * Auth: platform admin on factory, or signed-in tenant user for their org.
  */
 import { createRawClient } from '@/lib/db';
-import { requireWriteAuth } from '@/lib/auth/guards';
-import { sessionIsPlatformAdmin } from '@/lib/auth/jwt';
 import { jsonError, jsonOk } from '@/lib/api/response';
 import { getOrganization } from '@/domain/billing/organization-service';
+import { requireOrgBrandingAccess } from '@/lib/auth/branding-guards';
 
 export const dynamic = 'force-dynamic';
 
@@ -22,11 +21,10 @@ export async function GET(
   request: Request,
   { params }: { params: Promise<{ orgId: string }> },
 ) {
-  const guard = await requireWriteAuth(request);
-  if (!guard.ok) return guard.response;
-  if (!sessionIsPlatformAdmin(guard.session)) return jsonError('Platform admin only', 403);
-
   const { orgId } = await params;
+  const guard = await requireOrgBrandingAccess(request, orgId);
+  if (!guard.ok) return guard.response;
+
   const db = createRawClient();
 
   try {
@@ -37,6 +35,7 @@ export async function GET(
       logoUrl: org.logoUrl ?? null,
       backgroundImageUrl: org.backgroundImageUrl ?? null,
       backgroundVideoUrl: org.backgroundVideoUrl ?? null,
+      loadingGraphicUrl: org.loadingGraphicUrl ?? null,
       customCss: org.customCss ?? null,
     });
   } catch (err) {
@@ -48,11 +47,10 @@ export async function PATCH(
   request: Request,
   { params }: { params: Promise<{ orgId: string }> },
 ) {
-  const guard = await requireWriteAuth(request);
-  if (!guard.ok) return guard.response;
-  if (!sessionIsPlatformAdmin(guard.session)) return jsonError('Platform admin only', 403);
-
   const { orgId } = await params;
+  const guard = await requireOrgBrandingAccess(request, orgId);
+  if (!guard.ok) return guard.response;
+
   const db = createRawClient();
 
   try {
@@ -60,7 +58,7 @@ export async function PATCH(
     if (!org) return jsonError('Organization not found', 404);
 
     const body = await request.json();
-    const { logoUrl, backgroundImageUrl, backgroundVideoUrl, customCss } = body;
+    const { logoUrl, backgroundImageUrl, backgroundVideoUrl, loadingGraphicUrl, customCss } = body;
 
     const updates: string[] = [];
     const values: unknown[] = [];
@@ -76,6 +74,10 @@ export async function PATCH(
     if ('backgroundVideoUrl' in body) {
       updates.push(`background_video_url = $${updates.length + 1}`);
       values.push(backgroundVideoUrl || null);
+    }
+    if ('loadingGraphicUrl' in body) {
+      updates.push(`loading_graphic_url = $${updates.length + 1}`);
+      values.push(loadingGraphicUrl || null);
     }
     if ('customCss' in body) {
       updates.push(`custom_css = $${updates.length + 1}`);

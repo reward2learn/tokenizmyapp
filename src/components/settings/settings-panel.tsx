@@ -75,6 +75,7 @@ const TENANT_ORGANIZATION_SECTIONS: SectionDef[] = [
   { id: 'billing', label: 'Usage', icon: InsightsIcon },
   { id: 'topup', label: 'Topup', icon: BoltIcon },
   { id: 'teammates', label: 'Team', icon: GroupIcon },
+  { id: 'branding', label: 'Branding', icon: PaletteIcon },
 ];
 
 /** Tenant apps with self-serve billing: full Billing (pay to unlock). */
@@ -83,6 +84,7 @@ const TENANT_SELF_SERVE_SECTIONS: SectionDef[] = [
   { id: 'billing', label: 'Billing', icon: CreditCardIcon },
   { id: 'topup', label: 'Topup', icon: BoltIcon },
   { id: 'teammates', label: 'Team', icon: GroupIcon },
+  { id: 'branding', label: 'Branding', icon: PaletteIcon },
 ];
 
 const PERSONAL_SECTIONS: SectionDef[] = [
@@ -396,7 +398,7 @@ function MobileSectionAccordion({
                 overflowX: 'hidden',
               }}
             >
-              {renderSection(id)}
+              {expanded === id ? renderSection(id) : null}
             </AccordionDetails>
           </Accordion>
         ))}

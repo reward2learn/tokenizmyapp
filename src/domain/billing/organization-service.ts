@@ -29,6 +29,7 @@ export interface Organization {
   backgroundImageUrl: string | null;
   backgroundVideoUrl: string | null;
   customCss: string | null;
+  loadingGraphicUrl: string | null;
   ownerUserId: string | null;
   /** Affiliate attribution. Cheap to record now, impossible to backfill later. */
   referredBy: string | null;
@@ -202,6 +203,10 @@ async function convergeOrganizationSchema(db: RawDb): Promise<void> {
     'billing_city',
     'billing_postal',
     'tax_id',
+    'background_image_url',
+    'background_video_url',
+    'custom_css',
+    'loading_graphic_url',
   ];
   for (const col of addedColumns.map((c) => `ADD COLUMN IF NOT EXISTS ${c} TEXT`)) {
     try {
@@ -242,6 +247,7 @@ function mapOrg(row: Record<string, unknown>): Organization {
     backgroundImageUrl: row.background_image_url == null ? null : String(row.background_image_url),
     backgroundVideoUrl: row.background_video_url == null ? null : String(row.background_video_url),
     customCss: row.custom_css == null ? null : String(row.custom_css),
+    loadingGraphicUrl: row.loading_graphic_url == null ? null : String(row.loading_graphic_url),
     ownerUserId: row.owner_user_id == null ? null : String(row.owner_user_id),
     referredBy: row.referred_by == null ? null : String(row.referred_by),
     billingEmail: text(row.billing_email),
