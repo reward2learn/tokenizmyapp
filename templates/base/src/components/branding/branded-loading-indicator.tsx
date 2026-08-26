@@ -6,8 +6,11 @@ import type { CircularProgressProps } from '@mui/material/CircularProgress';
 import type { SxProps, Theme } from '@mui/material/styles';
 import { useGetBrandConfigQuery } from '@shared/store/apis/brand-config-api';
 
+/** Custom brand GIFs/images render larger than the fallback spinner at the same `size`. */
+const LOADING_GRAPHIC_SIZE_MULTIPLIER = 1.5;
+
 interface BrandedLoadingIndicatorProps {
-  /** Pixel size — applies to both the built-in spinner and custom graphic. */
+  /** Pixel size — fallback spinner uses this exactly; custom loading graphics render 50% larger. */
   size?: number;
   /** Passed to the fallback CircularProgress (ignored for custom loading graphics). */
   color?: CircularProgressProps['color'];
@@ -23,6 +26,7 @@ export function BrandedLoadingIndicator({ size = 28, color, sx }: BrandedLoading
   const loadingGraphicUrl = data?.data?.loadingGraphicUrl ?? null;
 
   if (loadingGraphicUrl) {
+    const graphicSize = Math.round(size * LOADING_GRAPHIC_SIZE_MULTIPLIER);
     return (
       <Box
         component="img"
@@ -31,8 +35,8 @@ export function BrandedLoadingIndicator({ size = 28, color, sx }: BrandedLoading
         role="progressbar"
         aria-label="Loading"
         sx={{
-          width: size,
-          height: size,
+          width: graphicSize,
+          height: graphicSize,
           objectFit: 'contain',
           display: 'block',
           ...sx,
