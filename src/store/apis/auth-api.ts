@@ -1,6 +1,8 @@
 import { createApi } from '@reduxjs/toolkit/query/react';
 import { baseQuery } from '@shared/store/base-query';
 import type { ApiEnvelope, SessionPayload } from '@/store/api-types';
+import { brandConfigApi } from '@shared/store/apis/brand-config-api';
+import { adminApi } from '@/store/apis/admin-api';
 
 export interface UserProfile {
   avatarUrl: string | null;
@@ -73,6 +75,15 @@ export const authApi = createApi({
         body: branding,
       }),
       invalidatesTags: ['OrganizationBranding'],
+      async onQueryStarted(_arg, { dispatch, queryFulfilled }) {
+        try {
+          await queryFulfilled;
+          dispatch(brandConfigApi.util.invalidateTags(['BrandConfig']));
+          dispatch(adminApi.util.invalidateTags(['BrandConfig']));
+        } catch {
+          // save failed — leave brand caches as-is
+        }
+      },
     }),
   }),
 });

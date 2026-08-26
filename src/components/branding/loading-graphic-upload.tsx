@@ -18,6 +18,7 @@ export interface LoadingGraphicUploadProps {
   disabled?: boolean;
   label?: string;
   helperText?: string;
+  previewUrl?: string | null;
   /** When true, show inherited tenant graphic and offer reset-to-inherit. */
   showInheritance?: boolean;
   compact?: boolean;
@@ -26,6 +27,7 @@ export interface LoadingGraphicUploadProps {
 export function LoadingGraphicUpload({
   value,
   inheritedValue = null,
+  previewUrl: previewUrlOverride,
   onChange,
   onClear,
   disabled = false,
@@ -35,7 +37,7 @@ export function LoadingGraphicUpload({
   compact = false,
 }: LoadingGraphicUploadProps) {
   const inputRef = useRef<HTMLInputElement>(null);
-  const previewUrl = value || (showInheritance ? inheritedValue : null);
+  const previewUrl = previewUrlOverride ?? value ?? (showInheritance ? inheritedValue : null);
   const hasOverride = Boolean(value);
   const inheritsTenant = showInheritance && !value && Boolean(inheritedValue);
 

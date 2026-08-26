@@ -87,12 +87,16 @@ export function BrandConfigTab({ tenantSlug, appId }: BrandConfigTabProps = {}) 
         themeMode: isThemeMode(c.themeMode) ? c.themeMode : 'system',
       });
       setLogoPreview(c.brandLogoUrl || null);
-      setLoadingGraphicPreview(c.brandLoadingGraphicUrl?.trim() ? c.brandLoadingGraphicUrl : null);
-      setTenantLoadingGraphicPreview(c.tenantLoadingGraphicUrl ?? null);
+      const tenantStored = c.brandLoadingGraphicUrl?.trim() || null;
+      if (appId) {
+        setLoadingGraphicPreview(tenantStored);
+      } else {
+        setTenantLoadingGraphicPreview(tenantStored);
+      }
     } else if (brandData?.success === false) {
       setError(brandData.error ?? 'Failed to load brand config');
     }
-  }, [brandData]);
+  }, [brandData, appId]);
 
   const handleSave = useCallback(async () => {
     setError(null);
@@ -134,6 +138,12 @@ export function BrandConfigTab({ tenantSlug, appId }: BrandConfigTabProps = {}) 
       const payload = await updateBrandConfig({ data: formData, tenantSlug, appId: appId ?? undefined }).unwrap();
       if (payload.success) {
         setSuccess(true);
+        if (payload.data) {
+          const saved = payload.data as BrandConfig;
+          const tenantStored = saved.brandLoadingGraphicUrl?.trim() || null;
+          if (appId) setLoadingGraphicPreview(tenantStored);
+          else setTenantLoadingGraphicPreview(tenantStored);
+        }
         setTimeout(() => setSuccess(false), 3000);
       } else {
         throw new Error(payload.error ?? 'Save failed');
@@ -312,7 +322,12 @@ export function BrandConfigTab({ tenantSlug, appId }: BrandConfigTabProps = {}) 
           {/* ── Loading graphic ───────────────────────── */}
           <LoadingGraphicUpload
             value={appId ? loadingGraphicPreview : tenantLoadingGraphicPreview}
-            inheritedValue={appId ? tenantLoadingGraphicPreview : null}
+            previewUrl={
+              appId
+                ? (loadingGraphicPreview ?? (brandData?.data as BrandConfig | undefined)?.loadingGraphicUrl ?? null)
+                : (tenantLoadingGraphicPreview ?? (brandData?.data as BrandConfig | undefined)?.loadingGraphicUrl ?? null)
+            }
+            inheritedValue={appId ? ((brandData?.data as BrandConfig | undefined)?.tenantLoadingGraphicUrl ?? null) : null}
             showInheritance={Boolean(appId)}
             onChange={async (next) => {
               if (appId) setLoadingGraphicPreview(next);

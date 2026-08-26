@@ -226,9 +226,20 @@ export const adminApi = createApi({
         params: { tenantSlug, appId },
       }),
       invalidatesTags: ['BrandConfig'],
-      async onQueryStarted(_arg, { dispatch, queryFulfilled }) {
+      async onQueryStarted(arg, { dispatch, queryFulfilled }) {
         try {
-          await queryFulfilled;
+          const { data: result } = await queryFulfilled;
+          if (result.success && result.data) {
+            const scope = arg.tenantSlug ? { tenantSlug: arg.tenantSlug, appId: arg.appId } : undefined;
+            dispatch(
+              adminApi.util.updateQueryData('getAdminBrandConfig', scope, (draft) => {
+                if (draft && result.data) {
+                  draft.data = result.data;
+                  draft.success = true;
+                }
+              }),
+            );
+          }
           dispatch(brandConfigApi.util.invalidateTags(['BrandConfig']));
         } catch {
           // save failed — keep the public header cache as-is

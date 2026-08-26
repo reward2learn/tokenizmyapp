@@ -1,6 +1,7 @@
 import { createApi } from '@reduxjs/toolkit/query/react';
 import { baseQuery } from '@shared/store/base-query';
 import { brandConfigApi } from '@shared/store/apis/brand-config-api';
+import { adminApi } from '@/store/apis/admin-api';
 import type { ApiEnvelope } from '@/store/api-types';
 import type { AiProviderStatus, AiModelOption } from '@/store/apis/config-api';
 
@@ -765,6 +766,7 @@ export const tenantApi = createApi({
         try {
           await queryFulfilled;
           dispatch(brandConfigApi.util.invalidateTags(['BrandConfig']));
+          dispatch(adminApi.util.invalidateTags(['BrandConfig']));
         } catch {
           // mutation failed — leave brand config cache unchanged
         }
@@ -784,6 +786,7 @@ export const tenantApi = createApi({
         try {
           await queryFulfilled;
           dispatch(brandConfigApi.util.invalidateTags(['BrandConfig']));
+          dispatch(adminApi.util.invalidateTags(['BrandConfig']));
         } catch {
           // mutation failed — leave brand config cache unchanged
         }

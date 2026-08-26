@@ -2,6 +2,7 @@ import type { DbClient } from '@/lib/db';
 import { createRawClient, createClientForUrl } from '@/lib/db';
 import { getAppSettings, updateAppSettings } from '@/domain/config/app-settings-service';
 import { resolveDedicatedTenantDbUrl } from '@/domain/tenant/tenant-db-resolver';
+import { getOrganization, resolveOrgForTenant } from '@/domain/billing/organization-service';
 
 export interface ResolvedLoadingGraphic {
   /** Effective graphic shown in the app (app override, else tenant default). */
@@ -26,11 +27,26 @@ async function readRootTenantLoadingGraphicUrl(tenantSlug: string): Promise<stri
   }
 }
 
+async function readOrgLoadingGraphicUrl(tenantSlug: string): Promise<string | null> {
+  try {
+    const rootDb = createRawClient();
+    const org = await resolveOrgForTenant(tenantSlug, rootDb);
+    if (!org) return null;
+    const full = await getOrganization(rootDb, org.id);
+    const value = full?.loadingGraphicUrl?.trim();
+    return value || null;
+  } catch {
+    return null;
+  }
+}
+
 async function readTenantDefaultGraphic(db: DbClient, tenantSlug: string): Promise<string | null> {
   const settings = await getAppSettings(db, tenantSlug);
   const value = settings.brandLoadingGraphicUrl?.trim();
   if (value) return value;
-  return readRootTenantLoadingGraphicUrl(tenantSlug);
+  const fromRegistry = await readRootTenantLoadingGraphicUrl(tenantSlug);
+  if (fromRegistry) return fromRegistry;
+  return readOrgLoadingGraphicUrl(tenantSlug);
 }
 
 /**
@@ -65,13 +81,14 @@ export async function resolveLoadingGraphic(
 ): Promise<ResolvedLoadingGraphic> {
   if (!appId) {
     const settings = await getAppSettings(db, tenantSlug);
-    const tenantDefault =
+    const tenantStored =
       settings.brandLoadingGraphicUrl?.trim() ||
       (await readRootTenantLoadingGraphicUrl(tenantSlug));
-    const tenantLoadingGraphicUrl = tenantDefault || null;
+    const tenantLoadingGraphicUrl =
+      tenantStored || (await readOrgLoadingGraphicUrl(tenantSlug)) || null;
     return {
       loadingGraphicUrl: tenantLoadingGraphicUrl,
-      brandLoadingGraphicUrl: tenantLoadingGraphicUrl ?? '',
+      brandLoadingGraphicUrl: tenantStored ?? '',
       tenantLoadingGraphicUrl,
     };
   }
