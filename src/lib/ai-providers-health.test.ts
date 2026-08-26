@@ -72,3 +72,21 @@ describe('parseAiProvidersCatalogJson', () => {
     expect(isValidAiProviderDef(custom[0])).toBe(true);
   });
 });
+
+describe('keyless provider helpers', () => {
+  it('ollama-studio does not require an API key', async () => {
+    const { providerRequiresApiKey, isProviderConfigured, KEYLESS_PROVIDER_BEARER } = await import('@/lib/ai-providers-catalog');
+    const studio = AI_PROVIDERS.find((p) => p.id === 'ollama-studio')!;
+    expect(providerRequiresApiKey(studio)).toBe(false);
+    expect(isProviderConfigured(studio, null)).toBe(true);
+    expect(KEYLESS_PROVIDER_BEARER).toBe('ollama');
+  });
+
+  it('openai still requires an API key', async () => {
+    const { providerRequiresApiKey, isProviderConfigured } = await import('@/lib/ai-providers-catalog');
+    const openai = AI_PROVIDERS.find((p) => p.id === 'openai')!;
+    expect(providerRequiresApiKey(openai)).toBe(true);
+    expect(isProviderConfigured(openai, null)).toBe(false);
+    expect(isProviderConfigured(openai, 'db')).toBe(true);
+  });
+});

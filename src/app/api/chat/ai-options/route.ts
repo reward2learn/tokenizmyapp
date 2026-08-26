@@ -21,6 +21,7 @@ import {
   checkProviderHealth,
   checkModelHealth,
   loadAiProvidersCatalog,
+  isProviderConfigured,
   type AiProviderHealth,
 } from '@/lib/ai-providers';
 
@@ -44,7 +45,7 @@ export async function GET(request: Request): Promise<Response> {
         : process.env[p.keyEnvVar]
           ? 'env'
           : null;
-      const configured = source !== null;
+      const configured = isProviderConfigured(p, source);
       const health: AiProviderHealth = configured
         ? await checkProviderHealth(p)
         : { status: 'unconfigured', message: 'No API key configured' };
@@ -53,6 +54,7 @@ export async function GET(request: Request): Promise<Response> {
         id: p.id,
         label: p.label,
         configured,
+        requiresApiKey: p.modelsRequireAuth,
         source,
         defaultModel: p.defaultModel ?? null,
         health,
@@ -79,9 +81,7 @@ export async function GET(request: Request): Promise<Response> {
   if (providerHealth.status === 'healthy') {
     try {
       const apiKey = await resolveProviderKey(provider);
-      if (apiKey || !provider.modelsRequireAuth) {
-        models = await listProviderModels(provider, apiKey);
-      }
+      models = await listProviderModels(provider, apiKey);
     } catch (err) {
       console.warn(`[chat/ai-options] model list failed for ${provider.id}:`, err);
       providerHealth.status = 'unhealthy';

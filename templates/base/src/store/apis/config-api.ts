@@ -34,6 +34,7 @@ export interface AiProviderInfo {
   id: string;
   label: string;
   configured: boolean;
+  requiresApiKey: boolean;
   source: 'db' | 'env' | null;
   docsUrl: string;
   keyPlaceholder: string;

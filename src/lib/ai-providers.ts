@@ -13,6 +13,9 @@ import {
   AI_PROVIDERS,
   findProviderInCatalog,
   withBuiltinAiProviders,
+  KEYLESS_PROVIDER_BEARER,
+  providerRequiresApiKey,
+  isProviderConfigured,
   type AiProviderDef,
   type AiModelOption,
   listProviderModels,
@@ -22,9 +25,12 @@ export {
   AI_PROVIDER_IDS,
   AI_PROVIDERS,
   FACTORY_OLLAMA_V1_BASE,
+  KEYLESS_PROVIDER_BEARER,
   getAiProvider,
   findProviderInCatalog,
   withBuiltinAiProviders,
+  providerRequiresApiKey,
+  isProviderConfigured,
   listProviderModels,
   type AiProviderDef,
   type AiProviderId,
@@ -218,7 +224,11 @@ async function resolveProviderKeyWithSource(
     console.warn(`[ai-providers] DB key fetch failed for ${provider.id}, falling back to env:`, err instanceof Error ? err.message : err);
   }
   const envKey = process.env[provider.keyEnvVar] ?? null;
-  return { key: envKey, source: envKey ? 'env' : null };
+  if (envKey) return { key: envKey, source: 'env' };
+  if (!providerRequiresApiKey(provider)) {
+    return { key: KEYLESS_PROVIDER_BEARER, source: null };
+  }
+  return { key: null, source: null };
 }
 
 /** Resolve an API key for a provider: DB secret first, then its env var. */
@@ -235,7 +245,7 @@ export async function checkProviderHealth(
   db?: DbClient,
 ): Promise<AiProviderHealth> {
   const apiKey = await resolveProviderKey(provider, db);
-  if (!apiKey) {
+  if (!apiKey && providerRequiresApiKey(provider)) {
     return { status: 'unconfigured', message: 'No API key configured' };
   }
 

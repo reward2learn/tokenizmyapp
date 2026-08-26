@@ -60,10 +60,10 @@ export function AiProviderForm() {
 
   const selectedProvider = providers.find((p) => p.id === selectedProviderId);
   const isActiveProvider = status?.activeProviderId === selectedProviderId;
+  const keylessProvider = selectedProvider?.requiresApiKey === false;
 
-  // Load the live model list whenever the selected provider has a key on
-  // file — this is what backs "select Model from a list of available
-  // models that are currently available."
+  // Load the live model list whenever the selected provider is ready —
+  // keyless providers (ollama-studio) need no saved API key.
   useEffect(() => {
     if (selectedProvider?.configured) {
       void fetchModels(selectedProviderId);
@@ -179,42 +179,60 @@ export function AiProviderForm() {
           <>
             <Stack direction="row" spacing={1} sx={{ alignItems: 'center', flexWrap: 'wrap' }}>
               <Chip
-                label={selectedProvider.configured ? 'Key configured' : 'No key'}
+                label={
+                  keylessProvider
+                    ? 'No API key required'
+                    : selectedProvider.configured
+                      ? 'Key configured'
+                      : 'No key'
+                }
                 color={selectedProvider.configured ? 'success' : 'warning'}
                 size="small"
               />
-              <Typography variant="caption" color="text.secondary">
-                {sourceLabel(selectedProvider.source)}
-              </Typography>
+              {!keylessProvider && (
+                <Typography variant="caption" color="text.secondary">
+                  {sourceLabel(selectedProvider.source)}
+                </Typography>
+              )}
               <Link href={selectedProvider.docsUrl} target="_blank" rel="noopener noreferrer" variant="caption">
                 {selectedProvider.docsUrl}
               </Link>
             </Stack>
 
-            <TextField
-              label={`${selectedProvider.label} API key`}
-              type="password"
-              value={apiKey}
-              onChange={(e) => setApiKey(e.target.value)}
-              placeholder={selectedProvider.keyPlaceholder}
-              fullWidth
-              autoComplete="off"
-              helperText="Paste a new key to replace the stored value. The key is never shown after saving."
-            />
+            {keylessProvider ? (
+              <Alert severity="info">
+                TokenizMyApp-Studio-AI uses the factory Ollama proxy (
+                <code>/api/ollama/v1</code>
+                ) — no API key is required. Models are loaded from the Mac Studio tunnel automatically.
+              </Alert>
+            ) : (
+              <>
+                <TextField
+                  label={`${selectedProvider.label} API key`}
+                  type="password"
+                  value={apiKey}
+                  onChange={(e) => setApiKey(e.target.value)}
+                  placeholder={selectedProvider.keyPlaceholder}
+                  fullWidth
+                  autoComplete="off"
+                  helperText="Paste a new key to replace the stored value. The key is never shown after saving."
+                />
 
-            <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5}>
-              <Button variant="contained" onClick={() => void handleSaveKey()} disabled={isSaving || !apiKey.trim()}>
-                {isSaving ? 'Saving…' : 'Save API key'}
-              </Button>
-              <Button
-                variant="outlined"
-                color="inherit"
-                onClick={() => void handleClearKey()}
-                disabled={isClearing || selectedProvider.source !== 'db'}
-              >
-                {isClearing ? 'Removing…' : 'Remove database key'}
-              </Button>
-            </Stack>
+                <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5}>
+                  <Button variant="contained" onClick={() => void handleSaveKey()} disabled={isSaving || !apiKey.trim()}>
+                    {isSaving ? 'Saving…' : 'Save API key'}
+                  </Button>
+                  <Button
+                    variant="outlined"
+                    color="inherit"
+                    onClick={() => void handleClearKey()}
+                    disabled={isClearing || selectedProvider.source !== 'db'}
+                  >
+                    {isClearing ? 'Removing…' : 'Remove database key'}
+                  </Button>
+                </Stack>
+              </>
+            )}
 
             <Autocomplete
               options={models}
@@ -242,7 +260,9 @@ export function AiProviderForm() {
                   label="Model"
                   helperText={
                     !selectedProvider.configured
-                      ? 'Save an API key first to load available models.'
+                      ? keylessProvider
+                        ? 'Loading models from the factory Ollama proxy…'
+                        : 'Save an API key first to load available models.'
                       : `${models.length} model(s) currently available from ${selectedProvider.label}.`
                   }
                   slotProps={{

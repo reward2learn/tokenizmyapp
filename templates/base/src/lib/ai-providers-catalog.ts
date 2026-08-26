@@ -33,6 +33,25 @@
 /** Factory OpenAI-compatible surface for Mac Studio Ollama (no proxy auth). */
 export const FACTORY_OLLAMA_V1_BASE = 'https://tokenizmyapp.vercel.app/api/ollama/v1';
 
+/**
+ * Placeholder Bearer token for OpenAI-compat clients when the upstream proxy
+ * needs no auth (ollama-studio / modelsRequireAuth: false). Ollama ignores it.
+ */
+export const KEYLESS_PROVIDER_BEARER = 'ollama';
+
+/** Whether an API key must be stored before activate, chat, or model listing. */
+export function providerRequiresApiKey(provider: AiProviderDef): boolean {
+  return provider.modelsRequireAuth;
+}
+
+/** Ready to use: key on file, or the provider does not require one. */
+export function isProviderConfigured(
+  provider: AiProviderDef,
+  source: 'db' | 'env' | null,
+): boolean {
+  return !providerRequiresApiKey(provider) || source !== null;
+}
+
 /** Canonical builtin provider id list — seed template + defaults. */
 export const AI_PROVIDER_IDS = [
   'openai',
@@ -194,16 +213,24 @@ function mapGenericChatModels(raw: RawModel[]): AiModelOption[] {
  * Builtin providers keep specialized filters; unknown/custom ids use a
  * generic chat-model filter (exclude embed) so DB-defined providers work.
  */
+function resolveModelsFetchUrl(provider: AiProviderDef): string {
+  if (provider.id === 'ollama-studio') {
+    const tunnel = process.env.OLLAMA_TUNNEL_HOST?.trim() || 'https://ollama.tokenizin.com';
+    return `${tunnel.replace(/\/+$/, '')}/v1/models`;
+  }
+  return provider.modelsUrl;
+}
+
 export async function listProviderModels(provider: AiProviderDef, apiKey: string | null): Promise<AiModelOption[]> {
   const headers: Record<string, string> = { 'Content-Type': 'application/json' };
   if (provider.modelsRequireAuth) {
     if (!apiKey) throw new Error(`${provider.label} requires an API key to list models`);
     headers.Authorization = `Bearer ${apiKey}`;
-  } else if (apiKey) {
+  } else if (apiKey && apiKey !== KEYLESS_PROVIDER_BEARER) {
     headers.Authorization = `Bearer ${apiKey}`;
   }
 
-  const response = await fetch(provider.modelsUrl, { headers });
+  const response = await fetch(resolveModelsFetchUrl(provider), { headers });
   if (!response.ok) {
     const body = await response.text().catch(() => '');
     throw new Error(`Failed to list ${provider.label} models (${response.status}): ${body.slice(0, 300)}`);

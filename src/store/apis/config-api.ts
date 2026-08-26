@@ -34,6 +34,8 @@ export interface AiProviderInfo {
   id: string;
   label: string;
   configured: boolean;
+  /** False for keyless backends (e.g. TokenizMyApp-Studio-AI / ollama-studio). */
+  requiresApiKey: boolean;
   source: 'db' | 'env' | null;
   docsUrl: string;
   keyPlaceholder: string;

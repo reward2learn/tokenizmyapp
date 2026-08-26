@@ -244,7 +244,7 @@ export function TenantAiProvidersConfigStep({
   const configuredChip = (p: AiProviderDef) => {
     const hasLocalKey = Boolean(value.apiKeysBySecretName[p.keySecretName]?.trim());
     const remote = data?.data?.providers.find((x) => x.id === p.id);
-    if (hasLocalKey || remote?.configured) return 'success' as const;
+    if (!p.modelsRequireAuth || hasLocalKey || remote?.configured) return 'success' as const;
     return 'default' as const;
   };
 

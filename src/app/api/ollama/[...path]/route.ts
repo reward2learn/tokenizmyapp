@@ -73,10 +73,23 @@ async function proxy(
     return Response.json({ error: message }, { status: 502 });
   }
 
+  const outHeaders = filterHeaders(upstream.headers);
+
+  // Buffer small GET/HEAD JSON payloads — streaming upstream.body alone can
+  // yield empty bodies on some Vercel Fluid Compute instances.
+  if (request.method === 'GET' || request.method === 'HEAD') {
+    const body = request.method === 'HEAD' ? null : await upstream.arrayBuffer();
+    return new Response(body, {
+      status: upstream.status,
+      statusText: upstream.statusText,
+      headers: outHeaders,
+    });
+  }
+
   return new Response(upstream.body, {
     status: upstream.status,
     statusText: upstream.statusText,
-    headers: filterHeaders(upstream.headers),
+    headers: outHeaders,
   });
 }
 

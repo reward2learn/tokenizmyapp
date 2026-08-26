@@ -25,6 +25,8 @@ import {
   resolveProviderKey,
   loadAiProvidersCatalog,
   saveAiProvidersCatalog,
+  providerRequiresApiKey,
+  isProviderConfigured,
   type AiProviderDef,
 } from '@/lib/ai-providers';
 import { aiProvidersCatalogSchema } from '@/lib/ai-provider-def-schema';
@@ -38,7 +40,7 @@ const postSchema = z.object({
   catalog: aiProvidersCatalogSchema.optional(),
   /** Provider to configure / activate — must exist in saved or incoming catalog. */
   providerId: z.string().min(1).max(64).optional(),
-  apiKey: z.string().trim().min(10, 'API key is too short').optional(),
+  apiKey: z.string().trim().optional(),
   /** Bulk key write by secret name (create/seed flows). */
   apiKeysBySecretName: z.record(z.string(), z.string()).optional(),
   model: z.string().trim().min(1).optional(),
@@ -57,6 +59,7 @@ interface ProviderStatus {
   id: string;
   label: string;
   configured: boolean;
+  requiresApiKey: boolean;
   source: 'db' | 'env' | null;
   docsUrl: string;
   keyPlaceholder: string;
@@ -77,7 +80,8 @@ async function buildStatus(db: DbClient): Promise<{
       return {
         id: p.id,
         label: p.label,
-        configured: source !== null,
+        configured: isProviderConfigured(p, source),
+        requiresApiKey: providerRequiresApiKey(p),
         source,
         docsUrl: p.docsUrl,
         keyPlaceholder: p.keyPlaceholder,
@@ -160,12 +164,17 @@ export async function POST(request: Request, { params }: { params: Promise<{ slu
       if (!provider) return jsonError('Unknown provider — not in catalog', 400);
 
       if (parsed.data.apiKey) {
+        if (providerRequiresApiKey(provider) && parsed.data.apiKey.length < 10) {
+          return jsonError('API key is too short', 400);
+        }
         await setSecret(provider.keySecretName, parsed.data.apiKey, db);
       }
 
       if (parsed.data.activate) {
         const key = await resolveProviderKey(provider, db);
-        if (!key) return jsonError(`${provider.label} has no API key configured — save one first`, 400);
+        if (!key && providerRequiresApiKey(provider)) {
+          return jsonError(`${provider.label} has no API key configured — save one first`, 400);
+        }
         await setActiveProvider(provider.id, parsed.data.model ?? null, db);
       }
     } else if (parsed.data.activate && parsed.data.model) {
@@ -174,7 +183,9 @@ export async function POST(request: Request, { params }: { params: Promise<{ slu
       const provider = findProviderInCatalog(catalog, activeId);
       if (provider) {
         const key = await resolveProviderKey(provider, db);
-        if (!key) return jsonError(`${provider.label} has no API key configured — save one first`, 400);
+        if (!key && providerRequiresApiKey(provider)) {
+          return jsonError(`${provider.label} has no API key configured — save one first`, 400);
+        }
         await setActiveProvider(provider.id, parsed.data.model, db);
       }
     }
