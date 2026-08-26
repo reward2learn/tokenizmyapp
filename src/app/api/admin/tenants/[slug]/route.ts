@@ -29,6 +29,7 @@ function mapTenantRow(row: Record<string, unknown>) {
     secondaryColor: row.secondary_color as string,
     faviconData: row.favicon_data as string | null,
     faviconMimeType: row.favicon_mime_type as string | null,
+    loadingGraphicUrl: (row.loading_graphic_url as string | null) ?? null,
     metadata: row.metadata as Record<string, unknown>,
     templateMode: ((row.metadata as Record<string, unknown>)?.config as Record<string, unknown>)?.templateMode as 'single' | 'suite' ?? 'single',
     appPack: ((row.metadata as Record<string, unknown>)?.config as Record<string, unknown>)?.appPack as import('@/store/apis/tenant-api').AppPackConfig ?? null,

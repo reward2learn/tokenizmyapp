@@ -1,7 +1,7 @@
 'use client';
 
 import { Suspense, useEffect, useMemo } from 'react';
-import CircularProgress from '@mui/material/CircularProgress';
+import { BrandedLoadingIndicator } from '@/components/branding/branded-loading-indicator';
 import FormControl from '@mui/material/FormControl';
 import InputLabel from '@mui/material/InputLabel';
 import MenuItem from '@mui/material/MenuItem';
@@ -137,7 +137,7 @@ export function MonthSelect(props: MonthSelectProps) {
     <Suspense
       fallback={
         <Box sx={{ display: 'inline-flex', alignItems: 'center', minWidth: 160, height: 40 }}>
-          <CircularProgress size={18} />
+          <BrandedLoadingIndicator size={18} />
         </Box>
       }
     >

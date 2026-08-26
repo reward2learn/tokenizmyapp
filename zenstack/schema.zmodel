@@ -421,6 +421,8 @@ model AppSetting {
   brandLogoUrl        String   @default("") @map("brand_logo_url")
   brandPrimaryColor   String   @default("#eb3d28") @map("brand_primary_color")
   brandSecondaryColor String   @default("#0af9fe") @map("brand_secondary_color")
+  /// Per-app loading graphic override — empty inherits tenant default.
+  brandLoadingGraphicUrl String @default("") @map("brand_loading_graphic_url")
   /// Default appearance: "light" | "dark" | "system"
   themeMode           String   @default("system") @map("theme_mode")
   updatedAt           DateTime @updatedAt @map("updated_at")
@@ -702,6 +704,8 @@ model Tenant {
   faviconData     String?  @map("favicon_data")
   /// Favicon MIME type (e.g. "image/x-icon", "image/png")
   faviconMimeType String?  @default("image/x-icon") @map("favicon_mime_type")
+  /// Loading spinner graphic — URL or data URI (gif/png). Null = built-in spinner.
+  loadingGraphicUrl String? @map("loading_graphic_url")
   /// Arbitrary JSON metadata
   metadata        Json     @default("{}")
   /// Who created this tenant

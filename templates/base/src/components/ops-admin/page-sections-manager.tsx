@@ -14,6 +14,7 @@ import Box from '@mui/material/Box';
 import Button from '@mui/material/Button';
 import Chip from '@mui/material/Chip';
 import CircularProgress from '@mui/material/CircularProgress';
+import { BrandedLoadingIndicator } from '@/components/branding/branded-loading-indicator';
 import FormControl from '@mui/material/FormControl';
 import IconButton from '@mui/material/IconButton';
 import InputLabel from '@mui/material/InputLabel';
@@ -300,7 +301,7 @@ export function PageSectionsManager({ tenantSlug, appId, isSuite = false }: Page
   if (pagesLoading) {
     return (
       <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}>
-        <CircularProgress size={28} />
+        <BrandedLoadingIndicator size={28} />
       </Box>
     );
   }
@@ -398,7 +399,7 @@ export function PageSectionsManager({ tenantSlug, appId, isSuite = false }: Page
 
       {sectionsLoading ? (
         <Box sx={{ display: 'flex', justifyContent: 'center', py: 3 }}>
-          <CircularProgress size={24} />
+          <BrandedLoadingIndicator size={24} />
         </Box>
       ) : sectionsError ? (
         <Alert severity="error">Failed to load sections for {slug}.</Alert>

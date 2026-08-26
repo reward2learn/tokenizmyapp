@@ -36,6 +36,7 @@ import CardContent from '@mui/material/CardContent';
 import Checkbox from '@mui/material/Checkbox';
 import Chip from '@mui/material/Chip';
 import CircularProgress from '@mui/material/CircularProgress';
+import { BrandedLoadingIndicator } from '@/components/branding/branded-loading-indicator';
 import Dialog from '@mui/material/Dialog';
 import DialogActions from '@mui/material/DialogActions';
 import DialogContent from '@mui/material/DialogContent';
@@ -1204,7 +1205,7 @@ export function CreateAppWizard({ open, onClose, tenantSlug, sourceApp, onSnackb
   // Step 5: AI Providers — local wizard state until create succeeds
   const renderStepOpenAi = () => (
     <Stack spacing={3}>
-      <CreateAppAiProviderStep value={aiProviders} onChange={setAiProviders} />
+      <CreateAppAiProviderStep value={aiProviders} onChange={setAiProviders} tenantSlug={tenantSlug} />
 
       <Divider />
 
@@ -1430,7 +1431,7 @@ export function CreateAppWizard({ open, onClose, tenantSlug, sourceApp, onSnackb
         The tenant&apos;s role catalog is shared across the suite — the new app inherits it.
       </Typography>
       {rolesLoading ? (
-        <Box sx={{ display: 'flex', justifyContent: 'center', py: 3 }}><CircularProgress size={24} /></Box>
+        <Box sx={{ display: 'flex', justifyContent: 'center', py: 3 }}><BrandedLoadingIndicator size={24} /></Box>
       ) : rolesList.length === 0 ? (
         <Paper variant="outlined" sx={{ p: 2 }}>
           <Typography variant="body2" color="text.secondary">No roles configured.</Typography>
@@ -1542,7 +1543,7 @@ export function CreateAppWizard({ open, onClose, tenantSlug, sourceApp, onSnackb
           </Paper>
         ) : null}
         {flightRunning && !hasResults ? (
-          <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}><CircularProgress /></Box>
+          <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}><BrandedLoadingIndicator  /></Box>
         ) : null}
 
         {flightChecks.map((check) => (

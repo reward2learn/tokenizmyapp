@@ -12,7 +12,7 @@ import Box from '@mui/material/Box';
 import Button from '@mui/material/Button';
 import Checkbox from '@mui/material/Checkbox';
 import Chip from '@mui/material/Chip';
-import CircularProgress from '@mui/material/CircularProgress';
+import { BrandedLoadingIndicator } from '@/components/branding/branded-loading-indicator';
 import Dialog from '@mui/material/Dialog';
 import DialogActions from '@mui/material/DialogActions';
 import DialogContent from '@mui/material/DialogContent';
@@ -63,7 +63,7 @@ export function TenantSecurityGroups({ tenantSlug, tenantName, appId }: TenantSe
   if (isLoading) {
     return (
       <Box sx={{ display: 'flex', justifyContent: 'center', py: 6 }}>
-        <CircularProgress />
+        <BrandedLoadingIndicator  />
       </Box>
     );
   }

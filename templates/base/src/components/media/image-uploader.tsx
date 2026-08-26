@@ -4,7 +4,7 @@ import { useCallback, useRef, useState } from 'react';
 import Alert from '@mui/material/Alert';
 import Box from '@mui/material/Box';
 import Button from '@mui/material/Button';
-import CircularProgress from '@mui/material/CircularProgress';
+import { BrandedLoadingIndicator } from '@/components/branding/branded-loading-indicator';
 import IconButton from '@mui/material/IconButton';
 import Paper from '@mui/material/Paper';
 import Stack from '@mui/material/Stack';
@@ -210,7 +210,7 @@ export function ImageUploader({ onUploaded, multiple = true, initialAssets = [] 
                       justifyContent: 'center',
                     }}
                   >
-                    <CircularProgress size={28} />
+                    <BrandedLoadingIndicator size={28} />
                   </Box>
                 )}
               </Box>

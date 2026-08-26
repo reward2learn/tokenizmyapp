@@ -5,7 +5,7 @@ import Typography from '@mui/material/Typography';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import ErrorIcon from '@mui/icons-material/Error';
 import RadioButtonUncheckedIcon from '@mui/icons-material/RadioButtonUnchecked';
-import CircularProgress from '@mui/material/CircularProgress';
+import { BrandedLoadingIndicator } from '@/components/branding/branded-loading-indicator';
 import type { SheetSeedStatus } from '@/lib/sheet-seed-progress';
 import { sheetPhaseLabel } from '@/lib/sheet-seed-progress';
 
@@ -14,7 +14,7 @@ function statusIcon(status: SheetSeedStatus['status']) {
     case 'completed':
       return <CheckCircleIcon color="success" sx={{ fontSize: 16 }} />;
     case 'active':
-      return <CircularProgress size={14} />;
+      return <BrandedLoadingIndicator size={14} />;
     case 'error':
       return <ErrorIcon color="error" sx={{ fontSize: 16 }} />;
     case 'skipped':

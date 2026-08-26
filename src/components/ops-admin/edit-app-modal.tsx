@@ -26,6 +26,7 @@ import CardContent from '@mui/material/CardContent';
 import Checkbox from '@mui/material/Checkbox';
 import Chip from '@mui/material/Chip';
 import CircularProgress from '@mui/material/CircularProgress';
+import { BrandedLoadingIndicator } from '@/components/branding/branded-loading-indicator';
 import Dialog from '@mui/material/Dialog';
 import DialogActions from '@mui/material/DialogActions';
 import DialogContent from '@mui/material/DialogContent';
@@ -86,7 +87,8 @@ import {
   type GoogleOAuthConfigPatch,
   type AppScopedConfig,
 } from '@/store/apis/tenant-api';
-import { useListRoleConfigsQuery } from '@/store/apis/admin-api';
+import { useListRoleConfigsQuery, useGetAdminBrandConfigQuery, useUpdateAdminBrandConfigMutation } from '@/store/apis/admin-api';
+import { LoadingGraphicUpload } from '@/components/branding/loading-graphic-upload';
 import { TenantAiProvidersConfigStep } from './tenant-ai-providers-config-step';
 import {
   EMPTY_STRIPE_WIZARD,
@@ -225,6 +227,9 @@ export function EditAppModal({ open, onClose, tenantSlug, app, onSnackbar }: Edi
   const [testStripeWebhook] = useTestStripeWebhookMutation();
   const [provisionDeployHook, { isLoading: generatingHook }] = useProvisionAppDeployHookMutation();
   const { data: rolesData, isLoading: rolesLoading } = useListRoleConfigsQuery();
+  const { data: brandData } = useGetAdminBrandConfigQuery({ tenantSlug, appId: app.appId });
+  const [updateBrandConfig] = useUpdateAdminBrandConfigMutation();
+  const [appLoadingGraphic, setAppLoadingGraphic] = useState<string | null>(null);
 
   // Built-ins come from the compiled catalog; custom (AI-generated) templates
   // only exist in the platform DB, so the merged list has to be fetched. Falls
@@ -283,6 +288,12 @@ export function EditAppModal({ open, onClose, tenantSlug, app, onSnackbar }: Edi
     `https://${vercelName}.vercel.app/api/auth?action=google-callback`,
     `https://${vercelName}.vercel.app/api/auth/callback/google`,
   ], [vercelName]);
+
+  useEffect(() => {
+    if (!brandData?.success || !brandData.data) return;
+    const raw = (brandData.data as { brandLoadingGraphicUrl?: string }).brandLoadingGraphicUrl;
+    setAppLoadingGraphic(raw?.trim() ? raw : null);
+  }, [brandData]);
 
   // ── Re-sync editable state when (re)opening or switching apps ──
   useEffect(() => {
@@ -768,6 +779,43 @@ export function EditAppModal({ open, onClose, tenantSlug, app, onSnackbar }: Edi
           />
         </Box>
       </Stack>
+
+      <LoadingGraphicUpload
+        value={appLoadingGraphic}
+        inheritedValue={
+          (brandData?.data as { tenantLoadingGraphicUrl?: string | null } | undefined)?.tenantLoadingGraphicUrl
+          ?? tenant?.loadingGraphicUrl
+          ?? null
+        }
+        showInheritance
+        onChange={async (next) => {
+          setAppLoadingGraphic(next);
+          try {
+            await updateBrandConfig({
+              data: { brandLoadingGraphicUrl: next },
+              tenantSlug,
+              appId: app.appId,
+            }).unwrap();
+            onSnackbar({ message: 'App loading graphic updated', severity: 'success' });
+          } catch {
+            onSnackbar({ message: 'Failed to update app loading graphic', severity: 'error' });
+          }
+        }}
+        onClear={async () => {
+          setAppLoadingGraphic(null);
+          try {
+            await updateBrandConfig({
+              data: { brandLoadingGraphicUrl: '' },
+              tenantSlug,
+              appId: app.appId,
+            }).unwrap();
+            onSnackbar({ message: 'Using tenant default loading graphic', severity: 'success' });
+          } catch {
+            onSnackbar({ message: 'Failed to reset loading graphic', severity: 'error' });
+          }
+        }}
+        helperText="Override the tenant loading graphic for this app only, or leave empty to inherit."
+      />
 
       <Paper variant="outlined" sx={{ p: 2.5, bgcolor: 'background.default' }}>
         <Stack direction="row" spacing={1} sx={{ alignItems: 'center', mb: 1.5 }}>
@@ -1391,7 +1439,7 @@ export function EditAppModal({ open, onClose, tenantSlug, app, onSnackbar }: Edi
         enable — unchecked roles are disabled for this app only (saved per app_id).
       </Alert>
       {rolesLoading ? (
-        <Box sx={{ display: 'flex', justifyContent: 'center', py: 3 }}><CircularProgress size={24} /></Box>
+        <Box sx={{ display: 'flex', justifyContent: 'center', py: 3 }}><BrandedLoadingIndicator size={24} /></Box>
       ) : rolesList.length === 0 ? (
         <Paper variant="outlined" sx={{ p: 2 }}>
           <Typography variant="body2" color="text.secondary">No roles configured.</Typography>
@@ -1586,7 +1634,7 @@ export function EditAppModal({ open, onClose, tenantSlug, app, onSnackbar }: Edi
           </Paper>
         ) : null}
         {flightRunning && !hasResults ? (
-          <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}><CircularProgress /></Box>
+          <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}><BrandedLoadingIndicator  /></Box>
         ) : null}
 
         {flightChecks.map((check) => (

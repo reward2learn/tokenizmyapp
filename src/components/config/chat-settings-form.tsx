@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import Alert from '@mui/material/Alert';
 import Box from '@mui/material/Box';
-import CircularProgress from '@mui/material/CircularProgress';
+import { BrandedLoadingIndicator } from '@/components/branding/branded-loading-indicator';
 import FormControlLabel from '@mui/material/FormControlLabel';
 import Paper from '@mui/material/Paper';
 import Stack from '@mui/material/Stack';
@@ -61,7 +61,7 @@ export function ChatSettingsForm() {
         </Box>
 
         {isLoading ? (
-          <CircularProgress size={24} />
+          <BrandedLoadingIndicator size={24} />
         ) : (
           <FormControlLabel
             control={(

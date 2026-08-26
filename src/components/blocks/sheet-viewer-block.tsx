@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useState, useRef, type KeyboardEvent }
 import { createPortal } from 'react-dom';
 import dynamic from 'next/dynamic';
 import Box from '@mui/material/Box';
-import CircularProgress from '@mui/material/CircularProgress';
+import { BrandedLoadingIndicator } from '@/components/branding/branded-loading-indicator';
 import Divider from '@mui/material/Divider';
 import Typography from '@mui/material/Typography';
 import IconButton from '@mui/material/IconButton';
@@ -97,7 +97,7 @@ const DataGrid = dynamic(
     ssr: false,
     loading: () => (
       <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}>
-        <CircularProgress size={24} />
+        <BrandedLoadingIndicator size={24} />
       </Box>
     ),
   },
@@ -2568,7 +2568,7 @@ export function SheetViewerBlock({ config }: { config: Record<string, unknown> }
       {!sheet ? (
         <Typography color="text.secondary">No sheet configured.</Typography>
       ) : isLoading ? (
-        <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}><CircularProgress size={24} /></Box>
+        <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}><BrandedLoadingIndicator size={24} /></Box>
       ) : queryError ? (
         <Typography color="error">{String(queryError)}</Typography>
       ) : data ? (

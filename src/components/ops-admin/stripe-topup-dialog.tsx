@@ -16,6 +16,7 @@ import DialogActions from '@mui/material/DialogActions';
 import DialogContent from '@mui/material/DialogContent';
 import DialogTitle from '@mui/material/DialogTitle';
 import CircularProgress from '@mui/material/CircularProgress';
+import { BrandedLoadingIndicator } from '@/components/branding/branded-loading-indicator';
 import Stack from '@mui/material/Stack';
 import Typography from '@mui/material/Typography';
 import {
@@ -242,7 +243,7 @@ export function StripeTopUpDialog({ open, orgId, packId, onClose }: StripeTopUpD
       {started && isLoading && (
         <DialogContent>
           <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}>
-            <CircularProgress />
+            <BrandedLoadingIndicator  />
           </Box>
         </DialogContent>
       )}

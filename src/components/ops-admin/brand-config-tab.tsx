@@ -7,6 +7,7 @@ import Avatar from '@mui/material/Avatar';
 import Box from '@mui/material/Box';
 import Button from '@mui/material/Button';
 import CircularProgress from '@mui/material/CircularProgress';
+import { BrandedLoadingIndicator } from '@/components/branding/branded-loading-indicator';
 import FormControlLabel from '@mui/material/FormControlLabel';
 import InputAdornment from '@mui/material/InputAdornment';
 import Paper from '@mui/material/Paper';
@@ -15,6 +16,7 @@ import RadioGroup from '@mui/material/RadioGroup';
 import Stack from '@mui/material/Stack';
 import TextField from '@mui/material/TextField';
 import Typography from '@mui/material/Typography';
+import { LoadingGraphicUpload } from '@/components/branding/loading-graphic-upload';
 import SaveIcon from '@mui/icons-material/Save';
 import ImageIcon from '@mui/icons-material/Image';
 import DeleteIcon from '@mui/icons-material/Delete';
@@ -30,6 +32,9 @@ interface BrandConfig {
   brandLogoUrl: string;
   brandPrimaryColor: string;
   brandSecondaryColor: string;
+  brandLoadingGraphicUrl?: string;
+  tenantLoadingGraphicUrl?: string | null;
+  loadingGraphicUrl?: string | null;
   themeMode: ThemeMode;
   updatedAt?: string;
 }
@@ -70,6 +75,8 @@ export function BrandConfigTab({ tenantSlug, appId }: BrandConfigTabProps = {}) 
   const [success, setSuccess] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [logoPreview, setLogoPreview] = useState<string | null>(null);
+  const [loadingGraphicPreview, setLoadingGraphicPreview] = useState<string | null>(null);
+  const [tenantLoadingGraphicPreview, setTenantLoadingGraphicPreview] = useState<string | null>(null);
 
   // ── Map RTK Query response into local config state ────
   useEffect(() => {
@@ -80,6 +87,8 @@ export function BrandConfigTab({ tenantSlug, appId }: BrandConfigTabProps = {}) 
         themeMode: isThemeMode(c.themeMode) ? c.themeMode : 'system',
       });
       setLogoPreview(c.brandLogoUrl || null);
+      setLoadingGraphicPreview(c.brandLoadingGraphicUrl?.trim() ? c.brandLoadingGraphicUrl : null);
+      setTenantLoadingGraphicPreview(c.tenantLoadingGraphicUrl ?? null);
     } else if (brandData?.success === false) {
       setError(brandData.error ?? 'Failed to load brand config');
     }
@@ -116,6 +125,12 @@ export function BrandConfigTab({ tenantSlug, appId }: BrandConfigTabProps = {}) 
         formData.append('brandLogoUrl', config.brandLogoUrl);
       }
 
+      if (appId) {
+        formData.append('brandLoadingGraphicUrl', loadingGraphicPreview ?? '');
+      } else {
+        formData.append('tenantLoadingGraphicUrl', tenantLoadingGraphicPreview ?? '');
+      }
+
       const payload = await updateBrandConfig({ data: formData, tenantSlug, appId: appId ?? undefined }).unwrap();
       if (payload.success) {
         setSuccess(true);
@@ -126,7 +141,7 @@ export function BrandConfigTab({ tenantSlug, appId }: BrandConfigTabProps = {}) 
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     }
-  }, [config.tenantSlug, config.tenantDisplayName, config.tenantTemplate, config.brandLogoText, config.brandLogoUrl, config.brandPrimaryColor, config.brandSecondaryColor, config.themeMode, logoPreview, updateBrandConfig, tenantSlug, appId]);
+  }, [config.tenantSlug, config.tenantDisplayName, config.tenantTemplate, config.brandLogoText, config.brandLogoUrl, config.brandPrimaryColor, config.brandSecondaryColor, config.themeMode, logoPreview, loadingGraphicPreview, tenantLoadingGraphicPreview, updateBrandConfig, tenantSlug, appId]);
 
   const handleFileSelect = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -154,7 +169,7 @@ export function BrandConfigTab({ tenantSlug, appId }: BrandConfigTabProps = {}) 
   if (isLoading) {
     return (
       <Box sx={{ display: 'flex', justifyContent: 'center', py: 6 }}>
-        <CircularProgress />
+        <BrandedLoadingIndicator  />
       </Box>
     );
   }
@@ -293,6 +308,26 @@ export function BrandConfigTab({ tenantSlug, appId }: BrandConfigTabProps = {}) 
               </Paper>
             ) : null}
           </Box>
+
+          {/* ── Loading graphic ───────────────────────── */}
+          <LoadingGraphicUpload
+            value={appId ? loadingGraphicPreview : tenantLoadingGraphicPreview}
+            inheritedValue={appId ? tenantLoadingGraphicPreview : null}
+            showInheritance={Boolean(appId)}
+            onChange={async (next) => {
+              if (appId) setLoadingGraphicPreview(next);
+              else setTenantLoadingGraphicPreview(next);
+            }}
+            onClear={async () => {
+              if (appId) setLoadingGraphicPreview(null);
+              else setTenantLoadingGraphicPreview(null);
+            }}
+            helperText={
+              appId
+                ? 'Override the tenant loading graphic for this app only. Leave empty to inherit the tenant default.'
+                : 'Default loading graphic for this tenant and all inner apps unless an app overrides it.'
+            }
+          />
 
           {/* ── Brand colors ──────────────────────────── */}
           <Box>

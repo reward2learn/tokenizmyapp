@@ -19,11 +19,12 @@
 
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
-import { createClient, createClientForUrl } from '@/lib/db';
+import { createClient, createClientForUrl, createRawClient } from '@/lib/db';
 import { requireWriteAuth } from '@/lib/auth/guards';
 import { sessionIsPlatformAdmin } from '@/lib/auth/jwt';
 import { jsonError, jsonOk } from '@/lib/api/response';
 import { getAppSettings, updateAppSettings } from '@/domain/config/app-settings-service';
+import { resolveLoadingGraphic, syncTenantLoadingGraphicToAppDb } from '@/domain/config/loading-graphic-resolver';
 import { getTenantConfig } from '@shared/lib/config/tenant';
 import { resolveDedicatedTenantDbUrl } from '@/domain/tenant/tenant-db-resolver';
 
@@ -49,6 +50,8 @@ const putSchema = z.object({
   brandLogoUrl: z.string().max(50000).optional(), // base64 data-URIs can be large
   brandPrimaryColor: z.string().regex(/^#[0-9a-fA-F]{6}$/, 'Must be a hex color like #eb3d28').optional(),
   brandSecondaryColor: z.string().regex(/^#[0-9a-fA-F]{6}$/, 'Must be a hex color like #0af9fe').optional(),
+  brandLoadingGraphicUrl: z.string().max(500000).optional(),
+  tenantLoadingGraphicUrl: z.string().max(500000).optional(),
   themeMode: z.enum(['light', 'dark', 'system']).optional(),
 });
 
@@ -66,8 +69,10 @@ export async function GET(request: Request): Promise<NextResponse> {
   const dbUrl = await resolveDedicatedTenantDbUrl(scopeTenantSlug, appId);
   const db = dbUrl ? createClientForUrl(dbUrl) : createClient();
   let settings;
+  let loadingGraphic;
   try {
     settings = await getAppSettings(db, scopeTenantSlug, appId);
+    loadingGraphic = await resolveLoadingGraphic(db, scopeTenantSlug, appId);
   } finally {
     if (dbUrl) await db.$disconnect();
   }
@@ -81,6 +86,9 @@ export async function GET(request: Request): Promise<NextResponse> {
     brandLogoUrl: settings.brandLogoUrl,
     brandPrimaryColor: settings.brandPrimaryColor,
     brandSecondaryColor: settings.brandSecondaryColor,
+    brandLoadingGraphicUrl: loadingGraphic.brandLoadingGraphicUrl,
+    tenantLoadingGraphicUrl: loadingGraphic.tenantLoadingGraphicUrl,
+    loadingGraphicUrl: loadingGraphic.loadingGraphicUrl,
     themeMode: settings.themeMode,
     updatedAt: settings.updatedAt.toISOString(),
   });
@@ -103,6 +111,8 @@ export async function PUT(request: Request): Promise<NextResponse> {
     let brandLogoUrl: string | undefined;
     let brandPrimaryColor: string | undefined;
     let brandSecondaryColor: string | undefined;
+    let brandLoadingGraphicUrl: string | undefined;
+    let tenantLoadingGraphicUrl: string | undefined;
     let themeMode: 'light' | 'dark' | 'system' | undefined;
 
     const contentType = request.headers.get('content-type') ?? '';
@@ -150,6 +160,38 @@ export async function PUT(request: Request): Promise<NextResponse> {
         brandSecondaryColor = secondaryField.trim();
       }
 
+      const loadingGraphicField = formData.get('brandLoadingGraphic');
+      if (loadingGraphicField instanceof File && loadingGraphicField.size > 0) {
+        if (loadingGraphicField.size > 1024 * 1024) {
+          return jsonError('Loading graphic must be under 1 MB', 400);
+        }
+        const buffer = Buffer.from(await loadingGraphicField.arrayBuffer());
+        const base64 = buffer.toString('base64');
+        const mime = loadingGraphicField.type || 'image/gif';
+        brandLoadingGraphicUrl = `data:${mime};base64,${base64}`;
+      }
+
+      const loadingGraphicUrlField = formData.get('brandLoadingGraphicUrl');
+      if (loadingGraphicUrlField !== null && typeof loadingGraphicUrlField === 'string') {
+        brandLoadingGraphicUrl = loadingGraphicUrlField.trim();
+      }
+
+      const tenantLoadingGraphicField = formData.get('tenantLoadingGraphic');
+      if (tenantLoadingGraphicField instanceof File && tenantLoadingGraphicField.size > 0) {
+        if (tenantLoadingGraphicField.size > 1024 * 1024) {
+          return jsonError('Loading graphic must be under 1 MB', 400);
+        }
+        const buffer = Buffer.from(await tenantLoadingGraphicField.arrayBuffer());
+        const base64 = buffer.toString('base64');
+        const mime = tenantLoadingGraphicField.type || 'image/gif';
+        tenantLoadingGraphicUrl = `data:${mime};base64,${base64}`;
+      }
+
+      const tenantLoadingGraphicUrlField = formData.get('tenantLoadingGraphicUrl');
+      if (tenantLoadingGraphicUrlField !== null && typeof tenantLoadingGraphicUrlField === 'string') {
+        tenantLoadingGraphicUrl = tenantLoadingGraphicUrlField.trim();
+      }
+
       const themeField = formData.get('themeMode');
       if (themeField === 'light' || themeField === 'dark' || themeField === 'system') {
         themeMode = themeField;
@@ -172,6 +214,8 @@ export async function PUT(request: Request): Promise<NextResponse> {
       brandLogoUrl = parsed.data.brandLogoUrl;
       brandPrimaryColor = parsed.data.brandPrimaryColor;
       brandSecondaryColor = parsed.data.brandSecondaryColor;
+      brandLoadingGraphicUrl = parsed.data.brandLoadingGraphicUrl;
+      tenantLoadingGraphicUrl = parsed.data.tenantLoadingGraphicUrl;
       themeMode = parsed.data.themeMode;
     } catch {
       return jsonError('Expected JSON or multipart/form-data body', 400);
@@ -181,7 +225,24 @@ export async function PUT(request: Request): Promise<NextResponse> {
   const dbUrl = await resolveDedicatedTenantDbUrl(scope.tenantSlug, scope.appId);
   const db = dbUrl ? createClientForUrl(dbUrl) : createClient();
   let settings;
+  let loadingGraphic;
   try {
+    if (tenantLoadingGraphicUrl !== undefined && !scope.appId) {
+      const rootDb = createRawClient();
+      await rootDb.$executeRawUnsafe(
+        `ALTER TABLE tenants ADD COLUMN IF NOT EXISTS loading_graphic_url TEXT;`,
+      );
+      await rootDb.$executeRawUnsafe(
+        `UPDATE tenants SET loading_graphic_url = $1, updated_at = CURRENT_TIMESTAMP WHERE slug = $2;`,
+        tenantLoadingGraphicUrl.trim() ? tenantLoadingGraphicUrl.trim() : null,
+        scope.tenantSlug,
+      );
+      await syncTenantLoadingGraphicToAppDb(
+        scope.tenantSlug,
+        tenantLoadingGraphicUrl.trim() ? tenantLoadingGraphicUrl.trim() : null,
+      );
+    }
+
     settings = await updateAppSettings(db, {
       ...(tenantSlug !== undefined ? { tenantSlug } : {}),
       ...(tenantDisplayName !== undefined ? { tenantDisplayName } : {}),
@@ -190,8 +251,11 @@ export async function PUT(request: Request): Promise<NextResponse> {
       ...(brandLogoUrl !== undefined ? { brandLogoUrl } : {}),
       ...(brandPrimaryColor !== undefined ? { brandPrimaryColor } : {}),
       ...(brandSecondaryColor !== undefined ? { brandSecondaryColor } : {}),
+      ...(brandLoadingGraphicUrl !== undefined && scope.appId ? { brandLoadingGraphicUrl } : {}),
       ...(themeMode !== undefined ? { themeMode } : {}),
     }, scope.tenantSlug, scope.appId);
+
+    loadingGraphic = await resolveLoadingGraphic(db, scope.tenantSlug, scope.appId);
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     console.error('brand-config PUT error:', msg, err instanceof Error ? err.stack : '');
@@ -207,10 +271,14 @@ export async function PUT(request: Request): Promise<NextResponse> {
     tenantSlug: settings.tenantSlug,
     tenantDisplayName: settings.tenantDisplayName,
     tenantTemplate: settings.tenantTemplate,
+    appId: settings.appId,
     brandLogoText: settings.brandLogoText,
     brandLogoUrl: settings.brandLogoUrl,
     brandPrimaryColor: settings.brandPrimaryColor,
     brandSecondaryColor: settings.brandSecondaryColor,
+    brandLoadingGraphicUrl: loadingGraphic.brandLoadingGraphicUrl,
+    tenantLoadingGraphicUrl: loadingGraphic.tenantLoadingGraphicUrl,
+    loadingGraphicUrl: loadingGraphic.loadingGraphicUrl,
     themeMode: settings.themeMode,
     updatedAt: settings.updatedAt.toISOString(),
   });

@@ -2,7 +2,7 @@
 
 import { Suspense, useMemo } from 'react';
 import Box from '@mui/material/Box';
-import CircularProgress from '@mui/material/CircularProgress';
+import { BrandedLoadingIndicator } from '@/components/branding/branded-loading-indicator';
 import Typography from '@mui/material/Typography';
 import { MetricCard } from '@/components/ui/metric-card';
 import { MonthSelect } from '@/components/ui/month-select';
@@ -47,7 +47,7 @@ export function KpiCardsBlock({ config }: { config: Record<string, unknown> }) {
     <Suspense
       fallback={
         <Box sx={{ display: 'flex', justifyContent: 'center', py: 3 }}>
-          <CircularProgress size={24} />
+          <BrandedLoadingIndicator size={24} />
         </Box>
       }
     >

@@ -6,7 +6,7 @@ import Autocomplete from '@mui/material/Autocomplete';
 import Box from '@mui/material/Box';
 import Button from '@mui/material/Button';
 import Chip from '@mui/material/Chip';
-import CircularProgress from '@mui/material/CircularProgress';
+import { BrandedLoadingIndicator } from '@/components/branding/branded-loading-indicator';
 import Divider from '@mui/material/Divider';
 import FormControlLabel from '@mui/material/FormControlLabel';
 import IconButton from '@mui/material/IconButton';
@@ -25,6 +25,8 @@ import {
   usePreviewAiModelsMutation,
   useLazyGetTenantAiModelsQuery,
 } from '@/store/apis/tenant-api';
+import { DEFAULT_OLLAMA_TUNNEL_HOST } from '@/lib/ollama-tunnel-host';
+import { OllamaStudioTunnelPanel } from '@/components/ops-admin/ollama-studio-tunnel-panel';
 
 export interface AiProviderWizardValue {
   catalog: AiProviderDef[];
@@ -32,6 +34,8 @@ export interface AiProviderWizardValue {
   apiKeysBySecretName: Record<string, string>;
   activeProviderId: string;
   activeModel: string;
+  /** Mac Studio Ollama tunnel base URL for ollama-studio. */
+  ollamaTunnelHost: string;
 }
 
 export function emptyAiProviderWizardValue(): AiProviderWizardValue {
@@ -40,6 +44,7 @@ export function emptyAiProviderWizardValue(): AiProviderWizardValue {
     apiKeysBySecretName: {},
     activeProviderId: 'openai',
     activeModel: AI_PROVIDERS.find((p) => p.id === 'openai')?.defaultModel ?? 'gpt-4o',
+    ollamaTunnelHost: DEFAULT_OLLAMA_TUNNEL_HOST,
   };
 }
 
@@ -122,6 +127,7 @@ export function TenantAiProvidersConfigStep({
       apiKeysBySecretName: {},
       activeProviderId: status.activeProviderId,
       activeModel: status.activeModel ?? '',
+      ollamaTunnelHost: DEFAULT_OLLAMA_TUNNEL_HOST,
     });
     setSelectedId(status.activeProviderId);
     setHydrated(true);
@@ -137,6 +143,8 @@ export function TenantAiProvidersConfigStep({
     () => value.catalog.find((p) => p.id === selectedId) ?? value.catalog[0] ?? null,
     [value.catalog, selectedId],
   );
+  const isOllamaStudio = selected?.id === 'ollama-studio';
+  const keylessProvider = selected?.modelsRequireAuth === false;
 
   const selectedModelOption = useMemo(() => {
     const id = value.activeProviderId === selectedId ? value.activeModel : selected?.defaultModel;
@@ -249,7 +257,7 @@ export function TenantAiProvidersConfigStep({
   };
 
   if (tenantSlug && !isControlled && isLoading && !hydrated) {
-    return <CircularProgress size={24} />;
+    return <BrandedLoadingIndicator size={24} />;
   }
 
   return (
@@ -389,6 +397,15 @@ export function TenantAiProvidersConfigStep({
 
           <Divider />
 
+          {isOllamaStudio ? (
+            <OllamaStudioTunnelPanel
+              tenantSlug={tenantSlug}
+              tunnelHost={value.ollamaTunnelHost}
+              onTunnelHostChange={(ollamaTunnelHost) => patch({ ollamaTunnelHost })}
+            />
+          ) : null}
+
+          {!keylessProvider ? (
           <Stack direction="row" spacing={1.5} sx={{ alignItems: 'flex-start' }}>
             <TextField
               label={`${selected.label} API key`}
@@ -417,6 +434,22 @@ export function TenantAiProvidersConfigStep({
               {(isPreviewLoading || isFetchLoading) ? 'Loading…' : 'Load models'}
             </Button>
           </Stack>
+          ) : (
+          <Stack direction="row" spacing={1.5} sx={{ alignItems: 'center' }}>
+            <Typography variant="body2" color="text.secondary" sx={{ flex: 1 }}>
+              No API key required — load models from the Mac Studio tunnel.
+            </Typography>
+            <Button
+              variant="outlined"
+              size="small"
+              onClick={() => void handleLoadModels()}
+              disabled={isPreviewLoading || isFetchLoading}
+              sx={{ minWidth: 130 }}
+            >
+              {(isPreviewLoading || isFetchLoading) ? 'Loading…' : 'Load models'}
+            </Button>
+          </Stack>
+          )}
 
           <Autocomplete
             options={models}
@@ -448,7 +481,9 @@ export function TenantAiProvidersConfigStep({
                 size="small"
                 helperText={
                   models.length === 0
-                    ? 'Click "Load models" (requires API key when modelsRequireAuth is on).'
+                    ? keylessProvider
+                      ? 'Click "Load models" to fetch from the Mac Studio tunnel.'
+                      : 'Click "Load models" (requires API key when modelsRequireAuth is on).'
                     : `${models.length} model(s) available.`
                 }
               />

@@ -2,6 +2,7 @@
 
 import { useMemo } from 'react';
 import CircularProgress from '@mui/material/CircularProgress';
+import { BrandedLoadingIndicator } from '@/components/branding/branded-loading-indicator';
 import FormControl from '@mui/material/FormControl';
 import FormHelperText from '@mui/material/FormHelperText';
 import InputLabel from '@mui/material/InputLabel';
@@ -141,7 +142,7 @@ export function ComposerModelPicker() {
   if (isLoading) {
     return (
       <Stack direction="row" spacing={1} sx={{ alignItems: 'center', width: '100%', minWidth: 0, m: PICKER_FIELD_MARGIN }}>
-        <CircularProgress size={16} />
+        <BrandedLoadingIndicator size={16} />
         <Typography variant="caption" color="text.secondary">
           Checking AI providers…
         </Typography>

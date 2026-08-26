@@ -5,7 +5,7 @@ import dynamic from 'next/dynamic';
 import Box from '@mui/material/Box';
 import Button from '@mui/material/Button';
 import Checkbox from '@mui/material/Checkbox';
-import CircularProgress from '@mui/material/CircularProgress';
+import { BrandedLoadingIndicator } from '@/components/branding/branded-loading-indicator';
 import Dialog from '@mui/material/Dialog';
 import DialogActions from '@mui/material/DialogActions';
 import DialogContent from '@mui/material/DialogContent';
@@ -40,7 +40,7 @@ const DataGrid = dynamic(
     ssr: false,
     loading: () => (
       <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}>
-        <CircularProgress size={24} />
+        <BrandedLoadingIndicator size={24} />
       </Box>
     ),
   },
@@ -658,7 +658,7 @@ export function PackTableBlock({ config }: { config: Record<string, unknown> }) 
     <Box sx={{ width: '100%', height: { xs: 460, sm: 580 } }}>
       {metaLoading ? (
         <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}>
-          <CircularProgress size={24} />
+          <BrandedLoadingIndicator size={24} />
         </Box>
       ) : metaError ? (
         <Typography color="error" sx={{ py: 2 }}>

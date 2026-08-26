@@ -8,7 +8,7 @@ import AlertTitle from '@mui/material/AlertTitle';
 import Box from '@mui/material/Box';
 import Button from '@mui/material/Button';
 import Chip from '@mui/material/Chip';
-import CircularProgress from '@mui/material/CircularProgress';
+import { BrandedLoadingIndicator } from '@/components/branding/branded-loading-indicator';
 import Dialog from '@mui/material/Dialog';
 import DialogActions from '@mui/material/DialogActions';
 import DialogContent from '@mui/material/DialogContent';
@@ -313,7 +313,7 @@ export function PaymentMethodsTab({ orgId }: { orgId: string }) {
         ) : (
           <DialogContent>
             <Box sx={{ display: 'grid', placeItems: 'center', py: 4 }}>
-              <CircularProgress size={24} />
+              <BrandedLoadingIndicator size={24} />
             </Box>
           </DialogContent>
         )}

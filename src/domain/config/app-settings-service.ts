@@ -31,6 +31,7 @@ export interface AppSettingsDto {
   brandLogoUrl: string;
   brandPrimaryColor: string;
   brandSecondaryColor: string;
+  brandLoadingGraphicUrl: string;
   themeMode: string;
   updatedAt: Date;
 }
@@ -55,6 +56,7 @@ export async function ensureAppSettingsTable(db: DbClient): Promise<void> {
     'ADD COLUMN IF NOT EXISTS brand_logo_url TEXT NOT NULL DEFAULT \'\'',
     'ADD COLUMN IF NOT EXISTS brand_primary_color TEXT NOT NULL DEFAULT \'#eb3d28\'',
     'ADD COLUMN IF NOT EXISTS brand_secondary_color TEXT NOT NULL DEFAULT \'#0af9fe\'',
+    'ADD COLUMN IF NOT EXISTS brand_loading_graphic_url TEXT NOT NULL DEFAULT \'\'',
     'ADD COLUMN IF NOT EXISTS theme_mode TEXT NOT NULL DEFAULT \'system\'',
   ];
   for (const col of migrationCols) {
@@ -99,6 +101,7 @@ export async function getAppSettings(db: DbClient, tenantSlug?: string, appId?: 
       brandLogoUrl: String(ex.brandLogoUrl ?? ex.brand_logo_url ?? ''),
       brandPrimaryColor: String(ex.brandPrimaryColor ?? ex.brand_primary_color ?? '#eb3d28'),
       brandSecondaryColor: String(ex.brandSecondaryColor ?? ex.brand_secondary_color ?? '#0af9fe'),
+      brandLoadingGraphicUrl: String(ex.brandLoadingGraphicUrl ?? ex.brand_loading_graphic_url ?? ''),
       themeMode: String(ex.themeMode ?? ex.theme_mode ?? 'system'),
       updatedAt: existing.updatedAt,
     };
@@ -121,6 +124,7 @@ export async function getAppSettings(db: DbClient, tenantSlug?: string, appId?: 
     brandLogoUrl: String(cr.brandLogoUrl ?? cr.brand_logo_url ?? ''),
     brandPrimaryColor: String(cr.brandPrimaryColor ?? cr.brand_primary_color ?? '#eb3d28'),
     brandSecondaryColor: String(cr.brandSecondaryColor ?? cr.brand_secondary_color ?? '#0af9fe'),
+    brandLoadingGraphicUrl: String(cr.brandLoadingGraphicUrl ?? cr.brand_loading_graphic_url ?? ''),
     themeMode: String(cr.themeMode ?? cr.theme_mode ?? "system"),
     updatedAt: created.updatedAt,
   };
@@ -138,6 +142,7 @@ export async function updateAppSettings(
     brandLogoUrl?: string;
     brandPrimaryColor?: string;
     brandSecondaryColor?: string;
+    brandLoadingGraphicUrl?: string;
     themeMode?: string;
   },
   tenantSlug?: string,
@@ -160,6 +165,7 @@ export async function updateAppSettings(
   if (patch.brandPrimaryColor !== undefined) data.brandPrimaryColor = patch.brandPrimaryColor;
   if (patch.themeMode !== undefined) data.themeMode = patch.themeMode;
   if (patch.brandSecondaryColor !== undefined) data.brandSecondaryColor = patch.brandSecondaryColor;
+  if (patch.brandLoadingGraphicUrl !== undefined) data.brandLoadingGraphicUrl = patch.brandLoadingGraphicUrl;
 
   if (Object.keys(data).length === 0) {
     // Nothing to update — just read back

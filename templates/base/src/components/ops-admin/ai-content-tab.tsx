@@ -11,6 +11,7 @@ import Box from '@mui/material/Box';
 import Button from '@mui/material/Button';
 import Chip from '@mui/material/Chip';
 import CircularProgress from '@mui/material/CircularProgress';
+import { BrandedLoadingIndicator } from '@/components/branding/branded-loading-indicator';
 import LinearProgress from '@mui/material/LinearProgress';
 import Paper from '@mui/material/Paper';
 import Stack from '@mui/material/Stack';
@@ -327,7 +328,7 @@ export function AiContentTab() {
   if (loading) {
     return (
       <Box sx={{ display: 'flex', justifyContent: 'center', py: 6 }}>
-        <CircularProgress />
+        <BrandedLoadingIndicator  />
       </Box>
     );
   }
@@ -587,7 +588,7 @@ export function AiContentTab() {
                       sx={{ flexShrink: 0 }}
                     />
                   ) : state === 'active' ? (
-                    <CircularProgress size={18} sx={{ flexShrink: 0 }} />
+                    <BrandedLoadingIndicator size={18} sx={{ flexShrink: 0 }} />
                   ) : state === 'error' ? (
                     <WarningAmberIcon
                       fontSize="small"
@@ -881,7 +882,7 @@ export function AiContentTab() {
           onClick={openGenerateConfirm}
           startIcon={
             generating ? (
-              <CircularProgress size={20} color="inherit" />
+              <BrandedLoadingIndicator size={20} color="inherit" />
             ) : (
               <AutoFixHighIcon />
             )

@@ -7,6 +7,7 @@ import Box from '@mui/material/Box';
 import Button from '@mui/material/Button';
 import Chip from '@mui/material/Chip';
 import CircularProgress from '@mui/material/CircularProgress';
+import { BrandedLoadingIndicator } from '@/components/branding/branded-loading-indicator';
 import FormControl from '@mui/material/FormControl';
 import InputLabel from '@mui/material/InputLabel';
 import Link from '@mui/material/Link';
@@ -22,6 +23,8 @@ import {
   useLazyGetTenantAiModelsQuery,
 } from '@/store/apis/tenant-api';
 import type { AiProviderId, AiModelOption } from '@/store/apis/config-api';
+import { DEFAULT_OLLAMA_TUNNEL_HOST } from '@/lib/ollama-tunnel-host';
+import { OllamaStudioTunnelPanel } from '@/components/ops-admin/ollama-studio-tunnel-panel';
 
 function sourceLabel(source: 'db' | 'env' | null | undefined): string {
   if (source === 'db') return 'Stored in database';
@@ -55,6 +58,7 @@ export function TenantAiProviderForm({ tenantSlug, appId }: TenantAiProviderForm
   const [selectedProviderId, setSelectedProviderId] = useState<AiProviderId>('openai');
   const [apiKey, setApiKey] = useState('');
   const [selectedModel, setSelectedModel] = useState<AiModelOption | null>(null);
+  const [ollamaTunnelHost, setOllamaTunnelHost] = useState(DEFAULT_OLLAMA_TUNNEL_HOST);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -137,7 +141,7 @@ export function TenantAiProviderForm({ tenantSlug, appId }: TenantAiProviderForm
       </Box>
 
       {isLoading ? (
-        <CircularProgress size={24} />
+        <BrandedLoadingIndicator size={24} />
       ) : (
         <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap' }}>
           {providers.map((p) => (
@@ -196,10 +200,17 @@ export function TenantAiProviderForm({ tenantSlug, appId }: TenantAiProviderForm
           </Stack>
 
           {keylessProvider ? (
-            <Alert severity="info">
-              TokenizMyApp-Studio-AI uses the factory Ollama proxy — no API key is required.
-              Models are loaded from the Mac Studio tunnel automatically.
-            </Alert>
+            selectedProviderId === 'ollama-studio' ? (
+              <OllamaStudioTunnelPanel
+                tenantSlug={tenantSlug}
+                tunnelHost={ollamaTunnelHost}
+                onTunnelHostChange={setOllamaTunnelHost}
+              />
+            ) : (
+              <Alert severity="info">
+                This provider uses a keyless backend — no API key is required.
+              </Alert>
+            )
           ) : (
             <>
               <TextField

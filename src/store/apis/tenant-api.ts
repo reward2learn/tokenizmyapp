@@ -1,5 +1,6 @@
 import { createApi } from '@reduxjs/toolkit/query/react';
 import { baseQuery } from '@shared/store/base-query';
+import { brandConfigApi } from '@shared/store/apis/brand-config-api';
 import type { ApiEnvelope } from '@/store/api-types';
 import type { AiProviderStatus, AiModelOption } from '@/store/apis/config-api';
 
@@ -17,6 +18,7 @@ export interface TenantEntry {
   secondaryColor: string;
   faviconData: string | null;
   faviconMimeType: string | null;
+  loadingGraphicUrl: string | null;
   templateMode: 'single' | 'suite';
   appPack: AppPackConfig | null;
   metadata: Record<string, unknown>;
@@ -224,6 +226,8 @@ export const tenantApi = createApi({
         apiKeysBySecretName?: Record<string, string>;
         activeProviderId?: string;
         activeModel?: string;
+        /** Mac Studio tunnel base URL — seeded to Vercel as OLLAMA_TUNNEL_HOST on deploy. */
+        ollamaTunnelHost?: string;
       };
       /**
        * Tenant Neon DB from the create wizard Database step.
@@ -744,6 +748,48 @@ export const tenantApi = createApi({
       ],
     }),
 
+    uploadTenantLoadingGraphic: builder.mutation<
+      ApiEnvelope<{ message: string }>,
+      { slug: string; loadingGraphicUrl: string }
+    >({
+      query: ({ slug, loadingGraphicUrl }) => ({
+        url: `admin/tenants/${slug}/loading-graphic`,
+        method: 'POST',
+        body: { loadingGraphicUrl },
+      }),
+      invalidatesTags: (_result, _error, { slug }) => [
+        { type: 'Tenants', id: slug },
+        { type: 'Tenants' },
+      ],
+      async onQueryStarted(_arg, { dispatch, queryFulfilled }) {
+        try {
+          await queryFulfilled;
+          dispatch(brandConfigApi.util.invalidateTags(['BrandConfig']));
+        } catch {
+          // mutation failed — leave brand config cache unchanged
+        }
+      },
+    }),
+
+    removeTenantLoadingGraphic: builder.mutation<ApiEnvelope<{ message: string }>, string>({
+      query: (slug) => ({
+        url: `admin/tenants/${slug}/loading-graphic`,
+        method: 'DELETE',
+      }),
+      invalidatesTags: (_result, _error, slug) => [
+        { type: 'Tenants', id: slug },
+        { type: 'Tenants' },
+      ],
+      async onQueryStarted(_arg, { dispatch, queryFulfilled }) {
+        try {
+          await queryFulfilled;
+          dispatch(brandConfigApi.util.invalidateTags(['BrandConfig']));
+        } catch {
+          // mutation failed — leave brand config cache unchanged
+        }
+      },
+    }),
+
     setTenantDomain: builder.mutation<
       ApiEnvelope<{
         domain: string;
@@ -1000,6 +1046,31 @@ export const tenantApi = createApi({
       query: (slug) => ({ url: `admin/tenants/${slug}/stripe-embedded-checkout-probe` }),
     }),
 
+    /** POST — upsert OLLAMA_TUNNEL_HOST on tenant + factory Vercel projects. */
+    pushOllamaTunnelHost: builder.mutation<
+      ApiEnvelope<{
+        message: string;
+        tenantSlug: string;
+        tunnelHost: string;
+        factoryOnly: boolean;
+        updated: Array<{
+          projectId: string;
+          appId: string | null;
+          ok: boolean;
+          error?: string;
+        }>;
+        skippedNoProject: string[];
+        errors: string[];
+      }>,
+      { slug: string; confirm: true; tunnelHost?: string }
+    >({
+      query: ({ slug, ...body }) => ({
+        url: `admin/tenants/${slug}/ollama-tunnel-host`,
+        method: 'POST',
+        body,
+      }),
+    }),
+
     /**
      * POST /api/admin/tenants/:slug/propagate-billing-identity —
      * stamp org id onto suite app Vercel projects after Seed All Apps.
@@ -1064,6 +1135,8 @@ export const {
   useSetTenantDomainMutation,
   useUploadTenantFaviconMutation,
   useRemoveTenantFaviconMutation,
+  useUploadTenantLoadingGraphicMutation,
+  useRemoveTenantLoadingGraphicMutation,
   useScrapeTenantMutation,
   useTriggerDeployHookMutation,
   useTestVercelWebhookMutation,
@@ -1087,4 +1160,5 @@ export const {
   useLazyGetAgenticCommerceHealthQuery,
   useLazyGetStripeEmbeddedCheckoutProbeQuery,
   usePropagateBillingIdentityMutation,
+  usePushOllamaTunnelHostMutation,
 } = tenantApi;

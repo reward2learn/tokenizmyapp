@@ -25,6 +25,7 @@ import DialogTitle from '@mui/material/DialogTitle';
 import DialogContent from '@mui/material/DialogContent';
 import DialogActions from '@mui/material/DialogActions';
 import CircularProgress from '@mui/material/CircularProgress';
+import { BrandedLoadingIndicator } from '@/components/branding/branded-loading-indicator';
 import Snackbar from '@mui/material/Snackbar';
 import Stepper from '@mui/material/Stepper';
 import Step from '@mui/material/Step';
@@ -736,7 +737,7 @@ export function AiCreditsCalculatorTool() {
           disabled={!tenantSlug || secUaState.isLoading}
         >
           {secUaState.isLoading ? (
-            <CircularProgress size={18} />
+            <BrandedLoadingIndicator size={18} />
           ) : (
             'Push SEC_USER_AGENT to tenant Vercel'
           )}

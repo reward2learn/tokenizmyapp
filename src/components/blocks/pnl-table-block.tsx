@@ -2,7 +2,7 @@
 
 import { Suspense, useMemo } from 'react';
 import Box from '@mui/material/Box';
-import CircularProgress from '@mui/material/CircularProgress';
+import { BrandedLoadingIndicator } from '@/components/branding/branded-loading-indicator';
 import Paper from '@mui/material/Paper';
 import Table from '@mui/material/Table';
 import TableBody from '@mui/material/TableBody';
@@ -52,7 +52,7 @@ export function PnlTableBlock({ config }: { config: Record<string, unknown> }) {
     <Suspense
       fallback={
         <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}>
-          <CircularProgress size={28} />
+          <BrandedLoadingIndicator size={28} />
         </Box>
       }
     >
@@ -197,7 +197,7 @@ function PnlTableBlockInner({ config }: { config: Record<string, unknown> }) {
 
       {isLoading ? (
         <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}>
-          <CircularProgress size={28} />
+          <BrandedLoadingIndicator size={28} />
         </Box>
       ) : isError || !period ? (
         <Typography variant="body2" color="text.secondary" sx={{ textAlign: 'center', py: 3 }}>

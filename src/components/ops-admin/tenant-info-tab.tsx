@@ -2,7 +2,7 @@
 
 import Box from '@mui/material/Box';
 import Chip from '@mui/material/Chip';
-import CircularProgress from '@mui/material/CircularProgress';
+import { BrandedLoadingIndicator } from '@/components/branding/branded-loading-indicator';
 import IconButton from '@mui/material/IconButton';
 import Paper from '@mui/material/Paper';
 import Stack from '@mui/material/Stack';
@@ -139,7 +139,7 @@ function SeededDataOverview({ tenantSlug }: { tenantSlug: string }) {
           Seeded Data Overview {total > 0 ? `— ${total} rows total` : ''}
         </Typography>
         <IconButton size="small" onClick={() => refetch()} disabled={isFetching} aria-label="Refresh seed data counts">
-          {isFetching ? <CircularProgress size={16} /> : <RefreshIcon fontSize="small" />}
+          {isFetching ? <BrandedLoadingIndicator size={16} /> : <RefreshIcon fontSize="small" />}
         </IconButton>
       </Stack>
       {isError ? (

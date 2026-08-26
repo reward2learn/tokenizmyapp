@@ -2,7 +2,7 @@
 
 import type { ReactNode } from 'react';
 import Box from '@mui/material/Box';
-import CircularProgress from '@mui/material/CircularProgress';
+import { BrandedLoadingIndicator } from '@/components/branding/branded-loading-indicator';
 import type { AuthTier } from '@/lib/page-catalog';
 import { tierAllowsAccess } from '@/lib/auth/tier-access';
 import { useAppSelector } from '@/store/hooks';
@@ -31,7 +31,7 @@ export function AuthGate({
         justifyContent: 'center',
       }}
     >
-      <CircularProgress />
+      <BrandedLoadingIndicator  />
     </Box>
   ),
 }: AuthGateProps) {

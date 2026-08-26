@@ -5,7 +5,6 @@ import { useRouter } from 'next/navigation';
 import type { Route } from 'next';
 import Box from '@mui/material/Box';
 import Button from '@mui/material/Button';
-import CircularProgress from '@mui/material/CircularProgress';
 import { BrandedLoadingIndicator } from '@/components/branding/branded-loading-indicator';
 import Grid from '@mui/material/Grid';
 import Paper from '@mui/material/Paper';
@@ -83,7 +82,7 @@ function ReviewPartBlock({ partSlug }: { partSlug: string }) {
         </Typography>
         <Box sx={{ flex: 1, minHeight: 0, minWidth: 0, overflow: 'auto' }}>
           {isLoading ? (
-            <CircularProgress size={20} />
+            <BrandedLoadingIndicator size={20} />
           ) : (
             <Typography variant="body2" color="text.secondary" sx={{ wordBreak: 'break-word' }}>
               {excerpt(data?.markdown)}

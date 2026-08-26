@@ -7,6 +7,7 @@ import Box from '@mui/material/Box';
 import Button from '@mui/material/Button';
 import Chip from '@mui/material/Chip';
 import CircularProgress from '@mui/material/CircularProgress';
+import { BrandedLoadingIndicator } from '@/components/branding/branded-loading-indicator';
 import Drawer from '@mui/material/Drawer';
 import FormControl from '@mui/material/FormControl';
 import Grid from '@mui/material/Grid';
@@ -335,7 +336,7 @@ export function PageInlineEditor({ page }: PageInlineEditorProps) {
   if (isLoading) {
     return (
       <Box sx={{ display: 'flex', justifyContent: 'center', py: 6 }}>
-        <CircularProgress size={28} />
+        <BrandedLoadingIndicator size={28} />
       </Box>
     );
   }

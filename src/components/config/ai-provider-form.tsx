@@ -7,6 +7,7 @@ import Box from '@mui/material/Box';
 import Button from '@mui/material/Button';
 import Chip from '@mui/material/Chip';
 import CircularProgress from '@mui/material/CircularProgress';
+import { BrandedLoadingIndicator } from '@/components/branding/branded-loading-indicator';
 import FormControl from '@mui/material/FormControl';
 import InputLabel from '@mui/material/InputLabel';
 import Link from '@mui/material/Link';
@@ -139,7 +140,7 @@ export function AiProviderForm() {
         </Box>
 
         {isLoading ? (
-          <CircularProgress size={24} />
+          <BrandedLoadingIndicator size={24} />
         ) : (
           <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap' }}>
             {providers.map((p) => (

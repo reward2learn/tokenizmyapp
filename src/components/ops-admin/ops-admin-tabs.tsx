@@ -10,6 +10,7 @@ import Box from '@mui/material/Box';
 import Button from '@mui/material/Button';
 import Chip from '@mui/material/Chip';
 import CircularProgress from '@mui/material/CircularProgress';
+import { BrandedLoadingIndicator } from '@/components/branding/branded-loading-indicator';
 import Dialog from '@mui/material/Dialog';
 import DialogActions from '@mui/material/DialogActions';
 import DialogContent from '@mui/material/DialogContent';
@@ -832,7 +833,7 @@ function ZReportCalendarView({ onDayClick }: { onDayClick?: (date: string) => vo
   const { data: calPayload, isFetching } = useGetCalendarQuery(period);
   const calData = dataFromEnvelope<{ days_in_month?: number; filled?: { date: string; entry_source?: string }[]; missing?: string[] }>(calPayload);
 
-  if (isFetching) return <CircularProgress size={24} />;
+  if (isFetching) return <BrandedLoadingIndicator size={24} />;
   if (!calData) return <Typography color="text.secondary">No calendar data.</Typography>;
 
   const filledSet = new Set((calData.filled ?? []).map((f) => f.date));
@@ -1021,7 +1022,7 @@ function ZReportChartView() {
       </Stack>
 
       {isFetching ? (
-        <CircularProgress size={24} />
+        <BrandedLoadingIndicator size={24} />
       ) : days.length === 0 ? (
         <Typography color="text.secondary">No data for {new Date(chartYear, chartMonth - 1).toLocaleString('default', { month: 'long' })} {chartYear}.</Typography>
       ) : (
@@ -1266,7 +1267,7 @@ function DayPosTab() {
               ))}
             </TextField>
 
-            {isFetching ? <CircularProgress size={24} /> : null}
+            {isFetching ? <BrandedLoadingIndicator size={24} /> : null}
             {sections.map((section) => (
               <Box key={section.id}>
                 <Typography variant="subtitle2" sx={{ fontWeight: 700, mb: 1 }}>{section.title}</Typography>
@@ -1433,7 +1434,7 @@ function DayPosTab() {
         </DialogTitle>
         <DialogContent dividers>
           {zrepLoading ? (
-            <CircularProgress size={24} />
+            <BrandedLoadingIndicator size={24} />
           ) : zrepDetailData ? (
             <Stack spacing={2}>
               <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 0.5 }}>
@@ -1881,7 +1882,7 @@ function CostsPayrollTab() {
               </Stack>
             ) : null}
 
-            {isFetching ? <CircularProgress size={24} /> : null}
+            {isFetching ? <BrandedLoadingIndicator size={24} /> : null}
             {payload?.excel_locked ? (
               <Typography color="warning.main">This month is locked to the source Excel ledger.</Typography>
             ) : null}
@@ -2096,7 +2097,7 @@ function FillMissingTab() {
           slotProps={{ inputLabel: { shrink: true } }}
           sx={{ maxWidth: 260 }}
         />
-        {isFetching ? <CircularProgress size={24} /> : null}
+        {isFetching ? <BrandedLoadingIndicator size={24} /> : null}
         <Stack direction="row" sx={{ flexWrap: 'wrap', gap: 1 }}>
           <Chip label={`Filled: ${calendar?.filled?.length ?? 0}`} />
           <Chip label={`Missing: ${calendar?.missing?.length ?? 0}`} color={(calendar?.missing?.length ?? 0) ? 'warning' : 'success'} />
@@ -2541,7 +2542,7 @@ function RecentEntries() {
         </DialogTitle>
         <DialogContent dividers>
           {zrepLoading ? (
-            <CircularProgress size={24} />
+            <BrandedLoadingIndicator size={24} />
           ) : zrepDetailData ? (
             <Stack spacing={2}>
               {/* Field data */}
@@ -2604,7 +2605,7 @@ function RecentEntries() {
         </DialogTitle>
         <DialogContent dividers>
           {actualsLoading ? (
-            <CircularProgress size={24} />
+            <BrandedLoadingIndicator size={24} />
           ) : actualsDetailData ? (
             <Stack spacing={2}>
               <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 0.5 }}>

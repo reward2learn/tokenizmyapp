@@ -107,6 +107,7 @@ const createSchema = z.object({
       apiKeysBySecretName: z.record(z.string(), z.string()).optional(),
       activeProviderId: z.string().min(1).max(64).optional(),
       activeModel: z.string().min(1).max(200).optional(),
+      ollamaTunnelHost: z.string().min(1).max(500).optional(),
     })
     .optional(),
   /**
@@ -140,6 +141,7 @@ function mapTenantRow(row: Record<string, unknown>) {
     secondaryColor: row.secondary_color as string,
     faviconData: row.favicon_data as string | null,
     faviconMimeType: row.favicon_mime_type as string | null,
+    loadingGraphicUrl: (row.loading_graphic_url as string | null) ?? null,
     metadata: row.metadata as Record<string, unknown>,
     templateMode: ((row.metadata as Record<string, unknown>)?.config as Record<string, unknown>)?.templateMode as 'single' | 'suite' ?? 'single',
     appPack: ((row.metadata as Record<string, unknown>)?.config as Record<string, unknown>)?.appPack as import('@/store/apis/tenant-api').AppPackConfig ?? null,
@@ -550,6 +552,12 @@ export async function POST(request: Request): Promise<Response> {
       }
     }
 
+    const ollamaTunnelHost = parsed.data.aiProviderConfig?.ollamaTunnelHost?.trim();
+    const deployMetadata = {
+      ...(parsed.data.metadata ?? {}),
+      ...(ollamaTunnelHost ? { ollamaTunnelHost } : {}),
+    };
+
     // ── Step 7: Deploy (Phase 6 CLI if codegen succeeded, else existing API) ──
     if (codegenResult) {
       // Build env vars for Vercel CLI injection
@@ -571,6 +579,19 @@ export async function POST(request: Request): Promise<Response> {
       for (const key of SHARED_ENV_KEYS) {
         const val = process.env[key];
         if (val) cliEnvVars[key] = val;
+      }
+      if (ollamaTunnelHost) {
+        try {
+          const { normalizeOllamaTunnelHost, OLLAMA_TUNNEL_HOST_ENV_KEY } = await import(
+            '@/lib/ollama-tunnel-host'
+          );
+          cliEnvVars[OLLAMA_TUNNEL_HOST_ENV_KEY] = normalizeOllamaTunnelHost(ollamaTunnelHost);
+        } catch (err) {
+          console.warn(
+            '[tenants] Skipping invalid OLLAMA_TUNNEL_HOST for CLI deploy:',
+            err instanceof Error ? err.message : err,
+          );
+        }
       }
 
       const outputDir = codegenResult.outputDir;
@@ -605,7 +626,7 @@ export async function POST(request: Request): Promise<Response> {
             primaryColor: parsed.data.primaryColor,
             secondaryColor: parsed.data.secondaryColor,
             dbUrl: neonResult ? { pooled: neonResult.pooledUrl, direct: neonResult.directUrl } : null,
-            metadata: parsed.data.metadata,
+            metadata: deployMetadata,
           })
             .then((result: { projectId: string; appUrl: string; envCount: number }) => {
               console.log('[tenants] Fallback API deploy succeeded:', result.appUrl);
@@ -635,7 +656,7 @@ export async function POST(request: Request): Promise<Response> {
         primaryColor: parsed.data.primaryColor,
         secondaryColor: parsed.data.secondaryColor,
         dbUrl: neonResult ? { pooled: neonResult.pooledUrl, direct: neonResult.directUrl } : null,
-        metadata: parsed.data.metadata,
+        metadata: deployMetadata,
       }).then((result: { projectId: string; appUrl: string; projectName: string; envCount: number }) => {
         console.log('[tenants] Vercel project created:', result.projectId, 'env vars:', result.envCount);
         // Update tenant record with Vercel project info

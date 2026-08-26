@@ -14,8 +14,9 @@ export type { AiProviderWizardValue };
 export interface CreateAppAiProviderStepProps {
   value: AiProviderWizardValue;
   onChange: (next: AiProviderWizardValue) => void;
+  tenantSlug?: string;
 }
 
-export function CreateAppAiProviderStep({ value, onChange }: CreateAppAiProviderStepProps) {
-  return <TenantAiProvidersConfigStep value={value} onChange={onChange} />;
+export function CreateAppAiProviderStep({ value, onChange, tenantSlug }: CreateAppAiProviderStepProps) {
+  return <TenantAiProvidersConfigStep value={value} onChange={onChange} tenantSlug={tenantSlug} />;
 }

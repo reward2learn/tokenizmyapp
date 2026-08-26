@@ -10,6 +10,12 @@ export interface BrandConfig {
   brandLogoUrl: string | null;
   brandPrimaryColor: string;
   brandSecondaryColor: string;
+  /** Resolved loading graphic (app override, else tenant default). */
+  loadingGraphicUrl?: string | null;
+  /** App-level override; empty inherits tenant default. Admin API only. */
+  brandLoadingGraphicUrl?: string;
+  /** Tenant-level default. Admin API only. */
+  tenantLoadingGraphicUrl?: string | null;
   themeMode?: string;
 }
 

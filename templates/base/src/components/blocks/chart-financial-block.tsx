@@ -5,7 +5,7 @@ import { useSearchParams } from 'next/navigation';
 import Box from '@mui/material/Box';
 import Button from '@mui/material/Button';
 import ButtonGroup from '@mui/material/ButtonGroup';
-import CircularProgress from '@mui/material/CircularProgress';
+import { BrandedLoadingIndicator } from '@/components/branding/branded-loading-indicator';
 import Paper from '@mui/material/Paper';
 import Typography from '@mui/material/Typography';
 import { FinancialChart } from '@/components/charts/financial-chart';
@@ -41,7 +41,7 @@ export function ChartFinancialBlock({ config }: { config: Record<string, unknown
     <Suspense
       fallback={
         <Box sx={{ display: 'flex', justifyContent: 'center', py: 6 }}>
-          <CircularProgress size={28} />
+          <BrandedLoadingIndicator size={28} />
         </Box>
       }
     >

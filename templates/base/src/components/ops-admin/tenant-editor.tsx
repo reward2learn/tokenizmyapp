@@ -6,6 +6,7 @@ import Box from '@mui/material/Box';
 import Button from '@mui/material/Button';
 import Chip from '@mui/material/Chip';
 import CircularProgress from '@mui/material/CircularProgress';
+import { BrandedLoadingIndicator } from '@/components/branding/branded-loading-indicator';
 import Dialog from '@mui/material/Dialog';
 import DialogActions from '@mui/material/DialogActions';
 import DialogContent from '@mui/material/DialogContent';
@@ -1070,7 +1071,7 @@ export function TenantEditor({ open, onClose, tenant }: TenantEditorProps) {
           onClick={handleSave}
           disabled={isLoading || isDeploying}
           startIcon={
-            isLoading ? <CircularProgress size={18} color="inherit" /> : <SaveIcon />
+            isLoading ? <BrandedLoadingIndicator size={18} color="inherit" /> : <SaveIcon />
           }
         >
           {isLoading ? 'Saving...' : 'Save Changes'}

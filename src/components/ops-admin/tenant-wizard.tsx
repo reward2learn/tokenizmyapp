@@ -61,7 +61,9 @@ import {
   useCreateTenantMutation,
   useScrapeTenantMutation,
   usePreviewNeonProvisionMutation,
+  useUploadTenantLoadingGraphicMutation,
 } from '@/store/apis/tenant-api';
+import { LoadingGraphicUpload } from '@/components/branding/loading-graphic-upload';
 import { TenantRateCardStep } from '@/components/ops-admin/tenant-rate-card-step';
 import { SchemaOrgTypeChips } from '@/components/ops-admin/schema-org-type-chips';
 import {
@@ -128,6 +130,7 @@ interface WizardState {
   primaryColor: string;
   secondaryColor: string;
   logoBase64: string | null;
+  loadingGraphicUrl: string | null;
   scrapeUrl: string;
   /** Secured billing rate-card inputs — locked in by platform admin at create time. */
   rateCard: TenantRateCardInputs;
@@ -156,6 +159,7 @@ const INITIAL_STATE: WizardState = {
   primaryColor: '#eb3d28',
   secondaryColor: '#0af9fe',
   logoBase64: null,
+  loadingGraphicUrl: null,
   scrapeUrl: '',
   rateCard: {
     appCount: 1,
@@ -195,6 +199,7 @@ export function TenantWizard({ iconOnly = false }: { iconOnly?: boolean }) {
   const [scraping, setScraping] = useState(false);
   const [scrapeError, setScrapeError] = useState<string | null>(null);
   const [createTenant, { isLoading, isError, error, isSuccess, data }] = useCreateTenantMutation();
+  const [uploadTenantLoadingGraphic] = useUploadTenantLoadingGraphicMutation();
   const [scrapeTenant] = useScrapeTenantMutation();
   const [previewNeon, { isLoading: provisioningDb }] = usePreviewNeonProvisionMutation();
   const [dbProvisionError, setDbProvisionError] = useState<string | null>(null);
@@ -459,8 +464,19 @@ export function TenantWizard({ iconOnly = false }: { iconOnly?: boolean }) {
         ),
         activeProviderId: state.aiProviders.activeProviderId,
         activeModel: state.aiProviders.activeModel || undefined,
+        ollamaTunnelHost: state.aiProviders.ollamaTunnelHost.trim() || undefined,
       },
     }).unwrap();
+    if (result.success && state.loadingGraphicUrl) {
+      try {
+        await uploadTenantLoadingGraphic({
+          slug: state.slug,
+          loadingGraphicUrl: state.loadingGraphicUrl,
+        }).unwrap();
+      } catch {
+        // Tenant was created — loading graphic upload is best-effort.
+      }
+    }
     if (result.success) {
       setStep(SUCCESS_STEP);
     }
@@ -1046,6 +1062,13 @@ export function TenantWizard({ iconOnly = false }: { iconOnly?: boolean }) {
                 </Box>
               </Stack>
 
+              <LoadingGraphicUpload
+                value={state.loadingGraphicUrl}
+                onChange={async (next) => update({ loadingGraphicUrl: next })}
+                onClear={async () => update({ loadingGraphicUrl: null })}
+                helperText="Default loading graphic for this tenant and all inner apps unless an app overrides it."
+              />
+
               {/* Preview */}
               <Paper variant="outlined" sx={{ p: 2.5, bgcolor: 'background.default' }}>
                 <Typography variant="caption" color="text.secondary" sx={{ mb: 1.5, display: 'block' }}>
@@ -1239,6 +1262,7 @@ export function TenantWizard({ iconOnly = false }: { iconOnly?: boolean }) {
             <TenantAiProvidersConfigStep
               value={state.aiProviders}
               onChange={(aiProviders) => setState((s) => ({ ...s, aiProviders }))}
+              tenantSlug={state.slug.trim() || undefined}
             />
           ) : null}
 

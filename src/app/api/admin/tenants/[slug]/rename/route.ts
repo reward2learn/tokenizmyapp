@@ -31,6 +31,7 @@ function mapTenantRow(row: Record<string, unknown>) {
     secondaryColor: row.secondary_color as string,
     faviconData: row.favicon_data as string | null,
     faviconMimeType: row.favicon_mime_type as string | null,
+    loadingGraphicUrl: (row.loading_graphic_url as string | null) ?? null,
     metadata: row.metadata as Record<string, unknown>,
     createdBy: row.created_by as string | null,
     createdAt: row.created_at as string,

@@ -9,7 +9,8 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@/lib/db';
 import { getAppSettings } from '@/domain/config/app-settings-service';
-import { getTenantConfig } from '@shared/lib/config/tenant';
+import { resolveLoadingGraphic } from '@/domain/config/loading-graphic-resolver';
+import { getTenantConfig, getCurrentAppId } from '@shared/lib/config/tenant';
 import { jsonOk } from '@/lib/api/response';
 
 export const dynamic = 'force-dynamic';
@@ -28,14 +29,16 @@ export async function GET(): Promise<NextResponse> {
       brandLogoUrl: '',
       brandPrimaryColor: '#eb3d28',
       brandSecondaryColor: '#0af9fe',
+      loadingGraphicUrl: null,
       themeMode: 'system',
     });
   }
 
   try {
     const db = createClient();
-    // Pass tenant slug so each deployed app gets its own brand config
-    const settings = await getAppSettings(db, envTenant.slug);
+    const appId = getCurrentAppId() || undefined;
+    const settings = await getAppSettings(db, envTenant.slug, appId);
+    const loadingGraphic = await resolveLoadingGraphic(db, envTenant.slug, appId);
     return jsonOk({
       tenantSlug: settings.tenantSlug || envTenant.slug,
       tenantDisplayName: settings.tenantDisplayName || envTenant.displayName,
@@ -44,6 +47,7 @@ export async function GET(): Promise<NextResponse> {
       brandLogoUrl: settings.brandLogoUrl,
       brandPrimaryColor: settings.brandPrimaryColor,
       brandSecondaryColor: settings.brandSecondaryColor,
+      loadingGraphicUrl: loadingGraphic.loadingGraphicUrl,
       themeMode: settings.themeMode || 'system',
     });
   } catch (err) {
@@ -57,6 +61,7 @@ export async function GET(): Promise<NextResponse> {
       brandLogoUrl: '',
       brandPrimaryColor: '#eb3d28',
       brandSecondaryColor: '#0af9fe',
+      loadingGraphicUrl: null,
       themeMode: 'system',
     });
   }

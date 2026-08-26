@@ -9,6 +9,7 @@ import CardActionArea from '@mui/material/CardActionArea';
 import CardContent from '@mui/material/CardContent';
 import Chip from '@mui/material/Chip';
 import CircularProgress from '@mui/material/CircularProgress';
+import { BrandedLoadingIndicator } from '@/components/branding/branded-loading-indicator';
 import Dialog from '@mui/material/Dialog';
 import DialogActions from '@mui/material/DialogActions';
 import DialogContent from '@mui/material/DialogContent';
@@ -750,7 +751,7 @@ export function TenantWizard({ iconOnly = false }: { iconOnly?: boolean }) {
                 <Stack spacing={1}>
                   {PIPELINE_STEPS.map((ps) => (
                     <Box key={ps.key} sx={{ display: 'flex', flexDirection: 'row', gap: 1.5, alignItems: 'center' }}>
-                      {isLoading ? <CircularProgress size={16} color="inherit" /> : isSuccess ? <CheckCircleIcon color="success" fontSize="small" /> : <Box sx={{ width: 16, height: 16, borderRadius: '50%', border: '1px solid', borderColor: 'divider' }} />}
+                      {isLoading ? <BrandedLoadingIndicator size={16} color="inherit" /> : isSuccess ? <CheckCircleIcon color="success" fontSize="small" /> : <Box sx={{ width: 16, height: 16, borderRadius: '50%', border: '1px solid', borderColor: 'divider' }} />}
                       <Typography variant="body2" color={isSuccess ? 'text.primary' : 'text.secondary'}>{ps.label}</Typography>
                     </Box>
                   ))}

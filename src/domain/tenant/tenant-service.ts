@@ -37,6 +37,7 @@ export async function ensureTenantsTable(db: PrismaClient): Promise<void> {
     'ADD COLUMN IF NOT EXISTS db_url TEXT',
     'ADD COLUMN IF NOT EXISTS primary_color TEXT NOT NULL DEFAULT \'#eb3d28\'',
     'ADD COLUMN IF NOT EXISTS secondary_color TEXT NOT NULL DEFAULT \'#0af9fe\'',
+    'ADD COLUMN IF NOT EXISTS loading_graphic_url TEXT',
     'ADD COLUMN IF NOT EXISTS metadata JSONB DEFAULT \'{}\'',
     'ADD COLUMN IF NOT EXISTS created_by TEXT',
   ];

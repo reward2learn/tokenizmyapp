@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef } from 'react';
 import Box from '@mui/material/Box';
-import CircularProgress from '@mui/material/CircularProgress';
+import { BrandedLoadingIndicator } from '@/components/branding/branded-loading-indicator';
 import Typography from '@mui/material/Typography';
 import { useTheme } from '@mui/material/styles';
 import {
@@ -326,7 +326,7 @@ export function FinancialChart({
   if (isLoading) {
     return (
       <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height }}>
-        <CircularProgress size={32} color="primary" />
+        <BrandedLoadingIndicator size={32} color="primary" />
       </Box>
     );
   }

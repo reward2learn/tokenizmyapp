@@ -3,7 +3,7 @@
 import type { ReactNode } from 'react';
 import Stack from '@mui/material/Stack';
 import Typography from '@mui/material/Typography';
-import CircularProgress from '@mui/material/CircularProgress';
+import { BrandedLoadingIndicator } from '@/components/branding/branded-loading-indicator';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import RadioButtonUncheckedIcon from '@mui/icons-material/RadioButtonUnchecked';
 import WarningAmberIcon from '@mui/icons-material/WarningAmber';
@@ -79,7 +79,7 @@ export function ProcessStepTimeline({
               {state === 'completed' ? (
                 <CheckCircleIcon fontSize="small" color="success" sx={{ flexShrink: 0 }} />
               ) : state === 'active' ? (
-                <CircularProgress size={18} sx={{ flexShrink: 0 }} />
+                <BrandedLoadingIndicator size={18} sx={{ flexShrink: 0 }} />
               ) : state === 'error' ? (
                 <WarningAmberIcon fontSize="small" color="error" sx={{ flexShrink: 0 }} />
               ) : (

@@ -18,6 +18,7 @@ import Button from '@mui/material/Button';
 import Checkbox from '@mui/material/Checkbox';
 import Chip from '@mui/material/Chip';
 import CircularProgress from '@mui/material/CircularProgress';
+import { BrandedLoadingIndicator } from '@/components/branding/branded-loading-indicator';
 import Dialog from '@mui/material/Dialog';
 import DialogActions from '@mui/material/DialogActions';
 import DialogContent from '@mui/material/DialogContent';
@@ -2028,7 +2029,7 @@ export function EditTenantModal({ open, tenant, onClose, onSnackbar }: EditTenan
       </Stack>
 
       {rolesLoadingFromApi ? (
-        <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}><CircularProgress /></Box>
+        <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}><BrandedLoadingIndicator  /></Box>
       ) : rolesError ? (
         <Alert severity="error">{rolesError}</Alert>
       ) : rolesList.length === 0 ? (
@@ -2299,7 +2300,7 @@ export function EditTenantModal({ open, tenant, onClose, onSnackbar }: EditTenan
 
           {domainLoading && !domainList.length ? (
             <Box sx={{ display: 'flex', justifyContent: 'center', py: 3 }}>
-              <CircularProgress size={24} />
+              <BrandedLoadingIndicator size={24} />
             </Box>
           ) : domainList.length > 0 ? (
             <Stack spacing={1}>
@@ -2561,7 +2562,7 @@ export function EditTenantModal({ open, tenant, onClose, onSnackbar }: EditTenan
         ) : null}
         {flightRunning && !hasResults ? (
           <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}>
-            <CircularProgress />
+            <BrandedLoadingIndicator  />
           </Box>
         ) : null}
 

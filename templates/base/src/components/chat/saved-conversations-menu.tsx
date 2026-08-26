@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import Button from '@mui/material/Button';
-import CircularProgress from '@mui/material/CircularProgress';
+import { BrandedLoadingIndicator } from '@/components/branding/branded-loading-indicator';
 import Menu from '@mui/material/Menu';
 import MenuItem from '@mui/material/MenuItem';
 import ArrowDropDownIcon from '@mui/icons-material/ArrowDropDown';
@@ -33,7 +33,7 @@ export function SavedConversationsMenu() {
         color="inherit"
         startIcon={
           conversationsLoading || isLoadingConversation
-            ? <CircularProgress size={16} color="inherit" />
+            ? <BrandedLoadingIndicator size={16} color="inherit" />
             : <HistoryIcon fontSize="small" />
         }
         endIcon={<ArrowDropDownIcon />}

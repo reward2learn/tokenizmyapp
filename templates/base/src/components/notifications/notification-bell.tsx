@@ -5,6 +5,7 @@ import { type SxProps, type Theme } from '@mui/material/styles';
 import Badge from '@mui/material/Badge';
 import Box from '@mui/material/Box';
 import CircularProgress from '@mui/material/CircularProgress';
+import { BrandedLoadingIndicator } from '@/components/branding/branded-loading-indicator';
 import Divider from '@mui/material/Divider';
 import IconButton from '@mui/material/IconButton';
 import Popover from '@mui/material/Popover';
@@ -125,7 +126,7 @@ export function NotificationBell({ sx }: NotificationBellProps) {
         <Box sx={{ flex: 1, overflow: 'auto' }}>
           {listLoading ? (
             <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}>
-              <CircularProgress size={24} />
+              <BrandedLoadingIndicator size={24} />
             </Box>
           ) : isError ? (
             <Typography variant="body2" color="text.secondary" sx={{ textAlign: 'center', py: 4 }}>

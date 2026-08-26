@@ -324,6 +324,24 @@ export async function buildEnvVarsForProject(input: DeployTenantInput): Promise<
     }
   }
 
+  const ollamaTunnelHostRaw =
+    (typeof input.metadata?.ollamaTunnelHost === 'string' ? input.metadata.ollamaTunnelHost : null)
+    || process.env.OLLAMA_TUNNEL_HOST?.trim()
+    || null;
+  if (ollamaTunnelHostRaw) {
+    try {
+      const { normalizeOllamaTunnelHost, OLLAMA_TUNNEL_HOST_ENV_KEY } = await import(
+        '@/lib/ollama-tunnel-host'
+      );
+      envVars[OLLAMA_TUNNEL_HOST_ENV_KEY] = normalizeOllamaTunnelHost(ollamaTunnelHostRaw);
+    } catch (err) {
+      console.warn(
+        '[vercel-deploy] Skipping invalid OLLAMA_TUNNEL_HOST:',
+        err instanceof Error ? err.message : err,
+      );
+    }
+  }
+
   // Google OAuth relay: when the factory has the shared relay secret configured,
   // every deployed app gets the relay URI + HMAC secret so Google sign-in works
   // WITHOUT registering per-app redirect URIs (Google removed that API). New

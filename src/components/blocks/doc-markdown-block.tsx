@@ -1,7 +1,7 @@
 'use client';
 
 import Box from '@mui/material/Box';
-import CircularProgress from '@mui/material/CircularProgress';
+import { BrandedLoadingIndicator } from '@/components/branding/branded-loading-indicator';
 import Paper from '@mui/material/Paper';
 import Typography from '@mui/material/Typography';
 import { parseBlockConfig } from '@/lib/schemas/block-config';
@@ -53,7 +53,7 @@ export function DocMarkdownBlock({ config, initialMarkdown }: DocMarkdownBlockPr
         ) : null}
         {isLoading && !initialMarkdown ? (
           <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}>
-            <CircularProgress size={28} />
+            <BrandedLoadingIndicator size={28} />
           </Box>
         ) : isError ? (
           <Typography variant="body1" color="text.secondary">

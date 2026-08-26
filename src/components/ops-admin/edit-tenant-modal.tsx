@@ -20,6 +20,7 @@ import Button from '@mui/material/Button';
 import Checkbox from '@mui/material/Checkbox';
 import Chip from '@mui/material/Chip';
 import CircularProgress from '@mui/material/CircularProgress';
+import { BrandedLoadingIndicator } from '@/components/branding/branded-loading-indicator';
 import Dialog from '@mui/material/Dialog';
 import DialogActions from '@mui/material/DialogActions';
 import DialogContent from '@mui/material/DialogContent';
@@ -88,6 +89,7 @@ import {
   type SubscriptionTierPricingState,
 } from '@/components/ops-admin/subscription-tier-pricing-section';
 import { SchemaOrgTypeChips } from '@/components/ops-admin/schema-org-type-chips';
+import { LoadingGraphicUpload } from '@/components/branding/loading-graphic-upload';
 import { defaultSubscriptionAmounts } from '@/lib/billing/subscription-pricing';
 import type { AppPackConfig } from '@/store/apis/tenant-api';
 import { useAppDispatch } from '@/store/hooks';
@@ -96,6 +98,8 @@ import {
   useUpdateTenantMutation, 
   useUploadTenantFaviconMutation, 
   useRemoveTenantFaviconMutation,
+  useUploadTenantLoadingGraphicMutation,
+  useRemoveTenantLoadingGraphicMutation,
   useProvisionGoogleOAuthMutation,
   useProvisionNeonMutation,
   useTestNeonConnectionMutation,
@@ -489,6 +493,8 @@ export function EditTenantModal({ open, tenant, onClose, onSnackbar }: EditTenan
   const [updateTenant] = useUpdateTenantMutation();
   const [uploadFavicon, { isLoading: uploadingFavicon }] = useUploadTenantFaviconMutation();
   const [removeFavicon] = useRemoveTenantFaviconMutation();
+  const [uploadTenantLoadingGraphic, { isLoading: uploadingLoadingGraphic }] = useUploadTenantLoadingGraphicMutation();
+  const [removeTenantLoadingGraphic] = useRemoveTenantLoadingGraphicMutation();
   const [addAppToSuite, { isLoading: addingSuiteApp }] = useAddAppToSuiteMutation();
   const [removeAppFromSuite, { isLoading: removingSuiteApp }] = useRemoveAppFromSuiteMutation();
 
@@ -1945,6 +1951,31 @@ export function EditTenantModal({ open, tenant, onClose, onSnackbar }: EditTenan
           ) : null}
         </Stack>
 
+        <LoadingGraphicUpload
+          compact
+          value={tenant?.loadingGraphicUrl ?? null}
+          disabled={uploadingLoadingGraphic}
+          onChange={async (dataUrl) => {
+            if (!tenant) return;
+            try {
+              await uploadTenantLoadingGraphic({ slug: tenant.slug, loadingGraphicUrl: dataUrl }).unwrap();
+              onSnackbar?.({ message: 'Loading graphic updated', severity: 'success' });
+            } catch {
+              onSnackbar?.({ message: 'Failed to upload loading graphic', severity: 'error' });
+            }
+          }}
+          onClear={async () => {
+            if (!tenant) return;
+            try {
+              await removeTenantLoadingGraphic(tenant.slug).unwrap();
+              onSnackbar?.({ message: 'Loading graphic removed', severity: 'success' });
+            } catch {
+              onSnackbar?.({ message: 'Failed to remove loading graphic', severity: 'error' });
+            }
+          }}
+          helperText="Default for this tenant and all inner apps unless an app overrides it."
+        />
+
         {/* Pages */}
         <Typography variant="caption" sx={{ fontWeight: 600, color: 'text.secondary', display: 'block', mb: 1.5 }}>
           PAGES ({selectedTemplate.defaultPages.length})
@@ -2921,7 +2952,7 @@ export function EditTenantModal({ open, tenant, onClose, onSnackbar }: EditTenan
       </Stack>
 
       {rolesLoadingFromApi ? (
-        <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}><CircularProgress /></Box>
+        <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}><BrandedLoadingIndicator  /></Box>
       ) : rolesError ? (
         <Alert severity="error">{rolesError}</Alert>
       ) : rolesList.length === 0 ? (
@@ -3189,7 +3220,7 @@ export function EditTenantModal({ open, tenant, onClose, onSnackbar }: EditTenan
 
           {domainLoading && !domainList.length ? (
             <Box sx={{ display: 'flex', justifyContent: 'center', py: 3 }}>
-              <CircularProgress size={24} />
+              <BrandedLoadingIndicator size={24} />
             </Box>
           ) : domainList.length > 0 ? (
             <Stack spacing={1}>
@@ -3451,7 +3482,7 @@ export function EditTenantModal({ open, tenant, onClose, onSnackbar }: EditTenan
         ) : null}
         {flightRunning && !hasResults ? (
           <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}>
-            <CircularProgress />
+            <BrandedLoadingIndicator  />
           </Box>
         ) : null}
 
