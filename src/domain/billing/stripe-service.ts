@@ -418,7 +418,7 @@ export async function changePlan(
   const priceId = getPriceId(planId, interval, config);
   if (!priceId) throw new Error(`Plan "${planId}" (${interval}) has no Stripe price configured.`);
 
-  const kind = classifyPlanChange(current.planId, planId);
+  const kind = classifyPlanChange(current.planId, planId, current.interval, interval);
   const subscription = await stripe.subscriptions.retrieve(linkage.subscriptionId);
   const itemId = subscription.items.data[0]?.id;
   if (!itemId) throw new Error(`Stripe subscription ${linkage.subscriptionId} has no line items.`);

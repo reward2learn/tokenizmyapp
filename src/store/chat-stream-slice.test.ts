@@ -4,13 +4,18 @@ import {
   appendToken,
   chatStreamSlice,
   clearMessages,
+  clearRateLimit,
+  initChatPanel,
   recordTurnUsage,
   resetStream,
   setActiveTool,
+  setComposerInput,
   setMessages,
   setStreamError,
   setStreaming,
   setTemplateDraft,
+  startRateLimitCountdown,
+  tickRateLimitCountdown,
 } from '@/store/chat-stream-slice';
 
 describe('chatStreamSlice', () => {
@@ -144,5 +149,35 @@ describe('chatStreamSlice', () => {
     expect(state.sessionUsage.turns).toEqual([]);
     expect(state.lastTurnUsage).toBeNull();
     expect(state.conversationId).toBeNull();
+  });
+
+  it('initChatPanel prefills composer from URL prompt once', () => {
+    let state = chatStreamSlice.reducer(undefined, initChatPanel({ urlPrompt: 'Explain revenue' }));
+    expect(state.composerInput).toBe('Explain revenue');
+    expect(state.chatPanelInitialized).toBe(true);
+
+    state = chatStreamSlice.reducer(state, initChatPanel({ urlPrompt: 'ignored' }));
+    expect(state.composerInput).toBe('Explain revenue');
+  });
+
+  it('tracks rate-limit countdown in the store', () => {
+    let state = chatStreamSlice.reducer(
+      undefined,
+      startRateLimitCountdown({ seconds: 3, failedMessage: 'retry me' }),
+    );
+    expect(state.rateLimitCountdown).toBe(3);
+    expect(state.lastFailedMessage).toBe('retry me');
+
+    state = chatStreamSlice.reducer(state, tickRateLimitCountdown());
+    expect(state.rateLimitCountdown).toBe(2);
+
+    state = chatStreamSlice.reducer(state, clearRateLimit());
+    expect(state.rateLimitCountdown).toBeNull();
+    expect(state.lastFailedMessage).toBeNull();
+  });
+
+  it('setComposerInput controls the composer text field', () => {
+    const state = chatStreamSlice.reducer(undefined, setComposerInput('hello'));
+    expect(state.composerInput).toBe('hello');
   });
 });

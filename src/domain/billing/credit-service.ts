@@ -927,7 +927,7 @@ export async function debtCeilingForOrg(orgId: string, db?: RawDb): Promise<numb
   const sub = await getSubscription(orgId, db);
   const plan = getPlan(sub.planId);
   const { resolvePlanAiCredits } = await import('@/domain/billing/org-rate-card-service');
-  const monthly = await resolvePlanAiCredits(orgId, sub.planId, plan.aiCreditsPerMonth, db);
+  const monthly = await resolvePlanAiCredits(orgId, sub.planId, plan.aiCreditsPerMonth, db, sub.interval);
   return monthly > 0 ? monthly : DEFAULT_DEBT_CEILING;
   } catch {
     return DEFAULT_DEBT_CEILING;
@@ -964,6 +964,7 @@ export async function grantMonthlyAllowanceIfDue(
     sub.planId,
     plan.aiCreditsPerMonth,
     db,
+    sub.interval,
   );
   if (monthlyAllowance <= 0) return null;
 
@@ -1030,6 +1031,7 @@ export async function syncCurrentPeriodPlanAllowance(
     sub.planId,
     plan.aiCreditsPerMonth,
     db,
+    sub.interval,
   );
 
   if (target <= 0) {

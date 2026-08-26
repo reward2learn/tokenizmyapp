@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent } from 'react';
+import { useCallback, useMemo, useRef, useState, type ChangeEvent } from 'react';
 import { usePathname, useSearchParams } from 'next/navigation';
 import Box from '@mui/material/Box';
 import Button from '@mui/material/Button';
@@ -44,7 +44,6 @@ import SendIcon from '@mui/icons-material/Send';
 import VolumeOffIcon from '@mui/icons-material/VolumeOff';
 import VolumeUpIcon from '@mui/icons-material/VolumeUp';
 import {
-  chatApi,
   useCreateAiFindingMutation,
   useSaveConversationMutation,
   useSynthesizeVoiceMutation,
@@ -53,22 +52,26 @@ import {
 import { useAppDispatch, useAppSelector } from '@/store/hooks';
 import {
   clearMessages,
-  clearPendingSessionActions,
+  clearRateLimit,
+  initChatPanel,
+  selectComposerInput,
+  selectRateLimitCountdown,
+  selectSessionStatusMessage,
+  selectTopUpDialog,
   sendStreamingMessage,
   setActiveTool,
-  setPendingCreditTopUp,
+  setComposerInput,
+  setSessionStatusMessage,
+  setTopUpDialog,
   type ChatStreamMessage,
 } from '@/store/chat-stream-slice';
 import { StripeTopUpDialog } from '@/components/ops-admin/stripe-topup-dialog';
-import { useBillingOrgId } from '@/components/billing/use-billing-org';
-import type { CreditTopUpAction } from '@/lib/chat/session-tools';
 import { getClientTenantConfig } from '@shared/lib/config/tenant';
 import { getChatStarterPrompt } from '@shared/lib/config/template-profile';
 import { selectActiveSheetArg, selectSelectedCells } from '@/store/sheet-viewer-slice';
 import { sheetDataApi } from '@/store/apis/sheet-data-api';
 import { buildCellsPrompt, buildPagePrompt, type PromptRow } from '@/lib/sheet-prompt';
 import { buildBlockDataContextNote } from '@/lib/chat/block-data-context-prompt';
-import { isClientClearSessionAction, isExplicitSessionRequest } from '@/lib/chat/session-tools';
 import { listReviewParts, getReviewPartDisplayTitle } from '@/lib/page-catalog';
 import { useTtsVoicePreference } from '@/hooks/use-tts-voice-preference';
 import { useVoiceConversation } from '@/hooks/use-voice-conversation';
@@ -81,6 +84,7 @@ import {
 } from '@/lib/chat/attachments';
 import { ActiveToolBadge, ComposerToolPicker } from '@/components/chat/composer-tool-picker';
 import { ComposerModelPicker } from '@/components/chat/composer-model-picker';
+import { StudioWarmBanner } from '@/components/chat/studio-warm-banner';
 import { availableComposerTools, CHAT_COMPOSER_TOOLS } from '@/lib/chat/session-tools';
 import { TemplateDraftCard } from '@/components/chat/template-draft-card';
 import { ChatCreditUsage } from '@/components/chat/chat-credit-usage';
@@ -124,7 +128,17 @@ export function ChatPanel({
   const isDrawer = variant === 'drawer';
   const dispatch = useAppDispatch();
   const searchParams = useSearchParams();
-  const { messages, isStreaming, error, pendingSessionActions } = useAppSelector((s) => s.chatStream);
+  const initRef = useRef(false);
+  if (!initRef.current) {
+    initRef.current = true;
+    dispatch(initChatPanel({ urlPrompt: searchParams.get('prompt') }));
+  }
+
+  const { messages, isStreaming, error, studioWarmStatus, studioWarmModel } = useAppSelector((s) => s.chatStream);
+  const input = useAppSelector(selectComposerInput);
+  const rateLimitCountdown = useAppSelector(selectRateLimitCountdown);
+  const sessionStatusMessage = useAppSelector(selectSessionStatusMessage);
+  const topUpDialog = useAppSelector(selectTopUpDialog);
   // Sheet data from the grid (via RTK Query cache — the sheetViewer slice
   // records the exact args of the last successful load).
   const selectedCells = useAppSelector(selectSelectedCells);
@@ -132,7 +146,6 @@ export function ChatPanel({
   const sheetData = useAppSelector((s) =>
     activeSheetArg ? sheetDataApi.endpoints.getSheetData.select(activeSheetArg)(s)?.data?.data : undefined,
   );
-  const [input, setInput] = useState('');
   const [attachments, setAttachments] = useState<ChatAttachment[]>([]);
   // Elements for the credit-usage modal: portal into the chat card and match
   // the conversation panel height (see ChatCreditUsage).
@@ -153,9 +166,6 @@ export function ChatPanel({
     isPlatformAdmin,
     isAdminRoute: (pathname ?? '').startsWith('/admin'),
   });
-  const billingOrgId = useBillingOrgId();
-  const pendingCreditTopUp = useAppSelector((s) => s.chatStream.pendingCreditTopUp);
-  const [topUpDialog, setTopUpDialog] = useState<{ orgId: string; packId: string } | null>(null);
 
   const emptyStateMessage = useMemo(() => {
     const fromBlock = blockConfig?.emptyStatePrompt?.trim();
@@ -163,15 +173,6 @@ export function ChatPanel({
     return getChatStarterPrompt();
   }, [blockConfig?.emptyStatePrompt]);
 
-  const openCreditTopUp = useCallback((action: CreditTopUpAction) => {
-    if (action.checkoutUrl && action.agentic) {
-      window.open(action.checkoutUrl, '_blank', 'noopener,noreferrer');
-      dispatch(setPendingCreditTopUp(null));
-      return;
-    }
-    setTopUpDialog({ orgId: action.orgId, packId: action.packId });
-    dispatch(setPendingCreditTopUp(null));
-  }, [dispatch]);
   const [attachmentLoading, setAttachmentLoading] = useState(false);
   const [status, setStatus] = useState<string | null>(null);
   const [saveConversation, { isLoading: isSaving }] = useSaveConversationMutation();
@@ -193,64 +194,14 @@ export function ChatPanel({
   const [pendingFindingContent, setPendingFindingContent] = useState<string | null>(null);
   const reviewParts = listReviewParts();
 
-  // ── Rate limit countdown ──────────────────────────────
-  const [rateLimitCountdown, setRateLimitCountdown] = useState<number | null>(null);
-  const [lastFailedMessage, setLastFailedMessage] = useState<string | null>(null);
-  const countdownRef = useRef<ReturnType<typeof setInterval> | null>(null);
-
-  useEffect(() => {
-    if (rateLimitCountdown === null || rateLimitCountdown <= 0) {
-      if (countdownRef.current) clearInterval(countdownRef.current);
-      countdownRef.current = null;
-      // Auto-retry when countdown expires
-      if (rateLimitCountdown === 0 && lastFailedMessage) {
-        const msg = lastFailedMessage;
-        setLastFailedMessage(null);
-        setRateLimitCountdown(null);
-        dispatch(clearMessages());
-        // Re-send the failed message after a brief delay
-        setTimeout(() => {
-          setInput(msg);
-          // Auto-send after a moment
-          setTimeout(() => {
-            const textarea = document.querySelector('textarea');
-            if (textarea) {
-              const nativeInputValueSetter = Object.getOwnPropertyDescriptor(
-                window.HTMLTextAreaElement.prototype, 'value'
-              )?.set;
-              nativeInputValueSetter?.call(textarea, msg);
-              textarea.dispatchEvent(new Event('input', { bubbles: true }));
-            }
-          }, 100);
-        }, 500);
-      }
-      return;
-    }
-    const id = setInterval(() => {
-      setRateLimitCountdown((prev) => (prev !== null ? prev - 1 : null));
-    }, 1000);
-    countdownRef.current = id;
-    return () => clearInterval(id);
-  }, [rateLimitCountdown, lastFailedMessage, dispatch]);
-
-  // Detect rate limit errors and start countdown
-  useEffect(() => {
-    if (error && /rate limit|too large|TPM|tokens per min|max_tokens/i.test(error)) {
-      setRateLimitCountdown(60);
-      // Save the last user message for auto-retry
-      const lastUser = [...messages].reverse().find((m) => m.role === 'user');
-      if (lastUser) setLastFailedMessage(lastUser.content);
-    }
-  }, [error, messages]);
-
   const handleUseInChat = useCallback(() => {
     if (menuMessageIndex === null) return;
     const msg = messages[menuMessageIndex];
     if (!msg) return;
     setMenuAnchor(null);
     setMenuMessageIndex(null);
-    setInput(msg.content);
-  }, [menuMessageIndex, messages]);
+    dispatch(setComposerInput(msg.content));
+  }, [dispatch, menuMessageIndex, messages]);
 
   const handleRetry = useCallback(() => {
     if (menuMessageIndex === null) return;
@@ -258,32 +209,12 @@ export function ChatPanel({
     if (!msg || msg.role !== 'user') return;
     setMenuAnchor(null);
     setMenuMessageIndex(null);
-    setInput(msg.content);
+    dispatch(setComposerInput(msg.content));
     // Auto-send after a short delay
     setTimeout(() => void handleSend(), 100);
     // handleSend is declared below; including it would create a TDZ reference.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [menuMessageIndex, messages]);
-
-  // Prefill from ?prompt= (e.g. when arriving from a task's "Ask AI" button).
-  useEffect(() => {
-    const prefill = searchParams.get('prompt');
-    if (prefill && !input) {
-      setInput(prefill);
-    }
-    // Intentionally omit `input`: only seed when the field is still empty on mount/param change.
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- one-shot prefill
-  }, [searchParams]);
-
-  // Prefill from AI Findings context (stored by AiFindingsBlock "Use in Chat").
-  useEffect(() => {
-    const context = sessionStorage.getItem('ai_findings_context');
-    if (context && !input) {
-      setInput(context);
-      sessionStorage.removeItem('ai_findings_context');
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- one-shot prefill
-  }, []);
+  }, [dispatch, menuMessageIndex, messages]);
 
   const sendMessage = useCallback(async (message: string) => {
     const trimmed = message.trim();
@@ -326,56 +257,17 @@ export function ChatPanel({
   } = useVoiceConversation({
     isStreaming,
     lastAssistantText: lastAssistant?.content,
-    onTranscriptChange: setInput,
+    onTranscriptChange: (value) => dispatch(setComposerInput(value)),
     onSend: sendMessage,
     synthesizeVoice,
   });
-
-  useEffect(() => {
-    if (isStreaming || !pendingSessionActions.length) return;
-
-    const actions = [...pendingSessionActions];
-    dispatch(clearPendingSessionActions());
-
-    let shouldClear = false;
-    const lastUserMessage = [...messages].reverse().find((msg) => msg.role === 'user');
-    const explicitSessionRequest = isExplicitSessionRequest(lastUserMessage?.content ?? '');
-
-    for (const action of actions) {
-      if (action === 'save_conversation') {
-        dispatch(chatApi.util.invalidateTags(['Conversations']));
-        setStatus('Conversation saved.');
-      }
-      if (action === 'open_credit_topup') {
-        // Legacy action path — payload should arrive via pendingCreditTopUp.
-        if (pendingCreditTopUp) {
-          openCreditTopUp(pendingCreditTopUp);
-        } else if (billingOrgId) {
-          setTopUpDialog({ orgId: billingOrgId, packId: 'pack-25' });
-        }
-      }
-      if (isClientClearSessionAction(action) && explicitSessionRequest) {
-        shouldClear = true;
-      }
-    }
-
-    if (shouldClear) {
-      dispatch(clearMessages());
-      setInput('');
-      if (voiceMode) resetVoiceTranscript();
-    }
-  }, [billingOrgId, dispatch, isStreaming, messages, openCreditTopUp, pendingCreditTopUp, pendingSessionActions, resetVoiceTranscript, voiceMode]);
-
-  useEffect(() => {
-    if (isStreaming || !pendingCreditTopUp) return;
-    openCreditTopUp(pendingCreditTopUp);
-  }, [isStreaming, openCreditTopUp, pendingCreditTopUp]);
 
   const handleSend = async () => {
     const trimmed = input.trim();
     if (!trimmed || isStreaming) return;
     setStatus(null);
-    setInput('');
+    dispatch(setSessionStatusMessage(null));
+    dispatch(setComposerInput(''));
     if (voiceMode) resetVoiceTranscript();
     await sendMessage(trimmed);
   };
@@ -439,14 +331,14 @@ export function ChatPanel({
       } else {
         prompt = buildPagePrompt({ sheet: sd.sheet, rows: pageRows, colOrder: sd.columns });
       }
-      setInput((prev) => (prev && prev.trim() ? prev + '\n\n' : '') + prompt);
+      dispatch(setComposerInput((input && input.trim() ? input + '\n\n' : '') + prompt));
       setStatus(
         source === 'cells'
           ? `Attached ${selectedCells.length} selected cell${selectedCells.length !== 1 ? 's' : ''}.`
           : 'Attached current page content.',
       );
     },
-    [sheetData, pageRows, selectedCells],
+    [dispatch, input, sheetData, pageRows, selectedCells],
   );
 
   const handleSave = async () => {
@@ -460,11 +352,7 @@ export function ChatPanel({
   };
 
   const handleStartNewChat = useCallback(async () => {
-    // Stop rate limit countdown
-    if (countdownRef.current) clearInterval(countdownRef.current);
-    countdownRef.current = null;
-    setRateLimitCountdown(null);
-    setLastFailedMessage(null);
+    dispatch(clearRateLimit());
 
     // Save current conversation before clearing
     if (messages.length > 0) {
@@ -480,7 +368,7 @@ export function ChatPanel({
     }
 
     dispatch(clearMessages());
-    setInput('');
+    dispatch(setComposerInput(''));
     if (voiceMode) resetVoiceTranscript();
     setStatus('Started new chat.');
   }, [messages, saveConversation, dispatch, voiceMode, resetVoiceTranscript]);
@@ -609,7 +497,7 @@ export function ChatPanel({
     }
   }, [pendingFindingContent, findingTitle, createFinding]);
 
-  const displayStatus = voiceStatus ?? status;
+  const displayStatus = voiceStatus ?? status ?? sessionStatusMessage;
   const voicePhaseLabel = voiceMode ? VOICE_PHASE_LABEL[voicePhase] : null;
 
   return (
@@ -664,6 +552,9 @@ export function ChatPanel({
                   : { minHeight: 320, maxHeight: 520, overflowY: 'auto', pr: 1 }
               }
             >
+              {studioWarmStatus === 'warming' && studioWarmModel ? (
+                <StudioWarmBanner model={studioWarmModel} />
+              ) : null}
               {messages.length ? messages.map((msg, index) => (
                 <Box
                   key={`${msg.role}-${index}`}
@@ -910,7 +801,7 @@ export function ChatPanel({
                 CHAT_COMPOSER_TOOLS.find((t) => t.id === activeTool)?.placeholder ?? undefined
               }
               value={input}
-              onChange={(event) => setInput(event.target.value)}
+              onChange={(event) => dispatch(setComposerInput(event.target.value))}
               onKeyDown={(event) => {
                 // Enter sends (Shift+Enter inserts a newline); Cmd/Ctrl+Enter still works.
                 if (event.key === 'Enter' && !event.shiftKey) {
@@ -1235,7 +1126,7 @@ export function ChatPanel({
           open
           orgId={topUpDialog.orgId}
           packId={topUpDialog.packId}
-          onClose={() => setTopUpDialog(null)}
+          onClose={() => dispatch(setTopUpDialog(null))}
         />
       )}
     </>

@@ -41,8 +41,18 @@ describe('classifyPlanChange', () => {
     expect(classifyPlanChange('pro', 'free')).toBe('downgrade');
   });
 
-  it('reports no change when the plan is the same', () => {
+  it('reports no change when the plan and interval are the same', () => {
     expect(classifyPlanChange('pro', 'pro')).toBe('unchanged');
+    expect(classifyPlanChange('pro', 'pro', 'monthly', 'monthly')).toBe('unchanged');
+  });
+
+  it('treats monthly → yearly on the same tier as an upgrade', () => {
+    expect(classifyPlanChange('pro', 'pro', 'monthly', 'yearly')).toBe('upgrade');
+    expect(classifyPlanChange('business', 'business', 'monthly', 'yearly')).toBe('upgrade');
+  });
+
+  it('treats yearly → monthly on the same tier as a downgrade', () => {
+    expect(classifyPlanChange('pro', 'pro', 'yearly', 'monthly')).toBe('downgrade');
   });
 
   it('ranks by price, so a cheaper-but-higher-tier move is a downgrade', () => {

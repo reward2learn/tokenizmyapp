@@ -77,6 +77,42 @@ export function yearlyMonthlyPrice(priceMonthly: number): number {
 }
 
 /**
+ * Monthly AI credits for a plan at a billing interval.
+ *
+ * Yearly subscribers receive an extra `YEARLY_DISCOUNT` (15%) on top of the
+ * catalog allowance — the same percentage as the price discount, so annual
+ * commitment earns both cheaper billing and more credits per month.
+ */
+export function planAiCreditsPerMonth(
+  planId: string | PlanDef,
+  interval: BillingInterval,
+): number {
+  const plan = typeof planId === 'string' ? getPlan(planId) : planId;
+  const base = plan.aiCreditsPerMonth;
+  // Paid self-serve tiers only — free has no yearly checkout; enterprise is negotiated.
+  if (
+    interval === 'yearly' &&
+    base > 0 &&
+    plan.id !== 'free' &&
+    plan.id !== 'enterprise'
+  ) {
+    return Math.round(base * (1 + YEARLY_DISCOUNT));
+  }
+  return base;
+}
+
+/** Apply the yearly credit bonus to a base allowance (e.g. rate-card override). */
+export function applyYearlyCreditBonus(
+  baseCredits: number,
+  interval: BillingInterval,
+): number {
+  if (interval === 'yearly' && baseCredits > 0) {
+    return Math.round(baseCredits * (1 + YEARLY_DISCOUNT));
+  }
+  return baseCredits;
+}
+
+/**
  * Credit economics for a ~30% platform margin on gpt-4o list COGS (catalog default).
  * Per-tenant overrides live in org_billing_rate_cards — see tenant-rate-card.ts.
  */

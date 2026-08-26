@@ -1,4 +1,4 @@
-import { createAsyncThunk, createSlice } from '@reduxjs/toolkit';
+import { createAsyncThunk, createSlice, type PayloadAction } from '@reduxjs/toolkit';
 import { consumeSseStream } from '@/lib/chat/sse-parser';
 import {
   isChatSessionAction,
@@ -9,8 +9,25 @@ import {
 } from '@/lib/chat/session-tools';
 import type { ChatAttachment } from '@/lib/chat/attachments';
 import type { AiProviderId } from '@/store/apis/config-api';
+import { chatApi, type StudioWarmStatus } from '@/store/apis/chat-api';
 import type { ChatTurnUsage } from '@/lib/billing/ai-usage-summary';
 import { organizationApi } from '@/store/apis/organization-api';
+
+export const STORAGE_PROVIDER = 'chat.selectedProviderId';
+export const STORAGE_MODEL = 'chat.selectedModel';
+export const STUDIO_PROVIDER_ID: AiProviderId = 'ollama-studio';
+const AI_FINDINGS_CONTEXT_KEY = 'ai_findings_context';
+
+function readComposerPrefs(): { providerId: AiProviderId | null; model: string | null } {
+  if (typeof window === 'undefined') return { providerId: null, model: null };
+  try {
+    const providerId = localStorage.getItem(STORAGE_PROVIDER) as AiProviderId | null;
+    const model = localStorage.getItem(STORAGE_MODEL);
+    return { providerId, model };
+  } catch {
+    return { providerId: null, model: null };
+  }
+}
 
 export interface ChatStreamMessage {
   role: 'user' | 'assistant';
@@ -46,6 +63,9 @@ export interface ChatStreamState {
   selectedProviderId: AiProviderId | null;
   /** Model selected in Tools & Options for the next prompt (null = workspace default). */
   selectedModel: string | null;
+  /** Mac Studio Ollama warm-up (shown in the conversation panel). */
+  studioWarmStatus: StudioWarmStatus;
+  studioWarmModel: string | null;
   /**
    * A template the assistant designed but has NOT saved.
    *
@@ -64,6 +84,20 @@ export interface ChatStreamState {
   sessionUsage: ChatSessionUsageTotals;
   /** Most recent turn's usage (for the popover "last turn" breakdown). */
   lastTurnUsage: ChatTurnUsage | null;
+  /** Composer text field — Redux-controlled so listeners can prefill/retry. */
+  composerInput: string;
+  /** Dedupes Mac Studio warm POST + poll for a provider:model pair. */
+  warmTargetKey: string | null;
+  /** Rate-limit auto-retry countdown (seconds remaining). */
+  rateLimitCountdown: number | null;
+  /** Last user message saved when a rate limit error occurs. */
+  lastFailedMessage: string | null;
+  /** Ephemeral status line (save, attach, session actions). */
+  sessionStatusMessage: string | null;
+  /** Stripe top-up dialog opened by purchase_credits tool. */
+  topUpDialog: { orgId: string; packId: string } | null;
+  /** One-shot panel init (URL prompt + sessionStorage context). */
+  chatPanelInitialized: boolean;
 }
 
 const emptySessionUsage = (): ChatSessionUsageTotals => ({
@@ -74,6 +108,8 @@ const emptySessionUsage = (): ChatSessionUsageTotals => ({
   turns: [],
 });
 
+const composerPrefs = readComposerPrefs();
+
 const initialState: ChatStreamState = {
   messages: [],
   streamingText: '',
@@ -82,12 +118,21 @@ const initialState: ChatStreamState = {
   pendingSessionActions: [],
   pendingCreditTopUp: null,
   activeTool: null,
-  selectedProviderId: null,
-  selectedModel: null,
+  selectedProviderId: composerPrefs.providerId,
+  selectedModel: composerPrefs.model,
+  studioWarmStatus: 'idle',
+  studioWarmModel: null,
   templateDraft: null,
   conversationId: null,
   sessionUsage: emptySessionUsage(),
   lastTurnUsage: null,
+  composerInput: '',
+  warmTargetKey: null,
+  rateLimitCountdown: null,
+  lastFailedMessage: null,
+  sessionStatusMessage: null,
+  topUpDialog: null,
+  chatPanelInitialized: false,
 };
 
 function ensureConversationId(state: ChatStreamState): string {
@@ -252,6 +297,49 @@ export const sendStreamingMessage = createAsyncThunk<
   }
 });
 
+/** Background Mac Studio warm: POST once, then poll /api/ps until ready. */
+export const warmStudioModelFlow = createAsyncThunk<
+  void,
+  { model: string },
+  { state: { chatStream: ChatStreamState } }
+>('chatStream/warmStudioModelFlow', async ({ model }, { dispatch, getState }) => {
+  const targetKey = `${STUDIO_PROVIDER_ID}:${model}`;
+  const state = getState().chatStream;
+  if (state.warmTargetKey === targetKey && state.studioWarmStatus === 'ready') return;
+
+  dispatch(setWarmTargetKey(targetKey));
+  dispatch(setStudioWarmState({ status: 'warming', model }));
+
+  try {
+    const postResult = await dispatch(
+      chatApi.endpoints.warmStudioModel.initiate({ model, providerId: STUDIO_PROVIDER_ID }),
+    );
+    if ('data' in postResult && postResult.data?.data?.status === 'ready') {
+      dispatch(setStudioWarmState({ status: 'ready', model }));
+      return;
+    }
+  } catch {
+    // POST may fail offline — polling can still recover.
+  }
+
+  while (true) {
+    await new Promise((resolve) => setTimeout(resolve, 5000));
+    const current = getState().chatStream;
+    if (current.warmTargetKey !== targetKey) return;
+
+    const poll = await dispatch(
+      chatApi.endpoints.getStudioWarmStatus.initiate(
+        { model, providerId: STUDIO_PROVIDER_ID },
+        { forceRefetch: true },
+      ),
+    );
+    if ('data' in poll && poll.data?.data?.status === 'ready') {
+      dispatch(setStudioWarmState({ status: 'ready', model }));
+      return;
+    }
+  }
+});
+
 export const chatStreamSlice = createSlice({
   name: 'chatStream',
   initialState,
@@ -303,9 +391,82 @@ export const chatStreamSlice = createSlice({
       state.selectedProviderId = action.payload;
       // Changing provider clears a model that may not exist on the new provider.
       state.selectedModel = null;
+      state.warmTargetKey = null;
+      if (action.payload !== STUDIO_PROVIDER_ID) {
+        state.studioWarmStatus = 'idle';
+        state.studioWarmModel = null;
+      }
     },
     setSelectedModel(state, action: { payload: string | null }) {
       state.selectedModel = action.payload;
+      state.warmTargetKey = null;
+      state.studioWarmStatus = 'idle';
+      state.studioWarmModel = null;
+    },
+    setWarmTargetKey(state, action: { payload: string | null }) {
+      state.warmTargetKey = action.payload;
+    },
+    resetWarmState(state) {
+      state.warmTargetKey = null;
+      state.studioWarmStatus = 'idle';
+      state.studioWarmModel = null;
+    },
+    setComposerInput(state, action: { payload: string }) {
+      state.composerInput = action.payload;
+    },
+    initChatPanel(state, action: PayloadAction<{ urlPrompt?: string | null } | undefined>) {
+      if (state.chatPanelInitialized) return;
+      state.chatPanelInitialized = true;
+
+      const urlPrompt = action.payload?.urlPrompt?.trim();
+      if (urlPrompt && !state.composerInput) {
+        state.composerInput = urlPrompt;
+      }
+
+      if (typeof window !== 'undefined') {
+        try {
+          const context = sessionStorage.getItem(AI_FINDINGS_CONTEXT_KEY);
+          if (context && !state.composerInput) {
+            state.composerInput = context;
+            sessionStorage.removeItem(AI_FINDINGS_CONTEXT_KEY);
+          }
+        } catch {
+          /* storage unavailable */
+        }
+      }
+    },
+    startRateLimitCountdown(
+      state,
+      action: PayloadAction<{ seconds: number; failedMessage: string }>,
+    ) {
+      state.rateLimitCountdown = action.payload.seconds;
+      state.lastFailedMessage = action.payload.failedMessage;
+    },
+    tickRateLimitCountdown(state) {
+      if (state.rateLimitCountdown === null) return;
+      state.rateLimitCountdown = Math.max(0, state.rateLimitCountdown - 1);
+    },
+    clearRateLimit(state) {
+      state.rateLimitCountdown = null;
+      state.lastFailedMessage = null;
+    },
+    setSessionStatusMessage(state, action: { payload: string | null }) {
+      state.sessionStatusMessage = action.payload;
+    },
+    setTopUpDialog(state, action: { payload: { orgId: string; packId: string } | null }) {
+      state.topUpDialog = action.payload;
+    },
+    setStudioWarmState(
+      state,
+      action: { payload: { status: StudioWarmStatus; model?: string | null } },
+    ) {
+      state.studioWarmStatus = action.payload.status;
+      if (action.payload.model !== undefined) {
+        state.studioWarmModel = action.payload.model;
+      }
+      if (action.payload.status === 'idle') {
+        state.studioWarmModel = null;
+      }
     },
     setTemplateDraft(state, action: { payload: CustomTemplateDraft }) {
       state.templateDraft = action.payload;
@@ -337,17 +498,37 @@ export const {
   appendToken,
   clearMessages,
   clearPendingSessionActions,
+  clearRateLimit,
   clearTemplateDraft,
+  initChatPanel,
   queueSessionAction,
   recordTurnUsage,
   resetStream,
+  resetWarmState,
   setActiveTool,
+  setComposerInput,
   setConversationId,
   setSelectedProviderId,
   setSelectedModel,
+  setSessionStatusMessage,
+  setStudioWarmState,
   setMessages,
   setPendingCreditTopUp,
   setStreamError,
   setStreaming,
   setTemplateDraft,
+  setTopUpDialog,
+  setWarmTargetKey,
+  startRateLimitCountdown,
+  tickRateLimitCountdown,
 } = chatStreamSlice.actions;
+
+/** Selectors for chat UI — keep components thin. */
+export const selectComposerInput = (s: { chatStream: ChatStreamState }) => s.chatStream.composerInput;
+export const selectRateLimitCountdown = (s: { chatStream: ChatStreamState }) => s.chatStream.rateLimitCountdown;
+export const selectSessionStatusMessage = (s: { chatStream: ChatStreamState }) => s.chatStream.sessionStatusMessage;
+export const selectTopUpDialog = (s: { chatStream: ChatStreamState }) => s.chatStream.topUpDialog;
+export const selectStudioWarm = (s: { chatStream: ChatStreamState }) => ({
+  status: s.chatStream.studioWarmStatus,
+  model: s.chatStream.studioWarmModel,
+});

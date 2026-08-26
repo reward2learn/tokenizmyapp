@@ -6,7 +6,11 @@
  * in tenant-rate-card.ts but never supply the charged markup.
  */
 import { createRawClient } from '@/lib/db';
-import { purchasedCreditsForUsd } from '@/lib/billing/plans';
+import {
+  applyYearlyCreditBonus,
+  purchasedCreditsForUsd,
+  type BillingInterval,
+} from '@/lib/billing/plans';
 import {
   computeTenantRateCard,
   defaultRateCardInputs,
@@ -101,13 +105,16 @@ export async function resolvePlanAiCredits(
   planId: string,
   catalogDefault: number,
   db?: RawDb,
+  interval: BillingInterval = 'monthly',
 ): Promise<number> {
   const card = await getOrgRateCard(orgId, db);
-  if (!card) return catalogDefault;
-  if (planId === 'free') return card.planCredits.free;
-  if (planId === 'pro') return card.planCredits.pro;
-  if (planId === 'business') return card.planCredits.business;
-  return catalogDefault;
+  let base = catalogDefault;
+  if (card) {
+    if (planId === 'free') base = card.planCredits.free;
+    else if (planId === 'pro') base = card.planCredits.pro;
+    else if (planId === 'business') base = card.planCredits.business;
+  }
+  return applyYearlyCreditBonus(base, interval);
 }
 
 /** Top-up pack base credits for an org — rate card override, else catalog default. */

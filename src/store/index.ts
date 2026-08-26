@@ -2,8 +2,8 @@ import { configureStore } from '@reduxjs/toolkit';
 import { authSlice } from '@/store/auth-slice';
 import { uiSlice } from '@/store/ui-slice';
 import { chatStreamSlice } from '@/store/chat-stream-slice';
+import { chatListenerMiddleware } from '@/store/chat-listener-middleware';
 import { sheetViewerSlice, sheetViewerListenerMiddleware } from '@/store/sheet-viewer-slice';
-import { undoRedoSlice, undoRedoListenerMiddleware } from '@/store/undo-redo-slice';
 import { authApi } from '@/store/apis/auth-api';
 import { financialApi } from '@/store/apis/financial-api';
 import { metricsApi } from '@/store/apis/metrics-api';
@@ -22,6 +22,7 @@ import { navigationApi } from '@/store/apis/navigation-api';
 import { tenantApi } from '@/store/apis/tenant-api';
 import { organizationApi } from '@/store/apis/organization-api';
 import { templateApi } from '@/store/apis/template-api';
+import { undoRedoSlice, undoRedoListenerMiddleware } from '@/store/undo-redo-slice';
 
 const apiMiddleware = [
   authApi.middleware,
@@ -43,6 +44,7 @@ const apiMiddleware = [
   organizationApi.middleware,
   templateApi.middleware,
   sheetViewerListenerMiddleware,
+  chatListenerMiddleware,
   undoRedoListenerMiddleware,
 ] as const;
 

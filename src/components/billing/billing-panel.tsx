@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import Alert from '@mui/material/Alert';
 import AlertTitle from '@mui/material/AlertTitle';
 import Box from '@mui/material/Box';
@@ -50,7 +50,9 @@ import {
   CREDIT_PACKS,
   YEARLY_DISCOUNT,
   canPurchaseCreditPacks,
+  planAiCreditsPerMonth,
   type PlanId,
+  type BillingInterval,
 } from '@/lib/billing/plans';
 import {
   EmbeddedPlanCheckoutDialog,
@@ -138,6 +140,7 @@ export function BillingPanel({
           <PlanTab
             orgId={orgId}
             currentPlanId={subscription?.planId ?? 'free'}
+            currentInterval={(subscription?.interval ?? 'monthly') as BillingInterval}
             status={subscription?.status ?? 'active'}
             pendingPlanId={linkage?.pendingPlanId ?? null}
             gracePeriodEndsAt={linkage?.gracePeriodEndsAt ?? null}
@@ -181,6 +184,7 @@ export function BillingPanel({
     readOnly,
     selfServeBilling,
     subscription?.planId,
+    subscription?.interval,
     subscription?.status,
     linkage?.pendingPlanId,
     linkage?.gracePeriodEndsAt,
@@ -318,6 +322,7 @@ export function AiCreditsPanel({
 function PlanTab({
   orgId,
   currentPlanId,
+  currentInterval,
   status,
   pendingPlanId,
   gracePeriodEndsAt,
@@ -329,6 +334,7 @@ function PlanTab({
 }: {
   orgId: string;
   currentPlanId: PlanId;
+  currentInterval: BillingInterval;
   status: string;
   pendingPlanId: string | null;
   gracePeriodEndsAt: string | null;
@@ -339,12 +345,16 @@ function PlanTab({
   readOnly?: boolean;
 }) {
   const dispatch = useAppDispatch();
-  const [interval, setInterval] = useState<'monthly' | 'yearly'>('monthly');
+  const [interval, setInterval] = useState<BillingInterval>(currentInterval);
   const [checkoutTarget, setCheckoutTarget] = useState<EmbeddedPlanCheckoutTarget | null>(null);
   const [checkoutOpen, setCheckoutOpen] = useState(false);
   const [startCheckout, { isLoading }] = useStartCheckoutMutation();
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+
+  useEffect(() => {
+    setInterval(currentInterval);
+  }, [currentInterval]);
 
   const embeddedReady = paymentsReady && Boolean(publishableKey);
 
@@ -366,10 +376,15 @@ function PlanTab({
         const result = await startCheckout({ orgId, planId, interval }).unwrap();
         const payload = result.data;
         if (payload && payload.mode === 'plan_change') {
+          const intervalLabel = interval === 'yearly' ? 'yearly' : 'monthly';
           setNotice(
             payload.applied === 'immediate'
-              ? `Upgraded to ${planId}. The prorated charge is on its way and credits arrive when the invoice is paid.`
-              : `Downgrade to ${planId} scheduled for the end of the current period. Nothing changes until then.`,
+              ? planId === currentPlanId
+                ? `Switched to ${intervalLabel} billing. The prorated charge is on its way and credits arrive when the invoice is paid.`
+                : `Upgraded to ${planId}. The prorated charge is on its way and credits arrive when the invoice is paid.`
+              : planId === currentPlanId
+                ? `Switch to ${intervalLabel} billing scheduled for the end of the current period.`
+                : `Downgrade to ${planId} scheduled for the end of the current period. Nothing changes until then.`,
           );
         }
       } catch {
@@ -390,7 +405,9 @@ function PlanTab({
   const currentPlan = PLANS.find((plan) => plan.id === currentPlanId) ?? PLANS[0];
 
   if (readOnly) {
-    const price = currentPlan.priceMonthly;
+    const price =
+      currentInterval === 'yearly' ? currentPlan.priceYearly : currentPlan.priceMonthly;
+    const credits = planAiCreditsPerMonth(currentPlan, currentInterval);
     return (
       <Stack spacing={2}>
         <Typography variant="body2" color="text.secondary">
@@ -426,9 +443,14 @@ function PlanTab({
             </Typography>
             <Divider sx={{ mb: 1.5 }} />
             <Typography variant="body2">
-              {currentPlan.aiCreditsPerMonth > 0 ? (
+              {credits > 0 ? (
                 <>
-                  <strong>{currentPlan.aiCreditsPerMonth}</strong> AI credits / month
+                  <strong>{credits}</strong> AI credits / month
+                  {currentInterval === 'yearly' && (
+                    <Typography component="span" variant="caption" color="success.main" sx={{ ml: 0.5 }}>
+                      (+{Math.round(YEARLY_DISCOUNT * 100)}% yearly bonus)
+                    </Typography>
+                  )}
                 </>
               ) : (
                 'Negotiated AI credit allowance'
@@ -524,8 +546,12 @@ function PlanTab({
         }}
       >
         {PLANS.map((plan) => {
-          const isCurrent = plan.id === currentPlanId;
+          const isCurrentPlanAndInterval =
+            plan.id === currentPlanId && interval === currentInterval;
+          const isSamePlanDifferentInterval =
+            plan.id === currentPlanId && interval !== currentInterval;
           const price = interval === 'yearly' ? plan.priceYearly : plan.priceMonthly;
+          const credits = planAiCreditsPerMonth(plan, interval);
           const purchasableNow = canBuy(plan.id);
 
           return (
@@ -533,8 +559,8 @@ function PlanTab({
               key={plan.id}
               variant="outlined"
               sx={{
-                borderColor: isCurrent ? 'primary.main' : 'divider',
-                borderWidth: isCurrent ? 2 : 1,
+                borderColor: isCurrentPlanAndInterval ? 'primary.main' : 'divider',
+                borderWidth: isCurrentPlanAndInterval ? 2 : 1,
                 display: 'flex',
                 flexDirection: 'column',
               }}
@@ -544,7 +570,9 @@ function PlanTab({
                   <Typography variant="subtitle1" sx={{ fontWeight: 600 }}>
                     {plan.label}
                   </Typography>
-                  {isCurrent && <Chip label="Current" size="small" color="primary" />}
+                  {isCurrentPlanAndInterval && (
+                    <Chip label="Current" size="small" color="primary" />
+                  )}
                 </Stack>
                 <Typography variant="h5" sx={{ fontWeight: 600, mb: 0.5 }}>
                   {price === null ? 'Custom' : price === 0 ? 'Free' : formatMoney(price)}
@@ -567,9 +595,14 @@ function PlanTab({
                     pricing table already says "Negotiated"; this card said 0.
                   */}
                   <Typography variant="body2">
-                    {plan.aiCreditsPerMonth > 0 ? (
+                    {credits > 0 ? (
                       <>
-                        <strong>{plan.aiCreditsPerMonth}</strong> AI credits / month
+                        <strong>{credits}</strong> AI credits / month
+                        {interval === 'yearly' && (
+                          <Typography component="span" variant="caption" color="success.main" sx={{ ml: 0.5 }}>
+                            (+{Math.round(YEARLY_DISCOUNT * 100)}% yearly bonus)
+                          </Typography>
+                        )}
                       </>
                     ) : (
                       'Negotiated AI credit allowance'
@@ -590,24 +623,28 @@ function PlanTab({
               <Box sx={{ p: 2, pt: 0 }}>
                 <Button
                   fullWidth
-                  variant={isCurrent ? 'outlined' : 'contained'}
+                  variant={isCurrentPlanAndInterval ? 'outlined' : 'contained'}
                   disabled={
-                    isCurrent ||
+                    isCurrentPlanAndInterval ||
                     isLoading ||
                     !purchasableNow ||
                     (!hasExistingSubscription && !embeddedReady)
                   }
                   onClick={() => choose(plan.id)}
                 >
-                  {isCurrent
+                  {isCurrentPlanAndInterval
                     ? 'Current plan'
-                    : plan.priceMonthly === null
-                      ? 'Contact sales'
-                      : purchasableNow
-                        ? hasExistingSubscription
-                          ? 'Change plan'
-                          : 'Choose'
-                        : 'Unavailable'}
+                    : isSamePlanDifferentInterval
+                      ? interval === 'yearly'
+                        ? 'Switch to yearly'
+                        : 'Switch to monthly'
+                      : plan.priceMonthly === null
+                        ? 'Contact sales'
+                        : purchasableNow
+                          ? hasExistingSubscription
+                            ? 'Change plan'
+                            : 'Choose'
+                          : 'Unavailable'}
                 </Button>
               </Box>
             </Card>

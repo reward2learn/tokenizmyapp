@@ -433,8 +433,18 @@ async function handleInvoicePaid(
   const priceId = invoice.lines?.data?.[0]?.pricing?.price_details?.price ?? null;
   const mapped = typeof priceId === 'string' ? planForPriceId(priceId) : null;
   const { getSubscription } = await import('@/domain/billing/entitlement-service');
-  const planId: PlanId = mapped?.planId ?? (await getSubscription(orgId, db)).planId;
+  const current = await getSubscription(orgId, db);
+  const planId: PlanId = mapped?.planId ?? current.planId;
+  const interval = mapped?.interval ?? current.interval;
   const plan = getPlan(planId);
+  const { resolvePlanAiCredits } = await import('@/domain/billing/org-rate-card-service');
+  const creditAllowance = await resolvePlanAiCredits(
+    orgId,
+    planId,
+    plan.aiCreditsPerMonth,
+    db,
+    interval,
+  );
 
   const { saveStripeLinkage } = await import('@/domain/billing/stripe-service');
   await saveStripeLinkage(orgId, { gracePeriodEndsAt: null }, db);
@@ -443,12 +453,11 @@ async function handleInvoicePaid(
   await clearDunningOnPaid(orgId, db);
 
   const { setPlan, getSubscription: getSub } = await import('@/domain/billing/entitlement-service');
-  const current = await getSub(orgId, db);
   if (current.status === 'past_due') {
     await setPlan(orgId, { planId: current.planId, status: 'active' }, db);
   }
 
-  if (plan.aiCreditsPerMonth <= 0) {
+  if (creditAllowance <= 0) {
     return {
       handled: true,
       duplicate: false,
@@ -463,9 +472,13 @@ async function handleInvoicePaid(
     orgId,
     {
       source: 'plan',
-      amount: plan.aiCreditsPerMonth,
+      amount: creditAllowance,
       planId,
-      metadata: { stripeInvoiceId: invoice.id, billingReason: invoice.billing_reason },
+      metadata: {
+        stripeInvoiceId: invoice.id,
+        billingReason: invoice.billing_reason,
+        interval,
+      },
     },
     db,
   );
@@ -475,7 +488,7 @@ async function handleInvoicePaid(
     duplicate: false,
     eventType: 'invoice.paid',
     orgId,
-    message: `Granted ${plan.aiCreditsPerMonth} credits to org ${orgId} for a paid ${planId} invoice.`,
+    message: `Granted ${creditAllowance} credits to org ${orgId} for a paid ${planId} (${interval}) invoice.`,
   };
 }
 

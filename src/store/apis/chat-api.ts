@@ -38,7 +38,7 @@ export interface ChatAiOptionsData {
 export type StudioWarmStatus = 'idle' | 'warming' | 'ready' | 'error';
 
 export interface WarmStudioModelResult {
-  status: 'ready' | 'skipped';
+  status: 'ready' | 'warming' | 'skipped';
   providerId?: string;
   model?: string;
   reason?: string;
@@ -59,7 +59,7 @@ export const chatApi = createApi({
         params: args?.providerId ? { providerId: args.providerId } : undefined,
       }),
     }),
-    /** POST /api/chat/warm-model — preload Mac Studio Ollama weights for the active model. */
+    /** POST /api/chat/warm-model — start background Mac Studio warm (returns immediately). */
     warmStudioModel: builder.mutation<
       ApiEnvelope<WarmStudioModelResult>,
       { model: string; providerId?: string }
@@ -68,6 +68,16 @@ export const chatApi = createApi({
         url: 'chat/warm-model',
         method: 'POST',
         body,
+      }),
+    }),
+    /** GET /api/chat/warm-model — poll Ollama /api/ps until model is in VRAM. */
+    getStudioWarmStatus: builder.query<
+      ApiEnvelope<WarmStudioModelResult>,
+      { model: string; providerId?: string }
+    >({
+      query: ({ model, providerId }) => ({
+        url: 'chat/warm-model',
+        params: { model, ...(providerId ? { providerId } : {}) },
       }),
     }),
     sendMessage: builder.mutation<
@@ -178,6 +188,7 @@ export const chatApi = createApi({
 export const {
   useGetChatAiOptionsQuery,
   useWarmStudioModelMutation,
+  useGetStudioWarmStatusQuery,
   useSendMessageMutation,
   useSynthesizeVoiceMutation,
   useListConversationsQuery,

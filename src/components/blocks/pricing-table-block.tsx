@@ -16,6 +16,7 @@ import {
   PLANS,
   YEARLY_DISCOUNT,
   yearlyMonthlyPrice,
+  planAiCreditsPerMonth,
   type Feature,
   type PlanDef,
 } from '@/lib/billing/plans';
@@ -161,8 +162,10 @@ function PlanCard({
       </Stack>
 
       <Typography variant="body2" sx={{ mt: 1.5, fontWeight: 600 }}>
-        {plan.aiCreditsPerMonth > 0
-          ? `${plan.aiCreditsPerMonth} AI credits / month`
+        {planAiCreditsPerMonth(plan, interval) > 0
+          ? `${planAiCreditsPerMonth(plan, interval)} AI credits / month${
+              interval === 'yearly' ? ` (+${Math.round(YEARLY_DISCOUNT * 100)}% yearly bonus)` : ''
+            }`
           : 'Negotiated AI credit allowance'}
       </Typography>
       <Typography variant="caption" color="text.secondary">

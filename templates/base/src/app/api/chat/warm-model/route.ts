@@ -1,10 +1,9 @@
 /**
- * POST /api/chat/warm-model
- *
- * Preloads a Mac Studio Ollama model (ollama-studio) with a minimal
- * completion so the first real chat message is faster. Session-auth only.
+ * GET  /api/chat/warm-model?model=… — is the model loaded in Ollama VRAM?
+ * POST /api/chat/warm-model — start background warm if needed; returns immediately.
  */
 import { z } from 'zod';
+import { waitUntil } from '@vercel/functions';
 import { requireSession } from '@/lib/auth/guards';
 import { jsonError, jsonOk } from '@/lib/api/response';
 import {
@@ -12,17 +11,102 @@ import {
   getActiveProviderId,
   getActiveModel,
   loadAiProvidersCatalog,
-  resolveProviderKey,
-  resolveChatCompletionsUrl,
 } from '@/lib/ai-providers';
+import { isOllamaModelLoaded, triggerOllamaModelWarm } from '@/lib/ollama-studio';
 
 export const dynamic = 'force-dynamic';
-export const maxDuration = 300;
+export const maxDuration = 30;
+
+const STUDIO_PROVIDER_ID = 'ollama-studio';
+
+const querySchema = z.object({
+  model: z.string().trim().min(1).max(200),
+  providerId: z.string().trim().min(1).max(64).optional(),
+});
 
 const bodySchema = z.object({
   model: z.string().trim().min(1).max(200).optional(),
   providerId: z.string().trim().min(1).max(64).optional(),
 });
+
+async function resolveStudioContext(providerIdParam: string | undefined, modelParam: string | undefined) {
+  const catalog = await loadAiProvidersCatalog();
+  const workspaceProviderId = await getActiveProviderId();
+  const providerId = providerIdParam ?? workspaceProviderId;
+
+  if (providerId !== STUDIO_PROVIDER_ID) {
+    return {
+      ok: false as const,
+      response: jsonOk({
+        status: 'skipped' as const,
+        providerId,
+        reason: 'Warm-up applies only to TokenizMyApp-Studio-AI (ollama-studio).',
+      }),
+    };
+  }
+
+  if (workspaceProviderId !== STUDIO_PROVIDER_ID) {
+    return {
+      ok: false as const,
+      response: jsonOk({
+        status: 'skipped' as const,
+        providerId,
+        reason: 'Studio AI is not the workspace default provider.',
+      }),
+    };
+  }
+
+  const provider = findProviderInCatalog(catalog, providerId);
+  if (!provider) {
+    return { ok: false as const, response: jsonError('Unknown provider', 400) };
+  }
+
+  const model = modelParam ?? (await getActiveModel(providerId)) ?? provider.defaultModel;
+  if (!model) {
+    return { ok: false as const, response: jsonError('No model specified for warm-up', 400) };
+  }
+
+  return { ok: true as const, providerId, model };
+}
+
+function scheduleBackgroundWarm(model: string): void {
+  const task = triggerOllamaModelWarm(model).catch((err) => {
+    console.error(`[chat/warm-model] background warm failed for ${model}:`, err);
+  });
+  waitUntil(task);
+}
+
+export async function GET(request: Request): Promise<Response> {
+  const guard = await requireSession(request);
+  if (!guard.ok) return guard.response;
+
+  const { searchParams } = new URL(request.url);
+  const parsed = querySchema.safeParse({
+    model: searchParams.get('model'),
+    providerId: searchParams.get('providerId') ?? undefined,
+  });
+  if (!parsed.success) {
+    return jsonError(parsed.error.issues[0]?.message ?? 'model query param is required', 400);
+  }
+
+  const ctx = await resolveStudioContext(parsed.data.providerId, parsed.data.model);
+  if (!ctx.ok) return ctx.response;
+
+  try {
+    const loaded = await isOllamaModelLoaded(ctx.model);
+    return jsonOk({
+      status: loaded ? 'ready' as const : 'warming' as const,
+      providerId: ctx.providerId,
+      model: ctx.model,
+    });
+  } catch (err) {
+    console.error('[chat/warm-model] GET error:', err);
+    return jsonError(
+      err instanceof Error ? err.message : 'Failed to check Studio model status',
+      502,
+    );
+  }
+}
 
 export async function POST(request: Request): Promise<Response> {
   const guard = await requireSession(request);
@@ -40,64 +124,21 @@ export async function POST(request: Request): Promise<Response> {
     return jsonError(parsed.error.issues[0]?.message ?? 'Invalid request', 400);
   }
 
-  const catalog = await loadAiProvidersCatalog();
-  const workspaceProviderId = await getActiveProviderId();
-  const providerId = parsed.data.providerId ?? workspaceProviderId;
-
-  if (providerId !== 'ollama-studio') {
-    return jsonOk({
-      status: 'skipped',
-      providerId,
-      reason: 'Warm-up applies only to TokenizMyApp-Studio-AI (ollama-studio).',
-    });
-  }
-
-  if (workspaceProviderId !== 'ollama-studio') {
-    return jsonOk({
-      status: 'skipped',
-      providerId,
-      reason: 'Studio AI is not the workspace default provider.',
-    });
-  }
-
-  const provider = findProviderInCatalog(catalog, providerId);
-  if (!provider) return jsonError('Unknown provider', 400);
-
-  const model = parsed.data.model ?? (await getActiveModel(providerId)) ?? provider.defaultModel;
-  if (!model) return jsonError('No model specified for warm-up', 400);
-
-  const apiKey = await resolveProviderKey(provider);
-  if (!apiKey) return jsonError('Studio AI is not configured', 503);
-
-  const chatUrl = resolveChatCompletionsUrl(provider);
+  const ctx = await resolveStudioContext(parsed.data.providerId, parsed.data.model);
+  if (!ctx.ok) return ctx.response;
 
   try {
-    const response = await fetch(chatUrl, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${apiKey}`,
-      },
-      body: JSON.stringify({
-        model,
-        messages: [{ role: 'user', content: 'ping' }],
-        max_tokens: 1,
-        stream: false,
-        temperature: 0,
-      }),
-    });
-
-    if (!response.ok) {
-      const detail = await response.text().catch(() => '');
-      const message = detail.slice(0, 300) || `Warm-up failed (${response.status})`;
-      return jsonError(message, response.status >= 500 ? 502 : response.status);
+    const loaded = await isOllamaModelLoaded(ctx.model);
+    if (loaded) {
+      return jsonOk({ status: 'ready' as const, providerId: ctx.providerId, model: ctx.model });
     }
 
-    return jsonOk({ status: 'ready', providerId, model });
+    scheduleBackgroundWarm(ctx.model);
+    return jsonOk({ status: 'warming' as const, providerId: ctx.providerId, model: ctx.model });
   } catch (err) {
-    console.error('[chat/warm-model] error:', err);
+    console.error('[chat/warm-model] POST error:', err);
     return jsonError(
-      err instanceof Error ? err.message : 'Failed to warm Studio AI model',
+      err instanceof Error ? err.message : 'Failed to start Studio model warm-up',
       502,
     );
   }

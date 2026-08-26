@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import Alert from '@mui/material/Alert';
 import AlertTitle from '@mui/material/AlertTitle';
 import Box from '@mui/material/Box';
@@ -29,7 +29,7 @@ import {
   useStartCheckoutMutation,
 } from '@/store/apis/organization-api';
 import { useAppDispatch } from '@/store/hooks';
-import { PLANS, YEARLY_DISCOUNT, type PlanId } from '@/lib/billing/plans';
+import { PLANS, YEARLY_DISCOUNT, planAiCreditsPerMonth, type PlanId, type BillingInterval } from '@/lib/billing/plans';
 
 function formatMoney(cents: number, currency = 'usd'): string {
   return new Intl.NumberFormat(undefined, {
@@ -84,7 +84,11 @@ export function ChoosePlanDialog({
   tenantDisplayName,
 }: ChoosePlanDialogProps) {
   const dispatch = useAppDispatch();
-  const [interval, setInterval] = useState<'monthly' | 'yearly'>('monthly');
+  const [interval, setInterval] = useState<BillingInterval>(currentInterval);
+
+  useEffect(() => {
+    if (open) setInterval(currentInterval);
+  }, [open, currentInterval]);
   const [step, setStep] = useState<'pick' | 'checkout'>('pick');
   const [checkoutTarget, setCheckoutTarget] = useState<CheckoutTarget | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -108,6 +112,7 @@ export function ChoosePlanDialog({
   const priceMismatches = checkoutData?.data?.priceMismatches ?? [];
   const publishableKey = checkoutData?.data?.publishableKey ?? null;
   const currentPlanId = (subscription?.planId ?? 'free') as PlanId;
+  const currentInterval = (subscription?.interval ?? 'monthly') as BillingInterval;
   const paymentsReady = readiness?.ready === true;
   const embeddedReady = paymentsReady && Boolean(publishableKey);
   const hasExistingSubscription = Boolean(checkoutData?.data?.linkage?.subscriptionId);
@@ -144,10 +149,15 @@ export function ChoosePlanDialog({
         const result = await startCheckout({ orgId, planId, interval }).unwrap();
         const payload = result.data;
         if (payload && payload.mode === 'plan_change') {
+          const intervalLabel = interval === 'yearly' ? 'yearly' : 'monthly';
           setNotice(
             payload.applied === 'immediate'
-              ? `Upgraded to ${planId}. Credits arrive when Stripe confirms the invoice.`
-              : `Downgrade to ${planId} scheduled for period end.`,
+              ? planId === currentPlanId
+                ? `Switched to ${intervalLabel} billing. Credits arrive when Stripe confirms the invoice.`
+                : `Upgraded to ${planId}. Credits arrive when Stripe confirms the invoice.`
+              : planId === currentPlanId
+                ? `Switch to ${intervalLabel} billing scheduled for period end.`
+                : `Downgrade to ${planId} scheduled for period end.`,
           );
         }
       } catch {
@@ -256,8 +266,12 @@ export function ChoosePlanDialog({
                 }}
               >
                 {PLANS.map((plan) => {
-                  const isCurrent = plan.id === currentPlanId;
+                  const isCurrentPlanAndInterval =
+                    plan.id === currentPlanId && interval === currentInterval;
+                  const isSamePlanDifferentInterval =
+                    plan.id === currentPlanId && interval !== currentInterval;
                   const price = interval === 'yearly' ? plan.priceYearly : plan.priceMonthly;
+                  const credits = planAiCreditsPerMonth(plan, interval);
                   const purchasableNow = canBuy(plan.id);
 
                   return (
@@ -265,8 +279,8 @@ export function ChoosePlanDialog({
                       key={plan.id}
                       variant="outlined"
                       sx={{
-                        borderColor: isCurrent ? 'primary.main' : 'divider',
-                        borderWidth: isCurrent ? 2 : 1,
+                        borderColor: isCurrentPlanAndInterval ? 'primary.main' : 'divider',
+                        borderWidth: isCurrentPlanAndInterval ? 2 : 1,
                         display: 'flex',
                         flexDirection: 'column',
                       }}
@@ -276,7 +290,9 @@ export function ChoosePlanDialog({
                           <Typography variant="subtitle1" sx={{ fontWeight: 600 }}>
                             {plan.label}
                           </Typography>
-                          {isCurrent && <Chip label="Current" size="small" color="primary" />}
+                          {isCurrentPlanAndInterval && (
+                            <Chip label="Current" size="small" color="primary" />
+                          )}
                         </Stack>
                         <Typography variant="h5" sx={{ fontWeight: 600, mb: 0.5 }}>
                           {price === null ? 'Custom' : price === 0 ? 'Free' : formatMoney(price)}
@@ -292,9 +308,14 @@ export function ChoosePlanDialog({
                         </Typography>
                         <Divider sx={{ mb: 1.5 }} />
                         <Typography variant="body2" sx={{ mb: 0.5 }}>
-                          {plan.aiCreditsPerMonth > 0 ? (
+                          {credits > 0 ? (
                             <>
-                              <strong>{plan.aiCreditsPerMonth}</strong> AI credits / month
+                              <strong>{credits}</strong> AI credits / month
+                              {interval === 'yearly' && (
+                                <Typography component="span" variant="caption" color="success.main" sx={{ ml: 0.5 }}>
+                                  (+{Math.round(YEARLY_DISCOUNT * 100)}% yearly bonus)
+                                </Typography>
+                              )}
                             </>
                           ) : (
                             'Negotiated AI credit allowance'
@@ -314,24 +335,28 @@ export function ChoosePlanDialog({
                       <Box sx={{ p: 2, pt: 0 }}>
                         <Button
                           fullWidth
-                          variant={isCurrent ? 'outlined' : 'contained'}
+                          variant={isCurrentPlanAndInterval ? 'outlined' : 'contained'}
                           disabled={
-                            isCurrent ||
+                            isCurrentPlanAndInterval ||
                             checkoutStarting ||
                             !purchasableNow ||
                             (!hasExistingSubscription && !embeddedReady)
                           }
                           onClick={() => choose(plan.id)}
                         >
-                          {isCurrent
+                          {isCurrentPlanAndInterval
                             ? 'Current plan'
-                            : plan.priceMonthly === null
-                              ? 'Contact sales'
-                              : purchasableNow
-                                ? hasExistingSubscription
-                                  ? 'Change plan'
-                                  : 'Choose'
-                                : 'Unavailable'}
+                            : isSamePlanDifferentInterval
+                              ? interval === 'yearly'
+                                ? 'Switch to yearly'
+                                : 'Switch to monthly'
+                              : plan.priceMonthly === null
+                                ? 'Contact sales'
+                                : purchasableNow
+                                  ? hasExistingSubscription
+                                    ? 'Change plan'
+                                    : 'Choose'
+                                  : 'Unavailable'}
                         </Button>
                       </Box>
                     </Card>

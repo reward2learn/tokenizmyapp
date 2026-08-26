@@ -289,10 +289,26 @@ export function planRank(planId: PlanId): number {
 
 export type PlanChangeKind = 'upgrade' | 'downgrade' | 'unchanged';
 
-/** Which proration path a plan change takes. */
-export function classifyPlanChange(from: PlanId, to: PlanId): PlanChangeKind {
-  const a = planRank(from);
-  const b = planRank(to);
-  if (a === b) return 'unchanged';
-  return b > a ? 'upgrade' : 'downgrade';
+/**
+ * Which proration path a plan change takes.
+ *
+ * Tier moves rank by list price. On the same tier, monthly → yearly is an
+ * upgrade (immediate proration — customer commits to annual billing); yearly →
+ * monthly is a downgrade (scheduled at period end — avoids mid-cycle refunds).
+ */
+export function classifyPlanChange(
+  from: PlanId,
+  to: PlanId,
+  fromInterval?: BillingInterval,
+  toInterval?: BillingInterval,
+): PlanChangeKind {
+  const tierDelta = planRank(to) - planRank(from);
+  if (tierDelta !== 0) return tierDelta > 0 ? 'upgrade' : 'downgrade';
+
+  if (fromInterval && toInterval && fromInterval !== toInterval) {
+    if (fromInterval === 'monthly' && toInterval === 'yearly') return 'upgrade';
+    if (fromInterval === 'yearly' && toInterval === 'monthly') return 'downgrade';
+  }
+
+  return 'unchanged';
 }

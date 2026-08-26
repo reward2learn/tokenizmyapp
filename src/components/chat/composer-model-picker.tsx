@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useMemo } from 'react';
 import CircularProgress from '@mui/material/CircularProgress';
 import FormControl from '@mui/material/FormControl';
 import FormHelperText from '@mui/material/FormHelperText';
@@ -11,34 +11,27 @@ import Stack from '@mui/material/Stack';
 import Typography from '@mui/material/Typography';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import ErrorIcon from '@mui/icons-material/Error';
-import WarningAmberIcon from '@mui/icons-material/WarningAmber';
 import { useAppDispatch, useAppSelector } from '@/store/hooks';
-import { setSelectedModel, setSelectedProviderId } from '@/store/chat-stream-slice';
+import {
+  resetWarmState,
+  setSelectedModel,
+  setSelectedProviderId,
+  STUDIO_PROVIDER_ID,
+} from '@/store/chat-stream-slice';
 import type { AiProviderId } from '@/store/apis/config-api';
 import {
   useGetChatAiOptionsQuery,
-  useWarmStudioModelMutation,
   type ChatAiHealthStatus,
   type ChatAiProviderHealth,
   type StudioWarmStatus,
 } from '@/store/apis/chat-api';
 
-const STORAGE_PROVIDER = 'chat.selectedProviderId';
-const STORAGE_MODEL = 'chat.selectedModel';
-const STUDIO_PROVIDER_ID: AiProviderId = 'ollama-studio';
+/** Vertical 8px / horizontal 4px — shared by provider, model, and row spinner. */
+const PICKER_FIELD_MARGIN = '8px 4px' as const;
 
 function modelLabelWithStatus(studioActive: boolean, warmStatus: StudioWarmStatus): string {
-  if (!studioActive) return 'Model';
-  switch (warmStatus) {
-    case 'warming':
-      return 'Model — Loading…';
-    case 'ready':
-      return 'Model — Ready';
-    case 'error':
-      return 'Model — Unavailable';
-    default:
-      return 'Model';
-  }
+  if (!studioActive || warmStatus !== 'warming') return 'Model';
+  return 'Model — Loading…';
 }
 
 function healthIcon(status: ChatAiHealthStatus | 'healthy' | 'unhealthy' | undefined) {
@@ -55,25 +48,15 @@ function healthIcon(status: ChatAiHealthStatus | 'healthy' | 'unhealthy' | undef
  * Provider → model selectors above the chat composer (always visible).
  * Sticky in Redux + localStorage; sent with each /api/chat request as
  * providerId / model overrides (does not rewrite Config defaults).
+ *
+ * Side effects (localStorage, default model seed, Studio warm) live in
+ * chat-listener-middleware — this component is selectors + dispatch only.
  */
 export function ComposerModelPicker() {
   const dispatch = useAppDispatch();
   const selectedProviderId = useAppSelector((s) => s.chatStream.selectedProviderId);
   const selectedModel = useAppSelector((s) => s.chatStream.selectedModel);
-  const [warmStatus, setWarmStatus] = useState<StudioWarmStatus>('idle');
-  const [warmStudioModel] = useWarmStudioModelMutation();
-  const warmTargetRef = useRef<string | null>(null);
-
-  useEffect(() => {
-    try {
-      const storedProvider = localStorage.getItem(STORAGE_PROVIDER) as AiProviderId | null;
-      const storedModel = localStorage.getItem(STORAGE_MODEL);
-      if (storedProvider) dispatch(setSelectedProviderId(storedProvider));
-      if (storedModel) dispatch(setSelectedModel(storedModel));
-    } catch {
-      // ignore private-mode / SSR
-    }
-  }, [dispatch]);
+  const studioWarmStatus = useAppSelector((s) => s.chatStream.studioWarmStatus);
 
   const {
     data,
@@ -97,55 +80,7 @@ export function ComposerModelPicker() {
   const studioIsDefault = activeProviderId === STUDIO_PROVIDER_ID;
   const studioSelected = effectiveProviderId === STUDIO_PROVIDER_ID;
   const shouldWarmStudio = studioIsDefault && studioSelected && Boolean(effectiveModel);
-
-  // Preload Mac Studio weights when Studio AI is the workspace default and selected.
-  useEffect(() => {
-    if (!shouldWarmStudio || !effectiveModel || isLoading) {
-      if (!studioSelected) {
-        setWarmStatus('idle');
-        warmTargetRef.current = null;
-      }
-      return;
-    }
-
-    const targetKey = `${STUDIO_PROVIDER_ID}:${effectiveModel}`;
-    if (warmTargetRef.current === targetKey) return;
-
-    warmTargetRef.current = targetKey;
-    setWarmStatus('warming');
-
-    let cancelled = false;
-    void warmStudioModel({ model: effectiveModel, providerId: STUDIO_PROVIDER_ID })
-      .unwrap()
-      .then((res) => {
-        if (cancelled) return;
-        if (res.data?.status === 'ready') {
-          setWarmStatus('ready');
-        } else {
-          setWarmStatus('idle');
-        }
-      })
-      .catch(() => {
-        if (!cancelled) setWarmStatus('error');
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [shouldWarmStudio, effectiveModel, isLoading, studioSelected, warmStudioModel]);
-
-  // Seed a default model when none is chosen yet (after options load / provider change).
-  useEffect(() => {
-    if (!payload || selectedModel) return;
-    const pid = selectedProviderId ?? payload.activeProviderId;
-    if (!pid) return;
-    const fallback =
-      (pid === payload.activeProviderId ? payload.activeModel : null)
-      ?? payload.providers.find((p) => p.id === pid)?.defaultModel
-      ?? payload.models[0]?.id
-      ?? null;
-    if (fallback) dispatch(setSelectedModel(fallback));
-  }, [dispatch, payload, selectedModel, selectedProviderId]);
+  const studioWarming = shouldWarmStudio && studioWarmStatus === 'warming';
 
   const configuredProviders = useMemo(
     () => providers.filter((p) => p.configured),
@@ -178,8 +113,7 @@ export function ComposerModelPicker() {
   const providerUnhealthy = currentProviderHealth?.status === 'unhealthy' || currentProviderHealth?.status === 'unconfigured';
   const modelUnhealthy = modelHealth?.status === 'unhealthy';
   const loadingModels = isFetching && !isLoading;
-  const modelFieldLabel = modelLabelWithStatus(shouldWarmStudio, warmStatus);
-  const studioWarming = shouldWarmStudio && warmStatus === 'warming';
+  const modelFieldLabel = modelLabelWithStatus(shouldWarmStudio, studioWarmStatus);
 
   const errorMessage = (() => {
     if (isError) {
@@ -196,30 +130,17 @@ export function ComposerModelPicker() {
   const onProviderChange = (providerId: AiProviderId) => {
     dispatch(setSelectedProviderId(providerId));
     dispatch(setSelectedModel(null));
-    setWarmStatus('idle');
-    warmTargetRef.current = null;
-    try {
-      localStorage.setItem(STORAGE_PROVIDER, providerId);
-      localStorage.removeItem(STORAGE_MODEL);
-    } catch {
-      // ignore
-    }
+    dispatch(resetWarmState());
   };
 
   const onModelChange = (model: string) => {
     dispatch(setSelectedModel(model));
-    setWarmStatus('idle');
-    warmTargetRef.current = null;
-    try {
-      localStorage.setItem(STORAGE_MODEL, model);
-    } catch {
-      // ignore
-    }
+    dispatch(resetWarmState());
   };
 
   if (isLoading) {
     return (
-      <Stack direction="row" spacing={1} sx={{ alignItems: 'center', width: '100%', minWidth: 0 }}>
+      <Stack direction="row" spacing={1} sx={{ alignItems: 'center', width: '100%', minWidth: 0, m: PICKER_FIELD_MARGIN }}>
         <CircularProgress size={16} />
         <Typography variant="caption" color="text.secondary">
           Checking AI providers…
@@ -230,7 +151,7 @@ export function ComposerModelPicker() {
 
   if (errorMessage) {
     return (
-      <Typography variant="caption" color="error" sx={{ width: '100%' }}>
+      <Typography variant="caption" color="error" sx={{ width: '100%', m: PICKER_FIELD_MARGIN }}>
         {errorMessage}
       </Typography>
     );
@@ -238,29 +159,32 @@ export function ComposerModelPicker() {
 
   if (configuredProviders.length === 0) {
     return (
-      <Typography variant="caption" color="text.secondary" sx={{ width: '100%' }}>
+      <Typography variant="caption" color="text.secondary" sx={{ width: '100%', m: PICKER_FIELD_MARGIN }}>
         No AI provider configured. An admin must add a key in Config → AI Provider.
       </Typography>
     );
   }
 
-  // Stack provider + model full-width under 500px of *chat* width (container
-  // query); sit them on one row once the chat is wider. Viewport breakpoints
-  // would be wrong inside a narrow drawer on a wide screen.
   const pickerFieldSx = {
     width: '100%',
     minWidth: 0,
     flex: '1 1 100%',
-    margin: '8px 4px',
+    m: PICKER_FIELD_MARGIN,
     '@container chat-composer (min-width: 500px)': {
       flex: '1 1 0',
     },
   } as const;
 
+  const rowSpinnerSx = {
+    m: PICKER_FIELD_MARGIN,
+    alignSelf: 'center',
+    flexShrink: 0,
+  } as const;
+
   return (
-    <Stack spacing={0.5} sx={{ width: '100%', containerType: 'inline-size', containerName: 'chat-composer' }}>
+    <Stack spacing={0} sx={{ width: '100%', containerType: 'inline-size', containerName: 'chat-composer' }}>
       <Stack
-        spacing={1}
+        spacing={0}
         sx={{
           width: '100%',
           minWidth: 0,
@@ -268,7 +192,7 @@ export function ComposerModelPicker() {
           alignItems: 'stretch',
           '@container chat-composer (min-width: 500px)': {
             flexDirection: 'row',
-            alignItems: 'flex-start',
+            alignItems: 'center',
             flexWrap: 'nowrap',
           },
         }}
@@ -310,7 +234,7 @@ export function ComposerModelPicker() {
         <FormControl
           size="small"
           disabled={loadingModels || providerUnhealthy || studioWarming}
-          error={modelUnhealthy || (shouldWarmStudio && warmStatus === 'error')}
+          error={modelUnhealthy || (shouldWarmStudio && studioWarmStatus === 'error')}
           sx={pickerFieldSx}
         >
           <InputLabel id="chat-model-label">{modelFieldLabel}</InputLabel>
@@ -326,32 +250,13 @@ export function ComposerModelPicker() {
               </MenuItem>
             ))}
           </Select>
-          {studioWarming ? (
-            <FormHelperText sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-              <WarningAmberIcon sx={{ fontSize: 14, color: 'warning.main' }} />
-              Mac Studio is loading {effectiveModel} — first reply may take a minute.
-            </FormHelperText>
-          ) : null}
-          {!studioWarming && shouldWarmStudio && warmStatus === 'ready' ? (
-            <FormHelperText>Studio model is loaded and ready.</FormHelperText>
-          ) : null}
-          {!studioWarming && shouldWarmStudio && warmStatus === 'error' ? (
-            <FormHelperText>Warm-up failed — your first message may take longer.</FormHelperText>
-          ) : null}
           {modelUnhealthy && modelHealth?.message ? (
             <FormHelperText>{modelHealth.message}</FormHelperText>
           ) : null}
         </FormControl>
 
-        {loadingModels || studioWarming ? (
-          <CircularProgress
-            size={18}
-            sx={{
-              alignSelf: 'center',
-              flexShrink: 0,
-              '@container chat-composer (min-width: 500px)': { mt: 1 },
-            }}
-          />
+        {loadingModels ? (
+          <CircularProgress size={18} sx={rowSpinnerSx} aria-label="Loading model list" />
         ) : null}
       </Stack>
     </Stack>

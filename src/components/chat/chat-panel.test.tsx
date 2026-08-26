@@ -4,6 +4,7 @@ import { Provider } from 'react-redux';
 import { configureStore } from '@reduxjs/toolkit';
 import { ChatPanel } from '@/components/chat/chat-panel';
 import { chatStreamSlice } from '@/store/chat-stream-slice';
+import { chatListenerMiddleware } from '@/store/chat-listener-middleware';
 import { chatApi } from '@/store/apis/chat-api';
 import { sheetViewerSlice } from '@/store/sheet-viewer-slice';
 import { authSlice } from '@/store/auth-slice';
@@ -39,7 +40,7 @@ function renderPanel(search: string) {
       [chatApi.reducerPath]: chatApi.reducer,
       [templateApi.reducerPath]: templateApi.reducer,
     },
-    middleware: (getDefault) => getDefault().concat(chatApi.middleware, templateApi.middleware),
+    middleware: (getDefault) => getDefault().concat(chatApi.middleware, templateApi.middleware, chatListenerMiddleware),
   });
   return render(
     <Provider store={store}>
