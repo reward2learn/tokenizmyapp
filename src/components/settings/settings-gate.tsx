@@ -4,7 +4,6 @@ import { useEffect } from 'react';
 import { useSearchParams } from 'next/navigation';
 import Alert from '@mui/material/Alert';
 import AlertTitle from '@mui/material/AlertTitle';
-import Button from '@mui/material/Button';
 import Stack from '@mui/material/Stack';
 import Typography from '@mui/material/Typography';
 import { SettingsPanel } from '@/components/settings/settings-panel';
@@ -91,18 +90,6 @@ export function SettingsGate({ variant = 'page' }: { variant?: 'dialog' | 'page'
       ) : null}
 
       <SettingsPanel orgId={orgId} selfServeBilling={selfServeBilling} variant={variant} />
-
-      <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap' }}>
-        <Button
-          size="small"
-          variant="outlined"
-          href={process.env.NEXT_PUBLIC_SUPPORT_URL || 'mailto:support@tokenizmyapp.com'}
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          Contact support
-        </Button>
-      </Stack>
     </Stack>
   );
 }

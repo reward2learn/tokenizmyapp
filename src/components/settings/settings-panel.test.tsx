@@ -108,18 +108,17 @@ describe('SettingsPanel', () => {
     expect(screen.getByText(/No organization is selected/i)).toBeInTheDocument();
   });
 
-  it('swaps the side rail for a single scrollable section row on compact viewports', () => {
+  it('swaps the side rail for expandable accordion rows on compact viewports', () => {
     vi.mocked(useMediaQuery).mockReturnValue(true);
     vi.mocked(isPlatformApp).mockReturnValue(false);
     renderPanel('org_1');
 
-    expect(screen.getByRole('tab', { name: /Usage/i })).toBeInTheDocument();
-    expect(screen.getByRole('tab', { name: /Profile/i })).toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: 'Usage' })).toBeNull();
-    expect(screen.queryByText(/Your organization/i)).toBeNull();
-    expect(screen.queryByText(/^Personal$/i)).toBeNull();
+    expect(screen.getByRole('button', { name: /Usage/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Profile/i })).toBeInTheDocument();
+    expect(screen.getByText(/Your organization/i)).toBeInTheDocument();
+    expect(screen.getByText(/^Personal$/i)).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole('tab', { name: /Usage/i }));
+    fireEvent.click(screen.getByRole('button', { name: /Usage/i }));
     expect(screen.getByText(/billing for org_1 \(read-only\)/i)).toBeInTheDocument();
   });
 });

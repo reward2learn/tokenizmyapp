@@ -12,7 +12,7 @@ import CloseIcon from '@mui/icons-material/Close';
 import { AuthGate } from '@/components/auth/auth-gate';
 import { SignInPanelGate } from '@/components/auth/sign-in-panel';
 import { SettingsGate } from '@/components/settings/settings-gate';
-import { SettingsLogoutButton } from '@/components/settings/settings-panel';
+import { SettingsContactSupportButton, SettingsLogoutButton } from '@/components/settings/settings-panel';
 import { useAppDispatch, useAppSelector } from '@/store/hooks';
 import { setSettingsDialogOpen } from '@/store/ui-slice';
 import { RADIUS } from '@/theme/design-tokens';
@@ -90,8 +90,12 @@ export function SettingsDialog() {
           borderTop: '1px solid',
           borderColor: 'divider',
           justifyContent: 'flex-start',
+          gap: 1,
+          flexWrap: 'wrap',
         }}
       >
+        <SettingsContactSupportButton />
+        <Box sx={{ flex: 1, minWidth: 8 }} />
         <SettingsLogoutButton />
       </DialogActions>
     </Dialog>
