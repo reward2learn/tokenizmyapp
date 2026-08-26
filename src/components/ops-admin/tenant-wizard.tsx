@@ -63,6 +63,7 @@ import {
   usePreviewNeonProvisionMutation,
 } from '@/store/apis/tenant-api';
 import { TenantRateCardStep } from '@/components/ops-admin/tenant-rate-card-step';
+import { SchemaOrgTypeChips } from '@/components/ops-admin/schema-org-type-chips';
 import {
   TenantAiProvidersConfigStep,
   emptyAiProviderWizardValue,
@@ -820,9 +821,18 @@ export function TenantWizard({ iconOnly = false }: { iconOnly?: boolean }) {
                               <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
                                 {tpl.description}
                               </Typography>
-                              <Stack direction="row" sx={{ gap: 0.5, flexWrap: 'wrap', mt: 0.5 }}>
-                                <Chip label={tpl.schemaOrgType} size="small" variant="outlined" color="info" />
-                                <Chip label={tpl.xsdStandard} size="small" variant="outlined" />
+                              <Stack direction="row" sx={{ gap: 0.5, flexWrap: 'wrap', mt: 0.5, minWidth: 0 }}>
+                                <SchemaOrgTypeChips value={tpl.schemaOrgType} />
+                                <Chip
+                                  label={tpl.xsdStandard}
+                                  size="small"
+                                  variant="outlined"
+                                  sx={{
+                                    maxWidth: '100%',
+                                    height: 'auto',
+                                    '& .MuiChip-label': { whiteSpace: 'normal', wordBreak: 'break-word' },
+                                  }}
+                                />
                               </Stack>
                               <Stack direction="row" sx={{ gap: 0.5, flexWrap: 'wrap', mt: 0.5 }}>
                                 {tpl.defaultPages.slice(0, 4).map((p) => (
@@ -1577,15 +1587,19 @@ export function TemplateSelector({
                         ? `${tpl.description.substring(0, 87)}...`
                         : tpl.description}
                     </Typography>
-                    <Stack direction="row" sx={{ gap: 0.5, flexWrap: 'wrap' }}>
+                    <Stack direction="row" sx={{ gap: 0.5, flexWrap: 'wrap', minWidth: 0 }}>
+                      <SchemaOrgTypeChips value={tpl.schemaOrgType} firstOnly />
+                      <Chip label={`${tpl.defaultPages.length}p`} size="small" variant="outlined" />
                       <Chip
-                        label={Array.isArray(tpl.schemaOrgType) ? tpl.schemaOrgType[0] : tpl.schemaOrgType}
+                        label={tpl.xsdStandard.split(',')[0]}
                         size="small"
                         variant="outlined"
-                        color="info"
+                        sx={{
+                          maxWidth: '100%',
+                          height: 'auto',
+                          '& .MuiChip-label': { whiteSpace: 'normal', wordBreak: 'break-word' },
+                        }}
                       />
-                      <Chip label={`${tpl.defaultPages.length}p`} size="small" variant="outlined" />
-                      <Chip label={tpl.xsdStandard.split(',')[0]} size="small" variant="outlined" />
                     </Stack>
                   </CardContent>
                 </CardActionArea>
@@ -1596,12 +1610,13 @@ export function TemplateSelector({
       </Grid>
 
       {/* Live Preview with Delta */}
-      <Paper variant="outlined" sx={{ p: 3, bgcolor: 'background.default' }}>
+      <Paper variant="outlined" sx={{ p: { xs: 2, md: 3 }, bgcolor: 'background.default', minWidth: 0, maxWidth: '100%', overflow: 'hidden' }}>
         <Stack
-          direction="row"
-          sx={{ alignItems: 'center', justifyContent: 'space-between', mb: 2 }}
+          direction={{ xs: 'column', sm: 'row' }}
+          spacing={1}
+          sx={{ alignItems: { xs: 'flex-start', sm: 'center' }, justifyContent: 'space-between', mb: 2, minWidth: 0 }}
         >
-          <Typography variant="subtitle2" sx={{ fontWeight: 600 }}>
+          <Typography variant="subtitle2" sx={{ fontWeight: 600, minWidth: 0, wordBreak: 'break-word' }}>
             Live Preview — {selected.label}
           </Typography>
           {hasDelta && (
@@ -1609,6 +1624,11 @@ export function TemplateSelector({
               label="TEMPLATE CHANGE — DELTA DETECTED"
               color="warning"
               size="small"
+              sx={{
+                maxWidth: '100%',
+                height: 'auto',
+                '& .MuiChip-label': { whiteSpace: 'normal', wordBreak: 'break-word' },
+              }}
             />
           )}
         </Stack>

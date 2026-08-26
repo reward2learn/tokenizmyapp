@@ -87,6 +87,7 @@ import {
   SubscriptionTierPricingSection,
   type SubscriptionTierPricingState,
 } from '@/components/ops-admin/subscription-tier-pricing-section';
+import { SchemaOrgTypeChips } from '@/components/ops-admin/schema-org-type-chips';
 import { defaultSubscriptionAmounts } from '@/lib/billing/subscription-pricing';
 import type { AppPackConfig } from '@/store/apis/tenant-api';
 import { useAppDispatch } from '@/store/hooks';
@@ -1834,12 +1835,16 @@ export function EditTenantModal({ open, tenant, onClose, onSnackbar }: EditTenan
         Preview how the tenant application will look with the selected template and brand colors.
       </Typography>
 
-      <Paper variant="outlined" sx={{ p: { xs: 2, md: 3 }, bgcolor: 'background.default' }}>
-        <Stack direction="row" sx={{ alignItems: 'center', justifyContent: 'space-between', mb: 2 }}>
-          <Typography variant="subtitle2" sx={{ fontWeight: 600 }}>
+      <Paper variant="outlined" sx={{ p: { xs: 2, md: 3 }, bgcolor: 'background.default', minWidth: 0, maxWidth: '100%', overflow: 'hidden' }}>
+        <Stack
+          direction={{ xs: 'column', sm: 'row' }}
+          spacing={1}
+          sx={{ alignItems: { xs: 'flex-start', sm: 'center' }, justifyContent: 'space-between', mb: 2, minWidth: 0 }}
+        >
+          <Typography variant="subtitle2" sx={{ fontWeight: 600, minWidth: 0, wordBreak: 'break-word' }}>
             {selectedTemplate.label} — {displayName || tenant.displayName}
           </Typography>
-          <Chip label={selectedTemplate.schemaOrgType as string} size="small" variant="outlined" color="info" />
+          <SchemaOrgTypeChips value={selectedTemplate.schemaOrgType} />
         </Stack>
 
         {/* Header preview */}
@@ -2618,7 +2623,23 @@ export function EditTenantModal({ open, tenant, onClose, onSnackbar }: EditTenan
       <Stack spacing={1}>
         {googleOAuth.redirectUris.map((uri) => (
           <Stack key={uri} direction="row" spacing={1} sx={{ alignItems: 'center' }}>
-            <Chip label={uri} variant="outlined" onDelete={() => removeRedirectUri(uri)} sx={{ flex: 1, justifyContent: 'flex-start', py: 0.5 }} />
+            <Chip
+              label={uri}
+              variant="outlined"
+              onDelete={() => removeRedirectUri(uri)}
+              sx={{
+                flex: '1 1 100%',
+                maxWidth: '100%',
+                height: 'auto',
+                justifyContent: 'flex-start',
+                py: 0.5,
+                '& .MuiChip-label': {
+                  whiteSpace: 'normal',
+                  wordBreak: 'break-all',
+                  overflowWrap: 'anywhere',
+                },
+              }}
+            />
           </Stack>
         ))}
       </Stack>
@@ -3809,7 +3830,7 @@ export function EditTenantModal({ open, tenant, onClose, onSnackbar }: EditTenan
       </DialogTitle>
 
       {/* BODY WITH STEPPER */}
-      <DialogContent dividers sx={{ p: { xs: 0, md: 0 }, minHeight: 400 }}>
+      <DialogContent dividers sx={{ p: { xs: 0, md: 0 }, minHeight: 400, overflowX: 'hidden' }}>
         <Stepper
           activeStep={activeStep}
           orientation={isMobile ? 'vertical' : 'horizontal'}
@@ -3844,8 +3865,20 @@ export function EditTenantModal({ open, tenant, onClose, onSnackbar }: EditTenan
                 {s.label}
               </StepLabel>
               {isMobile && activeStep === idx ? (
-                <StepContent>
-                  <Box sx={{ py: 1, pb: 2 }}>{stepContent(activeStep)}</Box>
+                <StepContent
+                  sx={{
+                    maxWidth: '100%',
+                    pr: 0,
+                    borderLeftWidth: 1,
+                    ml: 1.5,
+                    pl: 1.5,
+                    minWidth: 0,
+                    '& .MuiCollapse-wrapperInner': { minWidth: 0, maxWidth: '100%' },
+                  }}
+                >
+                  <Box sx={{ py: 1, pb: 2, minWidth: 0, maxWidth: '100%', overflowX: 'hidden' }}>
+                    {stepContent(activeStep)}
+                  </Box>
                 </StepContent>
               ) : null}
             </Step>

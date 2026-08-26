@@ -111,6 +111,7 @@ import {
   type StripeWizardValues,
 } from './stripe-integration-step';
 import { addStripeWebhookHealthToFlightCheck } from './stripe-flight-check';
+import { SchemaOrgTypeChips } from './schema-org-type-chips';
 
 // ── Types ──────────────────────────────────────────────────────
 
@@ -976,9 +977,9 @@ export function CreateAppWizard({ open, onClose, tenantSlug, sourceApp, onSnackb
                       <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
                         {tpl.description}
                       </Typography>
-                      <Stack direction="row" sx={{ gap: 0.5, flexWrap: 'wrap', mt: 0.5 }}>
-                        <Chip label={tpl.schemaOrgType} size="small" variant="outlined" color="info" />
-                        <Chip label={tpl.xsdStandard} size="small" variant="outlined" />
+                      <Stack direction="row" sx={{ gap: 0.5, flexWrap: 'wrap', mt: 0.5, minWidth: 0 }}>
+                        <SchemaOrgTypeChips value={tpl.schemaOrgType} />
+                        <Chip label={tpl.xsdStandard} size="small" variant="outlined" sx={{ maxWidth: '100%', height: 'auto', '& .MuiChip-label': { whiteSpace: 'normal', wordBreak: 'break-word' } }} />
                       </Stack>
                       <Stack direction="row" sx={{ gap: 0.5, flexWrap: 'wrap', mt: 0.5 }}>
                         {tpl.defaultPages.slice(0, 4).map((p) => (
@@ -1805,7 +1806,7 @@ export function CreateAppWizard({ open, onClose, tenantSlug, sourceApp, onSnackb
         </Stack>
       </DialogTitle>
 
-      <DialogContent dividers sx={{ p: { xs: 0, md: 0 }, minHeight: 400 }}>
+      <DialogContent dividers sx={{ p: { xs: 0, md: 0 }, minHeight: 400, overflowX: 'hidden' }}>
         <Stepper
           activeStep={activeStep}
           orientation={isMobile ? 'vertical' : 'horizontal'}
@@ -1840,8 +1841,20 @@ export function CreateAppWizard({ open, onClose, tenantSlug, sourceApp, onSnackb
                 {s.label}
               </StepLabel>
               {isMobile && activeStep === idx ? (
-                <StepContent>
-                  <Box sx={{ py: 1, pb: 2 }}>{stepContent(activeStep)}</Box>
+                <StepContent
+                  sx={{
+                    maxWidth: '100%',
+                    pr: 0,
+                    borderLeftWidth: 1,
+                    ml: 1.5,
+                    pl: 1.5,
+                    minWidth: 0,
+                    '& .MuiCollapse-wrapperInner': { minWidth: 0, maxWidth: '100%' },
+                  }}
+                >
+                  <Box sx={{ py: 1, pb: 2, minWidth: 0, maxWidth: '100%', overflowX: 'hidden' }}>
+                    {stepContent(activeStep)}
+                  </Box>
                 </StepContent>
               ) : null}
             </Step>
