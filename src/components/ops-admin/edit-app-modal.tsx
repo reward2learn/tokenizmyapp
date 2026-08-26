@@ -39,6 +39,7 @@ import LinearProgress from '@mui/material/LinearProgress';
 import Paper from '@mui/material/Paper';
 import Stack from '@mui/material/Stack';
 import Step from '@mui/material/Step';
+import StepContent from '@mui/material/StepContent';
 import StepLabel from '@mui/material/StepLabel';
 import Stepper from '@mui/material/Stepper';
 import TextField from '@mui/material/TextField';
@@ -1789,33 +1790,46 @@ export function EditAppModal({ open, onClose, tenantSlug, app, onSnackbar }: Edi
           orientation={isMobile ? 'vertical' : 'horizontal'}
           nonLinear
           sx={{
-            zIndex: 1000,
             backgroundColor: 'background.default',
             padding: isMobile ? '12px 16px' : '19px 0px',
-            position: 'sticky',
-            top: 0,
-            mb: 4,
+            mb: isMobile ? 0 : 4,
             ...(isMobile
               ? { '& .MuiStepConnector-root': { ml: 1.5 } }
-              : { overflowX: 'auto', flexWrap: 'wrap' }),
+              : {
+                  zIndex: 1000,
+                  position: 'sticky',
+                  top: 0,
+                  overflowX: 'auto',
+                  flexWrap: 'wrap',
+                }),
             '& .MuiStepLabel-root': { cursor: 'pointer' },
           }}
         >
           {EDIT_STEPS.map((s, idx) => (
-            <Step key={s.key} onClick={() => setActiveStep(idx)}>
-              <StepLabel sx={{
-                '& .MuiStepLabel-label': {
-                  fontSize: { xs: '0.8rem', md: '0.8rem' },
-                  fontWeight: activeStep === idx ? 700 : 400,
-                },
-              }}>
+            <Step key={s.key} expanded={isMobile && activeStep === idx}>
+              <StepLabel
+                onClick={() => setActiveStep(idx)}
+                sx={{
+                  '& .MuiStepLabel-label': {
+                    fontSize: { xs: '0.8rem', md: '0.8rem' },
+                    fontWeight: activeStep === idx ? 700 : 400,
+                  },
+                }}
+              >
                 {s.label}
               </StepLabel>
+              {isMobile && activeStep === idx ? (
+                <StepContent>
+                  <Box sx={{ py: 1, pb: 2 }}>{stepContent(activeStep)}</Box>
+                </StepContent>
+              ) : null}
             </Step>
           ))}
         </Stepper>
 
-        <Box sx={{ mt: 2, padding: '24px' }}>{stepContent(activeStep)}</Box>
+        {!isMobile ? (
+          <Box sx={{ mt: 2, padding: '24px' }}>{stepContent(activeStep)}</Box>
+        ) : null}
       </DialogContent>
 
       <DialogActions
