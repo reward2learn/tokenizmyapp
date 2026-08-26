@@ -303,6 +303,7 @@ export function AppShell({ children }: { children: ReactNode }) {
               '&.Mui-selected': {
                 borderLeftColor: 'primary.main',
                 bgcolor: 'rgba(235, 61, 40, 0.06)',
+                borderRadius: '0px',
               },
             }}
           >

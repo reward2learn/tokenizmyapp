@@ -116,6 +116,7 @@ export function ReviewNav({ currentSlug }: { currentSlug: string }) {
                   '&.Mui-selected': {
                     borderLeftColor: 'primary.main',
                     bgcolor: 'rgba(235, 61, 40, 0.08)',
+                    borderRadius: '0px',
                   },
                 }}
               >

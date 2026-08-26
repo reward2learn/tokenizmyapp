@@ -292,6 +292,7 @@ export function createAppTheme(brand: BrandColors, mode: ResolvedThemeMode = 'li
             '&.Mui-selected': {
               backgroundColor: n.railAccent,
               '&:hover': { backgroundColor: n.railAccent },
+              borderRadius: '0px',
             },
           },
         },
