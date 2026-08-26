@@ -404,7 +404,7 @@ export async function changePlan(
   db = await getDb(db);
   const stripe = requireStripeFor(config);
 
-  const { getSubscription } = await import('@/domain/billing/entitlement-service');
+  const { getSubscription, setPlan } = await import('@/domain/billing/entitlement-service');
   const { classifyPlanChange } = await import('@/lib/billing/stripe-client');
 
   const current = await getSubscription(orgId, db);
@@ -444,6 +444,13 @@ export async function changePlan(
     billing_cycle_anchor: 'unchanged',
   });
   await saveStripeLinkage(orgId, { pendingPlanId: null }, db);
+
+  // Optimistic local update so mid-period allowance sync sees the new interval
+  // before the webhook arrives. Webhook setPlan is idempotent with these values.
+  await setPlan(orgId, { planId, interval }, db);
+  const { syncCurrentPeriodPlanAllowance } = await import('@/domain/billing/credit-service');
+  await syncCurrentPeriodPlanAllowance(orgId, db);
+
   return { applied: 'immediate' };
 }
 

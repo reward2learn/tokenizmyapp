@@ -29,6 +29,7 @@ import AccordionSummary from '@mui/material/AccordionSummary';
 import AttachFileIcon from '@mui/icons-material/AttachFile';
 import GridOnIcon from '@mui/icons-material/GridOn';
 import ClearAllIcon from '@mui/icons-material/ClearAll';
+import CloseIcon from '@mui/icons-material/Close';
 import ContentCopyIcon from '@mui/icons-material/ContentCopy';
 import DownloadIcon from '@mui/icons-material/Download';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
@@ -62,6 +63,7 @@ import {
   setActiveTool,
   setComposerInput,
   setSessionStatusMessage,
+  setStreamError,
   setTopUpDialog,
   type ChatStreamMessage,
 } from '@/store/chat-stream-slice';
@@ -643,7 +645,9 @@ export function ChatPanel({
               <Paper
                 elevation={0}
                 sx={{
+                  position: 'relative',
                   p: 1.5,
+                  pr: 5,
                   bgcolor: rateLimitCountdown !== null ? 'rgba(235, 61, 40, 0.08)' : 'error.main',
                   color: rateLimitCountdown !== null ? 'text.primary' : 'error.contrastText',
                   border: '1px solid',
@@ -651,6 +655,22 @@ export function ChatPanel({
                   borderRadius: 1,
                 }}
               >
+                <IconButton
+                  size="small"
+                  aria-label="Dismiss error"
+                  onClick={() => {
+                    dispatch(setStreamError(null));
+                    dispatch(clearRateLimit());
+                  }}
+                  sx={{
+                    position: 'absolute',
+                    top: 4,
+                    right: 4,
+                    color: rateLimitCountdown !== null ? 'text.secondary' : 'error.contrastText',
+                  }}
+                >
+                  <CloseIcon fontSize="small" />
+                </IconButton>
                 <Stack spacing={1}>
                   <Typography variant="body2" role="alert">
                     {rateLimitCountdown !== null

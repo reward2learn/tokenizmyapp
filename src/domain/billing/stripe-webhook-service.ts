@@ -346,9 +346,9 @@ async function handleSubscriptionUpdated(
   }
 
   const status = mapSubscriptionStatus(subscription.status);
-  const { setPlan } = await import('@/domain/billing/entitlement-service');
+  const { setPlan, getSubscription: getSub } = await import('@/domain/billing/entitlement-service');
   const { saveStripeLinkage } = await import('@/domain/billing/stripe-service');
-
+  const subBefore = await getSub(orgId, db);
   await setPlan(orgId, { planId: mapped.planId, interval: mapped.interval, status }, db);
   await saveStripeLinkage(
     orgId,
@@ -366,12 +366,23 @@ async function handleSubscriptionUpdated(
     db,
   );
 
+  let syncNote = '';
+  const planOrIntervalChanged =
+    subBefore.planId !== mapped.planId || subBefore.interval !== mapped.interval;
+  if (planOrIntervalChanged && status !== 'canceled') {
+    const { syncCurrentPeriodPlanAllowance } = await import('@/domain/billing/credit-service');
+    const sync = await syncCurrentPeriodPlanAllowance(orgId, db);
+    if (sync.action === 'topped_up' || sync.action === 'granted') {
+      syncNote = ` Allowance sync: +${sync.delta} credits (${sync.action}).`;
+    }
+  }
+
   return {
     handled: true,
     duplicate: false,
     eventType: 'customer.subscription.updated',
     orgId,
-    message: `Org ${orgId} set to ${mapped.planId} (${mapped.interval}), status ${status}.`,
+    message: `Org ${orgId} set to ${mapped.planId} (${mapped.interval}), status ${status}.${syncNote}`,
   };
 }
 
@@ -467,28 +478,40 @@ async function handleInvoicePaid(
     };
   }
 
-  const { grantCredits } = await import('@/domain/billing/credit-service');
-  await grantCredits(
-    orgId,
-    {
-      source: 'plan',
-      amount: creditAllowance,
-      planId,
-      metadata: {
-        stripeInvoiceId: invoice.id,
-        billingReason: invoice.billing_reason,
-        interval,
-      },
-    },
-    db,
+  const { grantMonthlyAllowanceIfDue, syncCurrentPeriodPlanAllowance } = await import(
+    '@/domain/billing/credit-service',
   );
+
+  // Proration invoices (plan/interval changes mid-period) top up the existing
+  // grant to the new target — they must not mint a second full allowance.
+  if (invoice.billing_reason === 'subscription_update') {
+    const sync = await syncCurrentPeriodPlanAllowance(orgId, db);
+    return {
+      handled: true,
+      duplicate: false,
+      eventType: 'invoice.paid',
+      orgId,
+      message: `Synced plan allowance after proration invoice ${invoice.id}: ${sync.action}, delta ${sync.delta}.`,
+    };
+  }
+
+  const grant = await grantMonthlyAllowanceIfDue(orgId, db);
+  if (!grant) {
+    return {
+      handled: true,
+      duplicate: false,
+      eventType: 'invoice.paid',
+      orgId,
+      message: `Invoice ${invoice.id} paid; plan allowance already issued for this period.`,
+    };
+  }
 
   return {
     handled: true,
     duplicate: false,
     eventType: 'invoice.paid',
     orgId,
-    message: `Granted ${creditAllowance} credits to org ${orgId} for a paid ${planId} (${interval}) invoice.`,
+    message: `Granted ${grant.amount} credits to org ${orgId} for a paid ${planId} (${interval}) invoice.`,
   };
 }
 

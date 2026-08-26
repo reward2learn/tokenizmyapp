@@ -81,11 +81,23 @@ const redeemCreditPack = vi.fn(async (orgId: string) => {
 vi.mock('@/domain/billing/entitlement-service', () => ({
   ensureBillingTables: vi.fn(async () => {}),
   setPlan: (...args: Parameters<typeof setPlan>) => setPlan(...args),
-  getSubscription: vi.fn(async () => ({ planId: 'pro', status: 'active' })),
+  getSubscription: vi.fn(async () => ({
+    planId: 'pro',
+    status: 'active',
+    interval: 'monthly',
+  })),
 }));
 
 vi.mock('@/domain/billing/credit-service', () => ({
   grantCredits: (...args: Parameters<typeof grantCredits>) => grantCredits(...args),
+  grantMonthlyAllowanceIfDue: vi.fn(async () => ({ id: 'g1', amount: 52800 })),
+  syncCurrentPeriodPlanAllowance: vi.fn(async () => ({
+    action: 'topped_up' as const,
+    targetCredits: 60720,
+    delta: 7920,
+    planId: 'pro',
+    grantId: 'g1',
+  })),
   redeemCreditPack: (...args: Parameters<typeof redeemCreditPack>) => redeemCreditPack(...args),
 }));
 
@@ -255,6 +267,8 @@ describe('subscription events', () => {
 
 describe('invoice events', () => {
   it('grants the period allowance only when the invoice is actually paid', async () => {
+    const { grantMonthlyAllowanceIfDue } = await import('@/domain/billing/credit-service');
+
     await service.processStripeEvent(
       event('invoice.paid', {
         id: 'in_1',
@@ -266,8 +280,26 @@ describe('invoice events', () => {
       db,
     );
 
-    expect(grantCredits).toHaveBeenCalledTimes(1);
-    expect(db.grants[0]).toMatchObject({ orgId: 'org_known', source: 'plan' });
+    expect(grantMonthlyAllowanceIfDue).toHaveBeenCalledTimes(1);
+    expect(grantCredits).not.toHaveBeenCalled();
+  });
+
+  it('syncs allowance on proration invoices instead of minting a second full grant', async () => {
+    const { syncCurrentPeriodPlanAllowance } = await import('@/domain/billing/credit-service');
+
+    await service.processStripeEvent(
+      event('invoice.paid', {
+        id: 'in_proration',
+        customer: 'cus_known',
+        metadata: {},
+        billing_reason: 'subscription_update',
+        lines: { data: [{ pricing: { price_details: { price: 'price_pro_yearly' } } }] },
+      }),
+      db,
+    );
+
+    expect(syncCurrentPeriodPlanAllowance).toHaveBeenCalledTimes(1);
+    expect(grantCredits).not.toHaveBeenCalled();
   });
 
   it('marks past_due on failure without dropping the plan', async () => {

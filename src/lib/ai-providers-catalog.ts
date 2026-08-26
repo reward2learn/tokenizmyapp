@@ -39,6 +39,30 @@ export const FACTORY_OLLAMA_V1_BASE = 'https://tokenizmyapp.vercel.app/api/ollam
  */
 export const KEYLESS_PROVIDER_BEARER = 'ollama';
 
+/** True for the placeholder token used when a provider needs no real API key. */
+export function isKeylessProviderBearer(apiKey: string | null | undefined): boolean {
+  return apiKey === KEYLESS_PROVIDER_BEARER;
+}
+
+/**
+ * Authorization headers for upstream provider fetches. Keyless providers
+ * (ollama-studio) omit Bearer entirely — the Mac Studio tunnel and warm-model
+ * checks use no auth; sending `Bearer ollama` can make gateways return 502.
+ */
+export function buildProviderFetchHeaders(
+  apiKey: string | null | undefined,
+  extra: Record<string, string> = {},
+): Record<string, string> {
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+    ...extra,
+  };
+  if (apiKey && !isKeylessProviderBearer(apiKey)) {
+    headers.Authorization = `Bearer ${apiKey}`;
+  }
+  return headers;
+}
+
 /** Whether an API key must be stored before activate, chat, or model listing. */
 export function providerRequiresApiKey(provider: AiProviderDef): boolean {
   return provider.modelsRequireAuth;
@@ -239,15 +263,13 @@ function resolveModelsFetchUrl(provider: AiProviderDef): string {
 }
 
 export async function listProviderModels(provider: AiProviderDef, apiKey: string | null): Promise<AiModelOption[]> {
-  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-  if (provider.modelsRequireAuth) {
-    if (!apiKey) throw new Error(`${provider.label} requires an API key to list models`);
-    headers.Authorization = `Bearer ${apiKey}`;
-  } else if (apiKey && apiKey !== KEYLESS_PROVIDER_BEARER) {
-    headers.Authorization = `Bearer ${apiKey}`;
+  if (provider.modelsRequireAuth && !apiKey) {
+    throw new Error(`${provider.label} requires an API key to list models`);
   }
 
-  const response = await fetch(resolveModelsFetchUrl(provider), { headers });
+  const response = await fetch(resolveModelsFetchUrl(provider), {
+    headers: buildProviderFetchHeaders(apiKey),
+  });
   if (!response.ok) {
     const body = await response.text().catch(() => '');
     throw new Error(`Failed to list ${provider.label} models (${response.status}): ${body.slice(0, 300)}`);

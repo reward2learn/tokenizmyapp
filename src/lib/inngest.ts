@@ -10,6 +10,16 @@ export function inngestEventsEnabled(): boolean {
   return Boolean(process.env.INNGEST_EVENT_KEY?.trim());
 }
 
+/** Auth/config failures from Inngest Cloud — treat like "not configured". */
+export function isInngestAuthError(err: unknown): boolean {
+  const message = err instanceof Error ? err.message : String(err);
+  return (
+    message.includes('401')
+    || /event key not found/i.test(message)
+    || /signing key/i.test(message)
+  );
+}
+
 /**
  * Send an Inngest event without failing the caller when Inngest is not configured
  * (common on factory deployments that only use Vercel webhooks for audit).
@@ -17,10 +27,11 @@ export function inngestEventsEnabled(): boolean {
 export async function safeInngestSend(
   event: Parameters<typeof inngest.send>[0],
 ): Promise<boolean> {
+  const name = Array.isArray(event)
+    ? event.map((e) => e.name).join(', ')
+    : event.name;
+
   if (!inngestEventsEnabled()) {
-    const name = Array.isArray(event)
-      ? event.map((e) => e.name).join(', ')
-      : event.name;
     console.warn(`[inngest] INNGEST_EVENT_KEY not set — skipped event ${name}`);
     return false;
   }
@@ -29,6 +40,12 @@ export async function safeInngestSend(
     return true;
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
+    if (isInngestAuthError(err)) {
+      console.warn(
+        `[inngest] INNGEST_EVENT_KEY invalid or missing in Inngest Cloud — skipped event ${name}: ${message}`,
+      );
+      return false;
+    }
     console.error(`[inngest] send failed: ${message}`);
     return false;
   }

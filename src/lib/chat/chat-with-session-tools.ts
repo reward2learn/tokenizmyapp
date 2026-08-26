@@ -13,6 +13,7 @@ import {
   foldMeterIntoUsage,
   type AiUsageSummary,
 } from '@/lib/billing/ai-usage-summary';
+import { buildProviderFetchHeaders } from '@/lib/ai-providers-catalog';
 
 export const CHAT_WEB_SEARCH_INSTRUCTIONS = `Web search is enabled on this chat model. When the user asks about current events, live market data, recent news, or information that may have changed after your training data, search the web before answering. Cite sources briefly when web results are used.`;
 
@@ -91,28 +92,40 @@ const SSE_HEADERS = {
 
 const MAX_TOOL_ROUNDS = 4;
 
-function openAiErrorMessage(status: number, detail?: string): string {
+const STUDIO_PROVIDER_ID = 'ollama-studio';
+
+/** User-facing message for a failed upstream chat completion. Exported for tests. */
+export function openAiErrorMessage(status: number, detail?: string, providerId?: string | null): string {
   if (detail?.trim()) return detail.trim();
   if (status === 401) return 'The AI provider API key appears to be invalid.';
   if (status === 402) return 'The AI provider account has no credits remaining.';
   if (status === 429) return 'The AI service is currently rate-limited.';
+  if (status === 502 || status === 503) {
+    if (providerId === STUDIO_PROVIDER_ID) {
+      return 'The Mac Studio AI tunnel returned an error. Confirm OLLAMA_TUNNEL_HOST is reachable from Vercel and the model is loaded, then try again.';
+    }
+    return 'The AI service is temporarily unavailable. Please try again in a moment.';
+  }
   if (status === 504 || status === 524) {
     return 'The local model took too long to respond. Try a smaller model (e.g. llama3.1:8b) or send a shorter message.';
   }
   return 'The AI service returned an error.';
 }
 
-async function readOpenAiError(response: Response): Promise<string> {
-  try {
-    const data = await response.json() as { error?: string | { message?: string } };
-    if (typeof data.error === 'string' && data.error.trim()) return data.error.trim();
-    if (data.error && typeof data.error === 'object' && data.error.message?.trim()) {
-      return data.error.message.trim();
+async function readOpenAiError(response: Response, providerId?: string | null): Promise<string> {
+  const raw = await response.text().catch(() => '');
+  if (raw.trim()) {
+    try {
+      const data = JSON.parse(raw) as { error?: string | { message?: string } };
+      if (typeof data.error === 'string' && data.error.trim()) return data.error.trim();
+      if (data.error && typeof data.error === 'object' && data.error.message?.trim()) {
+        return data.error.message.trim();
+      }
+    } catch {
+      return raw.trim().slice(0, 300);
     }
-  } catch {
-    // ignore parse errors
   }
-  return openAiErrorMessage(response.status);
+  return openAiErrorMessage(response.status, undefined, providerId);
 }
 
 function encodeSseLine(payload: unknown): string {

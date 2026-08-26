@@ -26,6 +26,8 @@ export {
   AI_PROVIDERS,
   FACTORY_OLLAMA_V1_BASE,
   KEYLESS_PROVIDER_BEARER,
+  isKeylessProviderBearer,
+  buildProviderFetchHeaders,
   getAiProvider,
   findProviderInCatalog,
   withBuiltinAiProviders,
