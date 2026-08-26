@@ -190,8 +190,9 @@ async function requestOpenAiCompletion(
     max_tokens: 1200,
     ...(webSearchEnabled ? {} : { temperature: 0.7 }),
     stream,
-    // OpenAI-only — Ollama streams do not emit a final usage chunk.
-    ...(stream && !studioLocal ? { stream_options: { include_usage: true } } : {}),
+    // OpenAI and Ollama (OpenAI-compat) emit a final usage chunk when
+    // include_usage is set — required for metering streamed chat turns.
+    ...(stream ? { stream_options: { include_usage: true } } : {}),
   };
 
   return fetch(chatCompletionsUrl, {

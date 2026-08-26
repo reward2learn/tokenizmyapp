@@ -34,6 +34,20 @@ describe('consumeOpenAiStream', () => {
     expect(result.toolCalls).toEqual([]);
   });
 
+  it('captures usage from the final include_usage stream chunk', async () => {
+    const result = await consumeOpenAiStream(
+      sseBody([
+        'data: {"choices":[{"delta":{"content":"Hi"}}]}',
+        'data: {"choices":[{"delta":{},"finish_reason":"stop"}]}',
+        'data: {"choices":[],"usage":{"prompt_tokens":120,"completion_tokens":45}}',
+        'data: [DONE]',
+      ]),
+    );
+
+    expect(result.content).toBe('Hi');
+    expect(result.usage).toEqual({ promptTokens: 120, completionTokens: 45 });
+  });
+
   it('accumulates streamed tool calls', async () => {
     const result = await consumeOpenAiStream(
       sseBody([
