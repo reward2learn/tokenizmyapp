@@ -10,6 +10,7 @@
 import type { ExcelData } from '@/domain/excel/excel-extractor';
 import { buildDataSummary } from '@/domain/ai-content/prompt-builder';
 import type { ActiveAiConfig } from '@/lib/ai-providers';
+import { resolveChatCompletionsUrl } from '@/lib/ai-providers';
 import type { DbClient } from '@/lib/db';
 import { parseBlockConfig } from '@/lib/schemas/block-config';
 import { getCurrentAppId } from '@shared/lib/config/tenant';
@@ -281,7 +282,7 @@ async function callAiForSectionMarkdown(
     .filter(Boolean)
     .join('\n');
 
-  const response = await fetch(ai.provider.chatCompletionsUrl, {
+  const response = await fetch(resolveChatCompletionsUrl(ai.provider), {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',

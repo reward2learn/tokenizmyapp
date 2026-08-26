@@ -28,7 +28,8 @@ export const DUNNING_NOTICE_INTERVAL_MS = 2 * 24 * 60 * 60 * 1000;
  */
 export const DUNNING_LOCK_AFTER_MS = DUNNING_NOTICE_INTERVAL_MS * (DUNNING_MAX_NOTICES - 1);
 
-const DUNNING_DDL = `
+/** One statement per call — Prisma prepared statements reject multi-command SQL (42601). */
+const DUNNING_STATE_DDL = `
 CREATE TABLE IF NOT EXISTS billing_dunning_state (
   org_id TEXT PRIMARY KEY,
   attempt_count INTEGER NOT NULL DEFAULT 0,
@@ -40,8 +41,9 @@ CREATE TABLE IF NOT EXISTS billing_dunning_state (
   stripe_invoice_id TEXT,
   unlock_user_id TEXT,
   updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
-);
+)`;
 
+const DUNNING_NOTIFICATIONS_DDL = `
 CREATE TABLE IF NOT EXISTS billing_notifications (
   id TEXT PRIMARY KEY,
   org_id TEXT NOT NULL,
@@ -51,11 +53,11 @@ CREATE TABLE IF NOT EXISTS billing_notifications (
   body TEXT NOT NULL,
   countdown_label TEXT,
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
-);
+)`;
 
+const DUNNING_NOTIFICATIONS_IDX = `
 CREATE INDEX IF NOT EXISTS idx_billing_notifications_org
-  ON billing_notifications (org_id, created_at DESC);
-`;
+  ON billing_notifications (org_id, created_at DESC)`;
 
 export interface DunningState {
   orgId: string;
@@ -77,7 +79,9 @@ async function getDb(db?: RawDb): Promise<RawDb> {
 
 export async function ensureDunningTables(db?: RawDb): Promise<RawDb> {
   db = await getDb(db);
-  await db.$executeRawUnsafe(DUNNING_DDL);
+  await db.$executeRawUnsafe(DUNNING_STATE_DDL);
+  await db.$executeRawUnsafe(DUNNING_NOTIFICATIONS_DDL);
+  await db.$executeRawUnsafe(DUNNING_NOTIFICATIONS_IDX);
   return db;
 }
 

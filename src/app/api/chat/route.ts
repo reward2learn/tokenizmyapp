@@ -5,7 +5,7 @@ import { NextResponse } from 'next/server';
 import { z } from 'zod';
 import { createClient, createBillingRawClient } from '@/lib/db';
 import { resolveOpenAiKey } from '@/lib/openai';
-import { resolveActiveAiConfig } from '@/lib/ai-providers';
+import { resolveActiveAiConfig, resolveChatCompletionsUrl } from '@/lib/ai-providers';
 import { KnowledgeService } from '@/domain/knowledge/knowledge-service';
 import { getSessionFromRequest } from '@/lib/auth/session';
 import { sessionIsPlatformAdmin } from '@/lib/auth/jwt';
@@ -44,7 +44,8 @@ import { resolveTenantSelfServeBilling } from '@/domain/billing/self-serve-billi
 import { resolveViewerUserId } from '@/lib/auth/resolve-viewer-user';
 
 export const dynamic = 'force-dynamic';
-export const maxDuration = 60;
+/** Large local models (ollama-studio / 72B) can exceed 60s before first token. */
+export const maxDuration = 300;
 
 let conversationsEnsured: Promise<boolean> | null = null;
 function ensureConversationsOnce(): Promise<boolean> {
@@ -567,6 +568,8 @@ async function handleChatPost(request: Request): Promise<Response> {
 
     const viewerUserId = session?.sub ? await resolveViewerUserId(session.sub) : undefined;
 
+    const chatCompletionsUrl = resolveChatCompletionsUrl(ai.provider);
+
     // ── MapReduce: if system prompt is too large, extract relevant context in chunks ──
     const systemMsg = messages[0];
     let mapReduceUsage: AiUsageSummary | null = null;
@@ -576,7 +579,7 @@ async function handleChatPost(request: Request): Promise<Response> {
         const { reduced, usage } = await mapReduceContext(
           systemMsg.content,
           message,
-          ai.provider.chatCompletionsUrl,
+          chatCompletionsUrl,
           ai.apiKey,
           // gpt-4o-mini is a known-cheap OpenAI model for this map phase;
           // other providers just reuse the selected chat model.
@@ -649,7 +652,7 @@ async function handleChatPost(request: Request): Promise<Response> {
     };
 
     return completeChatWithSessionTools({
-      chatCompletionsUrl: ai.provider.chatCompletionsUrl,
+      chatCompletionsUrl,
       apiKey: ai.apiKey,
       // The search-preview override (inside resolveEffectiveChatModel) is
       // OpenAI-only — webSearchEnabled is already forced false above for

@@ -13,6 +13,7 @@ import { buildDashboardPrompt } from '@/domain/ai-content/prompt-builder';
 import { meterAiUsage } from '@/domain/billing/credit-service';
 import { toAiUsageSummary, type AiUsageSummary } from '@/lib/billing/ai-usage-summary';
 import type { ActiveAiConfig } from '@/lib/ai-providers';
+import { resolveChatCompletionsUrl } from '@/lib/ai-providers';
 import type { DbClient } from '@/lib/db';
 import { findCachedWorkbook } from '@/lib/workbook-cache';
 import { getCurrentAppId, getTenantConfig } from '@shared/lib/config/tenant';
@@ -172,7 +173,7 @@ export async function generateAndSaveDashboardSlice(
       : `## Current ${input.slice}\n(empty — write fresh content)`,
   ].join('\n');
 
-  const response = await fetch(input.ai.provider.chatCompletionsUrl, {
+  const response = await fetch(resolveChatCompletionsUrl(input.ai.provider), {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',

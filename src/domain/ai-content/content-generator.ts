@@ -21,7 +21,7 @@
 import { extractExcelData, extractExcelDataFromBuffers } from '@/domain/excel/excel-extractor';
 import { buildGenerationPrompt, buildDashboardPrompt } from '@/domain/ai-content/prompt-builder';
 import { buildSeededPromptContext } from '@/domain/ai-content/seeded-prompt-context';
-import { resolveActiveAiConfig, type ActiveAiConfig } from '@/lib/ai-providers';
+import { resolveActiveAiConfig, resolveChatCompletionsUrl, type ActiveAiConfig } from '@/lib/ai-providers';
 import type { DbClient } from '@/lib/db';
 import { withTimeout } from '@/lib/with-timeout';
 import { getCurrentAppId } from '@shared/lib/config/tenant';
@@ -162,7 +162,7 @@ async function callAiProviderForDocument(
     pct: documentType === 'businessReview' ? 40 : 55,
   });
 
-  const response = await fetch(ai.provider.chatCompletionsUrl, {
+  const response = await fetch(resolveChatCompletionsUrl(ai.provider), {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -281,7 +281,7 @@ async function generateDashboardData(
 ): Promise<{ data: DashboardData; usage: AiUsageSummary | null } | null> {
   const dashboardPrompt = buildDashboardPrompt(data, additionalContext);
 
-  const response = await fetch(ai.provider.chatCompletionsUrl, {
+  const response = await fetch(resolveChatCompletionsUrl(ai.provider), {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',

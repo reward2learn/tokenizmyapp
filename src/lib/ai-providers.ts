@@ -31,6 +31,7 @@ export {
   withBuiltinAiProviders,
   providerRequiresApiKey,
   isProviderConfigured,
+  resolveChatCompletionsUrl,
   listProviderModels,
   type AiProviderDef,
   type AiProviderId,

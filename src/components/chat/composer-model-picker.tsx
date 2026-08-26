@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import CircularProgress from '@mui/material/CircularProgress';
 import FormControl from '@mui/material/FormControl';
 import FormHelperText from '@mui/material/FormHelperText';
@@ -11,17 +11,35 @@ import Stack from '@mui/material/Stack';
 import Typography from '@mui/material/Typography';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import ErrorIcon from '@mui/icons-material/Error';
+import WarningAmberIcon from '@mui/icons-material/WarningAmber';
 import { useAppDispatch, useAppSelector } from '@/store/hooks';
 import { setSelectedModel, setSelectedProviderId } from '@/store/chat-stream-slice';
 import type { AiProviderId } from '@/store/apis/config-api';
 import {
   useGetChatAiOptionsQuery,
+  useWarmStudioModelMutation,
   type ChatAiHealthStatus,
   type ChatAiProviderHealth,
+  type StudioWarmStatus,
 } from '@/store/apis/chat-api';
 
 const STORAGE_PROVIDER = 'chat.selectedProviderId';
 const STORAGE_MODEL = 'chat.selectedModel';
+const STUDIO_PROVIDER_ID: AiProviderId = 'ollama-studio';
+
+function modelLabelWithStatus(studioActive: boolean, warmStatus: StudioWarmStatus): string {
+  if (!studioActive) return 'Model';
+  switch (warmStatus) {
+    case 'warming':
+      return 'Model — Loading…';
+    case 'ready':
+      return 'Model — Ready';
+    case 'error':
+      return 'Model — Unavailable';
+    default:
+      return 'Model';
+  }
+}
 
 function healthIcon(status: ChatAiHealthStatus | 'healthy' | 'unhealthy' | undefined) {
   if (status === 'healthy') {
@@ -42,6 +60,9 @@ export function ComposerModelPicker() {
   const dispatch = useAppDispatch();
   const selectedProviderId = useAppSelector((s) => s.chatStream.selectedProviderId);
   const selectedModel = useAppSelector((s) => s.chatStream.selectedModel);
+  const [warmStatus, setWarmStatus] = useState<StudioWarmStatus>('idle');
+  const [warmStudioModel] = useWarmStudioModelMutation();
+  const warmTargetRef = useRef<string | null>(null);
 
   useEffect(() => {
     try {
@@ -73,6 +94,45 @@ export function ComposerModelPicker() {
 
   const effectiveProviderId = selectedProviderId ?? activeProviderId;
   const effectiveModel = selectedModel ?? activeModel;
+  const studioIsDefault = activeProviderId === STUDIO_PROVIDER_ID;
+  const studioSelected = effectiveProviderId === STUDIO_PROVIDER_ID;
+  const shouldWarmStudio = studioIsDefault && studioSelected && Boolean(effectiveModel);
+
+  // Preload Mac Studio weights when Studio AI is the workspace default and selected.
+  useEffect(() => {
+    if (!shouldWarmStudio || !effectiveModel || isLoading) {
+      if (!studioSelected) {
+        setWarmStatus('idle');
+        warmTargetRef.current = null;
+      }
+      return;
+    }
+
+    const targetKey = `${STUDIO_PROVIDER_ID}:${effectiveModel}`;
+    if (warmTargetRef.current === targetKey) return;
+
+    warmTargetRef.current = targetKey;
+    setWarmStatus('warming');
+
+    let cancelled = false;
+    void warmStudioModel({ model: effectiveModel, providerId: STUDIO_PROVIDER_ID })
+      .unwrap()
+      .then((res) => {
+        if (cancelled) return;
+        if (res.data?.status === 'ready') {
+          setWarmStatus('ready');
+        } else {
+          setWarmStatus('idle');
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setWarmStatus('error');
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [shouldWarmStudio, effectiveModel, isLoading, studioSelected, warmStudioModel]);
 
   // Seed a default model when none is chosen yet (after options load / provider change).
   useEffect(() => {
@@ -118,6 +178,8 @@ export function ComposerModelPicker() {
   const providerUnhealthy = currentProviderHealth?.status === 'unhealthy' || currentProviderHealth?.status === 'unconfigured';
   const modelUnhealthy = modelHealth?.status === 'unhealthy';
   const loadingModels = isFetching && !isLoading;
+  const modelFieldLabel = modelLabelWithStatus(shouldWarmStudio, warmStatus);
+  const studioWarming = shouldWarmStudio && warmStatus === 'warming';
 
   const errorMessage = (() => {
     if (isError) {
@@ -134,6 +196,8 @@ export function ComposerModelPicker() {
   const onProviderChange = (providerId: AiProviderId) => {
     dispatch(setSelectedProviderId(providerId));
     dispatch(setSelectedModel(null));
+    setWarmStatus('idle');
+    warmTargetRef.current = null;
     try {
       localStorage.setItem(STORAGE_PROVIDER, providerId);
       localStorage.removeItem(STORAGE_MODEL);
@@ -144,6 +208,8 @@ export function ComposerModelPicker() {
 
   const onModelChange = (model: string) => {
     dispatch(setSelectedModel(model));
+    setWarmStatus('idle');
+    warmTargetRef.current = null;
     try {
       localStorage.setItem(STORAGE_MODEL, model);
     } catch {
@@ -185,6 +251,7 @@ export function ComposerModelPicker() {
     width: '100%',
     minWidth: 0,
     flex: '1 1 100%',
+    margin: '8px 4px',
     '@container chat-composer (min-width: 500px)': {
       flex: '1 1 0',
     },
@@ -242,14 +309,14 @@ export function ComposerModelPicker() {
 
         <FormControl
           size="small"
-          disabled={loadingModels || providerUnhealthy}
-          error={modelUnhealthy}
+          disabled={loadingModels || providerUnhealthy || studioWarming}
+          error={modelUnhealthy || (shouldWarmStudio && warmStatus === 'error')}
           sx={pickerFieldSx}
         >
-          <InputLabel id="chat-model-label">Model</InputLabel>
+          <InputLabel id="chat-model-label">{modelFieldLabel}</InputLabel>
           <Select
             labelId="chat-model-label"
-            label="Model"
+            label={modelFieldLabel}
             value={effectiveModel ?? ''}
             onChange={(e) => onModelChange(e.target.value)}
           >
@@ -259,12 +326,24 @@ export function ComposerModelPicker() {
               </MenuItem>
             ))}
           </Select>
+          {studioWarming ? (
+            <FormHelperText sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+              <WarningAmberIcon sx={{ fontSize: 14, color: 'warning.main' }} />
+              Mac Studio is loading {effectiveModel} — first reply may take a minute.
+            </FormHelperText>
+          ) : null}
+          {!studioWarming && shouldWarmStudio && warmStatus === 'ready' ? (
+            <FormHelperText>Studio model is loaded and ready.</FormHelperText>
+          ) : null}
+          {!studioWarming && shouldWarmStudio && warmStatus === 'error' ? (
+            <FormHelperText>Warm-up failed — your first message may take longer.</FormHelperText>
+          ) : null}
           {modelUnhealthy && modelHealth?.message ? (
             <FormHelperText>{modelHealth.message}</FormHelperText>
           ) : null}
         </FormControl>
 
-        {loadingModels ? (
+        {loadingModels || studioWarming ? (
           <CircularProgress
             size={18}
             sx={{

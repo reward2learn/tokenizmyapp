@@ -6,6 +6,7 @@ import {
   type CmsFieldValueType,
 } from '@/lib/cms-block-field-catalog';
 import type { ActiveAiConfig } from '@/lib/ai-providers';
+import { resolveChatCompletionsUrl } from '@/lib/ai-providers';
 import { meterAiUsage } from '@/domain/billing/credit-service';
 import { toAiUsageSummary, type AiUsageSummary } from '@/lib/billing/ai-usage-summary';
 
@@ -117,7 +118,7 @@ export async function generateCmsFieldValue(input: GenerateCmsFieldInput): Promi
     `Do not invent named customers unless the field is customer_proof with permissioned data.`,
   ].join('\n');
 
-  const response = await fetch(input.ai.provider.chatCompletionsUrl, {
+  const response = await fetch(resolveChatCompletionsUrl(input.ai.provider), {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',

@@ -451,16 +451,18 @@ export function AppShell({ children }: { children: ReactNode }) {
                 generation runs, so it reads before the tools that spend it. */}
             <HeaderCredits />
             <SavedConversationsMenu />
-            <Tooltip title={chatDrawerOpen ? 'Close AI chat' : 'Open AI chat'}>
-              <IconButton
-                aria-label={chatDrawerOpen ? 'Close AI chat drawer' : 'Open AI chat drawer'}
-                aria-pressed={chatDrawerOpen}
-                onClick={() => dispatch(toggleChatDrawer())}
-                sx={{ color: chatDrawerOpen ? 'primary.main' : 'text.secondary', mr: 0.5 }}
-              >
-                <ChatIcon />
-              </IconButton>
-            </Tooltip>
+            {pathname !== '/ops-chat' ? (
+              <Tooltip title={chatDrawerOpen ? 'Close AI chat' : 'Open AI chat'}>
+                <IconButton
+                  aria-label={chatDrawerOpen ? 'Close AI chat drawer' : 'Open AI chat drawer'}
+                  aria-pressed={chatDrawerOpen}
+                  onClick={() => dispatch(toggleChatDrawer())}
+                  sx={{ color: chatDrawerOpen ? 'primary.main' : 'text.secondary', mr: 0.5 }}
+                >
+                  <ChatIcon />
+                </IconButton>
+              </Tooltip>
+            ) : null}
           </Box>
         </Toolbar>
       </AppBar>

@@ -213,10 +213,22 @@ function mapGenericChatModels(raw: RawModel[]): AiModelOption[] {
  * Builtin providers keep specialized filters; unknown/custom ids use a
  * generic chat-model filter (exclude embed) so DB-defined providers work.
  */
+/** Mac Studio tunnel base (OpenAI-compatible /v1). */
+function ollamaTunnelV1Base(): string {
+  const tunnel = process.env.OLLAMA_TUNNEL_HOST?.trim() || 'https://ollama.tokenizin.com';
+  return `${tunnel.replace(/\/+$/, '')}/v1`;
+}
+
+export function resolveChatCompletionsUrl(provider: AiProviderDef): string {
+  if (provider.id === 'ollama-studio') {
+    return `${ollamaTunnelV1Base()}/chat/completions`;
+  }
+  return provider.chatCompletionsUrl;
+}
+
 function resolveModelsFetchUrl(provider: AiProviderDef): string {
   if (provider.id === 'ollama-studio') {
-    const tunnel = process.env.OLLAMA_TUNNEL_HOST?.trim() || 'https://ollama.tokenizin.com';
-    return `${tunnel.replace(/\/+$/, '')}/v1/models`;
+    return `${ollamaTunnelV1Base()}/models`;
   }
   return provider.modelsUrl;
 }

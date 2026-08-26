@@ -35,6 +35,15 @@ export interface ChatAiOptionsData {
   modelHealth?: { status: 'healthy' | 'unhealthy'; message?: string };
 }
 
+export type StudioWarmStatus = 'idle' | 'warming' | 'ready' | 'error';
+
+export interface WarmStudioModelResult {
+  status: 'ready' | 'skipped';
+  providerId?: string;
+  model?: string;
+  reason?: string;
+}
+
 export const chatApi = createApi({
   reducerPath: 'chatApi',
   baseQuery,
@@ -48,6 +57,17 @@ export const chatApi = createApi({
       query: (args) => ({
         url: 'chat/ai-options',
         params: args?.providerId ? { providerId: args.providerId } : undefined,
+      }),
+    }),
+    /** POST /api/chat/warm-model — preload Mac Studio Ollama weights for the active model. */
+    warmStudioModel: builder.mutation<
+      ApiEnvelope<WarmStudioModelResult>,
+      { model: string; providerId?: string }
+    >({
+      query: (body) => ({
+        url: 'chat/warm-model',
+        method: 'POST',
+        body,
       }),
     }),
     sendMessage: builder.mutation<
@@ -157,6 +177,7 @@ export const chatApi = createApi({
 
 export const {
   useGetChatAiOptionsQuery,
+  useWarmStudioModelMutation,
   useSendMessageMutation,
   useSynthesizeVoiceMutation,
   useListConversationsQuery,

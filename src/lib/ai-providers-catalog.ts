@@ -213,12 +213,27 @@ function mapGenericChatModels(raw: RawModel[]): AiModelOption[] {
  * Builtin providers keep specialized filters; unknown/custom ids use a
  * generic chat-model filter (exclude embed) so DB-defined providers work.
  */
-function resolveModelsFetchUrl(provider: AiProviderDef): string {
-  // Factory deployments: list via OLLAMA_TUNNEL_HOST directly (avoids self-fetch
-  // to /api/ollama and works when the catch-all proxy is unreachable locally).
+/** Mac Studio tunnel base (OpenAI-compatible /v1). */
+function ollamaTunnelV1Base(): string {
+  const tunnel = process.env.OLLAMA_TUNNEL_HOST?.trim() || 'https://ollama.tokenizin.com';
+  return `${tunnel.replace(/\/+$/, '')}/v1`;
+}
+
+/**
+ * Server-side chat URL for a provider. ollama-studio hits the tunnel directly
+ * (one hop, no self-fetch via /api/ollama). Catalog chatCompletionsUrl stays
+ * the factory proxy for external OpenAI-compat clients and documentation.
+ */
+export function resolveChatCompletionsUrl(provider: AiProviderDef): string {
   if (provider.id === 'ollama-studio') {
-    const tunnel = process.env.OLLAMA_TUNNEL_HOST?.trim() || 'https://ollama.tokenizin.com';
-    return `${tunnel.replace(/\/+$/, '')}/v1/models`;
+    return `${ollamaTunnelV1Base()}/chat/completions`;
+  }
+  return provider.chatCompletionsUrl;
+}
+
+function resolveModelsFetchUrl(provider: AiProviderDef): string {
+  if (provider.id === 'ollama-studio') {
+    return `${ollamaTunnelV1Base()}/models`;
   }
   return provider.modelsUrl;
 }

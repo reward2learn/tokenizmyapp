@@ -96,6 +96,9 @@ function openAiErrorMessage(status: number, detail?: string): string {
   if (status === 401) return 'The AI provider API key appears to be invalid.';
   if (status === 402) return 'The AI provider account has no credits remaining.';
   if (status === 429) return 'The AI service is currently rate-limited.';
+  if (status === 504 || status === 524) {
+    return 'The local model took too long to respond. Try a smaller model (e.g. llama3.1:8b) or send a shorter message.';
+  }
   return 'The AI service returned an error.';
 }
 

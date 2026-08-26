@@ -1,5 +1,10 @@
-import { describe, expect, it } from 'vitest';
-import { formatCountdown, DUNNING_MAX_ATTEMPTS, DUNNING_MAX_NOTICES } from '@/domain/billing/dunning-service';
+import { describe, expect, it, vi } from 'vitest';
+import {
+  ensureDunningTables,
+  formatCountdown,
+  DUNNING_MAX_ATTEMPTS,
+  DUNNING_MAX_NOTICES,
+} from '@/domain/billing/dunning-service';
 
 describe('formatCountdown', () => {
   it('formats days hours and minutes', () => {
@@ -16,5 +21,20 @@ describe('dunning constants', () => {
   it('matches the product policy of 3 attempts and 3 notices', () => {
     expect(DUNNING_MAX_ATTEMPTS).toBe(3);
     expect(DUNNING_MAX_NOTICES).toBe(3);
+  });
+});
+
+describe('ensureDunningTables', () => {
+  it('runs one DDL statement per executeRawUnsafe call', async () => {
+    const executeRawUnsafe = vi.fn().mockResolvedValue(0);
+    await ensureDunningTables({
+      $executeRawUnsafe: executeRawUnsafe,
+      $queryRawUnsafe: vi.fn(),
+    } as never);
+
+    expect(executeRawUnsafe).toHaveBeenCalledTimes(3);
+    for (const [sql] of executeRawUnsafe.mock.calls) {
+      expect(String(sql).split(';').filter((s) => s.trim()).length).toBeLessThanOrEqual(1);
+    }
   });
 });

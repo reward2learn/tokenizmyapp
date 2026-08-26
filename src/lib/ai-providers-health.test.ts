@@ -89,4 +89,11 @@ describe('keyless provider helpers', () => {
     expect(isProviderConfigured(openai, null)).toBe(false);
     expect(isProviderConfigured(openai, 'db')).toBe(true);
   });
+
+  it('resolveChatCompletionsUrl hits the tunnel for ollama-studio', async () => {
+    const { resolveChatCompletionsUrl } = await import('@/lib/ai-providers-catalog');
+    const studio = AI_PROVIDERS.find((p) => p.id === 'ollama-studio')!;
+    expect(resolveChatCompletionsUrl(studio)).toBe('https://ollama.tokenizin.com/v1/chat/completions');
+    expect(studio.chatCompletionsUrl).toContain('tokenizmyapp.vercel.app/api/ollama');
+  });
 });

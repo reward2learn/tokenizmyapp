@@ -18,7 +18,7 @@
  * execute (known block types, known auth tiers, hex colours).
  */
 import { z } from 'zod';
-import { resolveActiveAiConfig } from '@/lib/ai-providers';
+import { resolveActiveAiConfig, resolveChatCompletionsUrl } from '@/lib/ai-providers';
 import { scrapeUrl } from '@/domain/ai/url-scraper-service';
 import { withTimeout } from '@/lib/with-timeout';
 import { DEFAULT_WEB3_WALLET } from '@/lib/web3/reown';
@@ -374,7 +374,7 @@ export async function generateCustomTemplate(
     sourceRef = 'knowledge-base';
   }
 
-  const response = await fetch(ai.provider.chatCompletionsUrl, {
+  const response = await fetch(resolveChatCompletionsUrl(ai.provider), {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
