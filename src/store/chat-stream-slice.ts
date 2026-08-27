@@ -18,14 +18,15 @@ export const STORAGE_MODEL = 'chat.selectedModel';
 export const STUDIO_PROVIDER_ID: AiProviderId = 'ollama-studio';
 const AI_FINDINGS_CONTEXT_KEY = 'ai_findings_context';
 
-function readComposerPrefs(): { providerId: AiProviderId | null; model: string | null } {
-  if (typeof window === 'undefined') return { providerId: null, model: null };
+function readComposerPrefs(): { model: string | null } {
+  if (typeof window === 'undefined') return { model: null };
   try {
-    const providerId = localStorage.getItem(STORAGE_PROVIDER) as AiProviderId | null;
+    // Provider is tenant-default only — drop any legacy chat provider pick.
+    localStorage.removeItem(STORAGE_PROVIDER);
     const model = localStorage.getItem(STORAGE_MODEL);
-    return { providerId, model };
+    return { model };
   } catch {
-    return { providerId: null, model: null };
+    return { model: null };
   }
 }
 
@@ -118,7 +119,8 @@ const initialState: ChatStreamState = {
   pendingSessionActions: [],
   pendingCreditTopUp: null,
   activeTool: null,
-  selectedProviderId: composerPrefs.providerId,
+  /** Always null in chat — provider comes from tenant Config default. */
+  selectedProviderId: null,
   selectedModel: composerPrefs.model,
   studioWarmStatus: 'idle',
   studioWarmModel: null,
@@ -167,7 +169,7 @@ export const sendStreamingMessage = createAsyncThunk<
   // Read from the store rather than an argument so every caller sends the
   // selected tool without having to thread it through.
   const chatState = getState().chatStream;
-  const { activeTool, selectedProviderId, selectedModel } = chatState;
+  const { activeTool, selectedModel } = chatState;
   let conversationId = chatState.conversationId;
   if (!conversationId) {
     conversationId =
@@ -200,7 +202,6 @@ export const sendStreamingMessage = createAsyncThunk<
         // Explicit composer selection — forces the matching tool on server-side
         // instead of relying on the message-phrasing heuristic.
         ...(activeTool ? { activeTool } : {}),
-        ...(selectedProviderId ? { providerId: selectedProviderId } : {}),
         ...(selectedModel ? { model: selectedModel } : {}),
       }),
     });
@@ -387,15 +388,13 @@ export const chatStreamSlice = createSlice({
     setActiveTool(state, action: { payload: ChatComposerTool | null }) {
       state.activeTool = action.payload;
     },
-    setSelectedProviderId(state, action: { payload: AiProviderId | null }) {
-      state.selectedProviderId = action.payload;
-      // Changing provider clears a model that may not exist on the new provider.
+    setSelectedProviderId(state, _action: { payload: AiProviderId | null }) {
+      // Chat no longer allows provider overrides — tenant Config default only.
+      state.selectedProviderId = null;
       state.selectedModel = null;
       state.warmTargetKey = null;
-      if (action.payload !== STUDIO_PROVIDER_ID) {
-        state.studioWarmStatus = 'idle';
-        state.studioWarmModel = null;
-      }
+      state.studioWarmStatus = 'idle';
+      state.studioWarmModel = null;
     },
     setSelectedModel(state, action: { payload: string | null }) {
       state.selectedModel = action.payload;

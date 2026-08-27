@@ -8,6 +8,7 @@
  */
 
 import type { PrismaClient } from '@/generated/prisma';
+import { cleanupLegacySheetAppPages } from '@/domain/cms/cleanup-legacy-sheet-pages';
 import { getCurrentAppId, getTenantConfig } from '@shared/lib/config/tenant';
 import { toRoutePageSlug, toStoragePageSlug } from '@shared/lib/page-slug';
 
@@ -581,6 +582,28 @@ export async function ensureExcelNavigationFolder(
 }
 
 /**
+ * Collapse legacy `sheet-*` + suite `finance-sheet-*` app_pages rows that share
+ * one public route (e.g. both → `/sheet-daily-sales`). Prefer app-prefixed storage.
+ */
+export function dedupeSheetPagesByRoutePath(
+  sheets: { slug: string; title: string }[],
+  appId: string,
+): { title: string; path: string }[] {
+  const byPath = new Map<string, { title: string; path: string; prefer: boolean }>();
+  for (const sheet of sheets) {
+    const routeSlug = toRoutePageSlug(sheet.slug, appId);
+    if (!routeSlug.startsWith('sheet-')) continue;
+    const path = `/${routeSlug}`;
+    const prefer = Boolean(appId) && sheet.slug.startsWith(`${appId}-`);
+    const existing = byPath.get(path);
+    if (!existing || (prefer && !existing.prefer)) {
+      byPath.set(path, { title: sheet.title, path, prefer });
+    }
+  }
+  return [...byPath.values()].map(({ title, path }) => ({ title, path }));
+}
+
+/**
  * Sheet → nav sync under a parent folder.
  *
  * When `parentId` is omitted, finds/creates the Excel folder (empty path, public
@@ -617,18 +640,28 @@ export async function syncSheetPagesIntoNavigation(
     prefixedPattern,
   );
 
+  // Both finance-sheet-daily-sales and sheet-daily-sales → /sheet-daily-sales;
+  // inserting both trips uq_navigation_items_tenant_app_parent_path (23505).
+  const uniqueSheets = dedupeSheetPagesByRoutePath(sheets, appId);
+
   const storagePathPattern = appId ? `/${toStoragePageSlug('sheet-', appId)}%` : '/sheet-%';
 
   if (usingExcelFolder) {
-    // Wipe all Excel folder children + orphaned sheet nav rows in this app.
+    // Wipe folder children (any app_id) + orphaned sheet nav rows in this app.
+    // Children under this folder must go even if app_id is legacy-null; otherwise
+    // re-insert with app_id=finance can still collide on (parent, path) after claim.
     await prisma.$executeRawUnsafe(
       `DELETE FROM navigation_items
-       WHERE COALESCE(app_id, '') = $1
-         AND id <> $2
+       WHERE id <> $2
          AND (
            parent_id = $2
-           OR path LIKE '/sheet-%'
-           OR ($3::text <> '/sheet-%' AND path LIKE $3)
+           OR (
+             COALESCE(app_id, '') = $1
+             AND (
+               path LIKE '/sheet-%'
+               OR ($3::text <> '/sheet-%' AND path LIKE $3)
+             )
+           )
          )`,
       appId,
       folderId,
@@ -639,10 +672,13 @@ export async function syncSheetPagesIntoNavigation(
     await prisma.$executeRawUnsafe(
       `DELETE FROM navigation_items
        WHERE parent_id = $1
-         AND COALESCE(app_id, '') = $2
          AND (
            path LIKE '/sheet-%'
            OR ($3::text <> '/sheet-%' AND path LIKE $3)
+         )
+         AND (
+           COALESCE(app_id, '') = $2
+           OR COALESCE(app_id, '') = ''
          )`,
       folderId,
       appId,
@@ -652,32 +688,35 @@ export async function syncSheetPagesIntoNavigation(
 
   let created = 0;
   let navSort = 0;
-  for (const sheet of sheets) {
-    const routeSlug = toRoutePageSlug(sheet.slug, appId);
-    if (!routeSlug.startsWith('sheet-')) continue;
-    const path = `/${routeSlug}`;
-
-    await prisma.$executeRawUnsafe(
-      `INSERT INTO navigation_items (
-         id, parent_id, sort_order, title, path, icon, auth_tier, required_groups,
-         is_visible, is_dynamic, tenant_slug, app_id, updated_at
-       )
-       VALUES (
-         gen_random_uuid()::TEXT, $1, $2, $3, $4, 'Description', CAST('google' AS "AuthTier"), '',
-         TRUE, TRUE, $5, $6, CURRENT_TIMESTAMP
-       )`,
-      folderId,
-      navSort++,
-      sheet.title,
-      path,
-      tenantSlug,
-      appId || null,
-    );
-    created += 1;
+  for (const sheet of uniqueSheets) {
+    try {
+      await prisma.$executeRawUnsafe(
+        `INSERT INTO navigation_items (
+           id, parent_id, sort_order, title, path, icon, auth_tier, required_groups,
+           is_visible, is_dynamic, tenant_slug, app_id, updated_at
+         )
+         VALUES (
+           gen_random_uuid()::TEXT, $1, $2, $3, $4, 'Description', CAST('google' AS "AuthTier"), '',
+           TRUE, TRUE, $5, $6, CURRENT_TIMESTAMP
+         )`,
+        folderId,
+        navSort++,
+        sheet.title,
+        sheet.path,
+        tenantSlug,
+        appId || null,
+      );
+      created += 1;
+    } catch (err) {
+      // Race / residual unique hit — skip and continue so GET /navigation stays 200.
+      const message = err instanceof Error ? err.message : String(err);
+      if (!message.includes('23505')) throw err;
+      console.warn(`[navigation] Skip duplicate sheet nav path ${sheet.path}:`, message);
+    }
   }
 
   await reconcileNavigationDuplicates(prisma, scope);
-  return { created, parentId: folderId, totalSheets: sheets.length };
+  return { created, parentId: folderId, totalSheets: uniqueSheets.length };
 }
 
 interface CatalogPage {
@@ -833,12 +872,24 @@ export async function reconcileNavigation(
   seeded: number;
   sheetsSynced: number;
   hierarchyUpdated: number;
+  legacyPagesDeleted: number;
   excelFolderId: string | null;
 }> {
   await ensureNavigationTable(prisma);
   const seeded = await seedMissingNavigationFromCatalog(prisma, scope);
   let deleted = 0;
   let excelFolderId: string | null = null;
+
+  // Drop legacy sheet-* app_pages when {appId}-sheet-* twins exist (before nav sync).
+  const legacyCleanup = await cleanupLegacySheetAppPages(prisma, scope);
+  if (legacyCleanup.deleted > 0) {
+    console.log(
+      `[navigation] Removed ${legacyCleanup.deleted} legacy sheet app_page(s)` +
+        (legacyCleanup.migrated > 0
+          ? ` (migrated CMS sections on ${legacyCleanup.migrated})`
+          : ''),
+    );
+  }
 
   const firstPass = await reconcileNavigationDuplicates(prisma, scope);
   deleted += firstPass.deleted;
@@ -858,6 +909,7 @@ export async function reconcileNavigation(
     seeded,
     sheetsSynced: sheetResult.created,
     hierarchyUpdated,
+    legacyPagesDeleted: legacyCleanup.deleted,
     excelFolderId: sheetResult.parentId ?? excelFolderId,
   };
 }

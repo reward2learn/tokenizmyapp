@@ -49,14 +49,13 @@ export const chatApi = createApi({
   baseQuery,
   tagTypes: ['Conversations', 'AiFindings'],
   endpoints: (builder) => ({
-    /** GET /api/chat/ai-options — provider/model picker for the chat composer. */
+    /** GET /api/chat/ai-options — models for the tenant default provider. */
     getChatAiOptions: builder.query<
       ApiEnvelope<ChatAiOptionsData>,
-      { providerId?: string } | void
+      void
     >({
-      query: (args) => ({
+      query: () => ({
         url: 'chat/ai-options',
-        params: args?.providerId ? { providerId: args.providerId } : undefined,
       }),
     }),
     /** POST /api/chat/warm-model — start background Mac Studio warm (returns immediately). */

@@ -89,9 +89,12 @@ const chatBodySchema = z.object({
    * selected tool for this turn.
    */
   activeTool: z.enum(['build_custom_template', 'query_platform_data']).optional(),
-  /** Optional per-request provider override from the chat Tools picker (must exist in loaded catalog). */
+  /**
+   * Ignored — chat always uses the tenant Config default provider.
+   * Kept optional so older clients that still send it do not fail validation.
+   */
   providerId: z.string().trim().min(1).max(64).optional(),
-  /** Optional per-request model override from the chat Tools picker. */
+  /** Optional per-request model override from the chat model picker (must exist on the default provider). */
   model: z.string().trim().min(1).max(200).optional(),
   /** Client-generated conversation id — groups ledger rows for this chat session. */
   conversationId: z.string().trim().min(1).max(80).optional(),
@@ -462,7 +465,7 @@ async function handleChatPost(request: Request): Promise<Response> {
     return legacyError('Message is required', 400);
   }
 
-  const { message, history = [], stream, attachments = [], activeTool, providerId, model, conversationId } = parsed.data;
+  const { message, history = [], stream, attachments = [], activeTool, model, conversationId } = parsed.data;
   const session = await getSessionFromRequest(request);
   const userName = session?.name || session?.email || 'Anonymous';
   const db = createClient({
@@ -496,8 +499,9 @@ async function handleChatPost(request: Request): Promise<Response> {
     const systemPrompt = await knowledge.buildSystemPrompt();
 
     // Resolve the active AI provider early — needed for MapReduce phase below.
-    // Chat Tools picker may override provider/model for this request only.
-    const ai = await resolveActiveAiConfig(model ?? null, undefined, providerId ?? null);
+    // Chat uses the tenant Config default provider only; model may be overridden
+    // from the composer picker (must be a model on that provider).
+    const ai = await resolveActiveAiConfig(model ?? null);
     if (!ai) {
       return friendlyChatReply(
         'I\'m not fully configured yet. The owner needs to set up an AI provider in Config > AI Chat.',

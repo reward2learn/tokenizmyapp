@@ -52,91 +52,21 @@ import {
   useDeleteAdminUserMutation,
   useCreateAdminUsersMutation,
   useListAdminGroupsQuery,
-  useCreateAdminGroupMutation,
-  useUpdateAdminGroupMutation,
 } from '@/store/apis/admin-api';
 import type { AdminUserView } from '@/app/api/admin/users/route';
 import type { BatchUserInput } from '@/app/api/admin/users/batch/route';
-import type { AdminGroupView } from '@/app/api/admin/groups/route';
 import {
   useListTasksQuery,
   useUpdateUserTaskAssignmentMutation,
 } from '@/store/apis/tasks-api';
 import { FUNCTIONAL_ROLES } from '@/domain/security/functional-roles';
-import { CAPABILITY_AREAS, capability } from '@/domain/security/capabilities';
 import { useAppSelector } from '@/store/hooks';
-
-/** Roles that persist regardless of seeded data state. */
-const PERSISTENT_ROLES: { code: string; name: string; isPlatformAdmin: boolean }[] = [
-  { code: 'platform-admin', name: 'Platform Admin', isPlatformAdmin: true },
-  { code: 'admin', name: 'Admin', isPlatformAdmin: true },
-];
+import { TenantSecurityGroups } from '@/components/ops-admin/tenant-security-groups';
+import { TenantRoles } from '@/components/ops-admin/tenant-roles';
 
 function RoleManager() {
-  const { data, isLoading, isError } = useListRoleConfigsQuery();
-
-  if (isLoading) {
-    return (
-      <Box sx={{ display: 'flex', justifyContent: 'center', py: 6 }}>
-        <BrandedLoadingIndicator  />
-      </Box>
-    );
-  }
-
-  // Combine persistent roles with any DB-seeded roles (after clearing, only persistent remain)
-  const dbRoles = data?.data?.roles ?? [];
-  const hasDbData = dbRoles.length > 0;
-
-  // Show persistent + any additional roles from the DB
-  const displayRoles = hasDbData
-    ? dbRoles
-    : PERSISTENT_ROLES;
-
-  return (
-    <Paper variant="outlined" sx={{ p: 3 }}>
-      <Typography variant="h6" sx={{ fontWeight: 700, mb: 2 }}>
-        Functional Role Catalog
-      </Typography>
-      <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-        {hasDbData
-          ? 'Roles are a display-name catalog (code + name), not tied to a person. People map to roles via the PERSONS registry; PINs are managed in the User Accounts tab.'
-          : 'No seeded roles — showing persistent defaults (Platform Admin, Admin). Seed data to restore all functional roles.'}
-      </Typography>
-      {isError ? (
-        <Alert severity="info" sx={{ mb: 2 }}>
-          Could not load roles from database. Showing persistent defaults.
-        </Alert>
-      ) : null}
-      <Table size="small">
-        <TableHead>
-          <TableRow>
-            <TableCell>Role</TableCell>
-            <TableCell>Code</TableCell>
-            <TableCell>PIN</TableCell>
-          </TableRow>
-        </TableHead>
-        <TableBody>
-          {displayRoles.map((r) => (
-            <TableRow key={r.code}>
-              <TableCell sx={{ fontWeight: 600 }}>{r.name}</TableCell>
-              <TableCell sx={{ fontFamily: 'monospace' }}>{r.code}</TableCell>
-              <TableCell>
-                {'pinConfigured' in r ? (
-                  (r as { pinConfigured: boolean }).pinConfigured ? (
-                    <Chip label="configured" size="small" color="success" variant="outlined" />
-                  ) : (
-                    <Chip label="not set" size="small" color="warning" variant="outlined" />
-                  )
-                ) : (
-                  <Chip label="—" size="small" variant="outlined" />
-                )}
-              </TableCell>
-            </TableRow>
-          ))}
-        </TableBody>
-      </Table>
-    </Paper>
-  );
+  const { slug, displayName } = getClientTenantConfig();
+  return <TenantRoles tenantSlug={slug} tenantName={displayName} />;
 }
 
 function ConversationManager() {
@@ -872,155 +802,8 @@ function UserManager() {
 }
 
 function GroupManager() {
-  const { data, isLoading, isError, refetch } = useListAdminGroupsQuery();
-  const [createGroup, { isLoading: isCreating }] = useCreateAdminGroupMutation();
-  const [updateGroup, { isLoading: isUpdating }] = useUpdateAdminGroupMutation();
-  const [newGroup, setNewGroup] = useState<{ code: string; name: string; description: string }>({ code: '', name: '', description: '' });
-  const [editing, setEditing] = useState<{ code: string; name: string; description: string | null; permissions: string[] } | null>(null);
-
-  if (isLoading) {
-    return (
-      <Box sx={{ display: 'flex', justifyContent: 'center', py: 6 }}>
-        <BrandedLoadingIndicator  />
-      </Box>
-    );
-  }
-  if (isError || !data?.success) {
-    return <Alert severity="error">Failed to load groups.</Alert>;
-  }
-
-  const groups = data.data.groups ?? [];
-
-  const handleCreate = async () => {
-    if (!newGroup.code.trim() || !newGroup.name.trim()) return;
-    await createGroup({ code: newGroup.code.trim().toLowerCase(), name: newGroup.name.trim(), description: newGroup.description.trim() }).unwrap();
-    setNewGroup({ code: '', name: '', description: '' });
-    refetch();
-  };
-
-  const openEditor = (g: AdminGroupView) => {
-    setEditing({ code: g.code, name: g.name, description: g.description, permissions: [...g.permissions] });
-  };
-
-  const toggleCap = (cap: string) => {
-    setEditing((prev) => {
-      if (!prev) return prev;
-      const has = prev.permissions.includes(cap);
-      return {
-        ...prev,
-        permissions: has ? prev.permissions.filter((c) => c !== cap) : [...prev.permissions, cap],
-      };
-    });
-  };
-
-  const handleSavePerms = async () => {
-    if (!editing) return;
-    await updateGroup({ code: editing.code, permissions: editing.permissions }).unwrap();
-    setEditing(null);
-    refetch();
-  };
-
-  return (
-    <Paper variant="outlined" sx={{ p: 3 }}>
-      <Stack direction="row" sx={{ mb: 2, alignItems: 'center', justifyContent: 'space-between' }}>
-        <Typography variant="h6" sx={{ fontWeight: 700 }}>
-          Security Groups
-        </Typography>
-        <Button size="small" variant="text" onClick={() => refetch()}>
-          Refresh
-        </Button>
-      </Stack>
-      <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-        Groups gate API calls and routes by membership. Each group grants a set of capabilities
-        (read/write per area). Platform admins are implicitly granted every capability.
-      </Typography>
-      <Table size="small">
-        <TableHead>
-          <TableRow>
-            <TableCell>Code</TableCell>
-            <TableCell>Name</TableCell>
-            <TableCell>Description</TableCell>
-            <TableCell>Capabilities</TableCell>
-            <TableCell>System</TableCell>
-            <TableCell align="right">Members</TableCell>
-            <TableCell align="right">Manage</TableCell>
-          </TableRow>
-        </TableHead>
-        <TableBody>
-          {groups.map((g) => (
-            <TableRow key={g.code}>
-              <TableCell sx={{ fontWeight: 600 }}>{g.code}</TableCell>
-              <TableCell>{g.name}</TableCell>
-              <TableCell>{g.description ?? '—'}</TableCell>
-              <TableCell>
-                <Stack direction="row" spacing={0.5} sx={{ flexWrap: 'wrap' }} useFlexGap>
-                  {g.permissions.includes('*') ? (
-                    <Chip label="all" size="small" color="primary" variant="outlined" />
-                  ) : g.permissions.length ? (
-                    g.permissions.map((p) => (
-                      <Chip key={p} label={p} size="small" variant="outlined" />
-                    ))
-                  ) : (
-                    <Typography variant="caption" color="text.secondary">none</Typography>
-                  )}
-                </Stack>
-              </TableCell>
-              <TableCell>{g.isSystem ? <Chip label="system" size="small" color="info" variant="outlined" /> : null}</TableCell>
-              <TableCell align="right">{g.memberCount}</TableCell>
-              <TableCell align="right">
-                <Button size="small" variant="outlined" disabled={g.isSystem} onClick={() => openEditor(g)}>
-                  Permissions
-                </Button>
-              </TableCell>
-            </TableRow>
-          ))}
-        </TableBody>
-      </Table>
-
-      <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5} sx={{ mt: 2 }}>
-        <TextField size="small" label="Code" value={newGroup.code} onChange={(e) => setNewGroup((p) => ({ ...p, code: e.target.value }))} placeholder="e.g. marketing" />
-        <TextField size="small" label="Name" value={newGroup.name} onChange={(e) => setNewGroup((p) => ({ ...p, name: e.target.value }))} placeholder="Marketing" />
-        <TextField size="small" label="Description" value={newGroup.description} onChange={(e) => setNewGroup((p) => ({ ...p, description: e.target.value }))} sx={{ flex: 1 }} />
-        <Button size="small" variant="contained" disabled={isCreating || !newGroup.code.trim() || !newGroup.name.trim()} onClick={() => void handleCreate()}>
-          Add group
-        </Button>
-      </Stack>
-
-      <Dialog open={Boolean(editing)} onClose={() => setEditing(null)} maxWidth="sm" fullWidth>
-        <DialogTitle>Capabilities — {editing?.code}</DialogTitle>
-        <DialogContent dividers>
-          <Stack spacing={2}>
-            {CAPABILITY_AREAS.map((area) => (
-              <Box key={area.area}>
-                <Typography variant="subtitle2" sx={{ mb: 0.5 }}>{area.label}</Typography>
-                <Stack direction="row" spacing={2}>
-                  {area.accesses.map((acc) => {
-                    const cap = capability(area.area, acc);
-                    return (
-                      <FormControlLabel
-                        key={cap}
-                        control={
-                          <Checkbox
-                            checked={editing?.permissions.includes(cap) ?? false}
-                            onChange={() => toggleCap(cap)}
-                          />
-                        }
-                        label={acc === 'use' ? 'Use' : acc === 'read' ? 'Read' : 'Write'}
-                      />
-                    );
-                  })}
-                </Stack>
-              </Box>
-            ))}
-          </Stack>
-        </DialogContent>
-        <DialogActions>
-          <Button size="small" onClick={() => setEditing(null)}>Cancel</Button>
-          <Button size="small" variant="contained" disabled={isUpdating} onClick={() => void handleSavePerms()}>Save</Button>
-        </DialogActions>
-      </Dialog>
-    </Paper>
-  );
+  const { slug, displayName } = getClientTenantConfig();
+  return <TenantSecurityGroups tenantSlug={slug} tenantName={displayName} />;
 }
 
 export default function AdminPage() {

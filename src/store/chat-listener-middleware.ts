@@ -11,7 +11,6 @@ import {
 import {
   STUDIO_PROVIDER_ID,
   STORAGE_MODEL,
-  STORAGE_PROVIDER,
   chatStreamSlice,
   clearMessages,
   clearPendingSessionActions,
@@ -39,11 +38,9 @@ function shouldWarmStudio(
   options: ChatAiOptionsData | undefined,
 ): { warm: boolean; model: string | null } {
   if (!options) return { warm: false, model: null };
-  const effectiveProviderId = state.selectedProviderId ?? options.activeProviderId;
+  // Chat always uses the tenant default provider — warm only when that is Studio.
   const effectiveModel = state.selectedModel ?? options.activeModel;
-  const studioIsDefault = options.activeProviderId === STUDIO_PROVIDER_ID;
-  const studioSelected = effectiveProviderId === STUDIO_PROVIDER_ID;
-  const warm = studioIsDefault && studioSelected && Boolean(effectiveModel);
+  const warm = options.activeProviderId === STUDIO_PROVIDER_ID && Boolean(effectiveModel);
   return { warm, model: effectiveModel };
 }
 
@@ -52,11 +49,9 @@ function seedDefaultModel(
   options: ChatAiOptionsData,
 ): string | null {
   if (state.selectedModel) return null;
-  const providerId = state.selectedProviderId ?? options.activeProviderId;
-  if (!providerId) return null;
   return (
-    (providerId === options.activeProviderId ? options.activeModel : null)
-    ?? options.providers.find((p) => p.id === providerId)?.defaultModel
+    options.activeModel
+    ?? options.providers.find((p) => p.id === options.activeProviderId)?.defaultModel
     ?? options.models[0]?.id
     ?? null
   );
@@ -77,26 +72,13 @@ function openCreditTopUp(
 
 export const chatListener = createListenerMiddleware();
 
-/** Persist composer provider/model picks to localStorage. */
+/** Persist composer model pick to localStorage (provider is tenant-default only). */
 chatListener.startListening({
-  matcher: isAnyOf(
-    chatStreamSlice.actions.setSelectedProviderId,
-    chatStreamSlice.actions.setSelectedModel,
-  ),
+  matcher: chatStreamSlice.actions.setSelectedModel.match,
   effect: (action) => {
     try {
-      if (chatStreamSlice.actions.setSelectedProviderId.match(action)) {
-        const providerId = action.payload;
-        if (providerId) {
-          localStorage.setItem(STORAGE_PROVIDER, providerId);
-          localStorage.removeItem(STORAGE_MODEL);
-        }
-        return;
-      }
-      if (chatStreamSlice.actions.setSelectedModel.match(action)) {
-        const model = action.payload;
-        if (model) localStorage.setItem(STORAGE_MODEL, model);
-      }
+      const model = action.payload;
+      if (model) localStorage.setItem(STORAGE_MODEL, model);
     } catch {
       /* storage unavailable */
     }
@@ -126,19 +108,15 @@ chatListener.startListening({
   },
 });
 
-/** Re-evaluate Studio warm when provider/model changes after options are cached. */
+/** Re-evaluate Studio warm when model changes after options are cached. */
 chatListener.startListening({
   matcher: isAnyOf(
-    chatStreamSlice.actions.setSelectedProviderId,
     chatStreamSlice.actions.setSelectedModel,
     chatStreamSlice.actions.resetWarmState,
   ),
   effect: (_action, listenerApi) => {
     const state = listenerApi.getState().chatStream;
-    const providerArg = state.selectedProviderId ?? undefined;
-    const cached = chatApi.endpoints.getChatAiOptions.select(
-      providerArg ? { providerId: providerArg } : undefined,
-    )(listenerApi.getState());
+    const cached = chatApi.endpoints.getChatAiOptions.select(undefined)(listenerApi.getState());
     const options = cached?.data?.data;
     if (!options) return;
 

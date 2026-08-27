@@ -1,13 +1,13 @@
 /**
- * GET /api/chat/ai-options?providerId=openai
+ * GET /api/chat/ai-options
  *
- * Session-auth chat picker data: configured providers + live models for the
- * selected provider. Config → AI Provider stays admin-only for key writes;
- * any signed-in chat user can read options here to change the model for the
- * next prompt.
+ * Session-auth chat picker data: models for the tenant's default/active
+ * provider. Config → AI Provider stays admin-only for key writes and for
+ * choosing which provider is active; chat users only pick a model.
  *
  * Providers come from the loaded DB catalog (AI_PROVIDERS_CATALOG) with
- * builtin fallback — custom OpenAI-compatible backends appear here once seeded.
+ * builtin fallback — custom backends appear once seeded and can be set as
+ * the tenant default in setup.
  */
 import { requireSession } from '@/lib/auth/guards';
 import { jsonError, jsonOk } from '@/lib/api/response';
@@ -32,7 +32,6 @@ export async function GET(request: Request): Promise<Response> {
   if (!guard.ok) return guard.response;
 
   const { searchParams } = new URL(request.url);
-  const requested = searchParams.get('providerId');
   const requestedModel = searchParams.get('model');
 
   const catalog = await loadAiProvidersCatalog();
@@ -65,11 +64,8 @@ export async function GET(request: Request): Promise<Response> {
   const activeProviderId = await getActiveProviderId();
   const activeModel = await getActiveModel(activeProviderId);
 
-  let providerId = activeProviderId;
-  if (requested && findProviderInCatalog(catalog, requested)) {
-    providerId = requested;
-  }
-
+  // Chat always lists models for the tenant default provider.
+  const providerId = activeProviderId;
   const provider = findProviderInCatalog(catalog, providerId);
   if (!provider) return jsonError('Unknown provider', 400);
 

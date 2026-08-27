@@ -42,14 +42,19 @@ export async function GET(request: Request): Promise<NextResponse> {
     return jsonError('Database unavailable', 503);
   }
 
-  // Cross-tenant browsing is a platform-admin-only capability (already gated
-  // above); tenantSlug/appId are ignored for any other caller.
+  // Inclusive filter: when browsing a tenant/app, return that tenant's roles
+  // PLUS global catalog rows (tenantSlug/appId null) for the Platform Roles table.
   const { searchParams } = new URL(request.url);
   const tenantSlug = searchParams.get('tenantSlug');
   const appId = searchParams.get('appId');
-  const where: { tenantSlug?: string; appId?: string } = {};
-  if (tenantSlug) where.tenantSlug = tenantSlug;
-  if (appId) where.appId = appId;
+  const and: Array<Record<string, unknown>> = [];
+  if (tenantSlug) {
+    and.push({ OR: [{ tenantSlug: null }, { tenantSlug }] });
+  }
+  if (appId) {
+    and.push({ OR: [{ appId: null }, { appId }] });
+  }
+  const where = and.length ? { AND: and } : {};
 
   const roles = await db.role.findMany({ where, orderBy: { code: 'asc' } });
   const views: RoleConfigView[] = [];
@@ -160,18 +165,26 @@ export async function PUT(request: Request): Promise<NextResponse> {
     return jsonError("name is required", 400);
   }
 
-  const normalizedCode = code.toLowerCase().replace(/[^a-z0-9-]/g, "-");
+  // Preserve tenant-prefixed codes (`slug:code`) and seeded codes (`app_…`).
+  const normalizedCode = code.trim().toLowerCase();
+  if (!/^[a-z0-9]+(?:[._:-][a-z0-9]+)*$/.test(normalizedCode)) {
+    return jsonError(
+      "code must be lowercase letters, numbers, hyphens, underscores, dots, or colons",
+      400,
+    );
+  }
 
   try {
     const existing = await db.role.findUnique({ where: { code: normalizedCode } });
 
     // Roles are just display names + isPlatformAdmin flag (no email/person data).
     // Person/sub mapping lives in user_accounts (see security-service.ts).
-    const roleData: { name: string; isPlatformAdmin: boolean; tenantSlug?: string; appId?: string } = {
+    // Capability grants live on security_groups — not here.
+    const roleData: { name: string; isPlatformAdmin: boolean; tenantSlug?: string | null; appId?: string | null } = {
       name: name.trim(),
       isPlatformAdmin: isPlatformAdmin ?? false,
-      ...(tenantSlug !== undefined ? { tenantSlug } : {}),
-      ...(appId !== undefined ? { appId } : {}),
+      ...(tenantSlug !== undefined ? { tenantSlug: tenantSlug || null } : {}),
+      ...(appId !== undefined ? { appId: appId || null } : {}),
     };
 
     if (existing) {
@@ -221,6 +234,9 @@ export async function DELETE(request: Request): Promise<NextResponse> {
     const existing = await db.role.findUnique({ where: { code } });
     if (!existing) {
       return jsonError("Role not found", 404);
+    }
+    if (existing.isPlatformAdmin) {
+      return jsonError("Platform admin roles cannot be deleted", 403);
     }
 
     // Check if any user accounts reference this role

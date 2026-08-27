@@ -297,19 +297,16 @@ export interface ActiveAiConfig {
  * no key configured (DB or env) — callers should surface a "configure a
  * provider" error rather than attempting a request with no credentials.
  *
- * Optional overrides let the chat Tools picker use a configured provider/model
+ * Optional model override lets the chat model picker use a configured model
  * for a single request without changing the workspace-wide Config selection.
- * Overrides are only accepted for providers that already have a resolvable key.
+ * Provider is always the tenant's active/default provider.
  */
 export async function resolveActiveAiConfig(
   modelOverride?: string | null,
   db?: DbClient,
-  providerOverride?: string | null,
 ): Promise<ActiveAiConfig | null> {
   const catalog = await loadAiProvidersCatalog(db);
-  const providerId = providerOverride && findProviderInCatalog(catalog, providerOverride)
-    ? providerOverride
-    : await getActiveProviderId(db);
+  const providerId = await getActiveProviderId(db);
   const provider = findProviderInCatalog(catalog, providerId);
   if (!provider) return null;
 

@@ -88,10 +88,19 @@ export async function GET(request: Request): Promise<Response> {
   const { db, dedicated } = resolved;
 
   try {
+    // Inclusive filter: when browsing a tenant/app, return that tenant's groups
+    // PLUS global catalog rows (tenant_slug/app_id NULL). Exclusive equality
+    // would hide the Global Groups reference table the admin UI needs.
     const where: string[] = [];
     const params: unknown[] = [];
-    if (tenantSlug) { params.push(tenantSlug); where.push(`sg.tenant_slug = $${params.length}`); }
-    if (appId) { params.push(appId); where.push(`sg.app_id = $${params.length}`); }
+    if (tenantSlug) {
+      params.push(tenantSlug);
+      where.push(`(sg.tenant_slug IS NULL OR sg.tenant_slug = $${params.length})`);
+    }
+    if (appId) {
+      params.push(appId);
+      where.push(`(sg.app_id IS NULL OR sg.app_id = $${params.length})`);
+    }
     const whereClause = where.length ? `WHERE ${where.join(' AND ')}` : '';
 
     const rows = await db.$queryRawUnsafe(
@@ -155,8 +164,9 @@ export async function POST(request: Request): Promise<Response> {
   }
 
   if (!code || !name) return jsonError('code and name are required', 400);
-  if (!/^[a-z0-9-]+$/.test(code)) {
-    return jsonError('code must be lowercase letters, numbers, or hyphens', 400);
+  // Allow tenant-prefixed codes (`slug:code`), app seeds (`app_…`), and dots.
+  if (!/^[a-z0-9]+(?:[._:-][a-z0-9]+)*$/.test(code)) {
+    return jsonError('code must be lowercase letters, numbers, hyphens, underscores, dots, or colons', 400);
   }
 
   const perms = normalizePermissions(permissions);
@@ -237,6 +247,55 @@ export async function PATCH(request: Request): Promise<NextResponse> {
   } catch (err) {
     console.error('[admin/groups] PATCH error:', err);
     return jsonError('Failed to update group', 500);
+  } finally {
+    if (dedicated) await dedicated.$disconnect();
+  }
+}
+
+export async function DELETE(request: Request): Promise<NextResponse> {
+  const guard = await requireWriteAuth(request);
+  if (!guard.ok) return guard.response;
+  if (!sessionIsPlatformAdmin(guard.session)) return jsonError('Platform admin only', 403);
+
+  let body: unknown;
+  try {
+    body = await request.json();
+  } catch {
+    return jsonError('Invalid JSON', 400);
+  }
+
+  const { code, tenantSlug, appId } = (body ?? {}) as {
+    code?: string;
+    tenantSlug?: string;
+    appId?: string;
+  };
+
+  if (!code) return jsonError('code is required', 400);
+
+  const resolved = await resolveGroupsDb(tenantSlug, appId);
+  if ('error' in resolved) return resolved.error;
+  const { db, dedicated } = resolved;
+
+  try {
+    const rows = await db.$queryRawUnsafe(
+      `SELECT is_system FROM security_groups WHERE code = $1 LIMIT 1;`,
+      code,
+    ) as Array<{ is_system: boolean }>;
+    if (!rows.length) return jsonError('Group not found', 404);
+    if (rows[0].is_system) {
+      return jsonError('System groups cannot be deleted', 403);
+    }
+
+    // user_groups rows cascade via FK ON DELETE CASCADE
+    const affected = await db.$executeRawUnsafe(
+      `DELETE FROM security_groups WHERE code = $1;`,
+      code,
+    );
+    if (affected === 0) return jsonError('Group not found', 404);
+    return jsonOk({ code, deleted: true });
+  } catch (err) {
+    console.error('[admin/groups] DELETE error:', err);
+    return jsonError('Failed to delete group', 500);
   } finally {
     if (dedicated) await dedicated.$disconnect();
   }

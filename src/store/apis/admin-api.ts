@@ -48,10 +48,14 @@ export const adminApi = createApi({
       invalidatesTags: ['RoleConfig'],
     }),
 
-    updateRole: builder.mutation<ApiEnvelope<RoleConfigView>, { code: string; name?: string; isPlatformAdmin?: boolean }>({
+    /** PUT upserts — there is no PATCH handler on /api/admin/roles. */
+    updateRole: builder.mutation<
+      ApiEnvelope<{ code: string; created?: boolean; updated?: boolean }>,
+      { code: string; name: string; isPlatformAdmin?: boolean } & TenantAppScope
+    >({
       query: (body) => ({
         url: 'admin/roles',
-        method: 'PATCH',
+        method: 'PUT',
         body,
       }),
       invalidatesTags: ['RoleConfig'],
@@ -152,6 +156,17 @@ export const adminApi = createApi({
       query: (body) => ({
         url: 'admin/groups',
         method: 'PATCH',
+        body,
+      }),
+      invalidatesTags: ['AdminGroups'],
+    }),
+    deleteAdminGroup: builder.mutation<
+      ApiEnvelope<{ code: string; deleted: boolean }>,
+      { code: string } & TenantAppScope
+    >({
+      query: (body) => ({
+        url: 'admin/groups',
+        method: 'DELETE',
         body,
       }),
       invalidatesTags: ['AdminGroups'],
@@ -655,6 +670,7 @@ export const {
   useListAdminGroupsQuery,
   useCreateAdminGroupMutation,
   useUpdateAdminGroupMutation,
+  useDeleteAdminGroupMutation,
   useClearSeedMutation,
   useGetSeedOverviewQuery,
   useLazyGetSeedOverviewQuery,

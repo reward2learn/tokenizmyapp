@@ -96,9 +96,13 @@ export async function GET(request: Request): Promise<NextResponse> {
       deleted,
       seeded,
       hierarchyUpdated,
+      legacyPagesDeleted,
     } = await reconcileNavigation(prisma, scope);
     if (seeded > 0) console.log(`[navigation] Seeded ${seeded} new item(s) from page catalog`);
     if (deleted > 0) console.log(`[navigation] Removed ${deleted} duplicate nav item(s)`);
+    if (legacyPagesDeleted > 0) {
+      console.log(`[navigation] Removed ${legacyPagesDeleted} legacy sheet app_page(s)`);
+    }
     if (hierarchyUpdated > 0) {
       console.log(`[navigation] Applied default hierarchy to ${hierarchyUpdated} item(s)`);
     }
