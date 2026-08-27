@@ -2,20 +2,16 @@
  * Cloud usage — the run-time currency (roadmap Phase 5).
  *
  * Reads what has been metered for an organization and presents it per resource
- * as included-versus-additional. Writing is the collector's job and the
- * collector does not exist yet: `/api/cron/cloud-credits` is a documented stub
- * because no usage source has been chosen. See its header.
- *
- * So this reports honestly on a table that is empty for the Vercel and Neon
- * resources, and populated for AI Gateway, which Phase 3 already meters through
- * the credit ledger. A resource that is not being measured says so, rather than
- * showing a confident zero — "we metered nothing" and "you used nothing" are
- * different claims and only one of them is true.
+ * as included-versus-additional. Writing is the collector's job
+ * (`/api/cron/cloud-credits`): Vercel FOCUS Usage and Neon project totals are
+ * allocated onto orgs by known project / branch counts (approximate — not
+ * FOCUS ResourceIds).
  *
  * Control plane only: usage belongs to the Organization that pays, never to a
  * tenant's own database.
  */
 import { createRawClient } from '@/lib/db';
+import { includedCentsForPlan } from '@/domain/billing/cloud-allowance';
 
 type RawDb = ReturnType<typeof createRawClient>;
 
@@ -26,7 +22,11 @@ export interface ResourceUsage {
   resource: string;
   label: string;
   unit: string;
-  /** What the plan covers. Null where no allowance has been set. */
+  /**
+   * Plan-included allowance for this resource in its native unit, when we can
+   * express one. For dollar-backed Vercel resources the included pool is in
+   * cents on the report (`includedCostCents`); `included` stays null there.
+   */
   included: number | null;
   used: number;
   additional: number;
@@ -37,31 +37,15 @@ export interface ResourceUsage {
 /**
  * The resources this platform can bill for, in the order the table shows them.
  *
- * Ours deliberately differs from Hercules': these are what Vercel and Neon
- * actually expose. The rate card is pass-through at provider cost, decided
- * 2026-08-18:
- *
- *  - Vercel rows carry the billed cost directly from the FOCUS export
- *    (`cost_cents` on the row), so `costPerUnitCents` stays null there — a
- *    static rate could not reproduce regional, tiered billing.
- *  - Neon rows are metered on the Free plan (no costs), and the documented
- *    Launch rates are the pass-through ceiling if the account upgrades:
- *    compute $0.106/CU-hr, storage $0.35/GB-mo, transfer $0.10/GB past the
- *    500 GB org allowance.
+ * Rate card: pass-through at provider cost.
+ *  - Vercel rows carry FOCUS billed cost (`cost_cents`).
+ *  - Neon Free = $0; Launch rates are the ceiling if the account upgrades.
  */
 const RESOURCES: {
   resource: string;
   label: string;
   unit: string;
   costPerUnitCents: number | null;
-  /**
-   * Whether this resource waits on the Phase 5 collector.
-   *
-   * AI Gateway does not: Phase 3 already meters every generation into the
-   * credit ledger, so zero there means zero generations — a true statement.
-   * For the provider resources zero means nobody counted, which is a different
-   * thing and must not be rendered as a number.
-   */
   needsCollector: boolean;
 }[] = [
   { resource: 'ai_gateway', label: 'AI Gateway', unit: 'credits', costPerUnitCents: null, needsCollector: false },
@@ -88,18 +72,6 @@ CREATE TABLE IF NOT EXISTS usage_records (
   recorded_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );`;
 
-/**
- * `usage_records` and `cloud_balances` are both declared in the zmodel, so
- * `db push` owns them and creates them at build time before the app serves a
- * request. This helper exists for the read path on a database that has not been
- * pushed yet — it creates nothing that db push would race, because both tables
- * already exist by then and CREATE TABLE IF NOT EXISTS is a no-op.
- *
- * Kept deliberately narrow after the org_attribution incident: a brand-new
- * table with two creators lost that race and failed a deploy. These two ship in
- * the same release as this code, so the first `db push` that knows about them
- * runs before any request can.
- */
 export async function ensureCloudUsageTables(db: RawDb): Promise<void> {
   await db.$executeRawUnsafe(USAGE_RECORDS_DDL);
 }
@@ -108,9 +80,29 @@ export interface CloudUsageReport {
   resources: ResourceUsage[];
   periodStart: string;
   periodEnd: string;
-  /** True when no collector has written anything for this period. */
+  /** True when no collector has written anything for this org/period. */
   awaitingCollector: boolean;
   balanceCents: number;
+  /** Monthly plan-included cloud pool in cents. */
+  includedCostCents: number;
+  /** Attributed provider cost in the window (sum of cost_cents). */
+  usedCostCents: number;
+  /** max(0, usedCostCents - includedCostCents). */
+  additionalCostCents: number;
+  autoTopUpThreshold: number | null;
+  autoTopUpAmount: number | null;
+}
+
+async function planIdForOrg(db: RawDb, orgId: string): Promise<string> {
+  try {
+    const rows = (await db.$queryRawUnsafe(
+      `SELECT plan_id FROM subscriptions WHERE org_id = $1 LIMIT 1;`,
+      orgId,
+    )) as { plan_id?: string }[];
+    return String(rows[0]?.plan_id ?? 'free');
+  } catch {
+    return 'free';
+  }
 }
 
 export async function getCloudUsage(
@@ -120,6 +112,7 @@ export async function getCloudUsage(
 ): Promise<CloudUsageReport> {
   const periodEnd = new Date();
   const periodStart = new Date(periodEnd.getTime() - windowDays * 86_400_000);
+  const includedCostCents = includedCentsForPlan(await planIdForOrg(db, orgId));
 
   let rows: Record<string, unknown>[] = [];
   try {
@@ -132,8 +125,6 @@ export async function getCloudUsage(
       periodStart.toISOString(),
     )) as Record<string, unknown>[];
   } catch {
-    // Table absent on a database this release has not reached. An empty report
-    // is the truth there, and it renders the same as "nothing collected yet".
     rows = [];
   }
 
@@ -144,24 +135,30 @@ export async function getCloudUsage(
     measuredCost.set(String(row.resource), Number(row.cost_cents) || 0);
   }
 
-  // AI Gateway is the one resource already metered, by Phase 3, in the credit
-  // ledger rather than usage_records. Read it from where it actually lives
-  // instead of reporting "not collected" for something we do measure.
   measured.set('ai_gateway', await aiGatewaySpend(orgId, db, periodStart));
 
+  const usedCostCents = [...measuredCost.values()].reduce((a, b) => a + b, 0);
+  const totalAdditionalCostCents = Math.max(0, usedCostCents - includedCostCents);
+
+  // Spread additional cost across resources proportional to their billed cost
+  // so the per-row Additional cost column sums to the org overage.
   const resources: ResourceUsage[] = RESOURCES.map((def) => {
     const used = measured.get(def.resource);
-    // A resource that does not need the collector is metered by definition.
-    // One that does is metered only once a row exists for it.
     const isMeasured = !def.needsCollector || used !== undefined;
-    // Billed cost wins when the provider reported it (Vercel FOCUS rows carry
-    // cost_cents). Otherwise fall back to the rate card — Neon's documented
-    // pass-through rates — and to zero where no rate is set.
     const billed = measuredCost.get(def.resource);
     const cost =
       billed !== undefined
         ? billed
         : (used ?? 0) * (def.costPerUnitCents ?? 0);
+
+    let additionalCostCents = 0;
+    if (isMeasured && usedCostCents > 0 && cost > 0 && totalAdditionalCostCents > 0) {
+      additionalCostCents = Math.round((cost / usedCostCents) * totalAdditionalCostCents);
+    }
+
+    // Quantity "additional" is only meaningful when we have a unit included
+    // allowance — cloud inclusion is dollar-based, so leave quantity additional
+    // as 0 for provider resources and surface dollars via additionalCostCents.
     return {
       resource: def.resource,
       label: def.label,
@@ -169,26 +166,42 @@ export async function getCloudUsage(
       included: null,
       used: used ?? 0,
       additional: 0,
-      additionalCostCents: Math.round(cost),
+      additionalCostCents,
       state: isMeasured ? 'metered' : 'not_collected',
     };
   });
+
+  // Fix rounding so row additional costs sum to totalAdditionalCostCents.
+  const collectorResources = resources.filter(
+    (r) => RESOURCES.find((d) => d.resource === r.resource)?.needsCollector && r.state === 'metered',
+  );
+  const sumAdditional = collectorResources.reduce((n, r) => n + r.additionalCostCents, 0);
+  const drift = totalAdditionalCostCents - sumAdditional;
+  if (drift !== 0 && collectorResources.length > 0) {
+    const richest = collectorResources.reduce((a, b) =>
+      a.additionalCostCents >= b.additionalCostCents ? a : b,
+    );
+    richest.additionalCostCents += drift;
+  }
+
+  const balance = await cloudBalanceRow(orgId, db);
 
   return {
     resources,
     periodStart: periodStart.toISOString(),
     periodEnd: periodEnd.toISOString(),
-    // Only the collector-backed resources count here. AI Gateway is always
-    // metered, so including it would make this permanently false and the
-    // warning it drives would never appear.
     awaitingCollector: resources
       .filter((r) => RESOURCES.find((d) => d.resource === r.resource)?.needsCollector)
       .every((r) => r.state === 'not_collected'),
-    balanceCents: await cloudBalanceCents(orgId, db),
+    balanceCents: balance.balanceCents,
+    includedCostCents,
+    usedCostCents,
+    additionalCostCents: totalAdditionalCostCents,
+    autoTopUpThreshold: balance.autoTopUpThreshold,
+    autoTopUpAmount: balance.autoTopUpAmount,
   };
 }
 
-/** Credits consumed by AI generation in the window. Positive number. */
 async function aiGatewaySpend(orgId: string, db: RawDb, since: Date): Promise<number> {
   try {
     const rows = (await db.$queryRawUnsafe(
@@ -204,14 +217,33 @@ async function aiGatewaySpend(orgId: string, db: RawDb, since: Date): Promise<nu
   }
 }
 
-async function cloudBalanceCents(orgId: string, db: RawDb): Promise<number> {
+async function cloudBalanceRow(
+  orgId: string,
+  db: RawDb,
+): Promise<{
+  balanceCents: number;
+  autoTopUpThreshold: number | null;
+  autoTopUpAmount: number | null;
+}> {
   try {
     const rows = (await db.$queryRawUnsafe(
-      `SELECT balance_cents FROM cloud_balances WHERE org_id = $1 LIMIT 1;`,
+      `SELECT balance_cents, auto_top_up_threshold, auto_top_up_amount
+         FROM cloud_balances WHERE org_id = $1 LIMIT 1;`,
       orgId,
     )) as Record<string, unknown>[];
-    return Number(rows[0]?.balance_cents) || 0;
+    if (!rows[0]) {
+      return { balanceCents: 0, autoTopUpThreshold: null, autoTopUpAmount: null };
+    }
+    return {
+      balanceCents: Number(rows[0].balance_cents) || 0,
+      autoTopUpThreshold:
+        rows[0].auto_top_up_threshold == null
+          ? null
+          : Number(rows[0].auto_top_up_threshold),
+      autoTopUpAmount:
+        rows[0].auto_top_up_amount == null ? null : Number(rows[0].auto_top_up_amount),
+    };
   } catch {
-    return 0;
+    return { balanceCents: 0, autoTopUpThreshold: null, autoTopUpAmount: null };
   }
 }

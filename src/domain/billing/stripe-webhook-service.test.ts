@@ -77,6 +77,10 @@ const redeemCreditPack = vi.fn(async (orgId: string) => {
   db.grants.push({ orgId, amount: 50, source: 'addon' });
   return { baseGrant: { amount: 50 }, bonusGrant: { amount: 100 } };
 });
+const creditCloudBalance = vi.fn(async (orgId: string, cents: number) => {
+  db.grants.push({ orgId, amount: cents, source: 'cloud_topup' });
+  return { balanceCents: cents, alreadyCredited: false };
+});
 
 vi.mock('@/domain/billing/entitlement-service', () => ({
   ensureBillingTables: vi.fn(async () => {}),
@@ -99,6 +103,11 @@ vi.mock('@/domain/billing/credit-service', () => ({
     grantId: 'g1',
   })),
   redeemCreditPack: (...args: Parameters<typeof redeemCreditPack>) => redeemCreditPack(...args),
+}));
+
+vi.mock('@/domain/billing/cloud-balance-service', () => ({
+  creditCloudBalance: (...args: Parameters<typeof creditCloudBalance>) =>
+    creditCloudBalance(...args),
 }));
 
 vi.mock('@/domain/billing/dunning-service', () => ({
@@ -126,6 +135,11 @@ beforeEach(async () => {
   setPlan.mockClear();
   grantCredits.mockClear();
   redeemCreditPack.mockClear();
+  creditCloudBalance.mockClear();
+  creditCloudBalance.mockImplementation(async (orgId: string, cents: number) => {
+    db.grants.push({ orgId, amount: cents, source: 'cloud_topup' });
+    return { balanceCents: cents, alreadyCredited: false };
+  });
   service = await import('./stripe-webhook-service');
   process.env.STRIPE_PRICE_PRO_MONTHLY = 'price_pro_monthly';
 });
@@ -352,5 +366,42 @@ describe('checkout.session.completed credit top-up', () => {
       expect.objectContaining({ paymentRef: 'cs_topup' }),
       db,
     );
+  });
+});
+
+describe('cloud_topup', () => {
+  it('credits cloud balance from checkout.session.completed', async () => {
+    const result = await service.processStripeEvent(
+      event('checkout.session.completed', {
+        id: 'cs_cloud',
+        mode: 'payment',
+        client_reference_id: 'org_known',
+        customer: 'cus_known',
+        metadata: { kind: 'cloud_topup', orgId: 'org_known', amountCents: '5000' },
+      }),
+      db,
+    );
+
+    expect(result.handled).toBe(true);
+    expect(creditCloudBalance).toHaveBeenCalledWith('org_known', 5000, 'cs_cloud', db);
+  });
+
+  it('credits cloud balance from payment_intent.succeeded (auto top-up)', async () => {
+    const result = await service.processStripeEvent(
+      event('payment_intent.succeeded', {
+        id: 'pi_cloud_auto',
+        amount: 2500,
+        metadata: {
+          kind: 'cloud_topup',
+          orgId: 'org_known',
+          amountCents: '2500',
+          source: 'auto',
+        },
+      }),
+      db,
+    );
+
+    expect(result.handled).toBe(true);
+    expect(creditCloudBalance).toHaveBeenCalledWith('org_known', 2500, 'pi_cloud_auto', db);
   });
 });

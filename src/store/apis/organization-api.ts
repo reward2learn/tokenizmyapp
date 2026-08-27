@@ -21,6 +21,11 @@ export interface CloudUsageReport {
   periodEnd: string;
   awaitingCollector: boolean;
   balanceCents: number;
+  includedCostCents: number;
+  usedCostCents: number;
+  additionalCostCents: number;
+  autoTopUpThreshold: number | null;
+  autoTopUpAmount: number | null;
 }
 
 export interface StoredPaymentMethod {
@@ -177,6 +182,7 @@ export const organizationApi = createApi({
     'Credits',
     'Subscription',
     'PaymentMethods',
+    'CloudUsage',
     'OrgRateCard',
     'AiCreditsCalculator',
     'BillingCatalog',
@@ -355,6 +361,63 @@ export const organizationApi = createApi({
     /** Run-time consumption per resource. `state` says which are actually metered. */
     getCloudUsage: builder.query<ApiEnvelope<CloudUsageReport>, string>({
       query: (orgId) => `admin/organizations/${orgId}/cloud-usage`,
+      providesTags: ['CloudUsage'],
+    }),
+
+    updateCloudAutoTopUp: builder.mutation<
+      ApiEnvelope<{
+        orgId: string;
+        balanceCents: number;
+        autoTopUpThreshold: number | null;
+        autoTopUpAmount: number | null;
+      }>,
+      {
+        orgId: string;
+        autoTopUpThreshold: number | null;
+        autoTopUpAmount: number | null;
+      }
+    >({
+      query: ({ orgId, ...body }) => ({
+        url: `admin/organizations/${orgId}/cloud-usage`,
+        method: 'PATCH',
+        body,
+      }),
+      invalidatesTags: ['CloudUsage'],
+    }),
+
+    createCloudTopUpIntent: builder.mutation<
+      ApiEnvelope<{
+        clientSecret: string;
+        checkoutSessionId: string;
+        amountCents: number;
+        publishableKey: string | null;
+      }>,
+      { orgId: string; amountCents: number }
+    >({
+      query: ({ orgId, amountCents }) => ({
+        url: `admin/organizations/${orgId}/cloud-topup`,
+        method: 'POST',
+        body: { amountCents },
+      }),
+    }),
+
+    confirmCloudTopUpPayment: builder.mutation<
+      ApiEnvelope<{
+        orgId: string;
+        checkoutSessionId: string;
+        paymentIntentId: string | null;
+        amountCents: number;
+        alreadyCredited: boolean;
+        balanceCents: number;
+      }>,
+      { orgId: string; checkoutSessionId: string }
+    >({
+      query: ({ orgId, checkoutSessionId }) => ({
+        url: `admin/organizations/${orgId}/cloud-topup/confirm`,
+        method: 'POST',
+        body: { checkoutSessionId },
+      }),
+      invalidatesTags: ['CloudUsage'],
     }),
 
     /** Owning org + resolved entitlements for a tenant. Drives paywall UI. */
@@ -938,6 +1001,9 @@ export const {
   useListOrgMemberCandidatesQuery,
   useInviteOrgTeammateMutation,
   useGetCloudUsageQuery,
+  useUpdateCloudAutoTopUpMutation,
+  useCreateCloudTopUpIntentMutation,
+  useConfirmCloudTopUpPaymentMutation,
   useListPaymentMethodsQuery,
   useCreateSetupIntentMutation,
   useSetDefaultPaymentMethodMutation,

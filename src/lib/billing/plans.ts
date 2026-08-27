@@ -293,3 +293,9 @@ export const CREDIT_PACK_MIN_PRICE_CENTS = 2500;
 export function canPurchaseCreditPacks(planId: PlanId): boolean {
   return planId !== 'free';
 }
+
+/**
+ * Cloud Credits top-up amounts (USD cents). Same floors as AI packs — $25 min.
+ * Custom amounts are accepted at/above CREDIT_PACK_MIN_PRICE_CENTS.
+ */
+export const CLOUD_TOPUP_PRESETS_CENTS = [2500, 5000, 10000] as const;

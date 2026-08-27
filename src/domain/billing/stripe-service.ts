@@ -707,6 +707,128 @@ export async function reconcileRecentTopUpPayments(
   return { scanned, granted };
 }
 
+/** Dashboard label for inline cloud top-up Checkout Sessions. */
+const CLOUD_TOPUP_CHECKOUT_INTEGRATION_ID = 'tokenizmyapp-cloud-topup-c4e8a1d2';
+
+/**
+ * Checkout Session for a Cloud Credits balance top-up (Elements ui_mode).
+ * Credits land via webhook and/or `confirmCloudTopUpCheckoutSession`.
+ */
+export async function createCloudTopUpCheckoutSession(
+  orgId: string,
+  amountCents: number,
+  returnUrl: string,
+  db?: RawDb,
+  stripe?: Stripe,
+): Promise<{ clientSecret: string; checkoutSessionId: string; amountCents: number }> {
+  db = await getDb(db);
+  stripe = stripe ?? requireStripe();
+
+  if (!Number.isFinite(amountCents) || amountCents < 2500) {
+    throw new Error('Cloud top-up amount must be at least $25.00.');
+  }
+
+  const customerId = await ensureStripeCustomer(orgId, db, stripe);
+  const dollars = (amountCents / 100).toFixed(2);
+
+  const session = await stripe.checkout.sessions.create({
+    mode: 'payment',
+    ui_mode: 'elements',
+    customer: customerId,
+    line_items: [
+      {
+        quantity: 1,
+        price_data: {
+          currency: 'usd',
+          unit_amount: Math.round(amountCents),
+          product_data: {
+            name: `Cloud Credits — $${dollars}`,
+          },
+        },
+      },
+    ],
+    return_url: returnUrl,
+    client_reference_id: orgId,
+    integration_identifier: CLOUD_TOPUP_CHECKOUT_INTEGRATION_ID,
+    metadata: {
+      orgId,
+      kind: 'cloud_topup',
+      amountCents: String(Math.round(amountCents)),
+    },
+  });
+
+  if (!session.client_secret) {
+    throw new Error('Stripe returned a checkout session with no client secret.');
+  }
+  return {
+    clientSecret: session.client_secret,
+    checkoutSessionId: session.id,
+    amountCents: Math.round(amountCents),
+  };
+}
+
+export interface ConfirmCloudTopUpResult {
+  orgId: string;
+  checkoutSessionId: string;
+  paymentIntentId: string | null;
+  amountCents: number;
+  alreadyCredited: boolean;
+  balanceCents: number;
+}
+
+/**
+ * After Checkout Elements confirm, credit the org cloud balance (idempotent).
+ */
+export async function confirmCloudTopUpCheckoutSession(
+  orgId: string,
+  checkoutSessionId: string,
+  db?: RawDb,
+  stripe?: Stripe,
+): Promise<ConfirmCloudTopUpResult> {
+  db = await getDb(db);
+  stripe = stripe ?? requireStripe();
+
+  const session = await stripe.checkout.sessions.retrieve(checkoutSessionId);
+  if (session.status !== 'complete') {
+    throw new Error(
+      `Checkout Session ${checkoutSessionId} is "${session.status ?? 'unknown'}", not complete.`,
+    );
+  }
+  if (session.payment_status !== 'paid') {
+    throw new Error(
+      `Checkout Session ${checkoutSessionId} has payment_status "${session.payment_status}", not paid.`,
+    );
+  }
+  if (session.metadata?.kind !== 'cloud_topup') {
+    throw new Error('Checkout Session is not a cloud top-up.');
+  }
+  const sessionOrgId = session.metadata.orgId?.trim();
+  const amountCents = Number(session.metadata.amountCents);
+  if (!sessionOrgId || !Number.isFinite(amountCents) || amountCents <= 0) {
+    throw new Error('Cloud top-up Checkout Session is missing orgId or amountCents.');
+  }
+  if (sessionOrgId !== orgId) {
+    throw new Error('Checkout Session does not belong to this organization.');
+  }
+
+  const { creditCloudBalance } = await import('@/domain/billing/cloud-balance-service');
+  const result = await creditCloudBalance(orgId, amountCents, session.id, db);
+
+  const paymentIntentId =
+    typeof session.payment_intent === 'string'
+      ? session.payment_intent
+      : session.payment_intent?.id ?? null;
+
+  return {
+    orgId,
+    checkoutSessionId: session.id,
+    paymentIntentId,
+    amountCents,
+    alreadyCredited: result.alreadyCredited,
+    balanceCents: result.balanceCents,
+  };
+}
+
 /** Whether payments are usable end-to-end (key + webhook secret + a price). */
 export function stripeReadiness(override?: StripeEnvConfig): {
   ready: boolean;

@@ -244,6 +244,24 @@ async function handleCheckoutCompleted(
     }
   }
 
+  // Cloud Credits balance top-up.
+  if (session.mode === 'payment' && session.metadata?.kind === 'cloud_topup') {
+    const amountCents = Number(session.metadata.amountCents);
+    if (Number.isFinite(amountCents) && amountCents > 0) {
+      const { creditCloudBalance } = await import('@/domain/billing/cloud-balance-service');
+      const result = await creditCloudBalance(orgId, amountCents, session.id, db);
+      return {
+        handled: true,
+        duplicate: false,
+        eventType: 'checkout.session.completed',
+        orgId,
+        message: result.alreadyCredited
+          ? `Cloud top-up ${session.id} already credited for org ${orgId}.`
+          : `Credited ${amountCents}¢ cloud balance for org ${orgId} via checkout.`,
+      };
+    }
+  }
+
   // Agentic checkout may identify the pack by SKU on line items.
   if (session.mode === 'payment') {
     const { resolveTenantAgenticCommerce, resolvePackIdFromCheckoutMetadata } = await import(
@@ -587,11 +605,36 @@ async function handleInvoicePaymentFailed(
   };
 }
 
-/** A one-off payment succeeded — grant legacy PaymentIntent top-up packs. */
+/** A one-off payment succeeded — grant legacy PaymentIntent top-up packs / cloud. */
 async function handlePaymentIntentSucceeded(
   intent: Stripe.PaymentIntent,
   db: RawDb,
 ): Promise<WebhookResult> {
+  if (intent.metadata?.kind === 'cloud_topup') {
+    const orgId = intent.metadata.orgId;
+    const amountCents = Number(intent.metadata.amountCents ?? intent.amount);
+    if (!orgId || !Number.isFinite(amountCents) || amountCents <= 0) {
+      return {
+        handled: false,
+        duplicate: false,
+        eventType: 'payment_intent.succeeded',
+        orgId: null,
+        message: 'Cloud top-up intent is missing orgId or amountCents.',
+      };
+    }
+    const { creditCloudBalance } = await import('@/domain/billing/cloud-balance-service');
+    const result = await creditCloudBalance(orgId, amountCents, intent.id, db);
+    return {
+      handled: true,
+      duplicate: result.alreadyCredited,
+      eventType: 'payment_intent.succeeded',
+      orgId,
+      message: result.alreadyCredited
+        ? `Cloud top-up ${intent.id} already credited for org ${orgId}.`
+        : `Credited ${amountCents}¢ cloud balance for org ${orgId}.`,
+    };
+  }
+
   if (intent.metadata?.kind !== 'credit_topup') {
     return {
       handled: false,
