@@ -31,6 +31,10 @@ vi.mock('@/components/billing/billing-panel', () => ({
   AiCreditsPanel: ({ orgId }: { orgId: string }) => <div>topup for {orgId}</div>,
 }));
 
+vi.mock('@/components/billing/personal-usage-panel', () => ({
+  PersonalUsagePanel: ({ orgId }: { orgId: string }) => <div>usage for {orgId}</div>,
+}));
+
 const theme = createTheme();
 
 function renderPanel(orgId: string | null) {
@@ -70,7 +74,7 @@ describe('SettingsPanel', () => {
     // and quietly promise one.
     renderPanel('org_1');
 
-    for (const present of ['General', 'Billing', 'People', 'Topup', 'Profile', 'Security']) {
+    for (const present of ['General', 'Billing', 'People', 'Topup', 'Usage', 'Profile', 'Security']) {
       expect(screen.getByRole('button', { name: present })).toBeInTheDocument();
     }
     for (const absent of ['SSO', 'Data residency', 'Commerce', 'Skills', 'Chat Integrations']) {
@@ -78,18 +82,21 @@ describe('SettingsPanel', () => {
     }
   });
 
-  it('shows tenant-app usage, topup, people and branding sections without billing controls', () => {
+  it('shows tenant-app billing, personal usage, topup, people and branding', () => {
     vi.mocked(isPlatformApp).mockReturnValue(false);
     renderPanel('org_1');
 
+    expect(screen.getByRole('button', { name: 'Billing' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Usage' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Topup' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'People' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Branding' })).toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: 'Billing' })).toBeNull();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Billing' }));
+    expect(screen.getByText(/billing for org_1 \(read-only\)/i)).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('button', { name: 'Usage' }));
-    expect(screen.getByText(/billing for org_1 \(read-only\)/i)).toBeInTheDocument();
+    expect(screen.getByText(/usage for org_1/i)).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('button', { name: 'Topup' }));
     expect(screen.getByText(/topup for org_1/i)).toBeInTheDocument();
@@ -113,12 +120,13 @@ describe('SettingsPanel', () => {
     vi.mocked(isPlatformApp).mockReturnValue(false);
     renderPanel('org_1');
 
-    expect(screen.getByRole('button', { name: /Usage/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /^Billing$/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /^Usage$/i })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /Profile/i })).toBeInTheDocument();
     expect(screen.getByText(/Your organization/i)).toBeInTheDocument();
     expect(screen.getByText(/^Personal$/i)).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole('button', { name: /Usage/i }));
+    fireEvent.click(screen.getByRole('button', { name: /^Billing$/i }));
     expect(screen.getByText(/billing for org_1 \(read-only\)/i)).toBeInTheDocument();
   });
 });

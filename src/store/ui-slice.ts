@@ -20,15 +20,15 @@ export type BillingTab =
  * an absent one — see the auto-reload panel that shipped as a permanent
  * "Disabled" line and had to be removed.
  *
- * `topup` is a first-class Personal section (not a Billing tab) so the signed-in
- * user's credit balance and pack purchase sit one click from the sidebar — same
- * surface the header credit chip opens. Purchased packs credit that user's
- * personal pool; plan credits remain org-shared under Billing.
+ * `topup` and `usage` are first-class Personal sections (not Billing tabs):
+ * Topup = balance + pack purchase; Usage = users / provider / model breakdowns.
+ * Org ledger (Usage history + Grants) stays under Billing → History.
  */
 export type SettingsSection =
   | 'general'
   | 'billing'
   | 'topup'
+  | 'usage'
   | 'teammates'
   | 'branding'
   | 'profile'

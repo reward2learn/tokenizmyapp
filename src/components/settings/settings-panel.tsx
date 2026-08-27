@@ -24,6 +24,7 @@ import PaletteIcon from '@mui/icons-material/Palette';
 import LogoutIcon from '@mui/icons-material/Logout';
 import PersonIcon from '@mui/icons-material/PersonOutlined';
 import InsightsIcon from '@mui/icons-material/Insights';
+import QueryStatsIcon from '@mui/icons-material/QueryStats';
 import BoltIcon from '@mui/icons-material/Bolt';
 import SupportAgentIcon from '@mui/icons-material/SupportAgent';
 import { useAppDispatch, useAppSelector } from '@/store/hooks';
@@ -34,6 +35,7 @@ import { TeammatesPanel } from '@/components/settings/teammates-panel';
 import { ProfilePanel } from '@/components/settings/profile-panel';
 import { SecurityPanel } from '@/components/settings/security-panel';
 import { AiCreditsPanel, BillingPanel } from '@/components/billing/billing-panel';
+import { PersonalUsagePanel } from '@/components/billing/personal-usage-panel';
 import { RADIUS } from '@/theme/design-tokens';
 import { isPlatformApp } from '@shared/lib/config/tenant';
 
@@ -46,8 +48,9 @@ import { isPlatformApp } from '@shared/lib/config/tenant';
  * signed-in account. Billing stays in the first group because plans, invoices,
  * and shared plan credits are keyed on `orgId`. Topup sits under Personal
  * because self-serve pack purchases credit the current user's personal pool
- * (spent before shared plan credits) — see AiCreditsPanel copy and
- * `purchaserUserId` on the top-up checkout path.
+ * (spent before shared plan credits). Usage under Personal holds spend
+ * breakdowns (users / provider / model). Org ledger (Usage history + Grants)
+ * stays under Billing → History for the tenant/org context.
  *
  * Sections are listed only where something real backs them. SSO, data
  * residency, commerce and chat integrations are deliberately absent rather
@@ -68,10 +71,10 @@ const PLATFORM_ORGANIZATION_SECTIONS: SectionDef[] = [
   { id: 'teammates', label: 'People', icon: GroupIcon },
 ];
 
-/** Tenant apps without self-serve: usage is read-only. */
+/** Tenant apps without self-serve: billing/plan is read-only (ledger still visible). */
 const TENANT_ORGANIZATION_SECTIONS: SectionDef[] = [
   { id: 'general', label: 'General', icon: HomeIcon },
-  { id: 'billing', label: 'Usage', icon: InsightsIcon },
+  { id: 'billing', label: 'Billing', icon: InsightsIcon },
   { id: 'teammates', label: 'People', icon: GroupIcon },
   { id: 'branding', label: 'Branding', icon: PaletteIcon },
 ];
@@ -87,6 +90,7 @@ const TENANT_SELF_SERVE_SECTIONS: SectionDef[] = [
 const PERSONAL_SECTIONS: SectionDef[] = [
   { id: 'profile', label: 'Profile', icon: PersonIcon },
   { id: 'topup', label: 'Topup', icon: BoltIcon },
+  { id: 'usage', label: 'Usage', icon: QueryStatsIcon },
   { id: 'security', label: 'Security', icon: LockIcon },
 ];
 
@@ -195,13 +199,19 @@ export function SettingsPanel({
         return orgId ? (
           <BillingPanel orgId={orgId} readOnly={billingReadOnly} selfServeBilling={selfServeBilling} />
         ) : (
-          <NoOrganization what={onPlatform || selfServeBilling ? 'Billing' : 'Usage'} />
+          <NoOrganization what="Billing" />
         );
       case 'topup':
         return orgId ? (
           <AiCreditsPanel orgId={orgId} readOnly={billingReadOnly} selfServeBilling={selfServeBilling} />
         ) : (
           <NoOrganization what="Topup" />
+        );
+      case 'usage':
+        return orgId ? (
+          <PersonalUsagePanel orgId={orgId} />
+        ) : (
+          <NoOrganization what="Usage" />
         );
       case 'teammates':
         return <TeammatesPanel orgId={orgId} readOnly={!onPlatform} />;

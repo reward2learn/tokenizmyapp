@@ -16,6 +16,7 @@ const SETTINGS_SECTIONS: SettingsSection[] = [
   'general',
   'billing',
   'topup',
+  'usage',
   'teammates',
   'branding',
   'profile',

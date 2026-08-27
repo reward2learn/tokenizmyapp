@@ -168,7 +168,7 @@ describe('AiCreditsPanel', () => {
 });
 
 describe('BillingPanel credit history', () => {
-  it('keeps usage history under Usage → History, not Topup', () => {
+  it('keeps usage history under Billing → History, not Topup or Personal Usage analytics', () => {
     const { store } = renderPanel(true);
     store.dispatch(uiSlice.actions.setBillingTab('credit-history'));
     // Re-render with the store already on History.
@@ -181,6 +181,8 @@ describe('BillingPanel credit history', () => {
     expect(screen.getByRole('tab', { name: 'History' })).toBeInTheDocument();
     expect(screen.getByRole('tab', { name: 'Usage history' })).toBeInTheDocument();
     expect(screen.getByRole('tab', { name: 'Grants' })).toBeInTheDocument();
+    expect(screen.queryByRole('tab', { name: 'Users & top-ups' })).toBeNull();
+    expect(screen.queryByRole('tab', { name: 'Usage by provider' })).toBeNull();
     expect(screen.queryByText(/Your spendable AI credits/i)).toBeNull();
     expect(screen.queryByRole('button', { name: 'Request more AI credits' })).toBeNull();
   });

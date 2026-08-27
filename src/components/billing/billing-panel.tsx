@@ -60,7 +60,6 @@ import {
 } from '@/components/billing/embedded-plan-checkout';
 import { CreditGrantsTable } from '@/components/billing/credit-grants-table';
 import { CreditUsageTable } from '@/components/billing/credit-usage-table';
-import { CreditAdminAnalyticsPanels } from '@/components/billing/credit-admin-analytics';
 import { BillingDetailsTab } from '@/components/billing/billing-details-tab';
 import { CloudCreditsTab } from '@/components/billing/cloud-credits-tab';
 import { PaymentMethodsTab } from '@/components/billing/payment-methods-tab';
@@ -70,7 +69,6 @@ import {
   ResponsiveTabPanels,
   type ResponsiveTabItem,
 } from '@/components/shared/responsive-tab-panels';
-import type { CreditAdminAnalytics } from '@/store/apis/organization-api';
 
 /**
  * Settings → Billing / Usage.
@@ -116,7 +114,6 @@ export function BillingPanel({
   const subscription = checkoutData?.data?.subscription ?? orgData?.data?.subscription ?? null;
   const grants = creditsData?.data?.grants ?? [];
   const ledger = creditsData?.data?.ledger ?? [];
-  const analytics = creditsData?.data?.analytics ?? null;
   const readiness = checkoutData?.data?.readiness ?? null;
   const linkage = checkoutData?.data?.linkage ?? null;
   const reconcileNote = checkoutData?.data?.reconcileNote ?? null;
@@ -159,8 +156,6 @@ export function BillingPanel({
           <AiCreditsHistory
             grants={grants}
             ledger={ledger}
-            analytics={analytics}
-            readOnly={readOnly}
             selfServeTopUp={selfServeBilling}
           />
         ),
@@ -194,7 +189,6 @@ export function BillingPanel({
     readiness?.ready,
     grants,
     ledger,
-    analytics,
   ]);
 
   const sharedAlerts = (
@@ -263,8 +257,8 @@ export function BillingPanel({
 /**
  * Settings → Personal → Topup — spendable balance and pack purchase only.
  *
- * Usage / grant history lives under Settings → Usage → History so this
- * surface stays purchase-focused. The header credit chip deep-links here.
+ * Credit analytics live under Settings → Personal → Usage. Org ledger
+ * (Usage history + Grants) stays under Billing → History.
  */
 export function AiCreditsPanel({
   orgId,
@@ -890,18 +884,14 @@ function AiCreditsPurchase({
   );
 }
 
-/** Settings → Usage / Billing → History — ledger, grants, and admin analytics. */
+/** Settings → Billing → History — org ledger only (Usage history + Grants). */
 function AiCreditsHistory({
   grants,
   ledger,
-  analytics,
-  readOnly = false,
   selfServeTopUp = false,
 }: {
   grants: React.ComponentProps<typeof CreditGrantsTable>['grants'];
   ledger: React.ComponentProps<typeof CreditUsageTable>['ledger'];
-  analytics?: CreditAdminAnalytics | null;
-  readOnly?: boolean;
   selfServeTopUp?: boolean;
 }) {
   const [historyTab, setHistoryTab] = useState<'usage' | 'grants'>('usage');
@@ -912,33 +902,25 @@ function AiCreditsHistory({
       ? grants.filter((g) => !g.ownerUserId || g.ownerUserId === user.id)
       : grants;
 
-  const showAdminAnalytics = !readOnly && Boolean(analytics);
-
   return (
-    <Stack spacing={3}>
-      {showAdminAnalytics && analytics && (
-        <CreditAdminAnalyticsPanels
-          users={analytics.users}
-          byProvider={analytics.byProvider}
-          byModel={analytics.byModel}
-        />
+    <Stack spacing={2}>
+      <Typography variant="body2" color="text.secondary">
+        Organization credit ledger. Spend breakdowns by user, provider, and model are under
+        Personal → Usage.
+      </Typography>
+      <Tabs
+        value={historyTab}
+        onChange={(_, next: 'usage' | 'grants') => setHistoryTab(next)}
+        sx={{ mb: 1, minHeight: 36, borderBottom: 1, borderColor: 'divider' }}
+      >
+        <Tab label="Usage history" value="usage" sx={{ minHeight: 36 }} />
+        <Tab label="Grants" value="grants" sx={{ minHeight: 36 }} />
+      </Tabs>
+      {historyTab === 'usage' ? (
+        <CreditUsageTable ledger={ledger} />
+      ) : (
+        <CreditGrantsTable grants={visibleGrants} />
       )}
-
-      <Box>
-        <Tabs
-          value={historyTab}
-          onChange={(_, next: 'usage' | 'grants') => setHistoryTab(next)}
-          sx={{ mb: 2, minHeight: 36 }}
-        >
-          <Tab label="Usage history" value="usage" sx={{ minHeight: 36 }} />
-          <Tab label="Grants" value="grants" sx={{ minHeight: 36 }} />
-        </Tabs>
-        {historyTab === 'usage' ? (
-          <CreditUsageTable ledger={ledger} />
-        ) : (
-          <CreditGrantsTable grants={visibleGrants} />
-        )}
-      </Box>
     </Stack>
   );
 }
