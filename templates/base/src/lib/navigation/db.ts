@@ -270,14 +270,26 @@ export async function reconcileNavigationDuplicates(
 }
 
 /**
- * Find or create a single Excel folder for this app. Merges duplicates first.
+ * Find or create a single Excel folder for this app.
+ * Folder uses an empty route (expand-only group) and public auth tier.
  */
 export async function ensureExcelNavigationFolder(
   prisma: PrismaClient,
   scope?: NavigationScope,
 ): Promise<string | null> {
   const { excelFolderId } = await reconcileNavigationDuplicates(prisma, scope);
-  if (excelFolderId) return excelFolderId;
+  if (excelFolderId) {
+    await prisma.$executeRawUnsafe(
+      `UPDATE navigation_items
+       SET path = '',
+           auth_tier = CAST('public' AS "AuthTier"),
+           title = 'Excel',
+           updated_at = CURRENT_TIMESTAMP
+       WHERE id = $1`,
+      excelFolderId,
+    );
+    return excelFolderId;
+  }
 
   const appId = normalizeAppId(scope?.appId) || null;
   const tenantSlug = normalizeTenantSlug(scope?.tenantSlug) || null;
@@ -290,7 +302,7 @@ export async function ensureExcelNavigationFolder(
        gen_random_uuid()::TEXT, NULL,
        (SELECT COALESCE(MAX(sort_order), 0) + 1 FROM navigation_items
         WHERE parent_id IS NULL AND COALESCE(app_id, '') = COALESCE($2, '')),
-       'Excel', '/excel', 'Folder', CAST('google' AS "AuthTier"), '',
+       'Excel', '', 'Folder', CAST('public' AS "AuthTier"), '',
        TRUE, TRUE, FALSE, $1, $2, CURRENT_TIMESTAMP
      )
      RETURNING id`,
@@ -301,14 +313,23 @@ export async function ensureExcelNavigationFolder(
 }
 
 /**
- * Idempotent sheet → nav sync under this app's Excel folder.
- * Path lookup is scoped by app_id so hr's /sheet-pl never blocks finance.
+ * Sheet → nav sync under a parent folder.
+ *
+ * When `parentId` is omitted, finds/creates the Excel folder (empty path, public
+ * auth), deletes all of its children (and orphaned /sheet-* rows in scope), then
+ * inserts current sheet pages.
+ *
+ * When `parentId` is set, only sheet nav children under that folder are replaced.
  */
 export async function syncSheetPagesIntoNavigation(
   prisma: PrismaClient,
   scope?: NavigationScope,
+  options?: { parentId?: string },
 ): Promise<{ created: number; parentId: string | null; totalSheets: number }> {
-  const folderId = await ensureExcelNavigationFolder(prisma, scope);
+  const usingExcelFolder = !options?.parentId;
+  const folderId = usingExcelFolder
+    ? await ensureExcelNavigationFolder(prisma, scope)
+    : options!.parentId!;
   if (!folderId) return { created: 0, parentId: null, totalSheets: 0 };
 
   const appId = normalizeAppId(scope?.appId);
@@ -322,31 +343,33 @@ export async function syncSheetPagesIntoNavigation(
     appId,
   );
 
+  if (usingExcelFolder) {
+    await prisma.$executeRawUnsafe(
+      `DELETE FROM navigation_items
+       WHERE COALESCE(app_id, '') = $1
+         AND id <> $2
+         AND (
+           parent_id = $2
+           OR path LIKE '/sheet-%'
+         )`,
+      appId,
+      folderId,
+    );
+  } else {
+    await prisma.$executeRawUnsafe(
+      `DELETE FROM navigation_items
+       WHERE parent_id = $1
+         AND COALESCE(app_id, '') = $2
+         AND path LIKE '/sheet-%'`,
+      folderId,
+      appId,
+    );
+  }
+
   let created = 0;
   let navSort = 0;
   for (const sheet of sheets) {
     const path = `/${sheet.slug}`;
-    const existing = await prisma.$queryRawUnsafe<{ id: string }[]>(
-      `SELECT id FROM navigation_items
-       WHERE path = $1 AND COALESCE(app_id, '') = $2
-       LIMIT 1`,
-      path,
-      appId,
-    );
-    if (existing.length > 0) {
-      await prisma.$executeRawUnsafe(
-        `UPDATE navigation_items
-         SET parent_id = $1, title = $2, app_id = $3,
-             tenant_slug = COALESCE(tenant_slug, $4), updated_at = CURRENT_TIMESTAMP
-         WHERE id = $5`,
-        folderId,
-        sheet.title,
-        appId || null,
-        tenantSlug,
-        existing[0]!.id,
-      );
-      continue;
-    }
 
     await prisma.$executeRawUnsafe(
       `INSERT INTO navigation_items (

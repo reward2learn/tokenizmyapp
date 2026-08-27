@@ -151,7 +151,6 @@ export function AiContentTab() {
   const [result, setResult] = useState<GenerateResult | null>(null);
   const [generateError, setGenerateError] = useState<string | null>(null);
   const [showFullPrompt, setShowFullPrompt] = useState(false);
-  const [showFullDataSummary] = useState(false);
   const [editedPrompt, setEditedPrompt] = useState<string | null>(null);
 
   // RTK Query: GET /api/admin/ai-content — auto-fetches status on mount
@@ -213,7 +212,6 @@ export function AiContentTab() {
   const [clearConfirmText, setClearConfirmText] = useState('');
   const [clearError, setClearError] = useState<string | null>(null);
   const [sheetParentNavId, setSheetParentNavId] = useState<string>('');
-  const [sheetParentTitle, setSheetParentTitle] = useState<string>('Excel');
   const [sheetPopulateResult, setSheetPopulateResult] = useState<{ created: number; parentId: string; totalSheets: number } | null>(null);
   const [sheetPopulateError, setSheetPopulateError] = useState<string | null>(null);
   const [clearResult, setClearResult] = useState<Record<string, number> | null>(null);
@@ -312,11 +310,6 @@ export function AiContentTab() {
 
   // ── Helpers ───────────────────────────────────────────
 
-  const copyPrompt = useCallback(() => {
-    if (!status?.fullPrompt && !status?.promptPreview) return;
-    void navigator.clipboard.writeText(status.fullPrompt ?? status.promptPreview);
-  }, [status]);
-
   /** Determine which steps are completed / active / pending */
   function stepState(
     key: string,
@@ -395,6 +388,79 @@ export function AiContentTab() {
               Sheets: {status.tabs.join(', ')}
             </Typography>
           </Stack>
+        ) : null}
+
+        {/* ── Populate Sheet Pages in Navigation ────────── */}
+        <Divider sx={{ my: 2.5 }} />
+        <Stack direction="row" spacing={1.5} sx={{ alignItems: 'center', mb: 2 }}>
+          <AutoAwesomeMosaicIcon color="primary" />
+          <Typography variant="subtitle2" sx={{ fontWeight: 700 }}>
+            Populate Sheet Pages in Navigation
+          </Typography>
+        </Stack>
+        <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+          Add all dynamic sheet pages (created when you run AI Content Generation or
+          Reseed with an Excel workbook) to the navigation menu. Leave Parent Folder
+          empty to create or refresh a public &quot;Excel&quot; folder (empty route) —
+          existing children under that folder are cleared and replaced with the current sheets.
+          Or choose another parent to place sheet links under that folder only.
+        </Typography>
+
+        <Stack spacing={2} direction={{ xs: 'column', sm: 'row' }} sx={{ alignItems: 'flex-start' }}>
+          <FormControl size="small" sx={{ minWidth: 220 }}>
+            <InputLabel>Parent Folder</InputLabel>
+            <Select
+              value={sheetParentNavId}
+              label="Parent Folder"
+              onChange={(e) => {
+                setSheetParentNavId(e.target.value as string);
+              }}
+              disabled={populatingSheets}
+            >
+              <MenuItem value="">— Excel folder (create / refresh) —</MenuItem>
+              {navFolders.map((f) => (
+                <MenuItem key={f.id} value={f.id}>
+                  <FolderOpenIcon sx={{ mr: 1, fontSize: 18 }} />
+                  {f.title} {f.path ? `(${f.path})` : ''}
+                </MenuItem>
+              ))}
+            </Select>
+          </FormControl>
+
+          <Button
+            variant="contained"
+            size="small"
+            onClick={async () => {
+              setSheetPopulateResult(null);
+              setSheetPopulateError(null);
+              try {
+                const res = await populateSheets({
+                  parentId: sheetParentNavId || undefined,
+                }).unwrap();
+                setSheetPopulateResult(res.data as { created: number; parentId: string; totalSheets: number });
+              } catch (err) {
+                setSheetPopulateError(err instanceof Error ? err.message : String(err));
+              }
+            }}
+            disabled={populatingSheets}
+            startIcon={populatingSheets ? <CircularProgress size={18} color="inherit" /> : <AutoAwesomeMosaicIcon />}
+          >
+            {populatingSheets ? 'Populating...' : 'Populate Sheet Pages'}
+          </Button>
+        </Stack>
+
+        {sheetPopulateResult ? (
+          <Alert severity="success" icon={<CheckCircleIcon />} sx={{ mt: 2 }}>
+            <Typography variant="body2">
+              {sheetParentNavId
+                ? `Added ${sheetPopulateResult.created} sheet navigation item(s) under the selected folder (${sheetPopulateResult.totalSheets} sheet pages).`
+                : `Refreshed the Excel folder with ${sheetPopulateResult.created} sheet navigation item(s) (${sheetPopulateResult.totalSheets} sheet pages).`}
+            </Typography>
+          </Alert>
+        ) : null}
+
+        {sheetPopulateError ? (
+          <Alert severity="error" sx={{ mt: 2 }}>{sheetPopulateError}</Alert>
         ) : null}
       </Paper>
 
@@ -820,54 +886,9 @@ export function AiContentTab() {
         </Accordion>
       ) : null}
 
-      {/* ── Prompt preview accordion ────────────────── */}
-      <Accordion
-        expanded={showFullPrompt}
-        onChange={() => setShowFullPrompt((p) => !p)}
-      >
-        <AccordionSummary expandIcon={<ExpandMoreIcon />}>
-          <Typography sx={{ fontWeight: 700 }}>
-            AI Generation Prompt (
-            {status
-              ? `${(status.promptLength / 1000).toFixed(0)}K chars`
-              : '...'}
-            )
-          </Typography>
-        </AccordionSummary>
-        <AccordionDetails>
-          <Stack spacing={1}>
-            <Button
-              size="small"
-              variant="outlined"
-              startIcon={<ContentCopyIcon />}
-              onClick={copyPrompt}
-              sx={{ alignSelf: 'flex-start' }}
-            >
-              Copy Preview
-            </Button>
-            <Typography
-              variant="body2"
-              component="pre"
-              sx={{
-                whiteSpace: 'pre-wrap',
-                fontFamily: 'monospace',
-                fontSize: '0.75rem',
-                bgcolor: 'rgba(0,0,0,0.3)',
-                p: 2,
-                borderRadius: 1,
-                maxHeight: 400,
-                overflow: 'auto',
-              }}
-            >
-              {status?.promptPreview ?? 'Loading...'}
-            </Typography>
-          </Stack>
-        </AccordionDetails>
-      </Accordion>
-
       {/* ── Full Prompt accordion ─────────────────────── */}
       <Accordion
-        expanded={showFullDataSummary || showFullPrompt}
+        expanded={showFullPrompt}
         onChange={() => setShowFullPrompt((p) => !p)}
       >
         <AccordionSummary expandIcon={<ExpandMoreIcon />}>
@@ -943,80 +964,6 @@ export function AiContentTab() {
           Refresh Data Status
         </Button>
       </Stack>
-
-      {/* ── Populate Sheet Pages in Navigation ────────── */}
-      <Paper variant="outlined" sx={{ p: 3 }}>
-        <Stack direction="row" spacing={1.5} sx={{ alignItems: 'center', mb: 2 }}>
-          <AutoAwesomeMosaicIcon color="primary" />
-          <Typography variant="subtitle2" sx={{ fontWeight: 700 }}>
-            Populate Sheet Pages in Navigation
-          </Typography>
-        </Stack>
-        <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-          Add all dynamic sheet pages (created when you run AI Content Generation or
-          Reseed with an Excel workbook) to the navigation menu. Choose a parent
-          folder to group them under.
-        </Typography>
-
-        <Stack spacing={2} direction={{ xs: 'column', sm: 'row' }} sx={{ alignItems: 'flex-start' }}>
-          <FormControl size="small" sx={{ minWidth: 220 }}>
-            <InputLabel>Parent Folder</InputLabel>
-            <Select
-              value={sheetParentNavId}
-              label="Parent Folder"
-              onChange={(e) => {
-                const id = e.target.value as string;
-                setSheetParentNavId(id);
-                const folder = navFolders.find((f) => f.id === id);
-                if (folder) setSheetParentTitle(folder.title);
-              }}
-              disabled={populatingSheets}
-            >
-              <MenuItem value="">— New &quot;Excel&quot; folder —</MenuItem>
-              {navFolders.map((f) => (
-                <MenuItem key={f.id} value={f.id}>
-                  <FolderOpenIcon sx={{ mr: 1, fontSize: 18 }} />
-                  {f.title} {f.path ? `(${f.path})` : ''}
-                </MenuItem>
-              ))}
-            </Select>
-          </FormControl>
-
-          <Button
-            variant="contained"
-            size="small"
-            onClick={async () => {
-              setSheetPopulateResult(null);
-              setSheetPopulateError(null);
-              try {
-                const res = await populateSheets({
-                  parentId: sheetParentNavId || undefined,
-                  parentTitle: sheetParentNavId ? undefined : sheetParentTitle || 'Excel',
-                }).unwrap();
-                setSheetPopulateResult(res.data as { created: number; parentId: string; totalSheets: number });
-              } catch (err) {
-                setSheetPopulateError(err instanceof Error ? err.message : String(err));
-              }
-            }}
-            disabled={populatingSheets}
-            startIcon={populatingSheets ? <CircularProgress size={18} color="inherit" /> : <AutoAwesomeMosaicIcon />}
-          >
-            {populatingSheets ? 'Populating...' : 'Populate Sheet Pages'}
-          </Button>
-        </Stack>
-
-        {sheetPopulateResult ? (
-          <Alert severity="success" icon={<CheckCircleIcon />} sx={{ mt: 2 }}>
-            <Typography variant="body2">
-              Created {sheetPopulateResult.created} navigation items for {sheetPopulateResult.totalSheets} sheet pages under the selected folder.
-            </Typography>
-          </Alert>
-        ) : null}
-
-        {sheetPopulateError ? (
-          <Alert severity="error" sx={{ mt: 2 }}>{sheetPopulateError}</Alert>
-        ) : null}
-      </Paper>
 
       {/* ── Danger Zone: Clear All Seeded Data ──────────── */}
       <Divider sx={{ my: 1 }} />

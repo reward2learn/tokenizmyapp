@@ -25,7 +25,9 @@ const bodySchema = z.object({
  * POST /api/admin/populate-sheet-pages
  *
  * Syncs navigation_items for all app_pages with slug LIKE 'sheet-%'.
- * Pages become children of a single Excel folder (idempotent — no duplicates).
+ * Without parentId: creates/reuses a public Excel folder (empty route), clears its
+ * children, and repopulates current sheet pages.
+ * With parentId: replaces sheet children under that folder only.
  */
 export async function POST(request: Request): Promise<NextResponse> {
   const guard = await requireWriteAuth(request);
@@ -39,10 +41,6 @@ export async function POST(request: Request): Promise<NextResponse> {
   const parsed = bodySchema.safeParse(body);
   if (!parsed.success) return jsonError('Validation error: ' + JSON.stringify(parsed.error.flatten()), 400);
 
-  // parentId / parentTitle retained for API compatibility; sync always uses
-  // the reconciled single Excel folder so reseeds cannot stack folders.
-  void parsed.data;
-
   const prisma = getClient();
   const scope = {
     tenantSlug: getTenantConfig().slug,
@@ -51,7 +49,9 @@ export async function POST(request: Request): Promise<NextResponse> {
 
   try {
     await ensureNavigationTable(prisma);
-    const result = await syncSheetPagesIntoNavigation(prisma, scope);
+    const result = await syncSheetPagesIntoNavigation(prisma, scope, {
+      parentId: parsed.data.parentId,
+    });
     return jsonOk({
       created: result.created,
       parentId: result.parentId,
