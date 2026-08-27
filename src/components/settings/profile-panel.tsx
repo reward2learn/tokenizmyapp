@@ -142,7 +142,7 @@ export function ProfilePanel() {
         slotProps={{
           input: { readOnly: true, sx: { fontFamily: 'monospace', fontSize: '0.85rem' } },
         }}
-        helperText="What Teammates and every authorization check key on."
+        helperText="Account id (session sub). Billing seats and authorization checks key on this."
       />
 
       {roleCode && (

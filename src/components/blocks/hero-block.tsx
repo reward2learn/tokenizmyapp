@@ -266,7 +266,7 @@ function ReportCard({
         },
         '&:hover': {
           borderColor: 'primary.main',
-          bgcolor: onDark ? 'rgba(235, 61, 40, 0.25)' : 'rgba(235, 61, 40, 0.06)',
+          bgcolor: onDark ? 'rgba(235, 61, 40, 0.25)' : 'rgba(187, 187, 187, 0.06)',
           transform: 'translateY(-2px)',
         },
       }}

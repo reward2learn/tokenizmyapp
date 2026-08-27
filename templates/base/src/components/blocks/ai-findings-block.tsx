@@ -75,7 +75,7 @@ function FindingAccordion({
         border: '1px solid',
         borderColor: selected ? 'primary.main' : 'divider',
         '&:before': { display: 'none' },
-        bgcolor: selected ? 'rgba(235, 61, 40, 0.06)' : 'rgba(235, 61, 40, 0.03)',
+        bgcolor: selected ? 'rgba(187, 187, 187, 0.06)' : 'rgba(235, 61, 40, 0.03)',
       }}
     >
       <AccordionSummary expandIcon={<ExpandMoreIcon sx={{ color: 'primary.main' }} />}>

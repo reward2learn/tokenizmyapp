@@ -34,11 +34,22 @@ export const chatApi = createApi({
         body,
       }),
     }),
-    listConversations: builder.query<ApiEnvelope<unknown>, number | void>({
-      query: (limit = 20) => ({
-        url: 'chat',
-        params: { resource: 'conversations', limit },
-      }),
+    listConversations: builder.query<
+      ApiEnvelope<unknown>,
+      { limit?: number; archived?: boolean } | number | void
+    >({
+      query: (arg) => {
+        const limit = typeof arg === 'number' ? arg : arg?.limit ?? 20;
+        const archived = typeof arg === 'object' && arg !== null ? arg.archived : undefined;
+        return {
+          url: 'chat',
+          params: {
+            resource: 'conversations',
+            limit,
+            ...(archived !== undefined ? { archived: String(archived) } : {}),
+          },
+        };
+      },
       providesTags: ['Conversations'],
     }),
     getConversation: builder.query<ApiEnvelope<unknown>, number>({
@@ -59,6 +70,20 @@ export const chatApi = createApi({
       }),
       invalidatesTags: ['Conversations'],
     }),
+    updateConversation: builder.mutation<
+      ApiEnvelope<{ id: number; title: string; archived: boolean }>,
+      { id: number; title?: string; archived?: boolean }
+    >({
+      query: ({ id, title, archived }) => ({
+        url: `chat?resource=conversations&id=${id}`,
+        method: 'PATCH',
+        body: {
+          ...(title !== undefined ? { title } : {}),
+          ...(archived !== undefined ? { archived } : {}),
+        },
+      }),
+      invalidatesTags: ['Conversations'],
+    }),
     archiveConversation: builder.mutation<
       ApiEnvelope<{ id: number; archived: boolean }>,
       { id: number; archived?: boolean }
@@ -66,6 +91,16 @@ export const chatApi = createApi({
       query: ({ id, archived }) => ({
         url: `chat?resource=conversations&id=${id}${archived !== undefined ? `&archived=${archived}` : ''}`,
         method: 'PATCH',
+      }),
+      invalidatesTags: ['Conversations'],
+    }),
+    deleteConversations: builder.mutation<
+      ApiEnvelope<{ deleted: number[] }>,
+      number[]
+    >({
+      query: (ids) => ({
+        url: `chat?resource=conversations&ids=${ids.join(',')}`,
+        method: 'DELETE',
       }),
       invalidatesTags: ['Conversations'],
     }),
@@ -126,7 +161,9 @@ export const {
   useGetConversationQuery,
   useLazyGetConversationQuery,
   useSaveConversationMutation,
+  useUpdateConversationMutation,
   useArchiveConversationMutation,
+  useDeleteConversationsMutation,
   useGetAiFindingsQuery,
   useCreateAiFindingMutation,
   useDeleteAiFindingsMutation,

@@ -64,6 +64,21 @@ export interface OrgMember {
   createdAt: string;
 }
 
+/** Tenant app user eligible to be added as an org teammate. */
+export interface OrgMemberCandidate {
+  sub: string;
+  email: string | null;
+  name: string | null;
+  tenantSlug: string;
+  tier: string;
+  alreadyMember: boolean;
+}
+
+export interface OrgTenantRef {
+  slug: string;
+  displayName: string;
+}
+
 export interface Subscription {
   id: string;
   orgId: string;
@@ -248,6 +263,46 @@ export const organizationApi = createApi({
     >({
       query: ({ orgId, ...body }) => ({
         url: `admin/organizations/${orgId}/members`,
+        method: 'POST',
+        body,
+      }),
+      invalidatesTags: ['Organization'],
+    }),
+
+    /**
+     * Tenant users already set up for this org's apps — powers the Teammates
+     * picker so admins never need to paste opaque Account ids.
+     */
+    listOrgMemberCandidates: builder.query<
+      ApiEnvelope<{ tenants: OrgTenantRef[]; candidates: OrgMemberCandidate[] }>,
+      string
+    >({
+      query: (orgId) => `admin/organizations/${orgId}/member-candidates`,
+      providesTags: ['Organization'],
+    }),
+
+    /**
+     * Invite by email: provision PIN-tier viewer on a tenant and email the PIN.
+     * Does not grant an organization billing seat.
+     */
+    inviteOrgTeammate: builder.mutation<
+      ApiEnvelope<{
+        sub: string;
+        tenantSlug: string;
+        emailSent: boolean;
+        createdUser: boolean;
+        warning?: string;
+      }>,
+      {
+        orgId: string;
+        email: string;
+        tenantSlug: string;
+        name?: string | null;
+        appBaseUrl?: string | null;
+      }
+    >({
+      query: ({ orgId, ...body }) => ({
+        url: `admin/organizations/${orgId}/invites`,
         method: 'POST',
         body,
       }),
@@ -880,6 +935,8 @@ export const {
   useUpdateOrganizationMutation,
   useDeleteOrganizationMutation,
   useAddOrgMemberMutation,
+  useListOrgMemberCandidatesQuery,
+  useInviteOrgTeammateMutation,
   useGetCloudUsageQuery,
   useListPaymentMethodsQuery,
   useCreateSetupIntentMutation,

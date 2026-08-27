@@ -39,7 +39,7 @@ export function MetricCard({
         cursor: onClick ? 'pointer' : 'default',
         border: '1px solid',
         borderColor: active ? 'primary.main' : 'divider',
-        bgcolor: active ? 'rgba(235, 61, 40, 0.06)' : 'rgba(255,255,255,0.03)',
+        bgcolor: active ? 'rgba(187, 187, 187, 0.06)' : 'rgba(255,255,255,0.03)',
         boxShadow: active ? (theme) => `0 0 0 1px ${theme.palette.primary.main}` : 'none',
         transition: 'all 0.25s ease',
         width: '100%',

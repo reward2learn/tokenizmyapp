@@ -65,8 +65,7 @@ const PLATFORM_ORGANIZATION_SECTIONS: SectionDef[] = [
   { id: 'general', label: 'General', icon: HomeIcon },
   { id: 'billing', label: 'Billing', icon: CreditCardIcon },
   { id: 'topup', label: 'Topup', icon: BoltIcon },
-  { id: 'teammates', label: 'Teammates', icon: GroupIcon },
-  { id: 'branding', label: 'Branding', icon: PaletteIcon },
+  { id: 'teammates', label: 'People', icon: GroupIcon },
 ];
 
 /** Tenant apps without self-serve: usage is read-only. */
@@ -74,7 +73,7 @@ const TENANT_ORGANIZATION_SECTIONS: SectionDef[] = [
   { id: 'general', label: 'General', icon: HomeIcon },
   { id: 'billing', label: 'Usage', icon: InsightsIcon },
   { id: 'topup', label: 'Topup', icon: BoltIcon },
-  { id: 'teammates', label: 'Team', icon: GroupIcon },
+  { id: 'teammates', label: 'People', icon: GroupIcon },
   { id: 'branding', label: 'Branding', icon: PaletteIcon },
 ];
 
@@ -83,7 +82,7 @@ const TENANT_SELF_SERVE_SECTIONS: SectionDef[] = [
   { id: 'general', label: 'General', icon: HomeIcon },
   { id: 'billing', label: 'Billing', icon: CreditCardIcon },
   { id: 'topup', label: 'Topup', icon: BoltIcon },
-  { id: 'teammates', label: 'Team', icon: GroupIcon },
+  { id: 'teammates', label: 'People', icon: GroupIcon },
   { id: 'branding', label: 'Branding', icon: PaletteIcon },
 ];
 

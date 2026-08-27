@@ -387,12 +387,16 @@ export async function probeEmbeddedCheckoutHealth(
  * Change plan on an existing subscription, applying the roadmap's proration
  * rules (§4.3).
  *
- * Upgrade   — immediate, prorated charge, billing anchor unchanged. The
- *             prorated credit grant is issued by the webhook when the invoice
- *             is paid, not here, so credits only ever follow money.
- * Downgrade — scheduled to the period boundary. Recorded locally as
- *             `pending_plan_id` so the UI can say what will happen and when;
- *             Stripe holds the actual schedule.
+ * Same-interval upgrade — immediate prorated charge, billing anchor unchanged
+ *   so the customer does not get a free cycle reset.
+ * Interval change (e.g. monthly → yearly) — immediate prorations with
+ *   `billing_cycle_anchor: 'now'`. Stripe rejects `unchanged` when the price
+ *   interval itself changes ("Changing plan intervals…").
+ * Same-interval downgrade — price swap with no proration; local
+ *   `pending_plan_id` for UI. Interval-changing downgrades cannot hold the
+ *   anchor either, so they take the immediate prorated path.
+ *
+ * Credit grants follow paid invoices via the webhook, not this call.
  */
 export async function changePlan(
   orgId: string,
@@ -419,14 +423,14 @@ export async function changePlan(
   if (!priceId) throw new Error(`Plan "${planId}" (${interval}) has no Stripe price configured.`);
 
   const kind = classifyPlanChange(current.planId, planId, current.interval, interval);
+  const intervalChanged = current.interval !== interval;
   const subscription = await stripe.subscriptions.retrieve(linkage.subscriptionId);
   const itemId = subscription.items.data[0]?.id;
   if (!itemId) throw new Error(`Stripe subscription ${linkage.subscriptionId} has no line items.`);
 
-  if (kind === 'downgrade') {
-    // `proration_behavior: 'none'` plus the period-end schedule is what makes a
-    // downgrade non-refunding: the customer keeps what they paid for until the
-    // boundary rather than getting a partial credit now.
+  // Same-interval downgrade only: Stripe can keep the cycle, and we avoid
+  // mid-cycle refunds. Interval flips cannot use `unchanged` — fall through.
+  if (kind === 'downgrade' && !intervalChanged) {
     await stripe.subscriptions.update(linkage.subscriptionId, {
       items: [{ id: itemId, price: priceId }],
       proration_behavior: 'none',
@@ -438,10 +442,10 @@ export async function changePlan(
 
   await stripe.subscriptions.update(linkage.subscriptionId, {
     items: [{ id: itemId, price: priceId }],
-    // Charge the difference now, and explicitly hold the anchor: without this
-    // an upgrade resets the cycle and hands the customer a free extension.
     proration_behavior: 'create_prorations',
-    billing_cycle_anchor: 'unchanged',
+    // Same interval: hold the anchor. Interval change: reset now (Stripe forbids
+    // `unchanged` across month↔year) and let prorations credit unused time.
+    billing_cycle_anchor: intervalChanged ? 'now' : 'unchanged',
   });
   await saveStripeLinkage(orgId, { pendingPlanId: null }, db);
 

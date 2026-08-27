@@ -2,14 +2,17 @@
 
 import { useMemo } from 'react';
 import {
+  useArchiveConversationMutation,
+  useDeleteConversationsMutation,
   useLazyGetConversationQuery,
   useListConversationsQuery,
+  useUpdateConversationMutation,
 } from '@/store/apis/chat-api';
 import { useAppDispatch } from '@/store/hooks';
 import { setMessages, type ChatStreamMessage } from '@/store/chat-stream-slice';
 import { isChatAttachment } from '@/lib/chat/attachments';
 
-interface ConversationSummary {
+export interface ConversationSummary {
   id: number;
   title?: string;
   message_count?: number;
@@ -42,10 +45,18 @@ function normalizeLoadedMessages(value: unknown): ChatStreamMessage[] {
   });
 }
 
-export function useSavedConversations() {
+export function useSavedConversations(options?: { archived?: boolean; limit?: number }) {
   const dispatch = useAppDispatch();
-  const { data: conversationsPayload, isFetching: conversationsLoading } = useListConversationsQuery(20);
+  const archived = options?.archived ?? false;
+  const limit = options?.limit ?? 50;
+  const { data: conversationsPayload, isFetching: conversationsLoading } = useListConversationsQuery({
+    limit,
+    archived,
+  });
   const [loadConversation, { isFetching: isLoadingConversation }] = useLazyGetConversationQuery();
+  const [archiveConversation, archiveState] = useArchiveConversationMutation();
+  const [updateConversation, updateState] = useUpdateConversationMutation();
+  const [deleteConversations, deleteState] = useDeleteConversationsMutation();
 
   const conversations = useMemo(() => {
     const data = conversationsPayload?.data;
@@ -59,10 +70,27 @@ export function useSavedConversations() {
     return true;
   };
 
+  const rename = async (id: number, title: string): Promise<void> => {
+    await updateConversation({ id, title }).unwrap();
+  };
+
+  const setArchived = async (ids: number[], nextArchived: boolean): Promise<void> => {
+    await Promise.all(ids.map((id) => archiveConversation({ id, archived: nextArchived }).unwrap()));
+  };
+
+  const remove = async (ids: number[]): Promise<void> => {
+    if (!ids.length) return;
+    await deleteConversations(ids).unwrap();
+  };
+
   return {
     conversations,
     conversationsLoading,
     isLoadingConversation,
+    isMutating: archiveState.isLoading || updateState.isLoading || deleteState.isLoading,
     load,
+    rename,
+    setArchived,
+    remove,
   };
 }

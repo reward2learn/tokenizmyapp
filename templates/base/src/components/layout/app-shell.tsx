@@ -30,13 +30,14 @@ import ChatIcon from '@mui/icons-material/Chat';
 import EditIcon from '@mui/icons-material/Edit';
 import EditOffIcon from '@mui/icons-material/EditOff';
 import CloseIcon from '@mui/icons-material/Close';
+import HistoryIcon from '@mui/icons-material/History';
 import NavigateNextIcon from '@mui/icons-material/NavigateNext';
 import SearchOutlined from '@mui/icons-material/SearchOutlined';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import ExpandLessIcon from '@mui/icons-material/ExpandLess';
 import FolderIcon from '@mui/icons-material/Folder';
 import type { ReactNode } from 'react';
-import { SavedConversationsMenu } from '@/components/chat/saved-conversations-menu';
+import { ChatHistoryPanel } from '@/components/chat/chat-history-panel';
 import { WalletConnectButton } from '@/components/web3/wallet-connect-button';
 import { getReviewPartDisplayTitle, listNavPages, resolvePage, resolveReviewPart } from '@/lib/page-catalog';
 import { useAppDispatch, useAppSelector } from '@/store/hooks';
@@ -102,6 +103,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   const pageEditMode = useAppSelector((s) => s.ui.pageEditMode);
   const pageEditSlug = useAppSelector((s) => s.ui.pageEditSlug);
   const { tier, user, groups, permissions, platformAdmin } = useAppSelector((s) => s.auth);
+  const [chatHistoryOpen, setChatHistoryOpen] = useState(false);
   useListPagesQuery();
 
   // Brand config via RTK Query — fallback to tenant env var, then default
@@ -141,6 +143,12 @@ export function AppShell({ children }: { children: ReactNode }) {
   const pageSlug = useMemo(() => routePathToPageSlug(pathname), [pathname]);
   const canEditPages = hasPagesWrite(permissions, platformAdmin);
   const pageEditActive = pageEditMode && pageEditSlug === pageSlug;
+
+  useEffect(() => {
+    if (!chatDrawerOpen) {
+      setChatHistoryOpen(false);
+    }
+  }, [chatDrawerOpen]);
 
   useEffect(() => {
     if (pageEditMode && pageEditSlug && pageEditSlug !== pageSlug) {
@@ -251,7 +259,7 @@ export function AppShell({ children }: { children: ReactNode }) {
               borderLeft: '3px solid transparent',
               '&.Mui-selected': {
                 borderLeftColor: 'primary.main',
-                bgcolor: 'rgba(235, 61, 40, 0.06)',
+                bgcolor: 'rgba(187, 187, 187, 0.06)',
                 borderRadius: '0px',
               },
             }}
@@ -414,7 +422,6 @@ export function AppShell({ children }: { children: ReactNode }) {
                 <ChatIcon />
               </IconButton>
             </Tooltip>
-            <SavedConversationsMenu />
           </Box>
         </Toolbar>
       </AppBar>
@@ -603,18 +610,36 @@ export function AppShell({ children }: { children: ReactNode }) {
             <Typography variant="subtitle2" sx={{ fontWeight: 700, flex: 1, minWidth: 0 }}>
               AI Chat
             </Typography>
+            <Tooltip title={chatHistoryOpen ? 'Back to chat' : 'Chat history'}>
+              <IconButton
+                size="small"
+                aria-label={chatHistoryOpen ? 'Close chat history' : 'Open chat history'}
+                aria-pressed={chatHistoryOpen}
+                onClick={() => setChatHistoryOpen((open) => !open)}
+                sx={{ color: chatHistoryOpen ? 'primary.main' : 'text.secondary' }}
+              >
+                <HistoryIcon fontSize="small" />
+              </IconButton>
+            </Tooltip>
             <Tooltip title="Close AI chat">
               <IconButton
                 size="small"
                 aria-label="Close AI chat drawer"
-                onClick={() => dispatch(setChatDrawerOpen(false))}
+                onClick={() => {
+                  setChatHistoryOpen(false);
+                  dispatch(setChatDrawerOpen(false));
+                }}
               >
                 <CloseIcon fontSize="small" />
               </IconButton>
             </Tooltip>
           </Box>
           <Box sx={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-            <ChatDrawerPanel variant="drawer" />
+            {chatHistoryOpen ? (
+              <ChatHistoryPanel onConversationLoaded={() => setChatHistoryOpen(false)} />
+            ) : (
+              <ChatDrawerPanel variant="drawer" />
+            )}
           </Box>
         </Box>
       </Box>

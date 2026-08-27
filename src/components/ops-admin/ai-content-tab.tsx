@@ -823,7 +823,7 @@ export function AiContentTab() {
           sx={{
             border: '1px solid',
             borderColor: 'primary.main',
-            bgcolor: 'rgba(235, 61, 40, 0.06)',
+            bgcolor: 'rgba(187, 187, 187, 0.06)',
             '&:before': { display: 'none' },
           }}
         >

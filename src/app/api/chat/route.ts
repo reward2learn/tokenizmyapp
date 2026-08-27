@@ -110,6 +110,13 @@ const conversationPostSchema = z.object({
   })).min(1),
 });
 
+const conversationPatchSchema = z.object({
+  title: z.string().min(1).max(200).optional(),
+  archived: z.boolean().optional(),
+}).refine((value) => value.title !== undefined || value.archived !== undefined, {
+  message: 'title or archived is required',
+});
+
 const DB_KEYWORDS = [
   'actual', 'current', 'tracking', 'kpi', 'performance',
   'how are we', 'how did we', 'what was', 'what were',
@@ -811,22 +818,93 @@ async function handleConversations(request: Request, url: URL): Promise<NextResp
     const existing = await db.conversation.findUnique({ where: { id: numId } });
     if (!existing) return legacyError('Conversation not found', 404);
 
-    // Only the owner or a platform admin may archive/unarchive.
+    // Only the owner or a platform admin may modify.
     if (!sessionIsPlatformAdmin(session) && existing.ownerSub && existing.ownerSub !== session?.sub) {
       return legacyError('Not allowed to modify this conversation', 403);
     }
 
+    let body: unknown = undefined;
+    try {
+      body = await request.json();
+    } catch {
+      // Query-param archive toggle remains supported without a body.
+    }
+
     const archiveParam = url.searchParams.get('archived');
-    const archived = archiveParam === 'true' ? true : archiveParam === 'false' ? false : !existing.archived;
+    const data: { title?: string; archived?: boolean } = {};
+
+    const hasPatchBody = body !== undefined
+      && body !== null
+      && typeof body === 'object'
+      && Object.keys(body as object).length > 0;
+
+    if (hasPatchBody) {
+      const parsed = conversationPatchSchema.safeParse(body);
+      if (!parsed.success) {
+        return legacyError('Invalid patch body', 400);
+      }
+      if (parsed.data.title !== undefined) {
+        data.title = parsed.data.title.trim().slice(0, 200);
+      }
+      if (parsed.data.archived !== undefined) {
+        data.archived = parsed.data.archived;
+      }
+    } else if (archiveParam !== null) {
+      data.archived = archiveParam === 'true' ? true : archiveParam === 'false' ? false : !existing.archived;
+    } else {
+      data.archived = !existing.archived;
+    }
+
+    if (data.title === undefined && data.archived === undefined) {
+      return legacyError('Nothing to update', 400);
+    }
 
     const updated = await db.conversation.update({
       where: { id: numId },
-      data: { archived },
+      data,
     });
 
     return NextResponse.json({
       success: true,
-      data: { id: updated.id, archived: updated.archived },
+      data: {
+        id: updated.id,
+        title: updated.title,
+        archived: updated.archived,
+      },
+    });
+  }
+
+  if (request.method === 'DELETE') {
+    const idsParam = url.searchParams.get('ids') ?? url.searchParams.get('id');
+    if (!idsParam) return legacyError('id or ids is required', 400);
+
+    const ids = idsParam
+      .split(',')
+      .map((value) => parseInt(value.trim(), 10))
+      .filter((value) => !Number.isNaN(value));
+
+    if (!ids.length) return legacyError('Invalid id', 400);
+
+    const rows = await db.conversation.findMany({
+      where: { id: { in: ids } },
+      select: { id: true, ownerSub: true },
+    });
+
+    const allowedIds = rows
+      .filter((row: { id: number; ownerSub: string | null }) => (
+        sessionIsPlatformAdmin(session)
+        || !row.ownerSub
+        || row.ownerSub === session?.sub
+      ))
+      .map((row: { id: number }) => row.id);
+
+    if (!allowedIds.length) return legacyError('Not allowed to delete these conversations', 403);
+
+    await db.conversation.deleteMany({ where: { id: { in: allowedIds } } });
+
+    return NextResponse.json({
+      success: true,
+      data: { deleted: allowedIds },
     });
   }
 
@@ -846,13 +924,15 @@ async function handleConversations(request: Request, url: URL): Promise<NextResp
         title: row.title,
         messages: row.messages,
         message_count: row.messageCount,
+        archived: row.archived,
         created_at: row.createdAt,
       },
     });
   }
 
   const limit = Math.min(parseInt(url.searchParams.get('limit') ?? '20', 10), 50);
-  const includeArchived = url.searchParams.get('archived') === 'true';
+  // archived=true → archived only; omit/false → active (non-archived) only.
+  const archivedOnly = url.searchParams.get('archived') === 'true';
   const ownerFilter = url.searchParams.get('owner');
 
   // Non-admins may only see their own conversations; admins may scope via ?owner=.
@@ -860,7 +940,7 @@ async function handleConversations(request: Request, url: URL): Promise<NextResp
 
   const rows = await db.conversation.findMany({
     where: {
-      ...(includeArchived ? {} : { archived: false }),
+      archived: archivedOnly,
       ...(scopedOwner ? { ownerSub: scopedOwner } : {}),
     },
     orderBy: { createdAt: 'desc' },
@@ -924,6 +1004,15 @@ export async function POST(request: Request) {
 }
 
 export async function PATCH(request: Request) {
+  const url = new URL(request.url);
+  const resource = url.searchParams.get('resource');
+
+  if (resource === 'conversations') return handleConversations(request, url);
+
+  return legacyError('Method not allowed', 405);
+}
+
+export async function DELETE(request: Request) {
   const url = new URL(request.url);
   const resource = url.searchParams.get('resource');
 
