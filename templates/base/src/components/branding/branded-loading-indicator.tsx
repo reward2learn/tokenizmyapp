@@ -37,8 +37,9 @@ export function BrandedLoadingIndicator({ size = 28, color, sx }: BrandedLoading
         sx={{
           width: graphicSize,
           height: graphicSize,
-          objectFit: 'contain',
+          objectFit: 'cover',
           display: 'block',
+          borderRadius: '50%',
           ...sx,
         }}
       />
