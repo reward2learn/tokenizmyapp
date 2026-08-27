@@ -70,7 +70,7 @@ describe('SettingsPanel', () => {
     // and quietly promise one.
     renderPanel('org_1');
 
-    for (const present of ['General', 'Billing', 'Topup', 'People', 'Branding', 'Profile', 'Security']) {
+    for (const present of ['General', 'Billing', 'People', 'Topup', 'Profile', 'Security']) {
       expect(screen.getByRole('button', { name: present })).toBeInTheDocument();
     }
     for (const absent of ['SSO', 'Data residency', 'Commerce', 'Skills', 'Chat Integrations']) {

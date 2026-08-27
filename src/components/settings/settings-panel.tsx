@@ -43,10 +43,11 @@ import { isPlatformApp } from '@shared/lib/config/tenant';
  * The split is the ownership boundary the platform already has, not a visual
  * grouping: everything above the divider belongs to the Organization (the
  * billing owner of one or more tenants) and everything below belongs to the
- * signed-in account. Billing sits in the first group for the same reason it is
- * keyed on `orgId` everywhere else — a customer running three tenant apps has
- * one plan and one balance, not three. Topup sits beside Billing/Usage so
- * credit purchase is a sidebar click, not a nested billing tab.
+ * signed-in account. Billing stays in the first group because plans, invoices,
+ * and shared plan credits are keyed on `orgId`. Topup sits under Personal
+ * because self-serve pack purchases credit the current user's personal pool
+ * (spent before shared plan credits) — see AiCreditsPanel copy and
+ * `purchaserUserId` on the top-up checkout path.
  *
  * Sections are listed only where something real backs them. SSO, data
  * residency, commerce and chat integrations are deliberately absent rather
@@ -64,7 +65,6 @@ interface SectionDef {
 const PLATFORM_ORGANIZATION_SECTIONS: SectionDef[] = [
   { id: 'general', label: 'General', icon: HomeIcon },
   { id: 'billing', label: 'Billing', icon: CreditCardIcon },
-  { id: 'topup', label: 'Topup', icon: BoltIcon },
   { id: 'teammates', label: 'People', icon: GroupIcon },
 ];
 
@@ -72,7 +72,6 @@ const PLATFORM_ORGANIZATION_SECTIONS: SectionDef[] = [
 const TENANT_ORGANIZATION_SECTIONS: SectionDef[] = [
   { id: 'general', label: 'General', icon: HomeIcon },
   { id: 'billing', label: 'Usage', icon: InsightsIcon },
-  { id: 'topup', label: 'Topup', icon: BoltIcon },
   { id: 'teammates', label: 'People', icon: GroupIcon },
   { id: 'branding', label: 'Branding', icon: PaletteIcon },
 ];
@@ -81,13 +80,13 @@ const TENANT_ORGANIZATION_SECTIONS: SectionDef[] = [
 const TENANT_SELF_SERVE_SECTIONS: SectionDef[] = [
   { id: 'general', label: 'General', icon: HomeIcon },
   { id: 'billing', label: 'Billing', icon: CreditCardIcon },
-  { id: 'topup', label: 'Topup', icon: BoltIcon },
   { id: 'teammates', label: 'People', icon: GroupIcon },
   { id: 'branding', label: 'Branding', icon: PaletteIcon },
 ];
 
 const PERSONAL_SECTIONS: SectionDef[] = [
   { id: 'profile', label: 'Profile', icon: PersonIcon },
+  { id: 'topup', label: 'Topup', icon: BoltIcon },
   { id: 'security', label: 'Security', icon: LockIcon },
 ];
 

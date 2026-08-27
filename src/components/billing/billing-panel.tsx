@@ -76,8 +76,8 @@ import type { CreditAdminAnalytics } from '@/store/apis/organization-api';
  * Settings → Billing / Usage.
  *
  * Plan, credit history (ledger/grants), cloud credits, invoices, and payment
- * details. Spendable balance and pack purchase live under Settings → Topup
- * (`AiCreditsPanel`) so the sidebar can open them in one click — the same
+ * details. Spendable balance and pack purchase live under Settings → Personal →
+ * Topup (`AiCreditsPanel`) so the sidebar can open them in one click — the same
  * surface the header credit chip uses.
  *
  * Tab selection lives in the ui slice, not component state, so returning from
@@ -261,7 +261,7 @@ export function BillingPanel({
 }
 
 /**
- * Settings → Topup — spendable balance and pack purchase only.
+ * Settings → Personal → Topup — spendable balance and pack purchase only.
  *
  * Usage / grant history lives under Settings → Usage → History so this
  * surface stays purchase-focused. The header credit chip deep-links here.
