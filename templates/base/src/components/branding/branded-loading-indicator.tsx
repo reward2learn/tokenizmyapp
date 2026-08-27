@@ -7,7 +7,7 @@ import type { SxProps, Theme } from '@mui/material/styles';
 import { useGetBrandConfigQuery } from '@shared/store/apis/brand-config-api';
 
 /** Custom brand GIFs/images render larger than the fallback spinner at the same `size`. */
-const LOADING_GRAPHIC_SIZE_MULTIPLIER = 1.5;
+const LOADING_GRAPHIC_SIZE_MULTIPLIER = 3;
 
 interface BrandedLoadingIndicatorProps {
   /** Pixel size — fallback spinner uses this exactly; custom loading graphics render 50% larger. */
