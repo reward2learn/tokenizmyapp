@@ -63,7 +63,7 @@ interface SourceUploadFormValues {
 
 type FileField = 'excel' | 'businessReview' | 'executiveSummary';
 
-const FILE_FIELDS: {
+type SourceFileFieldConfig = {
   key: FileField;
   formName: keyof SourceUploadFormValues;
   apiName: string;
@@ -71,16 +71,24 @@ const FILE_FIELDS: {
   accept: string;
   hint: string;
   multiple?: boolean;
-}[] = [
-  {
-    key: 'excel',
-    formName: 'excel',
-    apiName: CONFIG_UPLOAD_FIELD_NAMES.excel,
-    label: 'Cashflow workbooks (XLSX)',
-    accept: '.xlsx,.xls,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel',
-    hint: 'Upload one or more workbooks. Multiple workbooks (e.g. different months or departments) are merged.',
-    multiple: true,
-  },
+};
+
+/** Required for the Upload & Seed workflow. */
+const WORKBOOK_FILE_FIELD: SourceFileFieldConfig = {
+  key: 'excel',
+  formName: 'excel',
+  apiName: CONFIG_UPLOAD_FIELD_NAMES.excel,
+  label: 'Cashflow workbooks (XLSX)',
+  accept: '.xlsx,.xls,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel',
+  hint: 'Upload one or more workbooks. Multiple workbooks (e.g. different months or departments) are merged.',
+  multiple: true,
+};
+
+/**
+ * Optional overrides — normally produced by AI Content Generation.
+ * Kept collapsed in the UI so they do not clutter the primary workbook flow.
+ */
+const OPTIONAL_MARKDOWN_FILE_FIELDS: SourceFileFieldConfig[] = [
   {
     key: 'businessReview',
     formName: 'businessReview',
@@ -408,6 +416,75 @@ export function SourceUploadForm({ showSummaryOnly }: { showSummaryOnly?: boolea
         ? 'Upload and reseed failed'
         : null;
 
+  const optionalMarkdownSelectedCount = OPTIONAL_MARKDOWN_FILE_FIELDS.filter(
+    (field) => selectedFiles[field.key],
+  ).length;
+
+  const renderFileField = (field: SourceFileFieldConfig) => {
+    const file = selectedFiles[field.key];
+    const status = fieldStatus[field.key];
+    const isValid = Boolean(file && status?.startsWith('Ready'));
+
+    return (
+      <Box key={field.key}>
+        <Typography variant="subtitle2" sx={{ mb: 0.5 }}>
+          {field.label}
+        </Typography>
+        <Typography variant="caption" color="text.secondary" sx={{ mb: 1, display: 'block' }}>
+          {field.hint}
+        </Typography>
+        <Button
+          component="label"
+          variant="outlined"
+          startIcon={<CloudUploadIcon />}
+          fullWidth
+          sx={{ justifyContent: 'flex-start', textTransform: 'none' }}
+        >
+          {file
+            ? Array.isArray(file)
+              ? `${file.length} file(s)`
+              : file.name
+            : 'Choose file'}
+          <input
+            type="file"
+            hidden
+            accept={field.accept}
+            multiple={field.multiple}
+            {...register(field.formName, {
+              onChange: (event) => {
+                const input = event.target as HTMLInputElement;
+                setUseCachedSelected(false);
+                if (field.multiple) {
+                  updateFieldStatus(
+                    field.key,
+                    input.files?.length ? `${input.files.length} file(s) selected` : null,
+                  );
+                } else {
+                  const chosen = fileFromList(input.files);
+                  updateFieldStatus(field.key, chosen);
+                }
+              },
+            })}
+          />
+        </Button>
+        {status ? (
+          <Typography
+            variant="caption"
+            color={isValid ? 'success.main' : 'error'}
+            sx={{ mt: 0.5, display: 'block' }}
+          >
+            {status}
+          </Typography>
+        ) : null}
+        {errors[field.formName] ? (
+          <Typography variant="caption" color="error" role="alert">
+            {errors[field.formName]?.message}
+          </Typography>
+        ) : null}
+      </Box>
+    );
+  };
+
   return (
     <Box component="section" sx={{ width: '100%', py: 4, px: { xs: 0, sm: 1 } }}>
       {!showSummaryOnly ? (
@@ -416,8 +493,9 @@ export function SourceUploadForm({ showSummaryOnly }: { showSummaryOnly?: boolea
             Workbook &amp; source files
           </Typography>
           <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
-            Use the last successfully cached workbook, or upload new source files to replace it and
-            re-run the database seed pipeline. After seeding finishes, continue to Review Data.
+            Use the last successfully cached workbook, or upload a new workbook to replace it and
+            re-run the database seed pipeline. Markdown review docs are optional (AI Content
+            Generation). After seeding finishes, continue to Review Data.
           </Typography>
 
           {cachedWorkbook ? (
@@ -508,77 +586,59 @@ export function SourceUploadForm({ showSummaryOnly }: { showSummaryOnly?: boolea
               data-testid="source-upload-form"
             >
               <Typography variant="subtitle2" sx={{ fontWeight: 700 }}>
-                {cachedWorkbook ? 'Or upload a new workbook' : 'Upload workbook & sources'}
+                {cachedWorkbook ? 'Or upload a new workbook' : 'Upload workbook'}
               </Typography>
-              {FILE_FIELDS.map((field) => {
-                const file = selectedFiles[field.key];
-                const status = fieldStatus[field.key];
-                const isValid = file && status?.startsWith('Ready');
+              {renderFileField(WORKBOOK_FILE_FIELD)}
 
-                return (
-                  <Box key={field.key}>
-                    <Typography variant="subtitle2" sx={{ mb: 0.5 }}>
-                      {field.label}
+              <Accordion
+                disableGutters
+                elevation={0}
+                defaultExpanded={false}
+                data-testid="optional-markdown-sources"
+                sx={{
+                  border: '1px solid',
+                  borderColor: 'divider',
+                  borderRadius: 1,
+                  '&:before': { display: 'none' },
+                  bgcolor: 'transparent',
+                }}
+              >
+                <AccordionSummary expandIcon={<ExpandMoreIcon />}>
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}>
+                    <Typography variant="subtitle2" sx={{ fontWeight: 700 }}>
+                      Optional markdown sources
                     </Typography>
-                    <Typography variant="caption" color="text.secondary" sx={{ mb: 1, display: 'block' }}>
-                      {field.hint}
+                    <Typography variant="caption" color="text.secondary">
+                      Business Review &amp; Executive Summary — usually AI-generated
                     </Typography>
-                    <Button
-                      component="label"
-                  variant="outlined"
-                  startIcon={<CloudUploadIcon />}
-                  fullWidth
-                  sx={{ justifyContent: 'flex-start', textTransform: 'none' }}
-                >
-                  {file ? (Array.isArray(file) ? `${file.length} file(s)` : file.name) : 'Choose file'}
-                  <input
-                    type="file"
-                    hidden
-                    accept={field.accept}
-                    multiple={field.multiple}
-                    {...register(field.formName, {
-                      onChange: (event) => {
-                        const input = event.target as HTMLInputElement;
-                        setUseCachedSelected(false);
-                        if (field.multiple) {
-                          updateFieldStatus(field.key, input.files?.length ? `${input.files.length} file(s) selected` : null);
-                        } else {
-                          const chosen = fileFromList(input.files);
-                          updateFieldStatus(field.key, chosen);
-                        }
-                      },
-                    })}
-                  />
-                </Button>
-                {status ? (
-                  <Typography
-                    variant="caption"
-                    color={isValid ? 'success.main' : 'error'}
-                    sx={{ mt: 0.5, display: 'block' }}
-                  >
-                    {status}
-                  </Typography>
-                ) : null}
-                {errors[field.formName] ? (
-                  <Typography variant="caption" color="error" role="alert">
-                    {errors[field.formName]?.message}
-                  </Typography>
-                ) : null}
-              </Box>
-            );
-          })}
+                    {optionalMarkdownSelectedCount > 0 ? (
+                      <Chip
+                        size="small"
+                        label={`${optionalMarkdownSelectedCount} selected`}
+                        color="primary"
+                        variant="outlined"
+                      />
+                    ) : null}
+                  </Box>
+                </AccordionSummary>
+                <AccordionDetails sx={{ borderTop: '1px solid', borderColor: 'divider', pt: 2 }}>
+                  <Stack spacing={3}>
+                    {OPTIONAL_MARKDOWN_FILE_FIELDS.map(renderFileField)}
+                  </Stack>
+                </AccordionDetails>
+              </Accordion>
 
-          <Button
-            type="submit"
-            variant="contained"
-            disabled={isLoading || isReprocessing || !hasAnyUpload(selectedFiles)}
-            startIcon={isLoading ? <CircularProgress size={18} color="inherit" /> : undefined}
-            data-testid="reseed-submit"
-          >
-            {isLoading ? 'Uploading & reseeding…' : 'Upload & reseed database'}
-          </Button>
-        </Stack>
-      </Paper>
+              <Button
+                type="submit"
+                variant="contained"
+                disabled={isLoading || isReprocessing || !hasAnyUpload(selectedFiles)}
+                startIcon={isLoading ? <CircularProgress size={18} color="inherit" /> : undefined}
+                data-testid="reseed-submit"
+              >
+                {isLoading ? 'Uploading & reseeding…' : 'Upload & reseed database'}
+              </Button>
+            </Stack>
+          </Paper>
 
           {/* Progress sits directly under Upload & Seed so status stays in view */}
           {syncStep && !workflowRunId ? (

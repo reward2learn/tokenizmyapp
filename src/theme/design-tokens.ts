@@ -300,6 +300,7 @@ export function createAppTheme(brand: BrandColors, mode: ResolvedThemeMode = 'li
       MuiChip: {
         styleOverrides: {
           root: { borderRadius: RADIUS.pill, fontWeight: TYPE.control.weight },
+          sizeSmall: { marginBottom: 8 },
         },
       },
       MuiTooltip: {
