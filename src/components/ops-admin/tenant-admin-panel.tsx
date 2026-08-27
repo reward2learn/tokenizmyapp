@@ -38,6 +38,7 @@ import { getTemplate } from '@/domain/tenant/template-catalog';
 import { OrganizationBar } from './organization-bar';
 import { TenantDashboard } from './tenant-dashboard';
 import { TenantInfoTab } from './tenant-info-tab';
+import { ADMIN_SELECT_MENU_PROPS } from './admin-select-menu-props';
 import { NavigationManager } from './navigation-manager';
 import { PageSectionsManager } from './page-sections-manager';
 import { BrandConfigTab } from './brand-config-tab';
@@ -244,7 +245,7 @@ export function TenantAdminPanel() {
       <OrganizationBar tenantSlug={selectedTenantSlug} />
 
       {/* Tenant Selector */}
-      <Paper elevation={0} sx={{ p: 2, mb: 3, border: '1px solid', borderColor: 'divider', bgcolor: 'background.paper' }}>
+      <Paper elevation={0} sx={{ p: 2, mb: 3, border: '1px solid', borderColor: 'divider', bgcolor: 'background.paper', overflow: 'visible' }}>
         <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} sx={{ alignItems: { xs: 'stretch', sm: 'center' } }}>
           {/*
             Keep a real min-width on sm+ — `minWidth: 0` + sibling `width: 100%`
@@ -267,6 +268,7 @@ export function TenantAdminPanel() {
               value={selectedTenantSlug ?? ''}
               onChange={(e) => handleTenantChange(e.target.value)}
               disabled={isLoading}
+              MenuProps={ADMIN_SELECT_MENU_PROPS}
             >
               <MenuItem value="">
                 <em>All Tenants (Dashboard)</em>

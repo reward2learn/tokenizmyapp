@@ -264,6 +264,21 @@ export function createAppTheme(brand: BrandColors, mode: ResolvedThemeMode = 'li
           paper: { borderRadius: RADIUS.base, border: `1px solid ${n.border}`, boxShadow: SHADOWS.overlay },
         },
       },
+      MuiSelect: {
+        defaultProps: {
+          // Keep Select menus above sticky admin chrome and sized for mobile.
+          MenuProps: {
+            disablePortal: false,
+            marginThreshold: 8,
+            anchorOrigin: { vertical: 'bottom', horizontal: 'left' },
+            transformOrigin: { vertical: 'top', horizontal: 'left' },
+            slotProps: {
+              root: { sx: { zIndex: (theme) => theme.zIndex.modal + 2 } },
+              paper: { sx: { maxHeight: 'min(50vh, 360px)', overflowY: 'auto' } },
+            },
+          },
+        },
+      },
       MuiAppBar: {
         styleOverrides: {
           root: {
@@ -374,20 +389,25 @@ export function createAppTheme(brand: BrandColors, mode: ResolvedThemeMode = 'li
         },
       },
       // ── Mobile touch target overrides ─────────────────────────
-      // Ensure all small variants meet minimum 48×48px tap target.
+      // Meet ~48px tap targets via min size + padding — never a fixed
+      // width like 70px. Dense flex rows (Navigation Manager, toolbars)
+      // collapse when size="small" controls claim 48–70px each; the label
+      // then gets minWidth:0 and word-breaks one character per line.
       MuiIconButton: {
         styleOverrides: {
           sizeSmall: {
-            width: 48,
-            height: 48,
+            minWidth: 40,
+            minHeight: 40,
+            // Allow dense lists to shrink further via local sx overrides.
+            padding: 8,
           },
         },
       },
       MuiCheckbox: {
         styleOverrides: {
           sizeSmall: {
-            width: 70,
-            height: 48,
+            // Touch padding around the 24px icon — do not force Switch's 70px width.
+            padding: 12,
           },
         },
       },

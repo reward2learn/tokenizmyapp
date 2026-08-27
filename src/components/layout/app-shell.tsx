@@ -591,6 +591,10 @@ export function AppShell({ children }: { children: ReactNode }) {
           sx={{
             flex: 1,
             minWidth: 0,
+            // Let long admin sections scroll with the document — do not trap
+            // overflow here (nested overflow:auto + overscroll contain was
+            // eating touch pan on /admin).
+            overflow: 'visible',
             // On /ops-chat the page already renders the chat — hide it while the
             // drawer is open so the conversation is not duplicated.
             display: chatDrawerOpen && pathname === '/ops-chat' ? 'none' : 'block',

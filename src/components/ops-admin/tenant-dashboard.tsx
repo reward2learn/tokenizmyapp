@@ -589,7 +589,7 @@ export function TenantDashboard() {
 
   return (
     <Stack spacing={3}>
-      <Paper variant="outlined" sx={{ p: { xs: 2, sm: 3 }, overflow: 'hidden' }}>
+      <Paper variant="outlined" sx={{ p: { xs: 2, sm: 3 }, overflow: 'visible' }}>
         <Stack
           direction={{ xs: 'column', sm: 'row' }}
           spacing={{ xs: 1, md: 1.5 }}

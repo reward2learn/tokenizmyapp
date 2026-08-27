@@ -629,11 +629,13 @@ export function NavigationManager({ tenantSlug, appId }: NavigationManagerProps 
           borderColor: isDrop ? 'primary.main' : isHidden ? 'warning.light' : 'divider',
           opacity: isDrag ? 0.5 : isHidden ? 0.72 : 1,
           ml: { xs: Math.min(item.depth, 2) * 1.5, sm: item.depth * 3 },
-          flexWrap: { xs: 'nowrap', sm: 'wrap' },
+          // Always allow wrap — nowrap + minWidth:0 + dense 48px controls
+          // was collapsing the title to ~1ch and stacking characters vertically.
+          flexWrap: 'wrap',
           rowGap: 0.5,
           minWidth: 0,
           maxWidth: '100%',
-          overflow: 'hidden',
+          overflow: 'visible',
           '&:hover': { bgcolor: 'action.hover' },
         }}
       >
@@ -642,13 +644,13 @@ export function NavigationManager({ tenantSlug, appId }: NavigationManagerProps 
           checked={selectedIds.has(item.id)}
           onChange={() => toggleSelect(item.id)}
           onClick={(e) => e.stopPropagation()}
-          sx={{ p: 0.5, flexShrink: 0 }}
+          sx={{ p: 0.5, flexShrink: 0, width: 'auto', height: 'auto' }}
         />
         {hasChildren(item.id) ? (
           <IconButton
             size="small"
             onClick={(e) => { e.stopPropagation(); toggleCollapsed(item.id); }}
-            sx={{ p: 0.5, flexShrink: 0 }}
+            sx={{ p: 0.5, flexShrink: 0, width: 36, height: 36, minWidth: 36, minHeight: 36 }}
             aria-label={collapsedIds.has(item.id) ? `Expand ${item.title}` : `Collapse ${item.title}`}
           >
             {collapsedIds.has(item.id) ? <ChevronRightIcon fontSize="small" /> : <ExpandMoreIcon fontSize="small" />}
@@ -717,13 +719,26 @@ export function NavigationManager({ tenantSlug, appId }: NavigationManagerProps 
             <InsertDriveFileIcon fontSize="small" />
           )}
         </Box>
-        <Box sx={{ flex: '1 1 auto', minWidth: 0 }}>
+        <Box sx={{ flex: '1 1 140px', minWidth: 120, maxWidth: '100%' }}>
           {internalPath ? (
             <Link href={internalPath} style={linkSx}>
               <Typography
                 variant="body2"
                 component="span"
-                sx={{ fontWeight: 600, wordBreak: 'break-word', display: 'inline-flex', alignItems: 'center', gap: 0.5 }}
+                sx={{
+                  fontWeight: 600,
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 0.5,
+                  maxWidth: '100%',
+                  // Title overflow strategy — keep wordBreak: 'normal' so we never
+                  // reintroduce one-character-per-line wrapping. Prefer either:
+                  //   A) whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis'
+                  //   B) whiteSpace:'normal', overflowWrap:'break-word' (current)
+                  whiteSpace: 'normal',
+                  overflowWrap: 'break-word',
+                  wordBreak: 'normal',
+                }}
               >
                 {item.title}
                 <OpenInNewIcon sx={{ fontSize: 14, opacity: 0.6, flexShrink: 0 }} />
@@ -736,13 +751,33 @@ export function NavigationManager({ tenantSlug, appId }: NavigationManagerProps 
               href={item.path}
               target="_blank"
               rel="noopener noreferrer"
-              sx={{ fontWeight: 600, wordBreak: 'break-word', color: 'inherit', textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 0.5, '&:hover': { textDecoration: 'underline', color: 'primary.main' } }}
+              sx={{
+                fontWeight: 600,
+                color: 'inherit',
+                textDecoration: 'none',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 0.5,
+                maxWidth: '100%',
+                whiteSpace: 'normal',
+                overflowWrap: 'break-word',
+                wordBreak: 'normal',
+                '&:hover': { textDecoration: 'underline', color: 'primary.main' },
+              }}
             >
               {item.title}
               <OpenInNewIcon sx={{ fontSize: 14, opacity: 0.6, flexShrink: 0 }} />
             </Typography>
           ) : (
-            <Typography variant="body2" sx={{ fontWeight: 600, wordBreak: 'break-word' }}>
+            <Typography
+              variant="body2"
+              sx={{
+                fontWeight: 600,
+                whiteSpace: 'normal',
+                overflowWrap: 'break-word',
+                wordBreak: 'normal',
+              }}
+            >
               {item.title}
             </Typography>
           )}
@@ -752,7 +787,7 @@ export function NavigationManager({ tenantSlug, appId }: NavigationManagerProps 
                 variant="caption"
                 color="text.secondary"
                 component="span"
-                sx={{ display: 'block', wordBreak: 'break-all', overflowWrap: 'anywhere', maxWidth: '100%' }}
+                sx={{ display: 'block', overflowWrap: 'anywhere', maxWidth: '100%' }}
               >
                 {item.path}
               </Typography>
@@ -765,7 +800,7 @@ export function NavigationManager({ tenantSlug, appId }: NavigationManagerProps 
               href={item.path}
               target="_blank"
               rel="noopener noreferrer"
-              sx={{ display: 'block', wordBreak: 'break-all', overflowWrap: 'anywhere', maxWidth: '100%', color: 'text.secondary', textDecoration: 'none', '&:hover': { textDecoration: 'underline', color: 'primary.main' } }}
+              sx={{ display: 'block', overflowWrap: 'anywhere', maxWidth: '100%', color: 'text.secondary', textDecoration: 'none', '&:hover': { textDecoration: 'underline', color: 'primary.main' } }}
             >
               {item.path}
             </Typography>
@@ -773,7 +808,7 @@ export function NavigationManager({ tenantSlug, appId }: NavigationManagerProps 
             <Typography
               variant="caption"
               color="text.secondary"
-              sx={{ display: 'block', wordBreak: 'break-all', overflowWrap: 'anywhere', maxWidth: '100%' }}
+              sx={{ display: 'block', overflowWrap: 'anywhere', maxWidth: '100%' }}
             >
               {item.path || '(no path)'}
             </Typography>
@@ -785,10 +820,10 @@ export function NavigationManager({ tenantSlug, appId }: NavigationManagerProps 
           useFlexGap
           sx={{
             flexShrink: 0,
-            flexWrap: { xs: 'nowrap', sm: 'wrap' },
+            flexWrap: 'wrap',
             alignItems: 'center',
-            maxWidth: { xs: '46%', sm: 'none' },
-            overflow: 'hidden',
+            // Do not cap chips at 46% on xs — that starved the title column.
+            maxWidth: '100%',
           }}
         >
           {item.isDefault ? (
@@ -820,7 +855,7 @@ export function NavigationManager({ tenantSlug, appId }: NavigationManagerProps 
                 setRowMenu({ anchor: e.currentTarget, item });
               }}
               aria-label={`Actions for ${item.title}`}
-              sx={{ flexShrink: 0 }}
+              sx={{ flexShrink: 0, width: 36, height: 36, minWidth: 36, minHeight: 36 }}
             >
               <MoreVertIcon fontSize="small" />
             </IconButton>
@@ -845,7 +880,7 @@ export function NavigationManager({ tenantSlug, appId }: NavigationManagerProps 
 
   return (
     <Stack spacing={3}>
-      <Paper variant="outlined" sx={{ p: 3, overflow: 'hidden', maxWidth: '100%' }}>
+      <Paper variant="outlined" sx={{ p: 3, overflow: 'visible', maxWidth: '100%' }}>
         <Stack
           direction={{ xs: 'column', sm: 'row' }}
           spacing={1}
@@ -958,7 +993,7 @@ export function NavigationManager({ tenantSlug, appId }: NavigationManagerProps 
             No navigation items yet. Click "Add Item" to create the first one.
           </Typography>
         ) : (
-          <Box sx={{ maxHeight: 600, overflow: 'auto', overscrollBehavior: 'contain' }}>
+          <Box sx={{ overflow: 'visible' }}>
             {visibleRows.map(({ item, flatIdx }) => renderRow(item, flatIdx))}
           </Box>
         )}

@@ -63,6 +63,7 @@ import { FUNCTIONAL_ROLES } from '@/domain/security/functional-roles';
 import { useAppSelector } from '@/store/hooks';
 import { TenantSecurityGroups } from '@/components/ops-admin/tenant-security-groups';
 import { TenantRoles } from '@/components/ops-admin/tenant-roles';
+import { ADMIN_SELECT_MENU_PROPS } from '@/components/ops-admin/admin-select-menu-props';
 
 function RoleManager() {
   const { slug, displayName } = getClientTenantConfig();
@@ -543,6 +544,7 @@ function UserManager() {
                     label="Task"
                     value={taskToAdd}
                     onChange={(e) => setTaskToAdd(e.target.value)}
+                    MenuProps={ADMIN_SELECT_MENU_PROPS}
                   >
                     {unassignedTasksFor(editorUser).map((t) => (
                       <MenuItem key={t.id} value={t.id}>
@@ -621,6 +623,7 @@ function UserManager() {
                 label="Status"
                 value={editing ? (editing.isActive ? 'active' : 'disabled') : 'active'}
                 onChange={(e) => setEditing((prev) => prev ? { ...prev, isActive: e.target.value === 'active' } : prev)}
+                MenuProps={ADMIN_SELECT_MENU_PROPS}
               >
                 <MenuItem value="active">Active</MenuItem>
                 <MenuItem value="disabled">Disabled</MenuItem>
@@ -633,6 +636,7 @@ function UserManager() {
                 label="Functional role"
                 value={editing?.roleCode ?? ''}
                 onChange={(e) => setEditing((prev) => prev ? { ...prev, roleCode: e.target.value || null } : prev)}
+                MenuProps={ADMIN_SELECT_MENU_PROPS}
               >
                 <MenuItem value="">— none —</MenuItem>
                 {FUNCTIONAL_ROLES.map((fr) => (
@@ -649,6 +653,7 @@ function UserManager() {
                 value={editing?.groupCodes ?? []}
                 onChange={(e) => setEditing((prev) => prev ? { ...prev, groupCodes: e.target.value as string[] } : prev)}
                 renderValue={(selected) => (selected as string[]).join(', ')}
+                MenuProps={ADMIN_SELECT_MENU_PROPS}
               >
                 {allGroups.map((g) => (
                   <MenuItem key={g.code} value={g.code}>{g.name}</MenuItem>
@@ -725,6 +730,7 @@ function UserManager() {
                 label="Functional role"
                 value={addForm.roleCode}
                 onChange={(e) => setAddForm((prev) => ({ ...prev, roleCode: e.target.value }))}
+                MenuProps={ADMIN_SELECT_MENU_PROPS}
               >
                 <MenuItem value="">— none —</MenuItem>
                 {FUNCTIONAL_ROLES.map((fr) => (
@@ -845,13 +851,27 @@ export default function AdminPage() {
             Platform Admin
           </Typography> */}
           {isMobile ? (
-            <FormControl size="small" sx={{ minWidth: 260, position: 'sticky', top: 66, zIndex: 1000, backgroundColor: 'background.default', py: 1 }}>
+            <FormControl
+              size="small"
+              sx={{
+                minWidth: 0,
+                width: '100%',
+                position: 'sticky',
+                top: 66,
+                // Stay under the Select menu (modal + 2) so the list is never
+                // painted underneath this sticky chrome.
+                zIndex: (t) => t.zIndex.appBar - 1,
+                backgroundColor: 'background.default',
+                py: 1,
+              }}
+            >
               <InputLabel id="admin-section-select-label">Section</InputLabel>
               <Select
                 labelId="admin-section-select-label"
                 label="Section"
                 value={Math.min(tab, adminTabs.length - 1)}
                 onChange={(e) => setTab(Number(e.target.value))}
+                MenuProps={ADMIN_SELECT_MENU_PROPS}
               >
                 {adminTabs.map((label, i) => (
                   <MenuItem key={label} value={i}>

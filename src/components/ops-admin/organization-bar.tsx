@@ -32,6 +32,7 @@ import {
   useGetTenantOrganizationQuery,
   useListOrganizationsQuery,
 } from '@/store/apis/organization-api';
+import { ADMIN_SELECT_MENU_PROPS } from '@/components/ops-admin/admin-select-menu-props';
 
 /**
  * Organization context bar — sits above the tenant selector.
@@ -109,7 +110,7 @@ export function OrganizationBar({ tenantSlug }: { tenantSlug?: string | null }) 
     <>
       <Paper
         elevation={0}
-        sx={{ p: 2, mb: 2, border: '1px solid', borderColor: 'divider', bgcolor: 'background.paper', overflow: 'hidden', maxWidth: '100%' }}
+        sx={{ p: 2, mb: 2, border: '1px solid', borderColor: 'divider', bgcolor: 'background.paper', overflow: 'visible', maxWidth: '100%' }}
       >
         <Stack
           direction={{ xs: 'column', sm: 'row' }}
@@ -136,6 +137,7 @@ export function OrganizationBar({ tenantSlug }: { tenantSlug?: string | null }) 
               disabled={busy}
               displayEmpty
               notched
+              MenuProps={ADMIN_SELECT_MENU_PROPS}
             >
               <MenuItem value="">
                 <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>

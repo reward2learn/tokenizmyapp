@@ -1,6 +1,8 @@
 'use client';
 
 import { useCallback, useMemo, useRef, useState } from 'react';
+import Link from 'next/link';
+import type { Route } from 'next';
 import Alert from '@mui/material/Alert';
 import Box from '@mui/material/Box';
 import Button from '@mui/material/Button';
@@ -23,6 +25,7 @@ import Select from '@mui/material/Select';
 import Stack from '@mui/material/Stack';
 import Switch from '@mui/material/Switch';
 import TextField from '@mui/material/TextField';
+import Tooltip from '@mui/material/Tooltip';
 import Typography from '@mui/material/Typography';
 import { useTheme } from '@mui/material/styles';
 import useMediaQuery from '@mui/material/useMediaQuery';
@@ -41,10 +44,11 @@ import ChevronRightIcon from '@mui/icons-material/ChevronRight';
 import StarBorderIcon from '@mui/icons-material/StarBorder';
 import UnfoldLessIcon from '@mui/icons-material/UnfoldLess';
 import UnfoldMoreIcon from '@mui/icons-material/UnfoldMore';
+import VisibilityOffOutlinedIcon from '@mui/icons-material/VisibilityOffOutlined';
+import OpenInNewIcon from '@mui/icons-material/OpenInNew';
 import FormControlLabel from '@mui/material/FormControlLabel';
 import ListItemText from '@mui/material/ListItemText';
 import Checkbox from '@mui/material/Checkbox';
-import Tooltip from '@mui/material/Tooltip';
 import { NavIcon, NAV_ICON_NAMES } from '@/components/shared/nav-icon';
 import {
   parseAuthTiers,
@@ -57,6 +61,7 @@ import {
   useCreateNavigationItemMutation,
   useUpdateNavigationItemsMutation,
   useDeleteNavigationItemsMutation,
+  useReconcileNavigationMutation,
   useListAdminGroupsQuery,
 } from '@/store/apis/admin-api';
 import { useAppDispatch } from '@/store/hooks';
@@ -118,21 +123,38 @@ function flattenTree(items: NavItem[], depth = 0): (FlatItem & { depth: number }
   return result;
 }
 
-function buildTree(items: FlatItem[]): NavItem[] {
+/** Rebuild nested tree from a flat list ordered by sortOrder (parentId links). */
+function buildTreeFromFlat(items: FlatItem[]): NavItem[] {
   const map = new Map<string, NavItem>();
+  for (const item of items) {
+    map.set(item.id, {
+      id: item.id,
+      parentId: item.parentId,
+      sortOrder: item.sortOrder,
+      title: item.title,
+      path: item.path,
+      icon: item.icon,
+      authTier: item.authTier,
+      requiredGroups: item.requiredGroups,
+      isVisible: item.isVisible,
+      isDynamic: item.isDynamic,
+      isDefault: item.isDefault,
+      children: [],
+    });
+  }
   const roots: NavItem[] = [];
-  for (const item of items) map.set(item.id, { ...item, children: [] });
-  for (const item of map.values()) {
+  for (const item of items) {
+    const node = map.get(item.id);
+    if (!node) continue;
     if (item.parentId && map.has(item.parentId)) {
-      map.get(item.parentId)!.children.push(item);
+      map.get(item.parentId)!.children.push(node);
     } else {
-      roots.push(item);
+      roots.push(node);
     }
   }
   return roots;
 }
 
-/** Collect all descendant IDs of a given parent (recursive). */
 function collectDescendantIds(items: (FlatItem & { depth: number })[], parentId: string): string[] {
   const ids: string[] = [];
   for (const item of items) {
@@ -146,7 +168,13 @@ function collectDescendantIds(items: (FlatItem & { depth: number })[], parentId:
 
 // ── Component ──────────────────────────────────────────
 
-export function NavigationManager() {
+interface NavigationManagerProps {
+  /** Platform-admin cross-tenant browse scope. Omitted for a tenant's own admin panel. */
+  tenantSlug?: string;
+  appId?: string | null;
+}
+
+export function NavigationManager({ tenantSlug, appId }: NavigationManagerProps = {}) {
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
   const dispatch = useAppDispatch();
@@ -194,12 +222,20 @@ export function NavigationManager() {
   const [batchTier, setBatchTier] = useState<AuthTier[]>(['public']);
   const [batchGroups, setBatchGroups] = useState<string[]>([]);
 
-  // ── Dedup ────────────────────────────────────────────
-  const [dedupDialogOpen, setDedupDialogOpen] = useState(false);
-  const [dedupCandidates, setDedupCandidates] = useState<string[]>([]);
+  // ── Dedup / reconcile ──────────────────────────────────
+  const [reconcileSummary, setReconcileSummary] = useState<string | null>(null);
 
   // ── RTK Query: navigation (cache is source of truth) ──
-  const { data: navData, isLoading: navLoading, isError: navError, error: navQueryError } = useGetNavigationQuery();
+  // Cross-tenant browsing (tenantSlug/appId) is enforced server-side to
+  // platform admins only — a tenant's own admin panel omits both and sees
+  // its own deployment's items exactly as before.
+  const navQueryArg = useMemo(
+    () => (tenantSlug ? { tenantSlug, appId: appId ?? undefined } : undefined),
+    [tenantSlug, appId],
+  );
+  const { data: navData, isLoading: navLoading, isError: navError, error: navQueryError } = useGetNavigationQuery(
+    navQueryArg,
+  );
 
   const flatItems = useMemo(() => {
     if (!navData?.success) return [] as (FlatItem & { depth: number })[];
@@ -229,9 +265,57 @@ export function NavigationManager() {
   }, [groupsData]);
 
   // ── RTK Query: mutations ──────────────────────────────
-  const [createNav] = useCreateNavigationItemMutation();
-  const [updateNav] = useUpdateNavigationItemsMutation();
-  const [deleteNav] = useDeleteNavigationItemsMutation();
+  // Wrapped so every call site automatically routes to this tenant/app's own
+  // database (see admin/navigation/route.ts) without touching each call site.
+  const [createNavRaw] = useCreateNavigationItemMutation();
+  const [updateNavRaw] = useUpdateNavigationItemsMutation();
+  const [deleteNavRaw] = useDeleteNavigationItemsMutation();
+  const [reconcileNavRaw] = useReconcileNavigationMutation();
+  const createNav = useCallback(
+    (body: Record<string, unknown>) => createNavRaw({ ...body, tenantSlug, appId: appId ?? undefined }),
+    [createNavRaw, tenantSlug, appId],
+  );
+  const updateNav = useCallback(
+    (body: { items: Record<string, unknown>[] }) => updateNavRaw({ ...body, tenantSlug, appId: appId ?? undefined }),
+    [updateNavRaw, tenantSlug, appId],
+  );
+  const deleteNav = useCallback(
+    (ids: string[]) => deleteNavRaw({ ids, tenantSlug, appId: appId ?? undefined }),
+    [deleteNavRaw, tenantSlug, appId],
+  );
+
+  const handleReconcileNavigation = useCallback(async () => {
+    setSaving(true);
+    setError(null);
+    setReconcileSummary(null);
+    try {
+      const result = await reconcileNavRaw(
+        tenantSlug ? { tenantSlug, appId: appId ?? undefined } : undefined,
+      ).unwrap();
+      if (!result.success) {
+        throw new Error(result.error ?? 'Reconcile failed');
+      }
+      const data = result.data as {
+        deleted?: number;
+        seeded?: number;
+        hierarchyUpdated?: number;
+        sheetsSynced?: number;
+      };
+      const deleted = data.deleted ?? 0;
+      const seeded = data.seeded ?? 0;
+      const hierarchyUpdated = data.hierarchyUpdated ?? 0;
+      setReconcileSummary(
+        `Removed ${deleted} duplicate(s), seeded ${seeded} default item(s), nested ${hierarchyUpdated} under Admin, synced ${data.sheetsSynced ?? 0} sheet page(s).`,
+      );
+      setSuccess(true);
+      setTimeout(() => setSuccess(false), 3000);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setSaving(false);
+    }
+  }, [reconcileNavRaw, tenantSlug, appId]);
+
   // ── Create ────────────────────────────────────────────
   const [newTitle, setNewTitle] = useState('');
   const [newPath, setNewPath] = useState('');
@@ -258,6 +342,8 @@ export function NavigationManager() {
         authTier: serializeAuthTiers(newTier),
         icon: newIcon,
         requiredGroups: newRequiredGroups.join(','),
+        ...(tenantSlug ? { tenantSlug } : {}),
+        ...(appId ? { appId } : {}),
       }).unwrap();
       if (result.success) {
         setCreateDialogOpen(false);
@@ -265,6 +351,7 @@ export function NavigationManager() {
         setNewPath('');
         setNewParentId('');
         setNewType('page');
+        setNewTier(['public']);
         setNewRequiredGroups([]);
         setNewIcon('');
         // RTKQ invalidatesTags:['Navigation'] auto-refetches
@@ -276,7 +363,7 @@ export function NavigationManager() {
     } finally {
       setSaving(false);
     }
-  }, [newTitle, newPath, newParentId, newTier, newType, newRequiredGroups, newIcon, createNav]);
+  }, [newTitle, newPath, newParentId, newTier, newType, newRequiredGroups, newIcon, createNav, tenantSlug, appId]);
 
   // ── Edit ──────────────────────────────────────────────
   const openEdit = useCallback((item: FlatItem) => {
@@ -387,59 +474,6 @@ export function NavigationManager() {
     setBatchDialogOpen(true);
   }, []);
 
-  // ── Find duplicates ────────────────────────────────────
-  const handleFindDuplicates = useCallback(() => {
-    const seen = new Map<string, { id: string; sortOrder: number }[]>();
-    const dupIds: string[] = [];
-    for (const item of flatItems) {
-      const key = `${item.title}|${item.parentId ?? ''}`;
-      if (seen.has(key)) {
-        seen.get(key)!.push({ id: item.id, sortOrder: item.sortOrder });
-      } else {
-        seen.set(key, [{ id: item.id, sortOrder: item.sortOrder }]);
-      }
-    }
-    for (const [, group] of seen) {
-      if (group.length > 1) {
-        // Keep the first (lowest sortOrder), mark rest as duplicates
-        group.sort((a, b) => a.sortOrder - b.sortOrder);
-        for (let i = 1; i < group.length; i++) {
-          dupIds.push(group[i].id);
-        }
-      }
-    }
-    setDedupCandidates(dupIds);
-    if (dupIds.length === 0) {
-      setError(null);
-      setSuccess(true);
-      setTimeout(() => setSuccess(false), 2000);
-    } else {
-      setDedupDialogOpen(true);
-    }
-  }, [flatItems]);
-
-  const handleConfirmDedup = useCallback(async () => {
-    if (dedupCandidates.length === 0) return;
-    setSaving(true);
-    setError(null);
-    try {
-      const result = await deleteNav(dedupCandidates).unwrap();
-      if (result.success) {
-        setDedupDialogOpen(false);
-        setDedupCandidates([]);
-        setSuccess(true);
-        setTimeout(() => setSuccess(false), 2000);
-        // RTKQ invalidatesTags:['Navigation'] auto-refetches
-      } else {
-        throw new Error(result.error ?? 'Dedup failed');
-      }
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
-    } finally {
-      setSaving(false);
-    }
-  }, [dedupCandidates, deleteNav]);
-
   const handleBatchDelete = useCallback(async () => {
     if (selectedIds.size === 0) return;
     setSaving(true);
@@ -523,9 +557,9 @@ export function NavigationManager() {
 
     // Optimistic SoT write into the RTK Query cache (undo on failure).
     const patch = dispatch(
-      adminApi.util.updateQueryData('getNavigation', undefined, (draft) => {
+      adminApi.util.updateQueryData('getNavigation', navQueryArg, (draft) => {
         if (!draft?.success || !draft.data || typeof draft.data !== 'object') return;
-        (draft.data as { items: NavItem[] }).items = buildTree(reordered);
+        (draft.data as { items: NavItem[] }).items = buildTreeFromFlat(reordered);
       }),
     );
 
@@ -545,7 +579,7 @@ export function NavigationManager() {
       updateDragIndex(null);
       updateDropIndex(null);
     }
-  }, [flatItems, updateNav, updateDragIndex, updateDropIndex, dispatch]);
+  }, [flatItems, updateNav, updateDragIndex, updateDropIndex, dispatch, navQueryArg]);
 
   const closeRowMenu = useCallback(() => setRowMenu(null), []);
 
@@ -568,7 +602,16 @@ export function NavigationManager() {
   function renderRow(item: FlatItem & { depth: number }, idx: number) {
     const isDrag = dragIndex === idx;
     const isDrop = dropIndex === idx;
+    const isHidden = !item.isVisible;
+    const isExternalPath = Boolean(item.path?.startsWith('http'));
+    const internalPath = item.path && !isExternalPath ? (item.path as Route) : null;
     const canSetDefault = Boolean(item.path && !item.path.startsWith('http') && !item.isDefault);
+    const linkSx = {
+      color: 'inherit',
+      textDecoration: 'none',
+      '&:hover': { textDecoration: 'underline', color: 'primary.main' },
+    } as const;
+
     return (
       <Paper
         key={item.id}
@@ -581,16 +624,18 @@ export function NavigationManager() {
           gap: { xs: 0.5, sm: 1 },
           p: { xs: 1, sm: 1.5 },
           mb: 0.5,
-          bgcolor: isDrag ? 'action.selected' : isDrop ? 'action.hover' : 'transparent',
+          bgcolor: isDrag ? 'action.selected' : isDrop ? 'action.hover' : isHidden ? 'action.hover' : 'transparent',
           border: '1px solid',
-          borderColor: isDrop ? 'primary.main' : 'divider',
-          opacity: isDrag ? 0.5 : 1,
+          borderColor: isDrop ? 'primary.main' : isHidden ? 'warning.light' : 'divider',
+          opacity: isDrag ? 0.5 : isHidden ? 0.72 : 1,
           ml: { xs: Math.min(item.depth, 2) * 1.5, sm: item.depth * 3 },
-          flexWrap: { xs: 'nowrap', sm: 'wrap' },
+          // Always allow wrap — nowrap + minWidth:0 + dense 48px controls
+          // was collapsing the title to ~1ch and stacking characters vertically.
+          flexWrap: 'wrap',
           rowGap: 0.5,
           minWidth: 0,
           maxWidth: '100%',
-          overflow: 'hidden',
+          overflow: 'visible',
           '&:hover': { bgcolor: 'action.hover' },
         }}
       >
@@ -599,13 +644,13 @@ export function NavigationManager() {
           checked={selectedIds.has(item.id)}
           onChange={() => toggleSelect(item.id)}
           onClick={(e) => e.stopPropagation()}
-          sx={{ p: 0.5, flexShrink: 0 }}
+          sx={{ p: 0.5, flexShrink: 0, width: 'auto', height: 'auto' }}
         />
         {hasChildren(item.id) ? (
           <IconButton
             size="small"
             onClick={(e) => { e.stopPropagation(); toggleCollapsed(item.id); }}
-            sx={{ p: 0.5, flexShrink: 0 }}
+            sx={{ p: 0.5, flexShrink: 0, width: 36, height: 36, minWidth: 36, minHeight: 36 }}
             aria-label={collapsedIds.has(item.id) ? `Expand ${item.title}` : `Collapse ${item.title}`}
           >
             {collapsedIds.has(item.id) ? <ChevronRightIcon fontSize="small" /> : <ExpandMoreIcon fontSize="small" />}
@@ -658,6 +703,11 @@ export function NavigationManager() {
         >
           <DragIndicatorIcon fontSize="small" />
         </Box>
+        {isHidden ? (
+          <Tooltip title="Hidden from navigation drawer">
+            <VisibilityOffOutlinedIcon fontSize="small" color="warning" sx={{ flexShrink: 0 }} />
+          </Tooltip>
+        ) : null}
         <Box sx={{ flexShrink: 0, color: 'text.secondary', display: 'flex', alignItems: 'center' }}>
           {item.icon ? (
             <NavIcon name={item.icon} />
@@ -669,17 +719,100 @@ export function NavigationManager() {
             <InsertDriveFileIcon fontSize="small" />
           )}
         </Box>
-        <Box sx={{ flex: '1 1 auto', minWidth: 0 }}>
-          <Typography variant="body2" sx={{ fontWeight: 600, wordBreak: 'break-word' }}>
-            {item.title}
-          </Typography>
-          <Typography
-            variant="caption"
-            color="text.secondary"
-            sx={{ display: 'block', wordBreak: 'break-all', overflowWrap: 'anywhere', maxWidth: '100%' }}
-          >
-            {item.path || '(no path)'}
-          </Typography>
+        <Box sx={{ flex: '1 1 140px', minWidth: 120, maxWidth: '100%' }}>
+          {internalPath ? (
+            <Link href={internalPath} style={linkSx}>
+              <Typography
+                variant="body2"
+                component="span"
+                sx={{
+                  fontWeight: 600,
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 0.5,
+                  maxWidth: '100%',
+                  // Title overflow strategy — keep wordBreak: 'normal' so we never
+                  // reintroduce one-character-per-line wrapping. Prefer either:
+                  //   A) whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis'
+                  //   B) whiteSpace:'normal', overflowWrap:'break-word' (current)
+                  whiteSpace: 'normal',
+                  overflowWrap: 'break-word',
+                  wordBreak: 'normal',
+                }}
+              >
+                {item.title}
+                <OpenInNewIcon sx={{ fontSize: 14, opacity: 0.6, flexShrink: 0 }} />
+              </Typography>
+            </Link>
+          ) : isExternalPath ? (
+            <Typography
+              variant="body2"
+              component="a"
+              href={item.path}
+              target="_blank"
+              rel="noopener noreferrer"
+              sx={{
+                fontWeight: 600,
+                color: 'inherit',
+                textDecoration: 'none',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 0.5,
+                maxWidth: '100%',
+                whiteSpace: 'normal',
+                overflowWrap: 'break-word',
+                wordBreak: 'normal',
+                '&:hover': { textDecoration: 'underline', color: 'primary.main' },
+              }}
+            >
+              {item.title}
+              <OpenInNewIcon sx={{ fontSize: 14, opacity: 0.6, flexShrink: 0 }} />
+            </Typography>
+          ) : (
+            <Typography
+              variant="body2"
+              sx={{
+                fontWeight: 600,
+                whiteSpace: 'normal',
+                overflowWrap: 'break-word',
+                wordBreak: 'normal',
+              }}
+            >
+              {item.title}
+            </Typography>
+          )}
+          {internalPath ? (
+            <Link href={internalPath} style={linkSx}>
+              <Typography
+                variant="caption"
+                color="text.secondary"
+                component="span"
+                sx={{ display: 'block', overflowWrap: 'anywhere', maxWidth: '100%' }}
+              >
+                {item.path}
+              </Typography>
+            </Link>
+          ) : isExternalPath ? (
+            <Typography
+              variant="caption"
+              color="text.secondary"
+              component="a"
+              href={item.path}
+              target="_blank"
+              rel="noopener noreferrer"
+              sx={{ display: 'block', overflowWrap: 'anywhere', maxWidth: '100%', color: 'text.secondary', textDecoration: 'none', '&:hover': { textDecoration: 'underline', color: 'primary.main' } }}
+            >
+              {item.path}
+            </Typography>
+          ) : (
+            <Typography
+              variant="caption"
+              color="text.secondary"
+              sx={{ display: 'block', overflowWrap: 'anywhere', maxWidth: '100%' }}
+            >
+              {item.path || '(no path)'}
+            </Typography>
+          )}
         </Box>
         <Stack
           direction="row"
@@ -687,10 +820,10 @@ export function NavigationManager() {
           useFlexGap
           sx={{
             flexShrink: 0,
-            flexWrap: { xs: 'nowrap', sm: 'wrap' },
+            flexWrap: 'wrap',
             alignItems: 'center',
-            maxWidth: { xs: '46%', sm: 'none' },
-            overflow: 'hidden',
+            // Do not cap chips at 46% on xs — that starved the title column.
+            maxWidth: '100%',
           }}
         >
           {item.isDefault ? (
@@ -722,7 +855,7 @@ export function NavigationManager() {
                 setRowMenu({ anchor: e.currentTarget, item });
               }}
               aria-label={`Actions for ${item.title}`}
-              sx={{ flexShrink: 0 }}
+              sx={{ flexShrink: 0, width: 36, height: 36, minWidth: 36, minHeight: 36 }}
             >
               <MoreVertIcon fontSize="small" />
             </IconButton>
@@ -747,7 +880,7 @@ export function NavigationManager() {
 
   return (
     <Stack spacing={3}>
-      <Paper variant="outlined" sx={{ p: 3, overflow: 'hidden', maxWidth: '100%' }}>
+      <Paper variant="outlined" sx={{ p: 3, overflow: 'visible', maxWidth: '100%' }}>
         <Stack
           direction={{ xs: 'column', sm: 'row' }}
           spacing={1}
@@ -792,15 +925,18 @@ export function NavigationManager() {
                 <UnfoldLessIcon fontSize="small" />
               </IconButton>
             </Tooltip>
-            <Tooltip title="Remove Duplicates">
-              <IconButton
-                size="small"
-                color="warning"
-                onClick={handleFindDuplicates}
-                aria-label="Remove Duplicates"
-              >
-                <LayersClearIcon fontSize="small" />
-              </IconButton>
+            <Tooltip title={saving ? 'Reconciling...' : 'Remove Duplicates'}>
+              <span>
+                <IconButton
+                  size="small"
+                  color="warning"
+                  onClick={handleReconcileNavigation}
+                  disabled={saving}
+                  aria-label={saving ? 'Reconciling...' : 'Remove Duplicates'}
+                >
+                  {saving ? <CircularProgress size={16} color="inherit" /> : <LayersClearIcon fontSize="small" />}
+                </IconButton>
+              </span>
             </Tooltip>
             <Tooltip title="Add Item">
               <IconButton
@@ -821,7 +957,12 @@ export function NavigationManager() {
         </Typography>
 
         {displayError ? <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError(null)}>{displayError}</Alert> : null}
-        {success ? <Alert severity="success" icon={<CheckCircleIcon />} sx={{ mb: 2 }}>Saved.</Alert> : null}
+        {reconcileSummary ? (
+          <Alert severity="info" sx={{ mb: 2 }} onClose={() => setReconcileSummary(null)}>
+            {reconcileSummary}
+          </Alert>
+        ) : null}
+        {success ? <Alert severity="success" icon={<CheckCircleIcon />} sx={{ mb: 2 }}>Navigation reconciled.</Alert> : null}
 
         {/* Batch action toolbar */}
         {selectedIds.size > 0 ? (
@@ -852,7 +993,7 @@ export function NavigationManager() {
             No navigation items yet. Click "Add Item" to create the first one.
           </Typography>
         ) : (
-          <Box sx={{ maxHeight: 600, overflow: 'auto', overscrollBehavior: 'contain' }}>
+          <Box sx={{ overflow: 'visible' }}>
             {visibleRows.map(({ item, flatIdx }) => renderRow(item, flatIdx))}
           </Box>
         )}
@@ -974,7 +1115,7 @@ export function NavigationManager() {
                 label={newType === 'link' ? 'URL' : 'Path'}
                 value={newPath}
                 onChange={(e) => setNewPath(e.target.value)}
-                placeholder={newType === 'link' ? 'https://example.com' : '/'}
+                placeholder={newType === 'link' ? 'https://example.com' : '/dashboard'}
                 fullWidth
                 helperText={
                   newType === 'link'
@@ -1272,28 +1413,6 @@ export function NavigationManager() {
             startIcon={saving ? <CircularProgress size={16} color="inherit" /> : null}
           >
             {saving ? 'Saving...' : batchDialogMode === 'delete' ? 'Delete' : 'Apply'}
-          </Button>
-        </DialogActions>
-      </Dialog>
-
-      {/* ── Dedup confirmation dialog ──────────────────── */}
-      <Dialog open={dedupDialogOpen} onClose={() => !saving && setDedupDialogOpen(false)} maxWidth="sm" fullWidth>
-        <DialogTitle>Remove Duplicate Items</DialogTitle>
-        <DialogContent dividers>
-          <Stack spacing={2}>
-            <Typography variant="body2">
-              Found <strong>{dedupCandidates.length}</strong> duplicate navigation item(s) — same title and parent.
-              The first occurrence (by sort order) will be kept, and the rest will be removed.
-            </Typography>
-            <Typography variant="body2" color="text.secondary">
-              This action cannot be undone.
-            </Typography>
-          </Stack>
-        </DialogContent>
-        <DialogActions sx={{ px: 3, py: 2 }}>
-          <Button onClick={() => setDedupDialogOpen(false)} disabled={saving}>Cancel</Button>
-          <Button variant="contained" color="error" onClick={handleConfirmDedup} disabled={saving}>
-            {saving ? 'Removing...' : `Remove ${dedupCandidates.length} Duplicate(s)`}
           </Button>
         </DialogActions>
       </Dialog>
