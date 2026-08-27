@@ -106,7 +106,12 @@ export function isClientClearSessionAction(action: ChatSessionAction): boolean {
 
 const EXPLICIT_SESSION_REQUEST_PATTERN = /\b(new chat|fresh chat|start over|start fresh|clear(?: the)?(?: chat| conversation)|close(?: the)? conversation|save(?: this)?(?: chat| conversation)|save conversation|update(?: the)?(?: review|documents?|business review)|save to review|update review)\b/i;
 
-/** Only attach session tools when the user is clearly asking to manage the chat UI. */
+/**
+ * True when the user is clearly asking to manage the chat UI.
+ * Used client-side (e.g. whether to clear the composer after a session action).
+ * Server tool attachment no longer depends on this — tools are filtered by
+ * access and sent with tool_choice auto so the model picks from the prompt.
+ */
 export function isExplicitSessionRequest(message: string): boolean {
   return EXPLICIT_SESSION_REQUEST_PATTERN.test(message.trim());
 }

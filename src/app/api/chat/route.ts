@@ -29,7 +29,6 @@ import {
 } from '@/lib/chat/chat-with-session-tools';
 import { resolveEffectiveChatModel } from '@/lib/chat/chat-model';
 import { getAppSettings } from '@/domain/config/app-settings-service';
-import { isExplicitSessionRequest } from '@/lib/chat/session-tools';
 import { ensureConversationsColumns } from '@/lib/db-migrate';
 import { requireCreditsForTenant, resolvePayingOrgId, LOW_CREDIT_THRESHOLD, meterAiUsage } from '@/domain/billing/credit-service';
 import {
@@ -44,6 +43,10 @@ import { resolveTenantSelfServeBilling } from '@/domain/billing/self-serve-billi
 import { resolveViewerUserId } from '@/lib/auth/resolve-viewer-user';
 import { detectPlatformQuery, fetchPlatformContext } from '@/lib/chat/platform-context';
 import { PLATFORM_TOOL_INSTRUCTIONS } from '@/lib/chat/platform-tools';
+import {
+  resolveAllowedChatTools,
+  toolCategoriesPresent,
+} from '@/lib/chat/chat-tool-registry';
 
 export const dynamic = 'force-dynamic';
 /** Large local models (ollama-studio / 72B) can exceed 60s before first token. */
@@ -81,10 +84,9 @@ const chatBodySchema = z.object({
   /**
    * Tool explicitly selected in the chat composer.
    *
-   * Session tools are normally attached only when the message text clearly asks
-   * for one (isExplicitSessionRequest), which keeps them away from ordinary
-   * business questions. An explicit pick from the composer is a stronger signal
-   * than any phrasing heuristic, so it turns them on directly.
+   * Does not change which tools are registered — access filtering already
+   * decides that. When allowed, it adds a system nudge so the model uses the
+   * selected tool for this turn.
    */
   activeTool: z.enum(['build_custom_template', 'query_platform_data']).optional(),
   /** Optional per-request provider override from the chat Tools picker (must exist in loaded catalog). */
@@ -551,11 +553,21 @@ async function handleChatPost(request: Request): Promise<Response> {
     const lowBalance = creditBalance != null && creditBalance < LOW_CREDIT_THRESHOLD;
     const canPurchaseCredits =
       canPurchaseCreditPacks(planId) && (isPlatformApp() || selfServeBillingEnabled);
-    const billingToolsEnabled = Boolean(
-      billingOrgId && canPurchaseCredits,
-    );
-    const sessionToolsEnabled = Boolean(activeTool) || isExplicitSessionRequest(message) || lowBalance;
-    const platformToolsEnabled = isPlatformApp() && sessionIsPlatformAdmin(session);
+    const isAuthenticated = Boolean(session?.sub);
+    const isAdmin = sessionIsPlatformAdmin(session);
+
+    // Access-filtered tool list for this viewer. Sent to the provider with
+    // tool_choice: auto so the model picks tools from the prompt alone —
+    // privileged tools are never listed for unauthorized callers.
+    const allowedTools = resolveAllowedChatTools({
+      isAuthenticated,
+      isPlatformAdmin: isAdmin,
+      isPlatformApp: isPlatformApp(),
+      hasBillingOrg: Boolean(billingOrgId),
+      canPurchaseCredits,
+    });
+    const toolCategories = toolCategoriesPresent(allowedTools);
+    const allowedToolNames = new Set(allowedTools.map((tool) => tool.function.name));
 
     await getAppSettings(db); // still loads settings; webSearchEnabled reserved for Responses API migration
     // OpenAI's Chat Completions `*-search-preview` models are deprecated
@@ -566,18 +578,16 @@ async function handleChatPost(request: Request): Promise<Response> {
 
     const systemSections = [
       systemPrompt,
-      ...(platformToolsEnabled ? [PLATFORM_TOOL_INSTRUCTIONS] : []),
-      ...(sessionToolsEnabled || billingToolsEnabled ? [CHAT_SESSION_TOOL_INSTRUCTIONS] : []),
-      ...(lowBalance && billingToolsEnabled
+      ...(toolCategories.platform ? [PLATFORM_TOOL_INSTRUCTIONS] : []),
+      ...(toolCategories.session || toolCategories.billing ? [CHAT_SESSION_TOOL_INSTRUCTIONS] : []),
+      ...(lowBalance && toolCategories.billing
         ? [`The organization's AI credit balance is low (${creditBalance} remaining). Proactively offer a credit top-up via purchase_credits when appropriate.`]
         : []),
-      // Only honoured for a platform admin. A non-admin who sets activeTool
-      // gets no instruction here, and executeSessionTool refuses the call
-      // anyway — belt and braces, since this arms a privileged tool.
-      ...(activeTool === 'build_custom_template' && sessionIsPlatformAdmin(session)
+      // Composer pick is a nudge only when the tool is in the allowed set.
+      ...(activeTool === 'build_custom_template' && allowedToolNames.has('build_custom_template')
         ? ['The administrator selected the Custom Template Build tool. Gather the four details listed in your instructions (what the business does, who uses the app, what they need to track, and the source) before calling build_custom_template. The tool designs the template but does not save it — tell them to press "Save & Create Template" to add it.']
         : []),
-      ...(activeTool === 'query_platform_data' && platformToolsEnabled
+      ...(activeTool === 'query_platform_data' && toolCategories.platform
         ? ['The administrator selected Platform Data Lookup. Call the appropriate platform query tool (query_platform_registry, query_organizations_billing, or query_vercel_inventory) before answering — do not guess counts or statuses.']
         : []),
       ...(webSearchEnabled ? [CHAT_WEB_SEARCH_INSTRUCTIONS] : []),
@@ -691,9 +701,7 @@ async function handleChatPost(request: Request): Promise<Response> {
       toolContext,
       stream: stream === true,
       webSearchEnabled,
-      sessionToolsEnabled,
-      billingToolsEnabled,
-      platformToolsEnabled,
+      allowedTools: allowedTools.length > 0 ? allowedTools : undefined,
       tenantSlug: tenantSlugForTools,
       keySource: ai.keySource,
       viewerEmail: session?.email,

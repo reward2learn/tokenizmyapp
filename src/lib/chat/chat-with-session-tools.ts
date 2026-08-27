@@ -1,17 +1,15 @@
 import {
-  CHAT_SESSION_OPENAI_TOOLS,
   type ChatSessionAction,
   type CreditTopUpAction,
   type CustomTemplateDraft,
   executeSessionTool,
-  PURCHASE_CREDITS_OPENAI_TOOL,
   type SessionToolContext,
 } from '@/lib/chat/session-tools';
 import {
   executePlatformTool,
   isPlatformToolName,
-  PLATFORM_OPENAI_TOOLS,
 } from '@/lib/chat/platform-tools';
+import type { OpenAiFunctionTool } from '@/lib/chat/chat-tool-registry';
 import { meterAiUsage, type MeterResult } from '@/domain/billing/credit-service';
 import {
   emptyAiUsageSummary,
@@ -22,33 +20,6 @@ import { buildProviderFetchHeaders } from '@/lib/ai-providers-catalog';
 
 export const CHAT_WEB_SEARCH_INSTRUCTIONS = `Web search is enabled on this chat model. When the user asks about current events, live market data, recent news, or information that may have changed after your training data, search the web before answering. Cite sources briefly when web results are used.`;
 
-function buildOpenAiTools(
-  webSearchEnabled: boolean,
-  sessionToolsEnabled: boolean,
-  billingToolsEnabled: boolean,
-  platformToolsEnabled: boolean,
-) {
-  if (webSearchEnabled) return undefined;
-  const tools = sessionToolsEnabled ? [...CHAT_SESSION_OPENAI_TOOLS] : [];
-  if (billingToolsEnabled && !tools.some((tool) => tool.function.name === 'purchase_credits')) {
-    tools.push(PURCHASE_CREDITS_OPENAI_TOOL);
-  }
-  if (platformToolsEnabled) {
-    for (const tool of PLATFORM_OPENAI_TOOLS) {
-      if (!tools.some((existing) => existing.function.name === tool.function.name)) {
-        tools.push(tool);
-      }
-    }
-  }
-  return tools.length > 0 ? tools : undefined;
-}
-
-function isChatFunctionToolCall(toolCall: OpenAiToolCall): boolean {
-  if (toolCall.function.name === 'purchase_credits') return true;
-  if (isPlatformToolName(toolCall.function.name)) return true;
-  return CHAT_SESSION_OPENAI_TOOLS.some((tool) => tool.function.name === toolCall.function.name);
-}
-
 interface OpenAiToolCall {
   id: string;
   type: 'function';
@@ -56,6 +27,19 @@ interface OpenAiToolCall {
     name: string;
     arguments: string;
   };
+}
+
+/** Provider `tools` array — already access-filtered by the chat route. */
+function buildOpenAiTools(
+  webSearchEnabled: boolean,
+  allowedTools: OpenAiFunctionTool[] | undefined,
+): OpenAiFunctionTool[] | undefined {
+  if (webSearchEnabled || !allowedTools?.length) return undefined;
+  return allowedTools;
+}
+
+function isAllowedToolCall(toolCall: OpenAiToolCall, allowedToolNames: Set<string>): boolean {
+  return allowedToolNames.has(toolCall.function.name);
 }
 
 export interface OpenAiChatMessage {
@@ -107,7 +91,16 @@ const SSE_HEADERS = {
 async function executeChatToolCall(
   toolCall: OpenAiToolCall,
   toolContext: SessionToolContext,
+  allowedToolNames: Set<string>,
 ): Promise<{ toolMessage: string; sessionResult: Awaited<ReturnType<typeof executeSessionTool>> | null }> {
+  // Defense in depth: never execute a tool that was not offered to this viewer.
+  if (!isAllowedToolCall(toolCall, allowedToolNames)) {
+    return {
+      toolMessage: `Tool "${toolCall.function.name}" is not available for this user.`,
+      sessionResult: null,
+    };
+  }
+
   if (isPlatformToolName(toolCall.function.name)) {
     const toolMessage = await executePlatformTool(
       toolCall.function.name,
@@ -174,15 +167,15 @@ async function requestOpenAiCompletion(
   messages: OpenAiChatMessage[],
   stream: boolean,
   webSearchEnabled: boolean,
-  sessionToolsEnabled: boolean,
-  billingToolsEnabled: boolean,
-  platformToolsEnabled: boolean,
+  allowedTools: OpenAiFunctionTool[] | undefined,
   providerId?: string | null,
 ): Promise<Response> {
   const studioLocal = providerId === STUDIO_PROVIDER_ID;
+  // Studio local models do not support function calling — strip tools.
+  // Otherwise send the access-filtered list; the model picks via tool_choice auto.
   const tools = studioLocal
     ? undefined
-    : buildOpenAiTools(webSearchEnabled, sessionToolsEnabled, billingToolsEnabled, platformToolsEnabled);
+    : buildOpenAiTools(webSearchEnabled, allowedTools);
   const body = {
     model,
     messages,
@@ -384,9 +377,7 @@ async function completeChatWithoutStreaming(options: {
   messages: OpenAiChatMessage[];
   toolContext: SessionToolContext;
   webSearchEnabled: boolean;
-  sessionToolsEnabled: boolean;
-  billingToolsEnabled: boolean;
-  platformToolsEnabled: boolean;
+  allowedTools: OpenAiFunctionTool[] | undefined;
   tenantSlug: string;
   keySource: 'db' | 'env';
   /** Signed-in viewer; exempt operators are recorded but never charged. */
@@ -404,6 +395,9 @@ async function completeChatWithoutStreaming(options: {
   let turnUsage = options.priorUsage
     ? { ...options.priorUsage }
     : emptyAiUsageSummary({ model: options.model });
+  const allowedToolNames = new Set(
+    (options.allowedTools ?? []).map((tool) => tool.function.name),
+  );
 
   for (let round = 0; round < MAX_TOOL_ROUNDS; round += 1) {
     const chatResp = await requestOpenAiCompletion(
@@ -413,9 +407,7 @@ async function completeChatWithoutStreaming(options: {
       currentMessages,
       false,
       options.webSearchEnabled,
-      options.sessionToolsEnabled,
-      options.billingToolsEnabled,
-      options.platformToolsEnabled,
+      options.allowedTools,
       options.provider,
     );
 
@@ -444,11 +436,15 @@ async function completeChatWithoutStreaming(options: {
     turnUsage = applyMeterRound(turnUsage, metered, options);
 
     if (message.tool_calls?.length) {
-      const chatToolCalls = message.tool_calls.filter(isChatFunctionToolCall);
+      const chatToolCalls = message.tool_calls.filter((call) => isAllowedToolCall(call, allowedToolNames));
       if (chatToolCalls.length) {
         currentMessages.push(message);
         for (const toolCall of chatToolCalls) {
-          const { toolMessage, sessionResult } = await executeChatToolCall(toolCall, options.toolContext);
+          const { toolMessage, sessionResult } = await executeChatToolCall(
+            toolCall,
+            options.toolContext,
+            allowedToolNames,
+          );
           if (sessionResult?.clientAction) clientActions.push(sessionResult.clientAction);
           if (sessionResult?.templateDraft) templateDraft = sessionResult.templateDraft;
           if (sessionResult?.creditTopUp) creditTopUp = sessionResult.creditTopUp;
@@ -492,9 +488,7 @@ async function completeChatWithStreaming(options: {
   messages: OpenAiChatMessage[];
   toolContext: SessionToolContext;
   webSearchEnabled: boolean;
-  sessionToolsEnabled: boolean;
-  billingToolsEnabled: boolean;
-  platformToolsEnabled: boolean;
+  allowedTools: OpenAiFunctionTool[] | undefined;
   tenantSlug: string;
   keySource: 'db' | 'env';
   /** Signed-in viewer; exempt operators are recorded but never charged. */
@@ -508,6 +502,9 @@ async function completeChatWithStreaming(options: {
   const encoder = new TextEncoder();
   const { readable, writable } = new TransformStream<Uint8Array>();
   const writer = writable.getWriter();
+  const allowedToolNames = new Set(
+    (options.allowedTools ?? []).map((tool) => tool.function.name),
+  );
 
   const writeLine = async (payload: unknown) => {
     await writer.write(encoder.encode(encodeSseLine(payload)));
@@ -530,9 +527,7 @@ async function completeChatWithStreaming(options: {
           currentMessages,
           true,
           options.webSearchEnabled,
-          options.sessionToolsEnabled,
-          options.billingToolsEnabled,
-          options.platformToolsEnabled,
+          options.allowedTools,
           options.provider,
         );
 
@@ -558,7 +553,7 @@ async function completeChatWithStreaming(options: {
         turnUsage = applyMeterRound(turnUsage, metered, options);
 
         if (finishReason === 'tool_calls' && toolCalls.length) {
-          const chatToolCalls = toolCalls.filter(isChatFunctionToolCall);
+          const chatToolCalls = toolCalls.filter((call) => isAllowedToolCall(call, allowedToolNames));
           if (chatToolCalls.length) {
             currentMessages.push({
               role: 'assistant',
@@ -567,7 +562,11 @@ async function completeChatWithStreaming(options: {
             });
 
             for (const toolCall of chatToolCalls) {
-              const { toolMessage, sessionResult } = await executeChatToolCall(toolCall, options.toolContext);
+              const { toolMessage, sessionResult } = await executeChatToolCall(
+                toolCall,
+                options.toolContext,
+                allowedToolNames,
+              );
               if (sessionResult?.clientAction) {
                 await writeLine({ type: 'chat_action', action: sessionResult.clientAction });
               }
@@ -635,9 +634,11 @@ export async function completeChatWithSessionTools(options: {
   toolContext: SessionToolContext;
   stream: boolean;
   webSearchEnabled: boolean;
-  sessionToolsEnabled: boolean;
-  billingToolsEnabled: boolean;
-  platformToolsEnabled: boolean;
+  /**
+   * Access-filtered OpenAI tools for this viewer. Empty/undefined = no tools.
+   * The model selects among them automatically (`tool_choice: auto`).
+   */
+  allowedTools: OpenAiFunctionTool[] | undefined;
   tenantSlug: string;
   keySource: 'db' | 'env';
   /** Signed-in viewer; exempt operators are recorded but never charged. */
