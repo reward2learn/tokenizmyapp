@@ -206,7 +206,7 @@ export function CloudCreditsTab({ orgId }: { orgId: string }) {
             {savingAuto ? 'Saving…' : 'Save auto top-up'}
           </Button>
           <Typography variant="caption" color="text.secondary">
-            Requires a default card on Payment Methods.
+            Requires a default card on Billing → Payment Methods.
           </Typography>
         </Stack>
         {saveError && (

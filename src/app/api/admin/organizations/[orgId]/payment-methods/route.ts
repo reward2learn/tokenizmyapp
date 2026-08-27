@@ -7,7 +7,8 @@
  * DELETE — detach one
  *
  * Auth: requireWriteAuth + platform admin, matching the credits and checkout
- * routes. A stored card is the instrument every unattended charge runs on.
+ * routes. A stored card is the instrument for subscription renewals and cloud
+ * auto-reload. Personal AI credit top-ups use `/api/billing/me/payment-methods`.
  *
  * ⚠️ No card data passes through here. The browser talks to Stripe directly
  * with the client secret; this server only ever sees Stripe's ids.

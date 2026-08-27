@@ -67,6 +67,23 @@ export async function ensureStripeColumns(db: RawDb): Promise<void> {
   }
 }
 
+/**
+ * Personal Stripe customer column on data-plane `user_accounts`.
+ *
+ * Separate from org linkage on the billing DB — top-ups with a purchaser use
+ * this customer; plan renewals / cloud stay on the org customer.
+ */
+const USER_STRIPE_COLUMNS_DDL = [
+  `ALTER TABLE user_accounts ADD COLUMN IF NOT EXISTS stripe_customer_id TEXT;`,
+  `CREATE INDEX IF NOT EXISTS idx_user_accounts_stripe_customer ON user_accounts (stripe_customer_id);`,
+];
+
+export async function ensureUserStripeColumns(db: RawDb): Promise<void> {
+  for (const sql of USER_STRIPE_COLUMNS_DDL) {
+    await db.$executeRawUnsafe(sql);
+  }
+}
+
 export interface StripeLinkage {
   customerId: string | null;
   subscriptionId: string | null;
@@ -220,6 +237,104 @@ export async function ensureStripeCustomer(orgId: string, db?: RawDb, stripe?: S
   if (verified.customerId !== customer.id) {
     throw new Error(
       `Failed to persist Stripe customer ${customer.id} for org ${orgId} — subscriptions row missing or not updated.`,
+    );
+  }
+
+  return customer.id;
+}
+
+async function getDataDb(db?: RawDb): Promise<RawDb> {
+  if (db) return db;
+  const { createRawClient } = await import('@/lib/db');
+  return createRawClient();
+}
+
+async function findStripeCustomerIdByUserMetadata(
+  stripe: Stripe,
+  userId: string,
+): Promise<string | null> {
+  try {
+    const safe = userId.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+    const found = await stripe.customers.search({
+      query: `metadata['userId']:'${safe}'`,
+      limit: 1,
+    });
+    return found.data[0]?.id ?? null;
+  } catch {
+    return null;
+  }
+}
+
+async function getUserStripeCustomerId(userId: string, dataDb: RawDb): Promise<string | null> {
+  await ensureUserStripeColumns(dataDb);
+  const rows = (await dataDb.$queryRawUnsafe(
+    `SELECT stripe_customer_id FROM user_accounts WHERE id = $1 LIMIT 1;`,
+    userId,
+  )) as Record<string, unknown>[];
+  return (rows[0]?.stripe_customer_id as string) ?? null;
+}
+
+async function saveUserStripeCustomerId(
+  userId: string,
+  customerId: string,
+  dataDb: RawDb,
+): Promise<void> {
+  await ensureUserStripeColumns(dataDb);
+  const result = await dataDb.$executeRawUnsafe(
+    `UPDATE user_accounts
+     SET stripe_customer_id = $1, updated_at = CURRENT_TIMESTAMP
+     WHERE id = $2;`,
+    customerId,
+    userId,
+  );
+  // Prisma returns affected row count for executeRawUnsafe on Postgres.
+  if (typeof result === 'number' && result < 1) {
+    throw new Error(
+      `Failed to persist Stripe customer ${customerId} for user ${userId} — user_accounts row missing.`,
+    );
+  }
+}
+
+/**
+ * Get or create the Stripe customer for a signed-in user (personal top-ups).
+ *
+ * Persisted on data-plane `user_accounts`, not the billing DB. Metadata carries
+ * `userId` (+ optional `orgId`) so a lost column can be healed via Stripe search.
+ */
+export async function ensureUserStripeCustomer(
+  userId: string,
+  options: { email?: string | null; name?: string | null; orgId?: string | null } = {},
+  dataDb?: RawDb,
+  stripe?: Stripe,
+): Promise<string> {
+  dataDb = await getDataDb(dataDb);
+  stripe = stripe ?? requireStripe();
+
+  const existing = await getUserStripeCustomerId(userId, dataDb);
+  if (existing) return existing;
+
+  const orphanedId = await findStripeCustomerIdByUserMetadata(stripe, userId);
+  if (orphanedId) {
+    await saveUserStripeCustomerId(userId, orphanedId, dataDb);
+    const healed = await getUserStripeCustomerId(userId, dataDb);
+    if (healed === orphanedId) return orphanedId;
+  }
+
+  const customer = await stripe.customers.create({
+    email: options.email ?? undefined,
+    name: options.name ?? undefined,
+    metadata: {
+      userId,
+      ...(options.orgId ? { orgId: options.orgId } : {}),
+    },
+  });
+
+  await saveUserStripeCustomerId(userId, customer.id, dataDb);
+
+  const verified = await getUserStripeCustomerId(userId, dataDb);
+  if (verified !== customer.id) {
+    throw new Error(
+      `Failed to persist Stripe customer ${customer.id} for user ${userId} — user_accounts row missing or not updated.`,
     );
   }
 
@@ -513,7 +628,16 @@ export async function createTopUpCheckoutSession(
     );
   }
 
-  const customerId = await ensureStripeCustomer(orgId, db, stripe);
+  // Self-serve packs charge the purchaser's personal Stripe customer; platform
+  // admin org-wide packs stay on the org customer.
+  const customerId = options.purchaserUserId
+    ? await ensureUserStripeCustomer(
+        options.purchaserUserId,
+        { orgId },
+        undefined,
+        stripe,
+      )
+    : await ensureStripeCustomer(orgId, db, stripe);
 
   const topUpMetadata = {
     orgId,
@@ -903,10 +1027,10 @@ export interface StoredPaymentMethod {
  * Begin attaching a card without charging it.
  *
  * A SetupIntent, not a PaymentIntent: this is the "card on file" flow behind
- * auto-reload and unattended renewal, where the whole point is to authorise a
- * future charge rather than take one now. Stripe still performs 3DS here, so
- * the card is usable later without the customer present — which is exactly what
- * a $0 authorisation on a PaymentIntent would not guarantee.
+ * subscription renewals and cloud auto-reload, where the whole point is to
+ * authorise a future charge rather than take one now. Stripe still performs
+ * 3DS here, so the card is usable later without the customer present — which
+ * is exactly what a $0 authorisation on a PaymentIntent would not guarantee.
  *
  * ⚠️ No card data reaches this server. The returned client secret authorises
  * confirming this one setup and nothing else.
@@ -936,7 +1060,7 @@ export async function createSetupIntent(
 }
 
 /**
- * Cards on file for an organization.
+ * Cards on file for an organization (plan renewals + cloud auto-reload).
  *
  * Returns an empty list rather than throwing when the org has no Stripe
  * customer yet: "no cards" and "never transacted" look the same to the person
@@ -1034,6 +1158,118 @@ export async function removePaymentMethod(
   const owned = await stripe.paymentMethods.list({ customer: linkage.customerId, type: 'card' });
   if (!owned.data.some((pm) => pm.id === paymentMethodId)) {
     throw new Error('That payment method does not belong to this organization.');
+  }
+
+  await stripe.paymentMethods.detach(paymentMethodId);
+}
+
+/**
+ * Begin attaching a personal card (AI credit top-ups) without charging it.
+ */
+export async function createUserSetupIntent(
+  userId: string,
+  options: { email?: string | null; name?: string | null; orgId?: string | null } = {},
+  dataDb?: RawDb,
+  stripe?: Stripe,
+): Promise<{ clientSecret: string; customerId: string }> {
+  dataDb = await getDataDb(dataDb);
+  stripe = stripe ?? requireStripe();
+  const customerId = await ensureUserStripeCustomer(userId, options, dataDb, stripe);
+
+  const intent = await stripe.setupIntents.create({
+    customer: customerId,
+    usage: 'off_session',
+    payment_method_types: ['card'],
+    metadata: {
+      userId,
+      kind: 'user_payment_method',
+      ...(options.orgId ? { orgId: options.orgId } : {}),
+    },
+  });
+
+  if (!intent.client_secret) {
+    throw new Error('Stripe returned a setup intent with no client secret.');
+  }
+  return { clientSecret: intent.client_secret, customerId };
+}
+
+/** Cards on file for a signed-in user's personal Stripe customer. */
+export async function listUserPaymentMethods(
+  userId: string,
+  dataDb?: RawDb,
+  stripe?: Stripe,
+): Promise<StoredPaymentMethod[]> {
+  dataDb = await getDataDb(dataDb);
+  stripe = stripe ?? requireStripe();
+
+  let customerId = await getUserStripeCustomerId(userId, dataDb);
+  if (!customerId) {
+    const orphanedId = await findStripeCustomerIdByUserMetadata(stripe, userId);
+    if (orphanedId) {
+      await saveUserStripeCustomerId(userId, orphanedId, dataDb);
+      customerId = await getUserStripeCustomerId(userId, dataDb);
+    }
+  }
+  if (!customerId) return [];
+
+  const customer = await stripe.customers.retrieve(customerId);
+  const defaultId =
+    !customer.deleted && typeof customer.invoice_settings?.default_payment_method === 'string'
+      ? customer.invoice_settings.default_payment_method
+      : null;
+
+  const methods = await stripe.paymentMethods.list({
+    customer: customerId,
+    type: 'card',
+  });
+
+  return methods.data.map((pm) => ({
+    id: pm.id,
+    brand: pm.card?.brand ?? 'card',
+    last4: pm.card?.last4 ?? '••••',
+    expMonth: pm.card?.exp_month ?? 0,
+    expYear: pm.card?.exp_year ?? 0,
+    isDefault: pm.id === defaultId,
+  }));
+}
+
+export async function setUserDefaultPaymentMethod(
+  userId: string,
+  paymentMethodId: string,
+  dataDb?: RawDb,
+  stripe?: Stripe,
+): Promise<void> {
+  dataDb = await getDataDb(dataDb);
+  stripe = stripe ?? requireStripe();
+
+  const customerId = await getUserStripeCustomerId(userId, dataDb);
+  if (!customerId) throw new Error('This user has no Stripe customer.');
+
+  const owned = await stripe.paymentMethods.list({ customer: customerId, type: 'card' });
+  if (!owned.data.some((pm) => pm.id === paymentMethodId)) {
+    throw new Error('That payment method does not belong to this user.');
+  }
+
+  await stripe.customers.update(customerId, {
+    invoice_settings: { default_payment_method: paymentMethodId },
+  });
+}
+
+export async function removeUserPaymentMethod(
+  userId: string,
+  paymentMethodId: string,
+  dataDb?: RawDb,
+  stripe?: Stripe,
+): Promise<void> {
+  dataDb = await getDataDb(dataDb);
+  stripe = stripe ?? requireStripe();
+
+  const customerId = await getUserStripeCustomerId(userId, dataDb);
+  if (!customerId) throw new Error('This user has no Stripe customer.');
+
+  const owned = await stripe.paymentMethods.list({ customer: customerId, type: 'card' });
+  if (!owned.data.some((pm) => pm.id === paymentMethodId)) {
+    throw new Error('That payment method does not belong to this user.');
   }
 
   await stripe.paymentMethods.detach(paymentMethodId);

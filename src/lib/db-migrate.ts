@@ -224,7 +224,9 @@ const SECURITY_GROUPS_COLUMNS_DDL = [
 const USER_ACCOUNTS_COLUMNS_DDL = [
   `ALTER TABLE user_accounts ADD COLUMN IF NOT EXISTS tenant_slug TEXT;`,
   `ALTER TABLE user_accounts ADD COLUMN IF NOT EXISTS app_id TEXT;`,
+  `ALTER TABLE user_accounts ADD COLUMN IF NOT EXISTS stripe_customer_id TEXT;`,
   `CREATE INDEX IF NOT EXISTS idx_user_accounts_tenant_app ON user_accounts (tenant_slug, app_id);`,
+  `CREATE INDEX IF NOT EXISTS idx_user_accounts_stripe_customer ON user_accounts (stripe_customer_id);`,
 ];
 
 /** Tenant/app scoping columns for roles. */

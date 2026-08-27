@@ -1,36 +1,36 @@
 'use client';
 
 import {
-  useCreateSetupIntentMutation,
-  useListPaymentMethodsQuery,
-  useRemovePaymentMethodMutation,
-  useSetDefaultPaymentMethodMutation,
+  useCreateMySetupIntentMutation,
+  useListMyPaymentMethodsQuery,
+  useRemoveMyPaymentMethodMutation,
+  useSetMyDefaultPaymentMethodMutation,
   organizationApi,
 } from '@/store/apis/organization-api';
 import { useAppDispatch } from '@/store/hooks';
 import { PaymentMethodsPanel } from '@/components/billing/payment-methods-panel';
 
 /**
- * Settings → Billing → Payment Methods (org customer).
+ * Settings → Personal → Payment Method (user Stripe customer).
  *
- * Used for subscription renewals and cloud auto-reload. Personal AI credit
- * top-ups use Settings → Personal → Payment Method instead.
+ * Used for AI credit top-ups. Org plan / cloud cards stay under Billing →
+ * Payment Methods.
  */
-export function PaymentMethodsTab({ orgId }: { orgId: string }) {
+export function PersonalPaymentMethodsPanel({ orgId }: { orgId: string }) {
   const dispatch = useAppDispatch();
-  const { data, isLoading } = useListPaymentMethodsQuery(orgId, { skip: !orgId });
-  const [createSetup, { isLoading: isStarting }] = useCreateSetupIntentMutation();
-  const [setDefault] = useSetDefaultPaymentMethodMutation();
-  const [remove] = useRemovePaymentMethodMutation();
+  const { data, isLoading } = useListMyPaymentMethodsQuery(orgId, { skip: !orgId });
+  const [createSetup, { isLoading: isStarting }] = useCreateMySetupIntentMutation();
+  const [setDefault] = useSetMyDefaultPaymentMethodMutation();
+  const [remove] = useRemoveMyPaymentMethodMutation();
 
   const methods = data?.data?.methods ?? [];
   const paymentsConfigured = data?.data?.readiness?.hasSecretKey ?? false;
 
   return (
     <PaymentMethodsPanel
-      title="Payment Methods"
-      description="Used for subscription renewals."
-      emptyHint="Add one so subscriptions can renew without interrupting you."
+      title="Payment Method"
+      description="Used for AI credit top-ups."
+      emptyHint="Add a card so AI credit top-ups can use a saved payment method."
       methods={methods}
       paymentsConfigured={paymentsConfigured}
       isLoading={isLoading}
@@ -49,7 +49,7 @@ export function PaymentMethodsTab({ orgId }: { orgId: string }) {
         await remove({ orgId, paymentMethodId }).unwrap();
       }}
       onInvalidate={() => {
-        dispatch(organizationApi.util.invalidateTags(['PaymentMethods']));
+        dispatch(organizationApi.util.invalidateTags(['MyPaymentMethods']));
       }}
     />
   );

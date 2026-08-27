@@ -147,11 +147,14 @@ model UserAccount {
   avatarUrl       String?              @map("avatar_url")
   bio             String?              @db.Text()
   phone           String?
+  /// Stripe customer for personal AI credit top-ups / personal payment methods.
+  stripeCustomerId String?             @map("stripe_customer_id")
   createdAt       DateTime             @default(now()) @map("created_at")
   updatedAt       DateTime             @updatedAt() @map("updated_at")
   groups          UserGroup[]
   taskAssignments TaskUserAssignment[]
 
+  @@index([stripeCustomerId], map: "idx_user_accounts_stripe_customer")
   @@map("user_accounts")
 }
 

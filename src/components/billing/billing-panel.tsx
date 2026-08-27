@@ -123,8 +123,11 @@ export function BillingPanel({
   const visibleTabs: BillingTab[] =
     readOnly && !selfServeBilling
       ? ['plan', 'credit-history']
-      : readOnly && selfServeBilling
-        ? ['plan', 'credit-history', 'billing-details', 'payment-methods', 'invoices']
+      : selfServeBilling
+        ? // Self-serve tenants manage cards under Personal → Payment Method.
+          readOnly
+            ? ['plan', 'credit-history', 'billing-details', 'invoices']
+            : ['plan', 'credit-history', 'cloud-credits', 'billing-details', 'invoices']
         : ['plan', 'credit-history', 'cloud-credits', 'billing-details', 'payment-methods', 'invoices'];
 
   const activeTab = visibleTabs.includes(tab) ? tab : visibleTabs[0];
@@ -167,11 +170,17 @@ export function BillingPanel({
       if (!readOnly) {
         items.push({ id: 'cloud-credits', label: 'Cloud Credits', content: <CloudCreditsTab orgId={orgId} /> });
       }
-      items.push(
-        { id: 'billing-details', label: 'Billing Details', content: <BillingDetailsTab orgId={orgId} /> },
-        { id: 'payment-methods', label: 'Payment Methods', content: <PaymentMethodsTab orgId={orgId} /> },
-        { id: 'invoices', label: 'Invoices', content: <InvoicesTab orgId={orgId} /> },
-      );
+      items.push({ id: 'billing-details', label: 'Billing Details', content: <BillingDetailsTab orgId={orgId} /> });
+      // Platform/admin org cards stay here for plan/cloud. Self-serve users use
+      // Personal → Payment Method so cards are not implied to be org/shared.
+      if (!selfServeBilling) {
+        items.push({
+          id: 'payment-methods',
+          label: 'Payment Methods',
+          content: <PaymentMethodsTab orgId={orgId} />,
+        });
+      }
+      items.push({ id: 'invoices', label: 'Invoices', content: <InvoicesTab orgId={orgId} /> });
     }
 
     return items;

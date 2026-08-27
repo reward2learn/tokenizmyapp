@@ -182,6 +182,7 @@ export const organizationApi = createApi({
     'Credits',
     'Subscription',
     'PaymentMethods',
+    'MyPaymentMethods',
     'CloudUsage',
     'OrgRateCard',
     'AiCreditsCalculator',
@@ -356,6 +357,49 @@ export const organizationApi = createApi({
         method: 'DELETE',
       }),
       invalidatesTags: ['PaymentMethods'],
+    }),
+
+    /** Personal cards (AI credit top-ups). `orgId` resolves tenant Stripe keys only. */
+    listMyPaymentMethods: builder.query<
+      ApiEnvelope<{ methods: StoredPaymentMethod[]; readiness: { hasSecretKey: boolean } }>,
+      string
+    >({
+      query: (orgId) => `billing/me/payment-methods?orgId=${encodeURIComponent(orgId)}`,
+      providesTags: ['MyPaymentMethods'],
+    }),
+
+    createMySetupIntent: builder.mutation<
+      ApiEnvelope<{ clientSecret: string; publishableKey: string | null }>,
+      string
+    >({
+      query: (orgId) => ({
+        url: `billing/me/payment-methods?orgId=${encodeURIComponent(orgId)}`,
+        method: 'POST',
+        body: { orgId },
+      }),
+    }),
+
+    setMyDefaultPaymentMethod: builder.mutation<
+      ApiEnvelope<{ methods: StoredPaymentMethod[] }>,
+      { orgId: string; paymentMethodId: string }
+    >({
+      query: ({ orgId, paymentMethodId }) => ({
+        url: `billing/me/payment-methods?orgId=${encodeURIComponent(orgId)}`,
+        method: 'PATCH',
+        body: { paymentMethodId, orgId },
+      }),
+      invalidatesTags: ['MyPaymentMethods'],
+    }),
+
+    removeMyPaymentMethod: builder.mutation<
+      ApiEnvelope<{ methods: StoredPaymentMethod[] }>,
+      { orgId: string; paymentMethodId: string }
+    >({
+      query: ({ orgId, paymentMethodId }) => ({
+        url: `billing/me/payment-methods?orgId=${encodeURIComponent(orgId)}&paymentMethodId=${encodeURIComponent(paymentMethodId)}`,
+        method: 'DELETE',
+      }),
+      invalidatesTags: ['MyPaymentMethods'],
     }),
 
     /** Run-time consumption per resource. `state` says which are actually metered. */
@@ -1008,6 +1052,10 @@ export const {
   useCreateSetupIntentMutation,
   useSetDefaultPaymentMethodMutation,
   useRemovePaymentMethodMutation,
+  useListMyPaymentMethodsQuery,
+  useCreateMySetupIntentMutation,
+  useSetMyDefaultPaymentMethodMutation,
+  useRemoveMyPaymentMethodMutation,
   useGetTenantOrganizationQuery,
   useAssignTenantOrganizationMutation,
   useGetOrganizationCreditsQuery,

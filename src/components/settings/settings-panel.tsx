@@ -27,6 +27,7 @@ import InsightsIcon from '@mui/icons-material/Insights';
 import QueryStatsIcon from '@mui/icons-material/QueryStats';
 import BoltIcon from '@mui/icons-material/Bolt';
 import SupportAgentIcon from '@mui/icons-material/SupportAgent';
+import PaymentIcon from '@mui/icons-material/Payment';
 import { useAppDispatch, useAppSelector } from '@/store/hooks';
 import { setSettingsSection, type SettingsSection } from '@/store/ui-slice';
 import { OrganizationGeneralPanel } from '@/components/settings/organization-general-panel';
@@ -36,6 +37,7 @@ import { ProfilePanel } from '@/components/settings/profile-panel';
 import { SecurityPanel } from '@/components/settings/security-panel';
 import { AiCreditsPanel, BillingPanel } from '@/components/billing/billing-panel';
 import { PersonalUsagePanel } from '@/components/billing/personal-usage-panel';
+import { PersonalPaymentMethodsPanel } from '@/components/billing/personal-payment-methods-panel';
 import { RADIUS } from '@/theme/design-tokens';
 import { isPlatformApp } from '@shared/lib/config/tenant';
 
@@ -46,11 +48,12 @@ import { isPlatformApp } from '@shared/lib/config/tenant';
  * grouping: everything above the divider belongs to the Organization (the
  * billing owner of one or more tenants) and everything below belongs to the
  * signed-in account. Billing stays in the first group because plans, invoices,
- * and shared plan credits are keyed on `orgId`. Topup sits under Personal
- * because self-serve pack purchases credit the current user's personal pool
- * (spent before shared plan credits). Usage under Personal holds spend
- * breakdowns (users / provider / model). Org ledger (Usage history + Grants)
- * stays under Billing → History for the tenant/org context.
+ * and shared plan credits are keyed on `orgId`. Payment Method, Topup, and Usage
+ * sit under Personal: personal cards charge the user Stripe customer; self-serve
+ * pack purchases credit the current user's personal pool (spent before shared
+ * plan credits); Usage holds spend breakdowns (users / provider / model). Org
+ * ledger (Usage history + Grants) stays under Billing → History for the
+ * tenant/org context.
  *
  * Sections are listed only where something real backs them. SSO, data
  * residency, commerce and chat integrations are deliberately absent rather
@@ -89,6 +92,7 @@ const TENANT_SELF_SERVE_SECTIONS: SectionDef[] = [
 
 const PERSONAL_SECTIONS: SectionDef[] = [
   { id: 'profile', label: 'Profile', icon: PersonIcon },
+  { id: 'payment-method', label: 'Payment Method', icon: PaymentIcon },
   { id: 'topup', label: 'Topup', icon: BoltIcon },
   { id: 'usage', label: 'Usage', icon: QueryStatsIcon },
   { id: 'security', label: 'Security', icon: LockIcon },
@@ -200,6 +204,12 @@ export function SettingsPanel({
           <BillingPanel orgId={orgId} readOnly={billingReadOnly} selfServeBilling={selfServeBilling} />
         ) : (
           <NoOrganization what="Billing" />
+        );
+      case 'payment-method':
+        return orgId ? (
+          <PersonalPaymentMethodsPanel orgId={orgId} />
+        ) : (
+          <NoOrganization what="Payment Method" />
         );
       case 'topup':
         return orgId ? (

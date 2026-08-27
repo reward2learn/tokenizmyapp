@@ -31,6 +31,12 @@ vi.mock('@/components/billing/billing-panel', () => ({
   AiCreditsPanel: ({ orgId }: { orgId: string }) => <div>topup for {orgId}</div>,
 }));
 
+vi.mock('@/components/billing/personal-payment-methods-panel', () => ({
+  PersonalPaymentMethodsPanel: ({ orgId }: { orgId: string }) => (
+    <div>personal payment method for {orgId}</div>
+  ),
+}));
+
 vi.mock('@/components/billing/personal-usage-panel', () => ({
   PersonalUsagePanel: ({ orgId }: { orgId: string }) => <div>usage for {orgId}</div>,
 }));
@@ -74,7 +80,16 @@ describe('SettingsPanel', () => {
     // and quietly promise one.
     renderPanel('org_1');
 
-    for (const present of ['General', 'Billing', 'People', 'Topup', 'Usage', 'Profile', 'Security']) {
+    for (const present of [
+      'General',
+      'Billing',
+      'People',
+      'Payment Method',
+      'Topup',
+      'Usage',
+      'Profile',
+      'Security',
+    ]) {
       expect(screen.getByRole('button', { name: present })).toBeInTheDocument();
     }
     for (const absent of ['SSO', 'Data residency', 'Commerce', 'Skills', 'Chat Integrations']) {
@@ -82,11 +97,12 @@ describe('SettingsPanel', () => {
     }
   });
 
-  it('shows tenant-app billing, personal usage, topup, people and branding', () => {
+  it('shows tenant-app billing, personal payment method, usage, topup, people and branding', () => {
     vi.mocked(isPlatformApp).mockReturnValue(false);
     renderPanel('org_1');
 
     expect(screen.getByRole('button', { name: 'Billing' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Payment Method' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Usage' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Topup' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'People' })).toBeInTheDocument();
@@ -94,6 +110,9 @@ describe('SettingsPanel', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Billing' }));
     expect(screen.getByText(/billing for org_1 \(read-only\)/i)).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Payment Method' }));
+    expect(screen.getByText(/personal payment method for org_1/i)).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('button', { name: 'Usage' }));
     expect(screen.getByText(/usage for org_1/i)).toBeInTheDocument();

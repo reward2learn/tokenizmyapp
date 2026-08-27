@@ -11,6 +11,14 @@ vi.mock('@/components/ops-admin/stripe-topup-dialog', () => ({
   StripeTopUpDialog: () => null,
 }));
 
+vi.mock('@/components/billing/payment-methods-tab', () => ({
+  PaymentMethodsTab: () => <div>org payment methods</div>,
+}));
+
+vi.mock('@/components/billing/cloud-credits-tab', () => ({
+  CloudCreditsTab: () => <div>cloud credits</div>,
+}));
+
 const orgId = 'org_test';
 
 function renderPanel(readOnly: boolean) {
@@ -144,6 +152,73 @@ describe('BillingPanel', () => {
     expect(screen.queryByText(/Payments are not configured on this deployment/i)).toBeNull();
     expect(screen.getByText('Managed by your organization')).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /Choose/i })).toBeNull();
+  });
+
+  it('hides Org Payment Methods for self-serve users', () => {
+    const store = configureStore({
+      reducer: {
+        ui: uiSlice.reducer,
+        auth: authSlice.reducer,
+        [organizationApi.reducerPath]: organizationApi.reducer,
+      },
+      middleware: (getDefault) =>
+        getDefault({ serializableCheck: false }).concat(organizationApi.middleware),
+    });
+
+    store.dispatch(
+      organizationApi.util.upsertQueryData('getOrganization', orgId, {
+        success: true,
+        data: {
+          organization: {
+            id: orgId,
+            slug: 'acme',
+            displayName: 'Acme',
+            logoUrl: null,
+          },
+          members: [],
+          subscription: { planId: 'free', interval: 'monthly', status: 'active' },
+          plan: { id: 'free', name: 'Free' },
+        },
+      }),
+    );
+    store.dispatch(
+      organizationApi.util.upsertQueryData('getOrganizationCredits', orgId, {
+        success: true,
+        data: {
+          balance: { available: 42, expiringSoon: 0, debt: 0, net: 42 },
+          grants: [],
+          ledger: [],
+        },
+      }),
+    );
+    store.dispatch(
+      organizationApi.util.upsertQueryData('getBillingCheckout', orgId, {
+        success: true,
+        data: {
+          subscription: { planId: 'free', interval: 'monthly', status: 'active' },
+          readiness: { ready: false },
+          purchasable: [],
+          linkage: null,
+          reconcileNote: null,
+          priceMismatches: [],
+        },
+      }),
+    );
+
+    render(
+      <Provider store={store}>
+        <BillingPanel orgId={orgId} readOnly={false} selfServeBilling />
+      </Provider>,
+    );
+
+    expect(screen.queryByRole('tab', { name: 'Payment Methods' })).toBeNull();
+    expect(screen.getByRole('tab', { name: 'Plan' })).toBeInTheDocument();
+    expect(screen.getByRole('tab', { name: 'Invoices' })).toBeInTheDocument();
+  });
+
+  it('keeps Org Payment Methods for platform/admin billing', () => {
+    renderPanel(false);
+    expect(screen.getByRole('tab', { name: 'Payment Methods' })).toBeInTheDocument();
   });
 });
 

@@ -198,6 +198,8 @@ model UserAccount {
   tenantSlug      String?              @map("tenant_slug")
   /// Suite-mode app id, when this account is scoped to a single app within a tenant.
   appId           String?              @map("app_id")
+  /// Stripe customer for personal AI credit top-ups / personal payment methods.
+  stripeCustomerId String?             @map("stripe_customer_id")
   isActive        Boolean              @default(true) @map("is_active")
   lastSeenAt      DateTime?            @map("last_seen_at")
   createdAt       DateTime             @default(now()) @map("created_at")
@@ -207,6 +209,7 @@ model UserAccount {
 
   @@index([tenantSlug], map: "idx_user_accounts_tenant_slug")
   @@index([tenantSlug, appId], map: "idx_user_accounts_tenant_app")
+  @@index([stripeCustomerId], map: "idx_user_accounts_stripe_customer")
   @@map("user_accounts")
 }
 

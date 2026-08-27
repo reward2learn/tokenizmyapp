@@ -15,6 +15,7 @@ import { useGetBillingLockStatusQuery } from '@/store/apis/organization-api';
 const SETTINGS_SECTIONS: SettingsSection[] = [
   'general',
   'billing',
+  'payment-method',
   'topup',
   'usage',
   'teammates',

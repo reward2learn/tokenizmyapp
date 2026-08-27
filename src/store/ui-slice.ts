@@ -20,13 +20,15 @@ export type BillingTab =
  * an absent one — see the auto-reload panel that shipped as a permanent
  * "Disabled" line and had to be removed.
  *
- * `topup` and `usage` are first-class Personal sections (not Billing tabs):
- * Topup = balance + pack purchase; Usage = users / provider / model breakdowns.
- * Org ledger (Usage history + Grants) stays under Billing → History.
+ * `payment-method`, `topup` and `usage` are first-class Personal sections
+ * (not Billing tabs): Payment Method = personal cards; Topup = balance + pack
+ * purchase; Usage = users / provider / model breakdowns. Org ledger (Usage
+ * history + Grants) stays under Billing → History.
  */
 export type SettingsSection =
   | 'general'
   | 'billing'
+  | 'payment-method'
   | 'topup'
   | 'usage'
   | 'teammates'
