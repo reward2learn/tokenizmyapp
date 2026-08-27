@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useMemo, useRef, useState } from 'react';
 import Alert from '@mui/material/Alert';
 import Box from '@mui/material/Box';
 import Button from '@mui/material/Button';
@@ -11,9 +11,12 @@ import Dialog from '@mui/material/Dialog';
 import DialogActions from '@mui/material/DialogActions';
 import DialogContent from '@mui/material/DialogContent';
 import DialogTitle from '@mui/material/DialogTitle';
+import Divider from '@mui/material/Divider';
 import FormControl from '@mui/material/FormControl';
 import IconButton from '@mui/material/IconButton';
 import InputLabel from '@mui/material/InputLabel';
+import ListItemIcon from '@mui/material/ListItemIcon';
+import Menu from '@mui/material/Menu';
 import MenuItem from '@mui/material/MenuItem';
 import Paper from '@mui/material/Paper';
 import Select from '@mui/material/Select';
@@ -21,6 +24,8 @@ import Stack from '@mui/material/Stack';
 import Switch from '@mui/material/Switch';
 import TextField from '@mui/material/TextField';
 import Typography from '@mui/material/Typography';
+import { useTheme } from '@mui/material/styles';
+import useMediaQuery from '@mui/material/useMediaQuery';
 import AddIcon from '@mui/icons-material/Add';
 import DeleteIcon from '@mui/icons-material/Delete';
 import DragIndicatorIcon from '@mui/icons-material/DragIndicator';
@@ -29,9 +34,11 @@ import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import LayersClearIcon from '@mui/icons-material/LayersClear';
 import FolderIcon from '@mui/icons-material/Folder';
 import InsertDriveFileIcon from '@mui/icons-material/InsertDriveFile';
+import MoreVertIcon from '@mui/icons-material/MoreVert';
 import SaveIcon from '@mui/icons-material/Save';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import ChevronRightIcon from '@mui/icons-material/ChevronRight';
+import StarBorderIcon from '@mui/icons-material/StarBorder';
 import UnfoldLessIcon from '@mui/icons-material/UnfoldLess';
 import UnfoldMoreIcon from '@mui/icons-material/UnfoldMore';
 import FormControlLabel from '@mui/material/FormControlLabel';
@@ -45,12 +52,14 @@ import {
 } from '@/lib/auth/tier-access';
 import type { AuthTier } from '@/lib/page-catalog';
 import {
+  adminApi,
   useGetNavigationQuery,
   useCreateNavigationItemMutation,
   useUpdateNavigationItemsMutation,
   useDeleteNavigationItemsMutation,
   useListAdminGroupsQuery,
 } from '@/store/apis/admin-api';
+import { useAppDispatch } from '@/store/hooks';
 
 const AUTH_TIER_OPTIONS: { value: AuthTier; label: string }[] = [
   { value: 'public', label: 'Public' },
@@ -138,8 +147,9 @@ function collectDescendantIds(items: (FlatItem & { depth: number })[], parentId:
 // ── Component ──────────────────────────────────────────
 
 export function NavigationManager() {
-  const [items, setItems] = useState<NavItem[]>([]);
-  const [flatItems, setFlatItems] = useState<(FlatItem & { depth: number })[]>([]);
+  const theme = useTheme();
+  const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
+  const dispatch = useAppDispatch();
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
@@ -150,6 +160,20 @@ export function NavigationManager() {
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
   const [dragIndex, setDragIndex] = useState<number | null>(null);
   const [dropIndex, setDropIndex] = useState<number | null>(null);
+  /** Refs keep drop target in sync for HTML5 + touch end (setState is async). */
+  const dragIndexRef = useRef<number | null>(null);
+  const dropIndexRef = useRef<number | null>(null);
+  const [rowMenu, setRowMenu] = useState<{ anchor: HTMLElement; item: FlatItem } | null>(null);
+
+  const updateDragIndex = useCallback((idx: number | null) => {
+    dragIndexRef.current = idx;
+    setDragIndex(idx);
+  }, []);
+
+  const updateDropIndex = useCallback((idx: number | null) => {
+    dropIndexRef.current = idx;
+    setDropIndex(idx);
+  }, []);
 
   // ── Collapse / expand (parent items) ─────────────────
   const [collapsedIds, setCollapsedIds] = useState<Set<string>>(new Set());
@@ -174,47 +198,40 @@ export function NavigationManager() {
   const [dedupDialogOpen, setDedupDialogOpen] = useState(false);
   const [dedupCandidates, setDedupCandidates] = useState<string[]>([]);
 
-  // ── RTK Query: navigation ─────────────────────────────
+  // ── RTK Query: navigation (cache is source of truth) ──
   const { data: navData, isLoading: navLoading, isError: navError, error: navQueryError } = useGetNavigationQuery();
 
-  useEffect(() => {
-    if (navData?.success) {
-      const navItems = (navData.data as { items?: NavItem[] })?.items ?? [];
-      setItems(navItems);
-      setFlatItems(flattenTree(navItems));
-      setError(null);
-    } else if (navData && navData.success === false) {
-      setError(navData.error ?? 'Failed to load navigation');
-    }
+  const flatItems = useMemo(() => {
+    if (!navData?.success) return [] as (FlatItem & { depth: number })[];
+    const navItems = (navData.data as { items?: NavItem[] } | undefined)?.items ?? [];
+    return flattenTree(navItems);
   }, [navData]);
 
-  useEffect(() => {
+  const queryError = useMemo(() => {
     if (navError) {
-      const msg =
-        navQueryError && typeof navQueryError === 'object' && 'status' in navQueryError
-          ? `Failed to load navigation (${String((navQueryError as { status: unknown }).status)})`
-          : 'Failed to load navigation';
-      setError(msg);
+      return navQueryError && typeof navQueryError === 'object' && 'status' in navQueryError
+        ? `Failed to load navigation (${String((navQueryError as { status: unknown }).status)})`
+        : 'Failed to load navigation';
     }
-  }, [navError, navQueryError]);
+    if (navData && navData.success === false) {
+      return navData.error ?? 'Failed to load navigation';
+    }
+    return null;
+  }, [navError, navQueryError, navData]);
+
+  const displayError = error ?? queryError;
 
   // ── RTK Query: security groups ────────────────────────
   const { data: groupsData } = useListAdminGroupsQuery();
-  const [allSecurityGroups, setAllSecurityGroups] = useState<{ code: string; name: string }[]>([]);
-
-  useEffect(() => {
-    if (groupsData?.success && groupsData.data?.groups) {
-      setAllSecurityGroups(
-        groupsData.data.groups.map((g) => ({ code: g.code, name: g.name })),
-      );
-    }
+  const allSecurityGroups = useMemo(() => {
+    if (!groupsData?.success || !groupsData.data?.groups) return [] as { code: string; name: string }[];
+    return groupsData.data.groups.map((g) => ({ code: g.code, name: g.name }));
   }, [groupsData]);
 
   // ── RTK Query: mutations ──────────────────────────────
   const [createNav] = useCreateNavigationItemMutation();
   const [updateNav] = useUpdateNavigationItemsMutation();
   const [deleteNav] = useDeleteNavigationItemsMutation();
-
   // ── Create ────────────────────────────────────────────
   const [newTitle, setNewTitle] = useState('');
   const [newPath, setNewPath] = useState('');
@@ -365,7 +382,7 @@ export function NavigationManager() {
   const openBatchDialog = useCallback((mode: 'delete' | 'parent' | 'tier' | 'groups') => {
     setBatchDialogMode(mode);
     setBatchParentId('');
-    setBatchTier('public');
+    setBatchTier(['public']);
     setBatchGroups([]);
     setBatchDialogOpen(true);
   }, []);
@@ -479,44 +496,58 @@ export function NavigationManager() {
     }
   }, [selectedIds, batchDialogMode, batchParentId, batchTier, batchGroups, flatItems, updateNav]);
 
-  // ── Drag-to-reorder helpers ──────────────────────────
-  const moveItem = useCallback((fromIdx: number, toIdx: number) => {
-    if (fromIdx === toIdx) return;
-    const updated = [...flatItems];
-    const [moved] = updated.splice(fromIdx, 1);
-    updated.splice(toIdx, 0, moved);
-    // Re-assign sort orders
-    const reordered = updated.map((item, i) => ({ ...item, sortOrder: i }));
-    setFlatItems(reordered);
-  }, [flatItems]);
+  // ── Drag-to-reorder helpers (HTML5 + touch) ─────────
+  const resolveDropTargetIndex = useCallback((clientX: number, clientY: number) => {
+    const el = document.elementFromPoint(clientX, clientY);
+    const row = el?.closest('[data-nav-flat-idx]');
+    if (!row) return;
+    const next = Number(row.getAttribute('data-nav-flat-idx'));
+    if (!Number.isNaN(next)) updateDropIndex(next);
+  }, [updateDropIndex]);
 
   const handleDrop = useCallback(async () => {
-    if (dragIndex === null || dropIndex === null || dragIndex === dropIndex) return;
+    const from = dragIndexRef.current;
+    const to = dropIndexRef.current;
+    if (from === null || to === null || from === to) {
+      updateDragIndex(null);
+      updateDropIndex(null);
+      return;
+    }
     setSaving(true);
     setError(null);
-    try {
-      const updated = [...flatItems];
-      const [moved] = updated.splice(dragIndex, 1);
-      updated.splice(dropIndex, 0, moved);
-      const reordered = updated.map((item, i) => ({ ...item, sortOrder: i }));
-      const payload = reordered.map(({ depth: _, ...rest }) => rest);
+    const updated = [...flatItems];
+    const [moved] = updated.splice(from, 1);
+    updated.splice(to, 0, moved);
+    const reordered = updated.map((item, i) => ({ ...item, sortOrder: i }));
+    const payload = reordered.map(({ depth: _, ...rest }) => rest);
 
+    // Optimistic SoT write into the RTK Query cache (undo on failure).
+    const patch = dispatch(
+      adminApi.util.updateQueryData('getNavigation', undefined, (draft) => {
+        if (!draft?.success || !draft.data || typeof draft.data !== 'object') return;
+        (draft.data as { items: NavItem[] }).items = buildTree(reordered);
+      }),
+    );
+
+    try {
       const result = await updateNav({ items: payload }).unwrap();
       if (result.success) {
-        setFlatItems(reordered);
         setSuccess(true);
         setTimeout(() => setSuccess(false), 2000);
       } else {
         throw new Error(result.error ?? 'Reorder failed');
       }
     } catch (err) {
+      patch.undo();
       setError(err instanceof Error ? err.message : String(err));
     } finally {
       setSaving(false);
-      setDragIndex(null);
-      setDropIndex(null);
+      updateDragIndex(null);
+      updateDropIndex(null);
     }
-  }, [dragIndex, dropIndex, flatItems, updateNav]);
+  }, [flatItems, updateNav, updateDragIndex, updateDropIndex, dispatch]);
+
+  const closeRowMenu = useCallback(() => setRowMenu(null), []);
 
   // ── Render tree row ──────────────────────────────────
   /** Check whether any item in the list has this item as its parent. */
@@ -537,32 +568,30 @@ export function NavigationManager() {
   function renderRow(item: FlatItem & { depth: number }, idx: number) {
     const isDrag = dragIndex === idx;
     const isDrop = dropIndex === idx;
+    const canSetDefault = Boolean(item.path && !item.path.startsWith('http') && !item.isDefault);
     return (
       <Paper
         key={item.id}
-        draggable
-        onDragStart={() => setDragIndex(idx)}
-        onDragOver={(e) => { e.preventDefault(); setDropIndex(idx); }}
-        onDragEnd={handleDrop}
+        data-nav-flat-idx={idx}
+        onDragOver={(e) => { e.preventDefault(); updateDropIndex(idx); }}
+        onDrop={(e) => { e.preventDefault(); void handleDrop(); }}
         sx={{
           display: 'flex',
           alignItems: 'center',
-          gap: 1,
-          p: 1.5,
+          gap: { xs: 0.5, sm: 1 },
+          p: { xs: 1, sm: 1.5 },
           mb: 0.5,
           bgcolor: isDrag ? 'action.selected' : isDrop ? 'action.hover' : 'transparent',
           border: '1px solid',
           borderColor: isDrop ? 'primary.main' : 'divider',
           opacity: isDrag ? 0.5 : 1,
-          cursor: 'grab',
           ml: { xs: Math.min(item.depth, 2) * 1.5, sm: item.depth * 3 },
-          flexWrap: 'wrap',
+          flexWrap: { xs: 'nowrap', sm: 'wrap' },
           rowGap: 0.5,
           minWidth: 0,
           maxWidth: '100%',
           overflow: 'hidden',
           '&:hover': { bgcolor: 'action.hover' },
-          '&:active': { bgcolor: 'action.selected' },
         }}
       >
         <Checkbox
@@ -570,7 +599,7 @@ export function NavigationManager() {
           checked={selectedIds.has(item.id)}
           onChange={() => toggleSelect(item.id)}
           onClick={(e) => e.stopPropagation()}
-          sx={{ p: 0.5 }}
+          sx={{ p: 0.5, flexShrink: 0 }}
         />
         {hasChildren(item.id) ? (
           <IconButton
@@ -582,9 +611,53 @@ export function NavigationManager() {
             {collapsedIds.has(item.id) ? <ChevronRightIcon fontSize="small" /> : <ExpandMoreIcon fontSize="small" />}
           </IconButton>
         ) : (
-          <Box sx={{ width: 28, flexShrink: 0 }} />
+          <Box sx={{ width: { xs: 20, sm: 28 }, flexShrink: 0 }} />
         )}
-        <DragIndicatorIcon fontSize="small" color="disabled" sx={{ cursor: 'grab', flexShrink: 0 }} />
+        <Box
+          component="span"
+          draggable
+          role="button"
+          tabIndex={0}
+          aria-label={`Drag to reorder ${item.title}`}
+          onDragStart={(e) => {
+            updateDragIndex(idx);
+            updateDropIndex(idx);
+            e.dataTransfer.effectAllowed = 'move';
+            e.dataTransfer.setData('text/plain', item.id);
+          }}
+          onDragEnd={() => { void handleDrop(); }}
+          onTouchStart={() => {
+            updateDragIndex(idx);
+            updateDropIndex(idx);
+          }}
+          onTouchMove={(e) => {
+            if (dragIndexRef.current === null) return;
+            const touch = e.touches[0];
+            if (!touch) return;
+            resolveDropTargetIndex(touch.clientX, touch.clientY);
+          }}
+          onTouchEnd={() => { void handleDrop(); }}
+          onTouchCancel={() => {
+            updateDragIndex(null);
+            updateDropIndex(null);
+          }}
+          sx={{
+            display: 'inline-flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            cursor: 'grab',
+            touchAction: 'none',
+            flexShrink: 0,
+            p: 0.75,
+            borderRadius: 1,
+            color: 'text.disabled',
+            WebkitUserSelect: 'none',
+            userSelect: 'none',
+            '&:active': { cursor: 'grabbing', bgcolor: 'action.selected' },
+          }}
+        >
+          <DragIndicatorIcon fontSize="small" />
+        </Box>
         <Box sx={{ flexShrink: 0, color: 'text.secondary', display: 'flex', alignItems: 'center' }}>
           {item.icon ? (
             <NavIcon name={item.icon} />
@@ -596,7 +669,7 @@ export function NavigationManager() {
             <InsertDriveFileIcon fontSize="small" />
           )}
         </Box>
-        <Box sx={{ flex: '1 1 140px', minWidth: 0 }}>
+        <Box sx={{ flex: '1 1 auto', minWidth: 0 }}>
           <Typography variant="body2" sx={{ fontWeight: 600, wordBreak: 'break-word' }}>
             {item.title}
           </Typography>
@@ -608,10 +681,21 @@ export function NavigationManager() {
             {item.path || '(no path)'}
           </Typography>
         </Box>
-        <Stack direction="row" spacing={0.5} useFlexGap sx={{ flexShrink: 0, flexWrap: 'wrap', alignItems: 'center' }}>
+        <Stack
+          direction="row"
+          spacing={0.5}
+          useFlexGap
+          sx={{
+            flexShrink: 0,
+            flexWrap: { xs: 'nowrap', sm: 'wrap' },
+            alignItems: 'center',
+            maxWidth: { xs: '46%', sm: 'none' },
+            overflow: 'hidden',
+          }}
+        >
           {item.isDefault ? (
             <Chip label="Default" size="small" color="primary" variant="filled" sx={{ height: 20, fontSize: { xs: '0.7rem', md: '0.75rem' } }} />
-          ) : item.path && !item.path.startsWith('http') ? (
+          ) : !isMobile && canSetDefault ? (
             <Chip
               label="Set Default"
               size="small"
@@ -621,12 +705,37 @@ export function NavigationManager() {
               sx={{ height: 20, fontSize: { xs: '0.7rem', md: '0.75rem' }, cursor: 'pointer' }}
             />
           ) : null}
-          <Chip label={formatAuthTierLabel(item.authTier)} size="small" variant="outlined" sx={{ height: 20, fontSize: { xs: '0.7rem', md: '0.75rem' } }} />
-          {item.requiredGroups ? (
+          <Chip
+            label={formatAuthTierLabel(item.authTier)}
+            size="small"
+            variant="outlined"
+            sx={{ height: 20, fontSize: { xs: '0.7rem', md: '0.75rem' }, maxWidth: { xs: 72, sm: 'none' } }}
+          />
+          {item.requiredGroups && !isMobile ? (
             <Chip label={item.requiredGroups} size="small" color="info" variant="outlined" sx={{ height: 20, fontSize: { xs: '0.7rem', md: '0.75rem' }, maxWidth: 160 }} />
           ) : null}
-          <IconButton size="small" onClick={() => openEdit(item)}><EditIcon fontSize="small" /></IconButton>
-          <IconButton size="small" color="error" onClick={() => handleDelete(item.id)}><DeleteIcon fontSize="small" /></IconButton>
+          {isMobile ? (
+            <IconButton
+              size="small"
+              onClick={(e) => {
+                e.stopPropagation();
+                setRowMenu({ anchor: e.currentTarget, item });
+              }}
+              aria-label={`Actions for ${item.title}`}
+              sx={{ flexShrink: 0 }}
+            >
+              <MoreVertIcon fontSize="small" />
+            </IconButton>
+          ) : (
+            <>
+              <IconButton size="small" onClick={() => openEdit(item)} aria-label={`Edit ${item.title}`}>
+                <EditIcon fontSize="small" />
+              </IconButton>
+              <IconButton size="small" color="error" onClick={() => handleDelete(item.id)} aria-label={`Delete ${item.title}`}>
+                <DeleteIcon fontSize="small" />
+              </IconButton>
+            </>
+          )}
         </Stack>
       </Paper>
     );
@@ -706,11 +815,12 @@ export function NavigationManager() {
           </Stack>
         </Stack>
         <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-          Drag items to reorder. Items with children act as folder headers. 
+          Drag the handle to reorder. Items with children act as folder headers.
           Use the edit dialog to nest items under a parent or assign security group access.
+          {isMobile ? ' On mobile, use the ⋮ menu for Set Default, Edit, and Delete.' : ''}
         </Typography>
 
-        {error ? <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError(null)}>{error}</Alert> : null}
+        {displayError ? <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError(null)}>{displayError}</Alert> : null}
         {success ? <Alert severity="success" icon={<CheckCircleIcon />} sx={{ mb: 2 }}>Saved.</Alert> : null}
 
         {/* Batch action toolbar */}
@@ -742,11 +852,53 @@ export function NavigationManager() {
             No navigation items yet. Click "Add Item" to create the first one.
           </Typography>
         ) : (
-          <Box sx={{ maxHeight: 600, overflow: 'auto' }}>
+          <Box sx={{ maxHeight: 600, overflow: 'auto', overscrollBehavior: 'contain' }}>
             {visibleRows.map(({ item, flatIdx }) => renderRow(item, flatIdx))}
           </Box>
         )}
       </Paper>
+
+      <Menu
+        anchorEl={rowMenu?.anchor ?? null}
+        open={Boolean(rowMenu)}
+        onClose={closeRowMenu}
+        transformOrigin={{ horizontal: 'right', vertical: 'top' }}
+        anchorOrigin={{ horizontal: 'right', vertical: 'bottom' }}
+      >
+        {rowMenu && !rowMenu.item.isDefault && rowMenu.item.path && !rowMenu.item.path.startsWith('http') ? (
+          <MenuItem
+            onClick={() => {
+              const target = rowMenu.item;
+              closeRowMenu();
+              void handleSetDefault(target);
+            }}
+          >
+            <ListItemIcon><StarBorderIcon fontSize="small" /></ListItemIcon>
+            <ListItemText>Set Default</ListItemText>
+          </MenuItem>
+        ) : null}
+        <MenuItem
+          onClick={() => {
+            const target = rowMenu?.item;
+            closeRowMenu();
+            if (target) openEdit(target);
+          }}
+        >
+          <ListItemIcon><EditIcon fontSize="small" /></ListItemIcon>
+          <ListItemText>Edit</ListItemText>
+        </MenuItem>
+        <Divider />
+        <MenuItem
+          onClick={() => {
+            const id = rowMenu?.item.id;
+            closeRowMenu();
+            if (id) void handleDelete(id);
+          }}
+        >
+          <ListItemIcon><DeleteIcon fontSize="small" color="error" /></ListItemIcon>
+          <ListItemText sx={{ color: 'error.main' }}>Delete</ListItemText>
+        </MenuItem>
+      </Menu>
 
       {/* ── Create dialog ─────────────────────────────── */}
       <Dialog open={createDialogOpen} onClose={() => setCreateDialogOpen(false)} maxWidth="sm" fullWidth>
