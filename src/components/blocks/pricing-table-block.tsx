@@ -15,6 +15,7 @@ import Link from 'next/link';
 import {
   PLANS,
   YEARLY_DISCOUNT,
+  YEARLY_SELF_SERVE_ENABLED,
   yearlyMonthlyPrice,
   planAiCreditsPerMonth,
   type Feature,
@@ -226,24 +227,26 @@ export function PricingTableBlock({ config }: { config: Record<string, unknown> 
             {subheading}
           </Typography>
 
-          <ToggleButtonGroup
-            value={interval}
-            exclusive
-            size="small"
-            onChange={(_, next) => next && setInterval(next)}
-            sx={{ mt: 3 }}
-          >
-            <ToggleButton value="monthly">Monthly</ToggleButton>
-            <ToggleButton value="yearly">
-              Yearly
-              <Chip
-                label={`Save ${Math.round(YEARLY_DISCOUNT * 100)}%`}
-                size="small"
-                color="primary"
-                sx={{ ml: 1, height: 18, fontSize: '0.65rem' }}
-              />
-            </ToggleButton>
-          </ToggleButtonGroup>
+          {YEARLY_SELF_SERVE_ENABLED && (
+            <ToggleButtonGroup
+              value={interval}
+              exclusive
+              size="small"
+              onChange={(_, next) => next && setInterval(next)}
+              sx={{ mt: 3 }}
+            >
+              <ToggleButton value="monthly">Monthly</ToggleButton>
+              <ToggleButton value="yearly">
+                Yearly
+                <Chip
+                  label={`Save ${Math.round(YEARLY_DISCOUNT * 100)}%`}
+                  size="small"
+                  color="primary"
+                  sx={{ ml: 1, height: 18, fontSize: '0.65rem' }}
+                />
+              </ToggleButton>
+            </ToggleButtonGroup>
+          )}
         </Box>
 
         <Grid container spacing={3} sx={{ maxWidth: 1200, mx: 'auto', alignItems: 'stretch' }}>

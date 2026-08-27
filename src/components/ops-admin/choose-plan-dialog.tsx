@@ -29,7 +29,7 @@ import {
   useStartCheckoutMutation,
 } from '@/store/apis/organization-api';
 import { useAppDispatch } from '@/store/hooks';
-import { PLANS, YEARLY_DISCOUNT, planAiCreditsPerMonth, type PlanId, type BillingInterval } from '@/lib/billing/plans';
+import { PLANS, YEARLY_DISCOUNT, YEARLY_SELF_SERVE_ENABLED, planAiCreditsPerMonth, type PlanId, type BillingInterval } from '@/lib/billing/plans';
 
 function formatMoney(cents: number, currency = 'usd'): string {
   return new Intl.NumberFormat(undefined, {
@@ -84,11 +84,7 @@ export function ChoosePlanDialog({
   tenantDisplayName,
 }: ChoosePlanDialogProps) {
   const dispatch = useAppDispatch();
-  const [interval, setInterval] = useState<BillingInterval>(currentInterval);
-
-  useEffect(() => {
-    if (open) setInterval(currentInterval);
-  }, [open, currentInterval]);
+  const [interval, setInterval] = useState<BillingInterval>('monthly');
   const [step, setStep] = useState<'pick' | 'checkout'>('pick');
   const [checkoutTarget, setCheckoutTarget] = useState<CheckoutTarget | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -116,6 +112,11 @@ export function ChoosePlanDialog({
   const paymentsReady = readiness?.ready === true;
   const embeddedReady = paymentsReady && Boolean(publishableKey);
   const hasExistingSubscription = Boolean(checkoutData?.data?.linkage?.subscriptionId);
+
+  useEffect(() => {
+    if (!open) return;
+    setInterval(YEARLY_SELF_SERVE_ENABLED ? currentInterval : 'monthly');
+  }, [open, currentInterval]);
 
   const canBuy = (planId: string) =>
     purchasable.some((p) => p.planId === planId && p.interval === interval);
@@ -238,25 +239,27 @@ export function ChoosePlanDialog({
               {error && <Alert severity="error">{error}</Alert>}
               {notice && <Alert severity="success">{notice}</Alert>}
 
-              <Box sx={{ display: 'flex', justifyContent: 'center' }}>
-                <ToggleButtonGroup
-                  value={interval}
-                  exclusive
-                  size="small"
-                  onChange={(_, next) => next && setInterval(next)}
-                >
-                  <ToggleButton value="monthly">Monthly</ToggleButton>
-                  <ToggleButton value="yearly">
-                    Yearly
-                    <Chip
-                      label={`Save ${Math.round(YEARLY_DISCOUNT * 100)}%`}
-                      size="small"
-                      color="success"
-                      sx={{ ml: 1, height: 18, fontSize: 11 }}
-                    />
-                  </ToggleButton>
-                </ToggleButtonGroup>
-              </Box>
+              {YEARLY_SELF_SERVE_ENABLED && (
+                <Box sx={{ display: 'flex', justifyContent: 'center' }}>
+                  <ToggleButtonGroup
+                    value={interval}
+                    exclusive
+                    size="small"
+                    onChange={(_, next) => next && setInterval(next)}
+                  >
+                    <ToggleButton value="monthly">Monthly</ToggleButton>
+                    <ToggleButton value="yearly">
+                      Yearly
+                      <Chip
+                        label={`Save ${Math.round(YEARLY_DISCOUNT * 100)}%`}
+                        size="small"
+                        color="success"
+                        sx={{ ml: 1, height: 18, fontSize: 11 }}
+                      />
+                    </ToggleButton>
+                  </ToggleButtonGroup>
+                </Box>
+              )}
 
               <Box
                 sx={{

@@ -6,6 +6,7 @@ import {
   planForPriceId,
   priceEnvKey,
   listConfiguredPrices,
+  listPurchasablePrices,
   stripeConfigError,
   isLiveKey,
 } from '@/lib/billing/stripe-client';
@@ -120,6 +121,19 @@ describe('planForPriceId', () => {
     const configured = listConfiguredPrices();
     expect(configured).toHaveLength(2);
     expect(configured.map((c) => c.priceId).sort()).toEqual(['price_a', 'price_b']);
+  });
+
+  it('listPurchasablePrices omits yearly while self-serve yearly is disabled', () => {
+    for (const key of TOUCHED) delete process.env[key];
+    process.env.STRIPE_PRICE_PRO_MONTHLY = 'price_pro_m';
+    process.env.STRIPE_PRICE_PRO_YEARLY = 'price_pro_y';
+    process.env.STRIPE_PRICE_BUSINESS_MONTHLY = 'price_biz_m';
+
+    expect(listConfiguredPrices()).toHaveLength(3);
+    const purchasable = listPurchasablePrices();
+    expect(purchasable).toHaveLength(2);
+    expect(purchasable.every((p) => p.interval === 'monthly')).toBe(true);
+    expect(purchasable.map((p) => p.priceId).sort()).toEqual(['price_biz_m', 'price_pro_m']);
   });
 });
 

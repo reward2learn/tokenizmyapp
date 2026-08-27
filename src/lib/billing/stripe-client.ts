@@ -12,7 +12,12 @@
  * here that is genuinely expensive to unwind.
  */
 import Stripe from 'stripe';
-import { PLANS, type PlanId, type BillingInterval } from '@/lib/billing/plans';
+import {
+  PLANS,
+  selfServeBillingIntervals,
+  type PlanId,
+  type BillingInterval,
+} from '@/lib/billing/plans';
 
 /**
  * API version is pinned deliberately.
@@ -232,7 +237,13 @@ export function getPriceId(
   );
 }
 
-/** Every plan × interval that is purchasable and actually configured. */
+/**
+ * Every plan × interval with a configured Stripe price id.
+ *
+ * Includes yearly even when self-serve yearly is disabled — webhook
+ * `planForPriceId` still needs those ids. Use `listPurchasablePrices` for
+ * what Checkout may sell.
+ */
 export function listConfiguredPrices(config?: StripeEnvConfig): Array<{
   planId: PlanId;
   interval: BillingInterval;
@@ -246,6 +257,16 @@ export function listConfiguredPrices(config?: StripeEnvConfig): Array<{
     }
   }
   return out;
+}
+
+/** Configured prices that self-serve Checkout / plan-change may sell right now. */
+export function listPurchasablePrices(config?: StripeEnvConfig): Array<{
+  planId: PlanId;
+  interval: BillingInterval;
+  priceId: string;
+}> {
+  const allowed = new Set(selfServeBillingIntervals());
+  return listConfiguredPrices(config).filter((entry) => allowed.has(entry.interval));
 }
 
 /**

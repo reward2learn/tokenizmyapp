@@ -49,6 +49,7 @@ import {
   PLANS,
   CREDIT_PACKS,
   YEARLY_DISCOUNT,
+  YEARLY_SELF_SERVE_ENABLED,
   canPurchaseCreditPacks,
   planAiCreditsPerMonth,
   type PlanId,
@@ -339,7 +340,9 @@ function PlanTab({
   readOnly?: boolean;
 }) {
   const dispatch = useAppDispatch();
-  const [interval, setInterval] = useState<BillingInterval>(currentInterval);
+  const [interval, setInterval] = useState<BillingInterval>(
+    YEARLY_SELF_SERVE_ENABLED ? currentInterval : 'monthly',
+  );
   const [checkoutTarget, setCheckoutTarget] = useState<EmbeddedPlanCheckoutTarget | null>(null);
   const [checkoutOpen, setCheckoutOpen] = useState(false);
   const [startCheckout, { isLoading }] = useStartCheckoutMutation();
@@ -347,7 +350,7 @@ function PlanTab({
   const [notice, setNotice] = useState<string | null>(null);
 
   useEffect(() => {
-    setInterval(currentInterval);
+    setInterval(YEARLY_SELF_SERVE_ENABLED ? currentInterval : 'monthly');
   }, [currentInterval]);
 
   const embeddedReady = paymentsReady && Boolean(publishableKey);
@@ -512,25 +515,27 @@ function PlanTab({
       {error && <Alert severity="error">{error}</Alert>}
       {notice && <Alert severity="success">{notice}</Alert>}
 
-      <Box sx={{ display: 'flex', justifyContent: 'center' }}>
-        <ToggleButtonGroup
-          value={interval}
-          exclusive
-          size="small"
-          onChange={(_, next) => next && setInterval(next)}
-        >
-          <ToggleButton value="monthly">Monthly</ToggleButton>
-          <ToggleButton value="yearly">
-            Yearly
-            <Chip
-              label={`Save ${Math.round(YEARLY_DISCOUNT * 100)}%`}
-              size="small"
-              color="success"
-              sx={{ ml: 1, height: 18, fontSize: 11 }}
-            />
-          </ToggleButton>
-        </ToggleButtonGroup>
-      </Box>
+      {YEARLY_SELF_SERVE_ENABLED && (
+        <Box sx={{ display: 'flex', justifyContent: 'center' }}>
+          <ToggleButtonGroup
+            value={interval}
+            exclusive
+            size="small"
+            onChange={(_, next) => next && setInterval(next)}
+          >
+            <ToggleButton value="monthly">Monthly</ToggleButton>
+            <ToggleButton value="yearly">
+              Yearly
+              <Chip
+                label={`Save ${Math.round(YEARLY_DISCOUNT * 100)}%`}
+                size="small"
+                color="success"
+                sx={{ ml: 1, height: 18, fontSize: 11 }}
+              />
+            </ToggleButton>
+          </ToggleButtonGroup>
+        </Box>
+      )}
 
       <Box
         sx={{

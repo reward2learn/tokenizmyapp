@@ -1,9 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import {
   YEARLY_DISCOUNT,
+  YEARLY_SELF_SERVE_ENABLED,
   getPlan,
   planAiCreditsPerMonth,
   applyYearlyCreditBonus,
+  selfServeBillingIntervals,
+  isSelfServeBillingInterval,
 } from '@/lib/billing/plans';
 
 describe('planAiCreditsPerMonth', () => {
@@ -31,5 +34,14 @@ describe('applyYearlyCreditBonus', () => {
   it('applies bonus to rate-card overrides', () => {
     expect(applyYearlyCreditBonus(10_000, 'yearly')).toBe(11_500);
     expect(applyYearlyCreditBonus(10_000, 'monthly')).toBe(10_000);
+  });
+});
+
+describe('self-serve billing intervals', () => {
+  it('exposes monthly-only while yearly self-serve is disabled', () => {
+    expect(YEARLY_SELF_SERVE_ENABLED).toBe(false);
+    expect(selfServeBillingIntervals()).toEqual(['monthly']);
+    expect(isSelfServeBillingInterval('monthly')).toBe(true);
+    expect(isSelfServeBillingInterval('yearly')).toBe(false);
   });
 });

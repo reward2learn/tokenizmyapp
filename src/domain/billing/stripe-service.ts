@@ -25,8 +25,14 @@ import {
   getStripeWebhookSecret,
   type StripeEnvConfig,
 } from '@/lib/billing/stripe-client';
-import type { PlanId, BillingInterval } from '@/lib/billing/plans';
-import { CREDIT_PACKS, PLANS } from '@/lib/billing/plans';
+import {
+  CREDIT_PACKS,
+  PLANS,
+  isSelfServeBillingInterval,
+  selfServeBillingIntervals,
+  type PlanId,
+  type BillingInterval,
+} from '@/lib/billing/plans';
 
 type RawDb = ReturnType<typeof createRawClient>;
 
@@ -244,6 +250,12 @@ export async function createCheckoutSession(
   db = await getDb(db);
   const stripe = requireStripeFor(config);
 
+  if (!isSelfServeBillingInterval(input.interval)) {
+    throw new Error(
+      'Yearly billing is temporarily unavailable for self-serve checkout. Choose a monthly plan.',
+    );
+  }
+
   const priceId = getPriceId(input.planId, input.interval, config);
   if (!priceId) {
     throw new Error(
@@ -290,6 +302,12 @@ export async function createEmbeddedSubscriptionCheckoutSession(
 ): Promise<{ clientSecret: string; sessionId: string }> {
   db = await getDb(db);
   const stripe = requireStripeFor(config);
+
+  if (!isSelfServeBillingInterval(input.interval)) {
+    throw new Error(
+      'Yearly billing is temporarily unavailable for self-serve checkout. Choose a monthly plan.',
+    );
+  }
 
   const priceId = getPriceId(input.planId, input.interval, config);
   if (!priceId) {
@@ -410,6 +428,12 @@ export async function changePlan(
 
   const { getSubscription, setPlan } = await import('@/domain/billing/entitlement-service');
   const { classifyPlanChange } = await import('@/lib/billing/stripe-client');
+
+  if (!isSelfServeBillingInterval(interval)) {
+    throw new Error(
+      'Yearly billing is temporarily unavailable for self-serve checkout. Choose a monthly plan.',
+    );
+  }
 
   const current = await getSubscription(orgId, db);
   const linkage = await getStripeLinkage(orgId, db);
@@ -1225,7 +1249,7 @@ export async function findPriceMismatches(
   const out: PriceMismatch[] = [];
 
   for (const plan of PLANS) {
-    for (const interval of ['monthly', 'yearly'] as const) {
+    for (const interval of selfServeBillingIntervals()) {
       const priceId = resolvePriceId(plan.id, interval, config);
       if (!priceId) continue;
 

@@ -41,8 +41,8 @@ import {
   stripeReadiness,
 } from '@/domain/billing/stripe-service';
 import { getSubscription } from '@/domain/billing/entitlement-service';
-import { getStripePublishableKey, listConfiguredPrices } from '@/lib/billing/stripe-client';
-import { isPlanId } from '@/lib/billing/plans';
+import { getStripePublishableKey, listPurchasablePrices } from '@/lib/billing/stripe-client';
+import { isPlanId, isSelfServeBillingInterval } from '@/lib/billing/plans';
 
 function formatStripeApiError(err: unknown): string {
   if (err && typeof err === 'object' && 'type' in err) {
@@ -121,7 +121,7 @@ export async function GET(
       // billing panel shows the tenant's real readiness instead of this
       // deployment's (the factory env has no per-tenant keys).
       readiness: stripeReadiness(stripeConfig ?? undefined),
-      purchasable: listConfiguredPrices(stripeConfig ?? undefined)
+      purchasable: listPurchasablePrices(stripeConfig ?? undefined)
         .filter(({ planId, interval }) => !mispriced.has(`${planId}:${interval}`))
         .map(({ planId, interval }) => ({
           planId,
@@ -186,6 +186,12 @@ export async function POST(
     if (!organization) return jsonError('Organization not found', 404);
 
     const { planId, interval, embedded } = parsed.data;
+    if (!isSelfServeBillingInterval(interval)) {
+      return jsonError(
+        'Yearly billing is temporarily unavailable for self-serve checkout. Choose a monthly plan.',
+        400,
+      );
+    }
     const linkage = await getStripeLinkage(orgId, db);
 
     // An existing subscription is modified in place so the billing anchor and

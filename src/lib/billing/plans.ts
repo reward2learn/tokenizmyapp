@@ -72,6 +72,27 @@ export interface PlanDef {
 /** Yearly billing discount. Applied as monthly × 12 × (1 − DISCOUNT). */
 export const YEARLY_DISCOUNT = 0.15;
 
+/**
+ * When false, self-serve purchase is monthly-only (UI + checkout API).
+ *
+ * Yearly Stripe prices, webhook reverse-lookup, and credit math stay in place
+ * so existing yearly subscribers and a future re-enable keep working. Flip to
+ * `true` to restore the monthly/yearly toggle and yearly Checkout.
+ *
+ * Temporarily off: Adaptive Pricing can present USD yearly totals in IDR and
+ * exceed Stripe’s ~Rp10M amount cap on plan changes.
+ */
+export const YEARLY_SELF_SERVE_ENABLED = false;
+
+/** Intervals customers may buy through self-serve Checkout / plan change. */
+export function selfServeBillingIntervals(): BillingInterval[] {
+  return YEARLY_SELF_SERVE_ENABLED ? ['monthly', 'yearly'] : ['monthly'];
+}
+
+export function isSelfServeBillingInterval(interval: BillingInterval): boolean {
+  return selfServeBillingIntervals().includes(interval);
+}
+
 /** Monthly cents → effective monthly cents when billed yearly. */
 export function yearlyMonthlyPrice(priceMonthly: number): number {
   return Math.round(priceMonthly * (1 - YEARLY_DISCOUNT));
