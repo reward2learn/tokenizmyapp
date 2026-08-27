@@ -79,7 +79,7 @@ export function HeaderCredits() {
         <IconButton
           aria-label={canTopUp ? 'Add AI credits' : 'Request more AI credits'}
           onClick={open}
-          sx={{ color: 'text.secondary' }}
+          sx={{ color: 'text.secondary', display: { xs: 'none', sm: 'inline-flex' } }}
         >
           <AddCardIcon />
         </IconButton>

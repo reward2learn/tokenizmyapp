@@ -57,7 +57,10 @@ describe('HeaderCredits', () => {
     renderHeader();
 
     expect(screen.getByText('42')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Add AI credits' })).toBeInTheDocument();
+    // Hidden on xs in jsdom (no matching sm media query); still present for desktop.
+    expect(
+      screen.getByRole('button', { name: 'Add AI credits', hidden: true }),
+    ).toBeInTheDocument();
   });
 
   it('offers a request-credits entry point in tenant apps', () => {
@@ -66,7 +69,9 @@ describe('HeaderCredits', () => {
     balance = { available: 42, expiringSoon: 0, debt: 0, net: 42 };
     renderHeader();
 
-    expect(screen.getByRole('button', { name: 'Request more AI credits' })).toBeInTheDocument();
+    expect(
+      screen.getByRole('button', { name: 'Request more AI credits', hidden: true }),
+    ).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Add AI credits' })).toBeNull();
   });
 
@@ -102,7 +107,7 @@ describe('HeaderCredits', () => {
     balance = { available: 42, expiringSoon: 0, debt: 0, net: 42 };
     const { store } = renderHeader();
 
-    fireEvent.click(screen.getByRole('button', { name: 'Add AI credits' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Add AI credits', hidden: true }));
 
     const ui = store.getState().ui;
     expect(ui.settingsDialogOpen).toBe(true);
