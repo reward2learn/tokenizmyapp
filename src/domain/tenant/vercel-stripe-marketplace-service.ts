@@ -160,24 +160,49 @@ function pickEnvValue(envs: EnvRow[], key: string): string | null {
   return (production ?? matching[0]).value!.trim();
 }
 
+/**
+ * GET decrypted project env — try with TEAM_ID first, then without.
+ *
+ * Mirrors `upsertProjectEnvVar`: writes already succeed after a team-scoped 404
+ * by retrying without teamId. Reads used to throw on that same 404 and abort
+ * Stripe migrate (webhook secret push + marketplace key merge).
+ */
+async function fetchProjectEnvsDecrypted(projectId: string): Promise<EnvRow[]> {
+  const bearer = await resolveBearerToken();
+  const base = `${VERCEL_API}/v9/projects/${encodeURIComponent(projectId)}/env?decrypted=true`;
+  const urls = TEAM_ID ? [appendTeam(base), base] : [base];
+
+  let lastStatus = 0;
+  let lastBody = '';
+  for (const url of urls) {
+    const res = await fetch(url, {
+      headers: { Authorization: `Bearer ${bearer}` },
+    });
+    if (res.ok) {
+      const data = (await res.json()) as { envs?: EnvRow[] };
+      return data.envs ?? [];
+    }
+    lastStatus = res.status;
+    lastBody = await res.text().catch(() => '');
+    // 404/403 with team scope often means the project lives outside TEAM_ID —
+    // retry personal / default scope (same as upsertProjectEnvVar).
+    if ((res.status === 404 || res.status === 403) && url !== urls[urls.length - 1]) {
+      continue;
+    }
+    break;
+  }
+  throw new Error(
+    `Vercel env read failed for ${projectId}: ${lastStatus} ${lastBody.slice(0, 200)}`,
+  );
+}
+
 /** List decrypted env rows for one key (server-only). */
 export async function listProjectEnvRowsForKey(
   projectId: string,
   key: string,
 ): Promise<EnvRow[]> {
-  const bearer = await resolveBearerToken();
-  const res = await fetch(
-    appendTeam(
-      `${VERCEL_API}/v9/projects/${encodeURIComponent(projectId)}/env?decrypted=true`,
-    ),
-    { headers: { Authorization: `Bearer ${bearer}` } },
-  );
-  if (!res.ok) {
-    const text = await res.text().catch(() => '');
-    throw new Error(`Vercel env read failed: ${res.status} ${text.slice(0, 200)}`);
-  }
-  const data = (await res.json()) as { envs?: EnvRow[] };
-  return (data.envs ?? []).filter((e) => e.key === key && e.value?.trim());
+  const envs = await fetchProjectEnvsDecrypted(projectId);
+  return envs.filter((e) => e.key === key && e.value?.trim());
 }
 
 export async function diagnoseWebhookSecretEnv(projectId: string): Promise<WebhookSecretEnvDiagnostic> {
@@ -210,13 +235,19 @@ export async function purgeMarketplaceWebhookSecrets(projectId: string): Promise
 
 export async function deleteProjectEnvRow(projectId: string, envId: string): Promise<boolean> {
   const bearer = await resolveBearerToken();
-  const res = await fetch(
-    appendTeam(
-      `${VERCEL_API}/v9/projects/${encodeURIComponent(projectId)}/env/${encodeURIComponent(envId)}`,
-    ),
-    { method: 'DELETE', headers: { Authorization: `Bearer ${bearer}` } },
-  );
-  return res.ok;
+  const base = `${VERCEL_API}/v9/projects/${encodeURIComponent(projectId)}/env/${encodeURIComponent(envId)}`;
+  const urls = TEAM_ID ? [appendTeam(base), base] : [base];
+  for (const url of urls) {
+    const res = await fetch(url, {
+      method: 'DELETE',
+      headers: { Authorization: `Bearer ${bearer}` },
+    });
+    if (res.ok) return true;
+    if ((res.status === 404 || res.status === 403) && url !== urls[urls.length - 1]) {
+      continue;
+    }
+  }
+  return false;
 }
 
 /** Delete every STRIPE_WEBHOOK_SECRET row on a project (Marketplace or manual). */
@@ -336,33 +367,22 @@ export async function getProjectEnvValues(
   projectId: string,
   keyNames: string[],
 ): Promise<Record<string, string | null>> {
-  const bearer = await resolveBearerToken();
   const want = new Set(keyNames);
   const out: Record<string, string | null> = Object.fromEntries(
     keyNames.map((k) => [k, null]),
   );
 
-  const res = await fetch(
-    appendTeam(
-      `${VERCEL_API}/v9/projects/${encodeURIComponent(projectId)}/env?decrypted=true`,
-    ),
-    { headers: { Authorization: `Bearer ${bearer}` } },
-  );
-  if (!res.ok) {
-    const text = await res.text().catch(() => '');
-    throw new Error(`Vercel env read failed: ${res.status} ${text.slice(0, 200)}`);
-  }
-  const data = (await res.json()) as { envs?: EnvRow[] };
+  const envs = await fetchProjectEnvsDecrypted(projectId);
   for (const key of keyNames) {
     if (want.has(key)) {
-      out[key] = pickEnvValue(data.envs ?? [], key);
+      out[key] = pickEnvValue(envs, key);
     }
   }
 
   // Runtime prefers snapshot whsec when Marketplace owns STRIPE_WEBHOOK_SECRET.
   if (want.has('STRIPE_WEBHOOK_SECRET') && !out.STRIPE_WEBHOOK_SECRET?.startsWith('whsec_')) {
     for (const key of SNAPSHOT_WEBHOOK_SECRET_ENV_KEYS) {
-      const snapshot = pickEnvValue(data.envs ?? [], key);
+      const snapshot = pickEnvValue(envs, key);
       if (snapshot?.startsWith('whsec_')) {
         out.STRIPE_WEBHOOK_SECRET = snapshot;
         break;
@@ -372,7 +392,7 @@ export async function getProjectEnvValues(
 
   for (const key of SNAPSHOT_WEBHOOK_SECRET_ENV_KEYS) {
     if (want.has(key)) {
-      const picked = pickEnvValue(data.envs ?? [], key);
+      const picked = pickEnvValue(envs, key);
       if (picked?.startsWith('whsec_')) {
         out[key] = picked;
       }

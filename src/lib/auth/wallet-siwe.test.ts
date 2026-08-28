@@ -4,6 +4,7 @@ import {
   hasFreshSiweNonceLine,
   isValidSignatureFormat,
   looksLikeSiweMessage,
+  normalizeEoaSignature,
   normalizeSiweMessageBytes,
   registerSiweNonce,
   resetSiweNonceRegistryForTests,
@@ -48,6 +49,18 @@ describe('wallet-siwe message helpers', () => {
 
   it('rejects non-SIWE bodies', () => {
     expect(looksLikeSiweMessage('{"foo":1}')).toBe(false);
+  });
+
+  it('coerces non-standard yParityOrV (e.g. 0x20) to 27/28', () => {
+    const rAndS = 'a'.repeat(128);
+    // v = 0x20 (32) → LSB 0 → 27 (0x1b)
+    expect(normalizeEoaSignature(`0x${rAndS}20`)).toBe(`0x${rAndS}1b`);
+    // v = 0x00 → 27
+    expect(normalizeEoaSignature(`0x${rAndS}00`)).toBe(`0x${rAndS}1b`);
+    // v = 0x01 → 28
+    expect(normalizeEoaSignature(`0x${rAndS}01`)).toBe(`0x${rAndS}1c`);
+    // v = 0x1c stays
+    expect(normalizeEoaSignature(`0x${rAndS}1c`)).toBe(`0x${rAndS}1c`);
   });
 });
 

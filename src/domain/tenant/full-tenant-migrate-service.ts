@@ -513,16 +513,25 @@ async function stepStripeAndCron(
 
     let envCount = 0;
     const pushed: string[] = [];
+    const stripeFailed: string[] = [];
+    // Per-project isolation: one stale vercelProjectId must not abort cron/redeploy
+    // for healthy suite apps (matches stepVercelEnv).
     for (const project of projects) {
-      const count = await syncStripeEnvVars(project.id, {
-        secretKey,
-        webhookSecret,
-        publishableKey,
-        selfServeBillingEnabled,
-        prices: pricesToPush,
-      });
-      envCount += count;
-      if (count > 0) pushed.push(project.name);
+      try {
+        const count = await syncStripeEnvVars(project.id, {
+          secretKey,
+          webhookSecret,
+          publishableKey,
+          selfServeBillingEnabled,
+          prices: pricesToPush,
+        });
+        envCount += count;
+        if (count > 0) pushed.push(project.name);
+      } catch (err) {
+        stripeFailed.push(
+          `${project.name}: ${err instanceof Error ? err.message : String(err)}`,
+        );
+      }
     }
 
     let cron: MigrateStepResult;
@@ -574,14 +583,16 @@ async function stepStripeAndCron(
       }
     }
 
-    return {
-      stripe: stepOk(
-        `Pushed to ${pushed.length}/${projects.length} project(s), ${envCount} vars` +
-          (priceSyncMsg ? ` · ${priceSyncMsg}` : ''),
-      ),
-      cron,
-      redeploy,
-    };
+    const stripeDetail =
+      `Pushed to ${pushed.length}/${projects.length} project(s), ${envCount} vars` +
+      (priceSyncMsg ? ` · ${priceSyncMsg}` : '') +
+      (stripeFailed.length ? ` · failed: ${stripeFailed.join('; ')}` : '');
+
+    // TODO(you): pick status for partial Stripe push — see learning prompt below
+    if (stripeFailed.length > 0 && pushed.length === 0) {
+      return { stripe: stepError(stripeDetail), cron, redeploy };
+    }
+    return { stripe: stepOk(stripeDetail), cron, redeploy };
   } catch (err) {
     return {
       stripe: stepError(err instanceof Error ? err.message : String(err)),

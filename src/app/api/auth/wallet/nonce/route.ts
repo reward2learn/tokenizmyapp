@@ -6,7 +6,7 @@
  */
 import { randomBytes } from 'node:crypto';
 import { SiweMessage } from 'siwe';
-import { SIWE_CHAIN_ID } from '@/lib/web3/crypto-billing-config';
+import { SIWE_CHAIN_ID, SIWE_STATEMENT } from '@/lib/web3/crypto-billing-config';
 import { registerSiweNonce } from '@/lib/auth/wallet-siwe';
 import { resolveSiweNonceAddress } from '@/lib/web3/evm-address';
 import { jsonError, jsonOk } from '@/lib/api/response';
@@ -66,7 +66,7 @@ export async function GET(request: Request): Promise<Response> {
     const siweMessage = new SiweMessage({
       domain: requestDomain(request),
       address,
-      statement: 'Sign in with Ethereum to TokenizMyApp.',
+      statement: SIWE_STATEMENT,
       uri: requestOrigin(request),
       version: '1',
       chainId,

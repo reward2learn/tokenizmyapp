@@ -4,7 +4,7 @@
  * @see docs/google-oauth-appkit-setup.md Phase 3
  */
 import { createSIWEConfig, formatMessage } from '@reown/appkit-siwe';
-import { SIWE_CHAIN_ID } from '@/lib/web3/crypto-billing-config';
+import { SIWE_CHAIN_ID, SIWE_STATEMENT } from '@/lib/web3/crypto-billing-config';
 import { isValidEvmAddress, siweMessageUsesPlaceholderAddress } from '@/lib/web3/evm-address';
 
 let siweAppReady = false;
@@ -49,7 +49,7 @@ export const factorySiweClient = createSIWEConfig({
       domain,
       uri,
       chains: [SIWE_CHAIN_ID],
-      statement: 'Sign in with your wallet to link crypto payments on TokenizMyApp.',
+      statement: SIWE_STATEMENT,
       iat: new Date().toISOString(),
     };
   },
@@ -58,9 +58,8 @@ export const factorySiweClient = createSIWEConfig({
     await waitForSiweAppReady();
 
     // AppKit SIWX may call getNonce with `<<AccountAddress>>` before the wallet exists.
-    // Mint a local nonce only — do not cache a server message with the zero address.
+    // Mint a local nonce only — do NOT clear a prior server message (Correction B race).
     if (!isValidEvmAddress(address)) {
-      pendingServerSiweMessage = null;
       const bytes = new Uint8Array(16);
       crypto.getRandomValues(bytes);
       return Array.from(bytes, (byte) => byte.toString(16).padStart(2, '0')).join('');
@@ -93,12 +92,19 @@ export const factorySiweClient = createSIWEConfig({
   },
 
   createMessage: ({ address, ...args }) => {
+    // Correction B: the server-built message is authoritative when present.
     if (pendingServerSiweMessage) {
       const serverMessage = pendingServerSiweMessage;
       pendingServerSiweMessage = null;
       return serverMessage;
     }
-    return formatMessage(args, address);
+    // Placeholder / pre-wallet SIWX probes only — never for a real link address.
+    if (!isValidEvmAddress(address)) {
+      return formatMessage(args, address);
+    }
+    throw new Error(
+      'Missing server SIWE message. Reconnect the wallet and try linking again.',
+    );
   },
 
   verifyMessage: async ({ message, signature }) => {

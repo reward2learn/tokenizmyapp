@@ -77,17 +77,42 @@ export interface VerifiedSiweResult {
   nonce: string;
 }
 
-/** Standard 65-byte EOA signatures — normalize v to 27/28 for picky verifiers. */
-function normalizeEoaSignature(signature: `0x${string}`): `0x${string}` {
+/**
+ * Standard 65-byte EOA signatures — coerce yParity/v into 27/28.
+ * Wallets sometimes return 0/1; some connectors emit garbage like 0x20 (32),
+ * which makes viem throw "Invalid yParityOrV value" instead of failing closed.
+ */
+export function normalizeEoaSignature(signature: `0x${string}`): `0x${string}` {
   const hex = signature.slice(2);
   if (hex.length !== 130) return signature;
-  const v = Number.parseInt(hex.slice(128, 130), 16);
-  if (v >= 27) return signature;
+
+  let v = Number.parseInt(hex.slice(128, 130), 16);
+  if (Number.isNaN(v)) return signature;
+
   if (v === 0 || v === 1) {
-    const normalizedV = (v + 27).toString(16).padStart(2, '0');
-    return `0x${hex.slice(0, 128)}${normalizedV}` as `0x${string}`;
+    v += 27;
+  } else if (v === 27 || v === 28) {
+    // already Ethereum legacy recovery id
+  } else if (v >= 35) {
+    // EIP-155 transaction-style v — extract yParity
+    v = ((v - 35) % 2) + 27;
+  } else {
+    // Non-standard (e.g. 32) — LSB is the only recoverable signal
+    v = (v % 2) + 27;
   }
-  return signature;
+
+  return `0x${hex.slice(0, 128)}${v.toString(16).padStart(2, '0')}` as `0x${string}`;
+}
+
+/** Both legacy recovery ids — used when a single normalized v still fails. */
+function eoaSignatureCandidates(signature: `0x${string}`): `0x${string}`[] {
+  const normalized = normalizeEoaSignature(signature);
+  const hex = normalized.slice(2);
+  if (hex.length !== 130) return [normalized];
+
+  const v27 = `0x${hex.slice(0, 128)}1b` as `0x${string}`;
+  const v28 = `0x${hex.slice(0, 128)}1c` as `0x${string}`;
+  return normalized === v27 ? [v27, v28] : normalized === v28 ? [v28, v27] : [normalized, v27, v28];
 }
 
 function isSmartAccountSignature(signature: string): boolean {
@@ -100,16 +125,27 @@ async function verifySignatureForAddress(
   signature: `0x${string}`,
 ): Promise<boolean> {
   if (isSmartAccountSignature(signature)) {
-    return verifyMessage({ address, message, signature });
+    try {
+      return await verifyMessage({ address, message, signature });
+    } catch {
+      return false;
+    }
   }
 
-  const normalized = normalizeEoaSignature(signature);
-  try {
-    await new SiweMessage(message).verify({ signature: normalized });
-    return true;
-  } catch {
-    return verifyMessage({ address, message, signature: normalized });
+  for (const candidate of eoaSignatureCandidates(signature)) {
+    try {
+      const siweResult = await new SiweMessage(message).verify({ signature: candidate });
+      if (siweResult.success) return true;
+    } catch {
+      // try viem / next candidate
+    }
+    try {
+      if (await verifyMessage({ address, message, signature: candidate })) return true;
+    } catch {
+      // Invalid yParityOrV / recover failures → next candidate
+    }
   }
+  return false;
 }
 
 export async function verifySiweSignature(
@@ -127,10 +163,14 @@ export async function verifySiweSignature(
   let verifiedAddress = messageAddress;
 
   if (isSiwePlaceholderAddress(messageAddress)) {
-    verifiedAddress = await recoverMessageAddress({
-      message: normalized,
-      signature: normalizeEoaSignature(signature),
-    });
+    try {
+      verifiedAddress = await recoverMessageAddress({
+        message: normalized,
+        signature: normalizeEoaSignature(signature),
+      });
+    } catch {
+      throw new Error('Signature verification failed');
+    }
   }
 
   const ok = await verifySignatureForAddress(verifiedAddress, normalized, signature);

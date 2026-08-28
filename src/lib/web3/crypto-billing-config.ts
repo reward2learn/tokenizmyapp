@@ -12,6 +12,10 @@ import { DEFAULT_REOWN_PROJECT_ID } from '@/lib/web3/reown';
 /** Sepolia — SIWE sign-in messages always target this chain (Correction D in setup doc). */
 export const SIWE_CHAIN_ID = 11_155_111;
 
+/** EIP-4361 statement — must match on nonce (server) and getMessageParams (client). */
+export const SIWE_STATEMENT =
+  'Sign in with your wallet to link crypto payments on TokenizMyApp.';
+
 /** Base mainnet — production USDC payments. */
 export const PAYMENT_CHAIN_ID_PRODUCTION = 8453;
 
