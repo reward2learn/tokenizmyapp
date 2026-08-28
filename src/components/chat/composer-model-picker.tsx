@@ -60,6 +60,7 @@ export function ComposerModelPicker() {
   const studioIsDefault = activeProviderId === STUDIO_PROVIDER_ID;
   const shouldWarmStudio = studioIsDefault && Boolean(effectiveModel);
   const studioWarming = shouldWarmStudio && studioWarmStatus === 'warming';
+  const showWarmHelper = studioWarming && models.length > 1;
 
   const configuredDefault = Boolean(
     activeProviderId
@@ -149,7 +150,7 @@ export function ComposerModelPicker() {
     >
       <FormControl
         size="small"
-        disabled={loadingModels || providerUnhealthy || studioWarming}
+        disabled={loadingModels || providerUnhealthy}
         error={modelUnhealthy || (shouldWarmStudio && studioWarmStatus === 'error') || providerUnhealthy}
         sx={{
           width: '100%',
@@ -175,6 +176,10 @@ export function ComposerModelPicker() {
           <FormHelperText>{providerHealth.message}</FormHelperText>
         ) : modelUnhealthy && modelHealth.message ? (
           <FormHelperText>{modelHealth.message}</FormHelperText>
+        ) : showWarmHelper ? (
+          <FormHelperText>
+            Mac Studio is loading this model — pick another if it is taking too long.
+          </FormHelperText>
         ) : null}
       </FormControl>
 

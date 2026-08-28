@@ -33,7 +33,8 @@ export function StudioWarmBanner({ model }: StudioWarmBannerProps) {
         <Stack direction="row" spacing={1.25} sx={{ alignItems: 'center' }}>
           <CircularProgress size={16} thickness={5} aria-label="Loading model" />
           <Typography variant="body2" color="text.secondary">
-            Mac Studio is loading {model} — first reply may take a minute.
+            Mac Studio is loading {model} — first reply may take a minute. You can switch
+            models in the picker above if this takes too long.
           </Typography>
         </Stack>
       </Paper>

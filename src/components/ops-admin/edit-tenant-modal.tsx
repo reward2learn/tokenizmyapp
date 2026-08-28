@@ -75,7 +75,14 @@ import PlayArrowIcon from '@mui/icons-material/PlayArrow';
 import WarningIcon from '@mui/icons-material/Warning';
 import ErrorIcon from '@mui/icons-material/Error';
 
-import { getTemplate, listTemplates } from '@/domain/tenant/template-catalog';
+import { getTemplate, listTemplates, type Web3WalletConfig } from '@/domain/tenant/template-catalog';
+import {
+  evaluateReownGoogleSocials,
+  evaluateReownProjectIdForDeploy,
+  evaluateSocialWalletTemplate,
+  web3WalletFromTemplate,
+} from '@/lib/web3/flight-check-web3';
+import { templateApi } from '@/store/apis/template-api';
 import { DEFAULT_PLATFORM_ADMIN_EMAIL } from '@/domain/security/persons';
 import { TemplateSelector } from '@/components/ops-admin/tenant-wizard';
 import { TenantAiProvidersConfigStep } from '@/components/ops-admin/tenant-ai-providers-config-step';
@@ -1258,31 +1265,43 @@ export function EditTenantModal({ open, tenant, onClose, onSnackbar }: EditTenan
     addResult('Redirect URI (callback/google)', hasCallbackUri ? 'pass' : 'fail',
       hasCallbackUri ? 'Configured in Google Cloud Console' : 'Missing - add /api/auth/callback/google to OAuth client in Google Cloud Console');
 
-    // ── Social Wallet ─────────────────────────────────────────────
-    const web3Wallet = (cfg?.web3Wallet ?? {}) as Record<string, unknown>;
-    const walletEnabled = web3Wallet.enabled === true;
-    const walletConnectMode = String(web3Wallet.connectMode ?? '') as string;
-    const walletSocialProviders = (web3Wallet.socialProviders as string[]) || [];
-    const hasGoogleProvider = walletSocialProviders.includes('google');
-    const isSocialWalletTemplate = walletEnabled && walletConnectMode === 'social' && hasGoogleProvider;
+    // ── Social Wallet (template.capabilities.web3Wallet — same source as deploy) ──
+    const templateIdForCheck = editTemplate || tenant.template || 'financial-analytics';
+    let templateCapabilities: { web3Wallet?: Web3WalletConfig } | undefined;
+    try {
+      const tplList = await dispatch(templateApi.endpoints.listAllTemplates.initiate()).unwrap();
+      const matched = tplList.data?.templates?.find((t) => t.id === templateIdForCheck);
+      templateCapabilities = matched?.capabilities;
+    } catch {
+      templateCapabilities = getTemplate(templateIdForCheck).capabilities;
+    }
+    const web3Wallet = web3WalletFromTemplate(templateCapabilities);
+    const socialWalletCheck = evaluateSocialWalletTemplate(web3Wallet);
+    addResult(
+      'Template: Social Wallet',
+      socialWalletCheck.status,
+      socialWalletCheck.detail,
+      undefined,
+      'Go to Template step',
+    );
 
-    addResult('Template: Social Wallet', isSocialWalletTemplate ? 'pass' : 'fail',
-      isSocialWalletTemplate
-        ? 'Template is configured for social wallet auth (Google OAuth + embedded wallet)'
-        : 'Template either has web3 wallet disabled, connect mode is not "social", or does not include Google as a social provider',
-      undefined, 'Go to Template step');
+    const reownCheck = evaluateReownProjectIdForDeploy(web3Wallet.enabled);
+    addResult(
+      'Reown Project ID',
+      reownCheck.status,
+      reownCheck.detail,
+      undefined,
+      'Go to Features step',
+    );
 
-    // Reown Project ID
-    const reownProjectId = process?.env?.NEXT_PUBLIC_PROJECT_ID || (cfg?.reownProjectId as string) || '';
-    addResult('Reown Project ID', reownProjectId ? 'pass' : 'warn',
-      reownProjectId ? 'Configured: ' + String(reownProjectId).slice(0, 20) + '...' : 'Not set - set NEXT_PUBLIC_PROJECT_ID in Vercel env vars',
-      undefined, 'Go to Features step');
-
-    // Google OAuth Socials in Reown Cloud
-    const reownGoogleEnabled = (cfg?.reownGoogleEnabled as boolean) || false;
-    addResult('Google OAuth Socials (Reown Cloud)', reownGoogleEnabled ? 'pass' : 'warn',
-      reownGoogleEnabled ? 'Google enabled under Social & Email in Reown Cloud dashboard' : 'Google not enabled - go to dashboard.reown.com → Your Project → Settings → Social & Email → Social Logins → Google',
-      undefined, 'Go to Features step');
+    const reownGoogleCheck = evaluateReownGoogleSocials(web3Wallet.enabled);
+    addResult(
+      'Google OAuth Socials (Reown Cloud)',
+      reownGoogleCheck.status,
+      reownGoogleCheck.detail,
+      undefined,
+      'Go to Features step',
+    );
 
     // License
     addResult('License Key', license.key ? 'pass' : 'fail',
@@ -1521,7 +1540,7 @@ export function EditTenantModal({ open, tenant, onClose, onSnackbar }: EditTenan
 
     setFlightChecks(results);
     setFlightRunning(false);
-  }, [tenant, flightRunId, getTenant, getDeployStatus, setActiveStep, testStripeWebhook, fetchMarketplaceStatus, onSnackbar, updateTenant, getAgenticCommerceHealth, getStripeEmbeddedCheckoutProbe]);
+  }, [tenant, editTemplate, dispatch, flightRunId, getTenant, getDeployStatus, setActiveStep, testStripeWebhook, fetchMarketplaceStatus, onSnackbar, updateTenant, getAgenticCommerceHealth, getStripeEmbeddedCheckoutProbe]);
 
   // ── Export tenant config ────────────────────────────────
   const handleExport = useCallback(() => {
