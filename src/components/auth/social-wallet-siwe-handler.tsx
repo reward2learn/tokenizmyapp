@@ -4,8 +4,7 @@ import { useEffect, useRef } from 'react';
 import { useAppDispatch, useAppSelector } from '@/store/hooks';
 import { useGetSessionQuery, authApi } from '@/store/apis/auth-api';
 import { sessionWalletMatches } from '@/lib/auth/wallet-session';
-
-const PENDING_SIWE_KEY = 'tokenizmyapp:pendingSiwe';
+import { requestWalletLink } from '@/lib/web3/request-wallet-link';
 
 const SOCIAL_CONNECTORS = new Set(['google', 'apple', 'email', 'x', 'discord', 'github', 'facebook']);
 
@@ -14,19 +13,11 @@ function isSocialWalletConnection(connectorId: string | null): boolean {
   return SOCIAL_CONNECTORS.has(connectorId.toLowerCase());
 }
 
-function clearPendingSiweFlag(): void {
-  try {
-    sessionStorage.removeItem(PENDING_SIWE_KEY);
-  } catch {
-    /* ignore */
-  }
-}
-
 /**
  * Completes SIWE for social / embedded wallet connections after AppKit connect.
  *
  * ReownAuthentication provisions the wallet but bypasses the factory JWT link.
- * This handler calls SIWXUtil.requestSignMessage() once when a social wallet is
+ * This handler calls SIWXUtil.requestSignMessage() when a social wallet is
  * connected and the JWT lacks a matching walletAddress claim.
  *
  * @see docs/google-oauth-appkit-setup.md Phase 5
@@ -40,32 +31,32 @@ export function SocialWalletSIWEHandler() {
   });
 
   const inFlightRef = useRef(false);
+  const lastAttemptRef = useRef<string | null>(null);
 
   useEffect(() => {
     if (sessionLoading || !bootstrapped || tier === 'public') return;
     if (status !== 'connected' || !address) return;
     if (!isSocialWalletConnection(connectorId)) return;
-    if (sessionWalletMatches({ walletAddress: linkedWallet ?? undefined }, address)) {
-      clearPendingSiweFlag();
-      return;
-    }
+    if (sessionWalletMatches({ walletAddress: linkedWallet ?? undefined }, address)) return;
     if (inFlightRef.current) return;
-    if (sessionStorage.getItem(PENDING_SIWE_KEY) === address.toLowerCase()) return;
+
+    const addressKey = address.toLowerCase();
+    if (lastAttemptRef.current === addressKey) return;
 
     inFlightRef.current = true;
-    sessionStorage.setItem(PENDING_SIWE_KEY, address.toLowerCase());
+    lastAttemptRef.current = addressKey;
 
     void (async () => {
       try {
-        const { SIWXUtil } = await import('@reown/appkit-controllers');
-        await SIWXUtil.requestSignMessage();
+        await requestWalletLink();
         await refetch();
         dispatch(authApi.util.invalidateTags(['Session']));
       } catch (err) {
         console.warn('[SocialWalletSIWEHandler] SIWE flow failed:', err);
+        // Allow manual retry from settings — reset guard when user reconnects.
+        lastAttemptRef.current = null;
       } finally {
         inFlightRef.current = false;
-        clearPendingSiweFlag();
       }
     })();
   }, [

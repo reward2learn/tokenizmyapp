@@ -117,7 +117,7 @@ export function CreditTopUpDialog({ open, orgId, packId, onClose }: CreditTopUpD
                 </ToggleButtonGroup>
                 {!cryptoEnabled ? (
                   <Typography variant="caption" color="text.secondary">
-                    USDC payments require social wallet setup on this deployment.
+                    USDC payments are not enabled on this deployment.
                   </Typography>
                 ) : null}
               </Stack>

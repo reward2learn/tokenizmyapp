@@ -8,7 +8,15 @@ import { useAppDispatch } from '@/store/hooks';
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const dispatch = useAppDispatch();
-  const { data, isSuccess, isError } = useGetSessionQuery();
+  const { data, isSuccess, isError, refetch } = useGetSessionQuery();
+
+  useEffect(() => {
+    const onWalletLinked = () => {
+      void refetch();
+    };
+    window.addEventListener('tokenizmyapp:wallet-linked', onWalletLinked);
+    return () => window.removeEventListener('tokenizmyapp:wallet-linked', onWalletLinked);
+  }, [refetch]);
 
   useEffect(() => {
     if (isSuccess && data?.success) {

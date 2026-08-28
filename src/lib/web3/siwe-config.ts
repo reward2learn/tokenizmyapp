@@ -16,7 +16,8 @@ export function signalSiweAppReady(): void {
   siweAppReadyResolvers = [];
 }
 
-function waitForSiweAppReady(): Promise<void> {
+/** Wait until AppKit init + factory SIWX mapping are applied (Correction A). */
+export function waitForSiweAppReady(): Promise<void> {
   if (siweAppReady) return Promise.resolve();
   return new Promise((resolve) => {
     siweAppReadyResolvers.push(resolve);

@@ -1,3 +1,5 @@
+import { DEFAULT_REOWN_PROJECT_ID } from '@/lib/web3/reown';
+
 /**
  * Crypto billing architecture — locked design decisions.
  *
@@ -71,13 +73,21 @@ export function isCryptoPaymentsEnabledServer(): boolean {
   return Boolean(resolveTreasuryAddress());
 }
 
-/** Client-side crypto rail toggle visibility. */
+/**
+ * Client-side crypto rail toggle visibility.
+ *
+ * Aligned with getFactoryWeb3Config(): wallet/crypto UI is on by default when
+ * a Reown project id resolves, not only when NEXT_PUBLIC_* flags are explicit.
+ */
 export function isCryptoPaymentsEnabledClient(): boolean {
-  const flagged =
-    parseEnvBool(process.env.NEXT_PUBLIC_CRYPTO_PAYMENTS_ENABLED) ||
-    parseEnvBool(process.env.NEXT_PUBLIC_WEB3_WALLET_ENABLED);
-  if (!flagged && process.env.NODE_ENV !== 'development') return false;
-  return true;
+  const explicitlyDisabled =
+    process.env.NEXT_PUBLIC_WEB3_WALLET_ENABLED?.trim().toLowerCase() === 'false' ||
+    process.env.NEXT_PUBLIC_CRYPTO_PAYMENTS_ENABLED?.trim().toLowerCase() === 'false';
+  if (explicitlyDisabled) return false;
+
+  const projectId =
+    process.env.NEXT_PUBLIC_REOWN_PROJECT_ID?.trim() || DEFAULT_REOWN_PROJECT_ID;
+  return Boolean(projectId);
 }
 
 export interface CryptoPaymentsReadiness {

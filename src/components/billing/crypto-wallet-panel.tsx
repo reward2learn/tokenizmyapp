@@ -1,12 +1,16 @@
 'use client';
 
+import { useEffect, useState } from 'react';
 import Alert from '@mui/material/Alert';
 import Box from '@mui/material/Box';
+import Button from '@mui/material/Button';
 import Paper from '@mui/material/Paper';
 import Stack from '@mui/material/Stack';
 import Typography from '@mui/material/Typography';
 import { WalletConnectButton } from '@/components/web3/wallet-connect-button';
-import { useAppSelector } from '@/store/hooks';
+import { requestWalletLink } from '@/lib/web3/request-wallet-link';
+import { authApi } from '@/store/apis/auth-api';
+import { useAppDispatch, useAppSelector } from '@/store/hooks';
 import { formatWalletAddress } from '@/store/wallet-slice';
 
 /**
@@ -22,8 +26,31 @@ export function CryptoWalletPanel({
   title?: string;
   description?: string;
 }) {
+  const dispatch = useAppDispatch();
   const { status, address, connectorId, error } = useAppSelector((state) => state.wallet);
   const linkedWallet = useAppSelector((state) => state.auth.walletAddress);
+  const [linking, setLinking] = useState(false);
+  const [linkError, setLinkError] = useState<string | null>(null);
+
+  const isLinked =
+    Boolean(linkedWallet && address && linkedWallet.toLowerCase() === address.toLowerCase());
+
+  useEffect(() => {
+    if (isLinked) setLinkError(null);
+  }, [isLinked]);
+
+  const handleLinkWallet = async () => {
+    setLinking(true);
+    setLinkError(null);
+    try {
+      await requestWalletLink();
+      dispatch(authApi.util.invalidateTags(['Session']));
+    } catch (err) {
+      setLinkError(err instanceof Error ? err.message : 'Could not link wallet.');
+    } finally {
+      setLinking(false);
+    }
+  };
 
   if (status === 'disabled') {
     return (
@@ -55,14 +82,31 @@ export function CryptoWalletPanel({
         </Box>
 
         {error ? <Alert severity="error">{error}</Alert> : null}
+        {linkError ? <Alert severity="error">{linkError}</Alert> : null}
 
         {status === 'connected' && address ? (
-          <Alert severity="success" variant="outlined">
-            Wallet connected
-            {linkedWallet && linkedWallet.toLowerCase() === address.toLowerCase()
-              ? ' and linked to your account for crypto payments.'
-              : '. Complete the sign-in prompt to link it for crypto payments.'}
-          </Alert>
+          isLinked ? (
+            <Alert severity="success" variant="outlined">
+              Wallet connected and linked to your account for crypto payments.
+            </Alert>
+          ) : (
+            <Stack spacing={1.5}>
+              <Alert severity="warning" variant="outlined">
+                Wallet connected but not linked yet. Sign the one-time message to enable USDC
+                top-ups.
+              </Alert>
+              <Box>
+                <Button
+                  variant="contained"
+                  size="small"
+                  onClick={handleLinkWallet}
+                  disabled={linking}
+                >
+                  {linking ? 'Waiting for signature…' : 'Link wallet for payments'}
+                </Button>
+              </Box>
+            </Stack>
+          )
         ) : null}
       </Stack>
     </Paper>
