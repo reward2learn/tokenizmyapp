@@ -543,6 +543,59 @@ export function TenantDashboard() {
   const [deployApp] = useDeployAppMutation();
   const [propagateBillingIdentity] = usePropagateBillingIdentityMutation();
 
+  // Tenant registry/columns + every suite app's shared-DB schema in one pass
+  // so new isolation columns / catalog properties land without two menu clicks.
+  const [migratingAll, setMigratingAll] = useState(false);
+  const handleMigrateTenantAndAllApps = async (slug: string, appPack: AppPackConfig | null) => {
+    handleMenuClose();
+    setMigratingAll(true);
+    const appCount = appPack?.apps.length ?? 0;
+    try {
+      setSnackbar({
+        message: appCount > 0
+          ? `Migrating tenant + ${appCount} app(s)…`
+          : 'Migrating tenant…',
+        severity: 'success',
+      });
+
+      const tenantResult = await migrateTenant(slug).unwrap();
+      const groupsResult = tenantResult.data?.results?.securityGroups;
+
+      let appsOk = 0;
+      let appsFailed = 0;
+      if (appPack && appPack.apps.length > 0) {
+        for (const app of appPack.apps) {
+          try {
+            const result = await migrateApp({ slug, appId: app.appId }).unwrap();
+            if (result.success) appsOk += 1;
+            else appsFailed += 1;
+          } catch {
+            appsFailed += 1;
+          }
+        }
+      }
+
+      const parts = [
+        groupsResult
+          ? `Tenant migrated — security groups: ${groupsResult}`
+          : 'Tenant migrated',
+      ];
+      if (appCount > 0) {
+        parts.push(`${appsOk}/${appCount} app schema(s) synced`);
+        if (appsFailed > 0) parts.push(`${appsFailed} failed`);
+      }
+      setSnackbar({
+        message: parts.join(' · '),
+        severity: appsFailed > 0 ? 'error' : 'success',
+      });
+      refetch();
+    } catch {
+      setSnackbar({ message: 'Failed to migrate tenant and apps', severity: 'error' });
+    } finally {
+      setMigratingAll(false);
+    }
+  };
+
   const handleBulkSuiteAction = async (tenantSlug: string, appPack: AppPackConfig, action: 'seed' | 'migrate' | 'deploy') => {
     handleMenuClose();
     const actionLabel = action === 'seed' ? 'Seeding' : action === 'migrate' ? 'Syncing' : 'Deploying';
@@ -785,9 +838,14 @@ export function TenantDashboard() {
                           <ListItemIcon><PlayArrowIcon fontSize="small" /></ListItemIcon>
                           <ListItemText>Seed All Apps</ListItemText>
                         </MenuItem>
-                        <MenuItem onClick={() => { handleMenuClose(); void handleBulkSuiteAction(t.slug, suite, 'migrate'); }} disabled={isMigrating}>
+                        <MenuItem
+                          onClick={() => { void handleMigrateTenantAndAllApps(t.slug, suite); }}
+                          disabled={isMigrating || migratingAll}
+                        >
                           <ListItemIcon><SyncIcon fontSize="small" /></ListItemIcon>
-                          <ListItemText>Sync All DB Schemas</ListItemText>
+                          <ListItemText>
+                            {migratingAll ? 'Migrating…' : 'Migrate Tenant & All Apps'}
+                          </ListItemText>
                         </MenuItem>
                         <MenuItem onClick={() => void handleGenerateLegalDocs(t.slug)} disabled={isGeneratingLegal}>
                           <ListItemIcon><GavelIcon fontSize="small" /></ListItemIcon>
@@ -804,7 +862,7 @@ export function TenantDashboard() {
                       <ListItemIcon><PlayArrowIcon fontSize="small" /></ListItemIcon>
                       <ListItemText>{isSeeding ? 'Seeding…' : 'Seed'}</ListItemText>
                     </MenuItem>
-                    <MenuItem onClick={() => void handleMigrate(t.slug)} disabled={isMigrating}>
+                    <MenuItem onClick={() => void handleMigrate(t.slug)} disabled={isMigrating || migratingAll}>
                       <ListItemIcon><BuildIcon fontSize="small" /></ListItemIcon>
                       <ListItemText>{isMigrating ? 'Syncing…' : 'Sync DB Schema'}</ListItemText>
                     </MenuItem>
@@ -971,9 +1029,14 @@ export function TenantDashboard() {
                                   <ListItemIcon><PlayArrowIcon fontSize="small" /></ListItemIcon>
                                   <ListItemText>Seed All Apps</ListItemText>
                                 </MenuItem>
-                                <MenuItem onClick={() => { handleMenuClose(); void handleBulkSuiteAction(t.slug, suite!, 'migrate'); }} disabled={isMigrating}>
+                                <MenuItem
+                                  onClick={() => { void handleMigrateTenantAndAllApps(t.slug, suite!); }}
+                                  disabled={isMigrating || migratingAll}
+                                >
                                   <ListItemIcon><SyncIcon fontSize="small" /></ListItemIcon>
-                                  <ListItemText>Sync All DB Schemas</ListItemText>
+                                  <ListItemText>
+                                    {migratingAll ? 'Migrating…' : 'Migrate Tenant & All Apps'}
+                                  </ListItemText>
                                 </MenuItem>
                                 <MenuItem onClick={() => void handleGenerateLegalDocs(t.slug)} disabled={isGeneratingLegal}>
                                   <ListItemIcon><GavelIcon fontSize="small" /></ListItemIcon>
@@ -990,7 +1053,7 @@ export function TenantDashboard() {
                               <ListItemIcon><PlayArrowIcon fontSize="small" /></ListItemIcon>
                               <ListItemText>{isSeeding ? 'Seeding…' : 'Seed'}</ListItemText>
                             </MenuItem>
-                            <MenuItem onClick={() => void handleMigrate(t.slug)} disabled={isMigrating}>
+                            <MenuItem onClick={() => void handleMigrate(t.slug)} disabled={isMigrating || migratingAll}>
                               <ListItemIcon><BuildIcon fontSize="small" /></ListItemIcon>
                               <ListItemText>{isMigrating ? 'Syncing…' : 'Sync DB Schema'}</ListItemText>
                             </MenuItem>
