@@ -6,6 +6,7 @@ import { isFactoryWeb3Enabled } from '@/lib/web3/factory-web3-config';
 import {
   walletEnabled,
   walletConnected,
+  walletConnectCancelled,
   walletDisconnected,
   walletError,
   type WalletState,
@@ -65,6 +66,18 @@ export function attachWalletWatcher(store: WalletStoreLike): void {
             connectorId: state.connectorId,
           }),
         );
+      });
+
+      // subscribeAccount only fires on changes — closing the modal without connecting
+      // leaves Redux stuck on "connecting" unless we watch modal open/close.
+      appkit.subscribeState((modalState) => {
+        if (modalState.open) return;
+        const wallet = store.getState().wallet;
+        if (wallet.status !== 'connecting') return;
+        const account = appkit.getAccount();
+        if (!account?.isConnected) {
+          store.dispatch(walletConnectCancelled());
+        }
       });
     } catch (err) {
       attached = false;

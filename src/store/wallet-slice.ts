@@ -82,6 +82,12 @@ export const walletSlice = createSlice({
       state.status = 'connecting';
       state.error = null;
     },
+    /** AppKit modal closed without a connection — undo the optimistic connecting state. */
+    walletConnectCancelled(state) {
+      if (state.status === 'connecting') {
+        state.status = 'disconnected';
+      }
+    },
     walletConnected(state, action: PayloadAction<WalletConnectedPayload>) {
       const nextAddress = action.payload.address.toLowerCase();
       const addressChanged = state.address?.toLowerCase() !== nextAddress;
@@ -169,6 +175,7 @@ export const walletSlice = createSlice({
 export const {
   walletEnabled,
   walletConnecting,
+  walletConnectCancelled,
   walletConnected,
   walletDisconnected,
   walletBalanceUpdated,

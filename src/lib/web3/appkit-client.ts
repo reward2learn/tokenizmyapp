@@ -67,6 +67,7 @@ async function createAppKitInstance(config: FactoryWeb3Config) {
   ]);
 
   const wantsSocial = config.connectMode !== 'injected';
+  const socialOnly = config.connectMode === 'social';
   const defaultNetwork =
     networks.find((n) => n.id === SIWE_CHAIN_ID) ?? networks[0];
 
@@ -80,16 +81,21 @@ async function createAppKitInstance(config: FactoryWeb3Config) {
     projectId: config.projectId,
     metadata: factoryMetadata(),
     siweConfig: factorySiweConfig,
+    // showWallets is legacy — AppKit 1.8.x reads enableWallets instead.
+    enableWallets: !socialOnly,
+    enableEmbedded: wantsSocial,
+    allWallets: socialOnly ? 'HIDE' : 'SHOW',
     features: {
       socials: wantsSocial && config.socialProviders.length ? config.socialProviders : false,
       email: wantsSocial && config.emailLogin,
       // Required for embedded social wallets (Google/Apple OAuth via Reown auth).
       reownAuthentication: wantsSocial,
+      emailShowWallets: !socialOnly,
       swaps: false,
       onramp: false,
       analytics: true,
     },
-    showWallets: config.connectMode !== 'social',
+    showWallets: !socialOnly,
     themeMode: 'light',
   });
 

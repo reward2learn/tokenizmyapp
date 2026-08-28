@@ -6,6 +6,7 @@
  *
  * @see docs/google-oauth-appkit-setup.md Correction A
  */
+import { getFactoryWeb3Config } from '@/lib/web3/factory-web3-config';
 import { factorySiweClient, signalSiweAppReady } from '@/lib/web3/siwe-config';
 
 /**
@@ -25,6 +26,7 @@ export async function applyFactorySiwxAfterReady(
   }
   await new Promise((resolve) => setTimeout(resolve, 150));
   await applyFactorySiwxMapping();
+  await applyFactorySocialFeatures();
 }
 
 async function applyFactorySiwxMapping(): Promise<void> {
@@ -38,5 +40,35 @@ async function applyFactorySiwxMapping(): Promise<void> {
   const caipAddress = ChainController.getActiveCaipAddress();
   if (caipAddress) {
     await SIWXUtil.initializeIfEnabled(caipAddress);
+  }
+}
+
+/**
+ * Re-assert factory social-login options after Reown Cloud remote config loads.
+ * Cloud can disable social_login for the project — the factory billing flow requires Google.
+ */
+async function applyFactorySocialFeatures(): Promise<void> {
+  const config = getFactoryWeb3Config();
+  if (!config.enabled || config.connectMode === 'injected') return;
+
+  const socialOnly = config.connectMode === 'social';
+  const { OptionsController } = await import('@reown/appkit-controllers');
+
+  OptionsController.setEnableWallets(!socialOnly);
+  OptionsController.setEnableEmbedded(true);
+  OptionsController.setAllWallets(socialOnly ? 'HIDE' : 'SHOW');
+  OptionsController.setFeatures({
+    socials: config.socialProviders.length ? config.socialProviders : false,
+    email: config.emailLogin,
+    reownAuthentication: true,
+    emailShowWallets: !socialOnly,
+  });
+
+  if (config.socialProviders.length) {
+    OptionsController.setRemoteFeatures({
+      socials: config.socialProviders,
+      email: config.emailLogin,
+      reownAuthentication: true,
+    });
   }
 }

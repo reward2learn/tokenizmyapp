@@ -4,8 +4,13 @@ import Button from '@mui/material/Button';
 import Chip from '@mui/material/Chip';
 import Tooltip from '@mui/material/Tooltip';
 import AccountBalanceWalletIcon from '@mui/icons-material/AccountBalanceWallet';
-import { useAppDispatch, useAppSelector } from '@/store/hooks';
-import { walletConnecting, walletError, formatWalletAddress } from '@/store/wallet-slice';
+import { useAppDispatch, useAppSelector, useAppStore } from '@/store/hooks';
+import {
+  walletConnectCancelled,
+  walletConnecting,
+  walletError,
+  formatWalletAddress,
+} from '@/store/wallet-slice';
 
 /**
  * Connect / account control for the factory Reown social wallet.
@@ -14,6 +19,7 @@ import { walletConnecting, walletError, formatWalletAddress } from '@/store/wall
  */
 export function WalletConnectButton() {
   const dispatch = useAppDispatch();
+  const store = useAppStore();
   const { status, address, error } = useAppSelector((state) => state.wallet);
 
   if (status === 'disabled') return null;
@@ -31,6 +37,11 @@ export function WalletConnectButton() {
       await appkit.open();
     } catch (err) {
       dispatch(walletError(err instanceof Error ? err.message : 'Could not open the wallet.'));
+    } finally {
+      const wallet = store.getState().wallet;
+      if (wallet.status === 'connecting') {
+        dispatch(walletConnectCancelled());
+      }
     }
   };
 
