@@ -192,7 +192,10 @@ async function fetchProjectEnvsDecrypted(projectId: string): Promise<EnvRow[]> {
     break;
   }
   throw new Error(
-    `Vercel env read failed for ${projectId}: ${lastStatus} ${lastBody.slice(0, 200)}`,
+    `Vercel env read failed for ${projectId}` +
+      `${TEAM_ID ? ` (teamId=${TEAM_ID})` : ''}: ${lastStatus} ${lastBody.slice(0, 200)}. ` +
+      `If the project exists in the dashboard, set VERCEL_TEAM_ID to the Tokenizin team that owns it ` +
+      `(Team Settings → General → Team ID) and ensure VERCEL_TOKEN is a token for that team.`,
   );
 }
 

@@ -90,7 +90,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
  * Example (recommended):
  *   VERCEL_TOKEN=at_xxx bun run scripts/register-vercel-webhooks.ts \
  *     --secret=whsec_strongrandomsecret1234567890abcdef \
- *     --team-id=team_uKNaNEyjHVW7vooXeUfNJ3LW
+ *     --team-id=team_7m5fwG2qKtVsGtgV35AB3nHi
  *
  * After running:
  * 1. Copy the returned secret (or the one you provided)
@@ -99,7 +99,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
  * 4. Test with: bun run test-webhook --event=deployment.succeeded
  * 5. Verify in Vercel Dashboard > Settings > Webhooks
  *
- * Team ID default: team_uKNaNEyjHVW7vooXeUfNJ3LW (ilishaps-projects or equivalent)
+ * Team ID default: team_7m5fwG2qKtVsGtgV35AB3nHi (Tokenizin Pro)
  * Webhook URL default: https://tokenizmyapp.vercel.app/api/webhooks/vercel
  *
  * This script is idempotent-friendly — if a webhook for the same URL exists, it will
@@ -140,7 +140,7 @@ function info(message, data) {
 function warn(message, data) {
     log('yellow', "\u26A0\uFE0F  ".concat(message), data);
 }
-var DEFAULT_TEAM_ID = 'team_uKNaNEyjHVW7vooXeUfNJ3LW';
+var DEFAULT_TEAM_ID = 'team_7m5fwG2qKtVsGtgV35AB3nHi';
 var DEFAULT_WEBHOOK_URL = 'https://tokenizmyapp.vercel.app/api/webhooks/vercel';
 var VERCEL_API_BASE = 'https://api.vercel.com';
 var ALL_EVENTS = [

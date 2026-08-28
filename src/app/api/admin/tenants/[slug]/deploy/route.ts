@@ -20,7 +20,7 @@ import { redeploySuiteApps } from '@/domain/workflow/suite-provisioning';
 import { DEFAULT_PLATFORM_ADMIN_EMAIL } from '@/domain/security/persons';
 
 const VERCEL_API = 'https://api.vercel.com';
-const TEAM_ID = process.env.VERCEL_TEAM_ID || 'team_uKNaNEyjHVW7vooXeUfNJ3LW';
+const TEAM_ID = process.env.VERCEL_TEAM_ID || 'team_7m5fwG2qKtVsGtgV35AB3nHi';
 
 /**
  * Poll Vercel deployment status in the background until it reaches 'READY'.

@@ -45,7 +45,7 @@
  * 4. Test with: bun run test-webhook --event=deployment.succeeded
  * 5. Verify in Vercel Dashboard > Settings > Webhooks
  * 
- * Team ID default: team_uKNaNEyjHVW7vooXeUfNJ3LW
+ * Team ID default: team_7m5fwG2qKtVsGtgV35AB3nHi (Tokenizin Pro)
  * Webhook URL default: https://tokenizmyapp.vercel.app/api/webhooks/vercel
  * 
  * The script is idempotent-friendly. Use --list to inspect existing webhooks.
@@ -122,7 +122,7 @@ function warn(message: string, data?: any): void {
   log('yellow', `⚠️  ${message}`, data);
 }
 
-const DEFAULT_TEAM_ID = 'team_uKNaNEyjHVW7vooXeUfNJ3LW';
+const DEFAULT_TEAM_ID = 'team_7m5fwG2qKtVsGtgV35AB3nHi';
 const DEFAULT_WEBHOOK_URL = 'https://tokenizmyapp.vercel.app/api/webhooks/vercel';
 const VERCEL_API_BASE = 'https://api.vercel.com';
 

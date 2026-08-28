@@ -9,7 +9,7 @@ import { requireWriteAuth } from '@/lib/auth/guards';
 import { jsonError, jsonOk } from '@/lib/api/response';
 
 const VERCEL_API = 'https://api.vercel.com';
-const TEAM_ID = process.env.VERCEL_TEAM_ID || 'team_uKNaNEyjHVW7vooXeUfNJ3LW';
+const TEAM_ID = process.env.VERCEL_TEAM_ID || 'team_7m5fwG2qKtVsGtgV35AB3nHi';
 
 export const dynamic = 'force-dynamic';
 

@@ -15,7 +15,7 @@ import type { AppPackConfig, SuiteAppInstance } from '@/store/apis/tenant-api';
 export const dynamic = 'force-dynamic';
 
 const VERCEL_API = 'https://api.vercel.com';
-const TEAM_ID = process.env.VERCEL_TEAM_ID || 'team_uKNaNEyjHVW7vooXeUfNJ3LW';
+const TEAM_ID = process.env.VERCEL_TEAM_ID || 'team_7m5fwG2qKtVsGtgV35AB3nHi';
 /** Team-scoped .vercel.app URLs (deployments, preview aliases) are transient — never stored as appUrl. */
 const TEAM_URL_MARKER = '-ilishaps-projects.vercel.app';
 

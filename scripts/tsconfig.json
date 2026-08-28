@@ -12,7 +12,8 @@
   },
   "include": [
     "./test-webhook.ts",
-    "./register-vercel-webhooks.ts"
+    "./register-vercel-webhooks.ts",
+    "./fix-tokenizmyapp-stripe-webhook.ts"
   ],
   "exclude": ["node_modules"]
 }

@@ -62,7 +62,7 @@ async function ensureStripeWebhookEndpoint(): Promise<{ id: string; secret: stri
 
 async function pushWhsecToVercel(whsec: string): Promise<void> {
   const { replaceStripeWebhookSecretOnProject, diagnoseWebhookSigningSecretEnv } = await import(
-    '@/domain/tenant/vercel-stripe-marketplace-service'
+    '../src/domain/tenant/vercel-stripe-marketplace-service'
   );
 
   for (const projectId of SUITE_PROJECTS) {
@@ -79,8 +79,8 @@ async function pushWhsecToVercel(whsec: string): Promise<void> {
 }
 
 async function updateTenantMetadata(whsec: string): Promise<void> {
-  const { createRawClient } = await import('@/lib/db');
-  const { ensureTenantsTable } = await import('@/domain/tenant/tenant-service');
+  const { createRawClient } = await import('../src/lib/db');
+  const { ensureTenantsTable } = await import('../src/domain/tenant/tenant-service');
   const db = createRawClient();
   await ensureTenantsTable(db);
   const rows = (await db.$queryRawUnsafe(
