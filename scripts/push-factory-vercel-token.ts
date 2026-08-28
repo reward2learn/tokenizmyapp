@@ -7,6 +7,7 @@
  *   VERCEL_TOKEN=vca_... bun run scripts/push-factory-vercel-token.ts --confirm
  *
  * Reads VERCEL_TOKEN from env or .env.local (via bun). Never prints the token.
+ * Accepts vcp_ (personal), vca_ (app), vci_ (integration), or legacy at_ prefixes.
  */
 import { parseArgs } from 'node:util';
 import { upsertProjectEnvVar } from '../src/domain/tenant/vercel-deploy-service';

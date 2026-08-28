@@ -3222,8 +3222,8 @@ export function EditTenantModal({ open, tenant, onClose, onSnackbar }: EditTenan
           fullWidth
           size="small"
           type="password"
-          placeholder="vca_…"
-          helperText="Leave blank to skip. Cleared from the form after a successful push."
+          placeholder="vcp_… or vca_…"
+          helperText="Tokenizin-scoped PAT from vercel.com/account/tokens (vcp_ personal, vca_ app). Cleared after push."
           slotProps={{ input: { sx: { fontFamily: 'monospace', fontSize: '0.8rem' } } }}
         />
       </Paper>

@@ -13,7 +13,7 @@ import { createRawClient } from '@/lib/db';
 import { requireWriteAuth } from '@/lib/auth/guards';
 import { jsonError, jsonOk } from '@/lib/api/response';
 import { ensureTenantsTable } from '@/domain/tenant/tenant-service';
-import { VERCEL_TEAM_ID } from '@/lib/vercel-team';
+import { VERCEL_TEAM_ID, isValidVercelPat } from '@/lib/vercel-team';
 import type { AppPackConfig } from '@/store/apis/tenant-api';
 
 export const dynamic = 'force-dynamic';
@@ -43,12 +43,15 @@ export async function POST(
   const pat = bodyToken || process.env.VERCEL_TOKEN?.trim() || '';
   if (!pat) {
     return jsonError(
-      'Paste a Tokenizin team PAT (vca_…) or set VERCEL_TOKEN on this deployment first.',
+      'Paste a Tokenizin team PAT (vcp_… or vca_…) or set VERCEL_TOKEN on this deployment first.',
       400,
     );
   }
-  if (!pat.startsWith('vca_') && !pat.startsWith('at_')) {
-    return jsonError('Vercel PAT must start with vca_ or at_ (from vercel.com/account/tokens).', 400);
+  if (!isValidVercelPat(pat)) {
+    return jsonError(
+      'Vercel PAT must start with vcp_, vca_, vci_, or at_ (from vercel.com/account/tokens).',
+      400,
+    );
   }
 
   const db = createRawClient();

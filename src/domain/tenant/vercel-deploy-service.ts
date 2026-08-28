@@ -255,11 +255,12 @@ export async function upsertProjectEnvVar(
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       if (msg.includes('403') && teamId === TEAM_ID) {
-        // Permission error with teamId, try without
         continue;
       }
       if (msg.includes('400') && teamId === TEAM_ID) {
-        // Bad request with teamId, try without
+        continue;
+      }
+      if (msg.includes('404') && teamId === TEAM_ID) {
         continue;
       }
       console.warn(`[vercel-deploy] Failed to set env ${key} (teamId=${teamId || 'none'}): ${msg}`);

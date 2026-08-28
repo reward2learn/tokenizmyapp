@@ -40,7 +40,14 @@ export function readTenantVercelTeamSlug(cfg: Record<string, unknown> | undefine
   return DEFAULT_VERCEL_TEAM_SLUG;
 }
 
-export function buildVercelTeamSlugEnvVars(teamSlug: string): Record<string, string> {
+/** Known Vercel bearer token prefixes (2026 formats + legacy at_). */
+export const VERCEL_PAT_PREFIXES = ['vcp_', 'vca_', 'vci_', 'at_'] as const;
+
+export function isValidVercelPat(token: string): boolean {
+  const trimmed = token.trim();
+  if (trimmed.length < 16) return false;
+  return VERCEL_PAT_PREFIXES.some((prefix) => trimmed.startsWith(prefix));
+}
   const slug = normalizeVercelTeamSlug(teamSlug);
   return {
     VERCEL_TEAM_SLUG: slug,
