@@ -79,13 +79,18 @@ export async function GET(request: Request): Promise<Response> {
     return jsonError('Invalid wallet address for SIWE nonce', 400);
   }
 
-  await registerSiweNonce({
-    nonce,
-    address: address.toLowerCase(),
-    chainId,
-    domain: requestDomain(request),
-    expiresAt: Date.now() + 15 * 60_000,
-  });
+  try {
+    await registerSiweNonce({
+      nonce,
+      address: address.toLowerCase(),
+      chainId,
+      domain: requestDomain(request),
+      expiresAt: Date.now() + 15 * 60_000,
+    });
+  } catch (err) {
+    // Verify uses claim-on-first-use; a failed register must not block signing.
+    console.error('[wallet/nonce] durable register failed (continuing):', err);
+  }
 
   return jsonOk({ message, nonce, expiresAt, chainId });
 }

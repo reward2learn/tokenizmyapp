@@ -1,8 +1,10 @@
 /**
  * Durable SIWE nonce store — Neon/Postgres across Vercel serverless instances.
  *
- * An in-memory Map fails in production: GET /nonce and POST /verify often hit
- * different lambdas, so consume returns null → "Invalid or expired nonce".
+ * Register-then-consume alone is fragile on serverless (DDL / insert races,
+ * cold starts). After a cryptographically valid SIWE signature, we **claim**
+ * the nonce on first use (insert-as-used). Pre-registration remains best-effort
+ * bookkeeping; replay is blocked by PRIMARY KEY conflict.
  *
  * Falls back to process-local memory when POSTGRES_URL is unset (unit tests).
  */
@@ -16,6 +18,18 @@ export interface PendingSiweNonce {
   expiresAt: number;
   used: boolean;
 }
+
+export interface ClaimSiweNonceInput {
+  nonce: string;
+  address: string;
+  chainId: number;
+  domain: string;
+  /** Epoch ms from SIWE `Issued At` (freshness gate). */
+  issuedAtMs: number;
+}
+
+const NONCE_MAX_AGE_MS = 15 * 60_000;
+const NONCE_CLOCK_SKEW_MS = 2 * 60_000;
 
 const memoryPending = new Map<string, PendingSiweNonce>();
 const memoryUsed = new Set<string>();
@@ -62,6 +76,12 @@ function pruneMemory(): void {
   }
 }
 
+function isFreshIssuedAt(issuedAtMs: number): boolean {
+  if (!Number.isFinite(issuedAtMs)) return false;
+  const age = Date.now() - issuedAtMs;
+  return age <= NONCE_MAX_AGE_MS && age >= -NONCE_CLOCK_SKEW_MS;
+}
+
 export async function registerSiweNonce(
   entry: Omit<PendingSiweNonce, 'used'>,
 ): Promise<void> {
@@ -73,21 +93,24 @@ export async function registerSiweNonce(
 
   await ensureSiweNonceTable();
   const db = createRawClient();
+  const expiresAt = new Date(entry.expiresAt);
+  // Prefer ISO timestamptz binding — to_timestamp($n/1000) has been unreliable
+  // across Prisma/pgbouncer parameter coercion on Neon.
   await db.$executeRawUnsafe(
     `INSERT INTO siwe_nonces (nonce, address, chain_id, domain, expires_at)
-     VALUES ($1, $2, $3, $4, to_timestamp($5::double precision / 1000.0))
+     VALUES ($1, $2, $3, $4, $5::timestamptz)
      ON CONFLICT (nonce) DO NOTHING;`,
     entry.nonce,
     entry.address.toLowerCase(),
     entry.chainId,
     entry.domain,
-    entry.expiresAt,
+    expiresAt.toISOString(),
   );
 }
 
 /**
- * One-time consume. Returns null when missing, expired, or already used.
- * Atomic UPDATE … RETURNING so concurrent verifies cannot double-spend.
+ * One-time consume of a pre-registered nonce.
+ * Returns null when missing, expired, or already used.
  */
 export async function consumeSiweNonce(nonce: string): Promise<PendingSiweNonce | null> {
   if (useMemoryStore()) {
@@ -117,6 +140,141 @@ export async function consumeSiweNonce(nonce: string): Promise<PendingSiweNonce 
      WHERE nonce = $1
        AND used_at IS NULL
        AND expires_at > NOW()
+     RETURNING nonce, address, chain_id, domain, expires_at;`,
+    nonce,
+  );
+
+  const row = rows[0];
+  if (!row) return null;
+
+  return {
+    nonce: row.nonce,
+    address: row.address,
+    chainId: Number(row.chain_id),
+    domain: row.domain,
+    expiresAt: new Date(row.expires_at).getTime(),
+    used: true,
+  };
+}
+
+/**
+ * After signature verification succeeds: consume a pre-registered nonce, or
+ * claim a never-seen nonce as used (insert). Replay of the same nonce fails.
+ */
+export async function claimSiweNonceAfterVerify(
+  input: ClaimSiweNonceInput,
+): Promise<PendingSiweNonce | null> {
+  if (!isFreshIssuedAt(input.issuedAtMs)) {
+    return null;
+  }
+
+  const preRegistered = await consumeSiweNonce(input.nonce);
+  if (preRegistered) {
+    return preRegistered;
+  }
+
+  // Pre-registered row may exist with a bad/expired expires_at — force-consume
+  // unused rows once Issued At has already passed the freshness gate.
+  const forced = await forceConsumeUnusedSiweNonce(input.nonce);
+  if (forced) {
+    return forced;
+  }
+
+  const expiresAt = input.issuedAtMs + NONCE_MAX_AGE_MS;
+  const address = input.address.toLowerCase();
+
+  if (useMemoryStore()) {
+    if (memoryUsed.has(input.nonce)) {
+      return null;
+    }
+    memoryUsed.add(input.nonce);
+    memoryPending.delete(input.nonce);
+    return {
+      nonce: input.nonce,
+      address,
+      chainId: input.chainId,
+      domain: input.domain,
+      expiresAt,
+      used: true,
+    };
+  }
+
+  try {
+    await ensureSiweNonceTable();
+  } catch (err) {
+    console.error('[siwe-nonce] ensure table failed during claim:', err);
+    return null;
+  }
+
+  const db = createRawClient();
+  try {
+    const rows = await db.$queryRawUnsafe<
+      {
+        nonce: string;
+        address: string;
+        chain_id: number;
+        domain: string;
+        expires_at: Date;
+      }[]
+    >(
+      `INSERT INTO siwe_nonces (nonce, address, chain_id, domain, expires_at, used_at)
+       VALUES ($1, $2, $3, $4, $5::timestamptz, NOW())
+       ON CONFLICT (nonce) DO NOTHING
+       RETURNING nonce, address, chain_id, domain, expires_at;`,
+      input.nonce,
+      address,
+      input.chainId,
+      input.domain,
+      new Date(expiresAt).toISOString(),
+    );
+
+    const row = rows[0];
+    if (!row) {
+      // Lost the race to another claim, or row already used.
+      return forceConsumeUnusedSiweNonce(input.nonce);
+    }
+
+    return {
+      nonce: row.nonce,
+      address: row.address,
+      chainId: Number(row.chain_id),
+      domain: row.domain,
+      expiresAt: new Date(row.expires_at).getTime(),
+      used: true,
+    };
+  } catch (err) {
+    console.error('[siwe-nonce] claim insert failed:', err);
+    return null;
+  }
+}
+
+/** Mark an unused row used even if expires_at already passed (Issued At gated). */
+async function forceConsumeUnusedSiweNonce(
+  nonce: string,
+): Promise<PendingSiweNonce | null> {
+  if (useMemoryStore()) {
+    const entry = memoryPending.get(nonce);
+    if (!entry || entry.used || memoryUsed.has(nonce)) return null;
+    entry.used = true;
+    memoryUsed.add(nonce);
+    memoryPending.delete(nonce);
+    return entry;
+  }
+
+  const db = createRawClient();
+  const rows = await db.$queryRawUnsafe<
+    {
+      nonce: string;
+      address: string;
+      chain_id: number;
+      domain: string;
+      expires_at: Date;
+    }[]
+  >(
+    `UPDATE siwe_nonces
+     SET used_at = NOW()
+     WHERE nonce = $1
+       AND used_at IS NULL
      RETURNING nonce, address, chain_id, domain, expires_at;`,
     nonce,
   );

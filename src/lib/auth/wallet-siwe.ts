@@ -10,6 +10,7 @@ import type { Chain } from 'viem';
 import { SIWE_CHAIN_ID, resolveRpcUrl } from '@/lib/web3/crypto-billing-config';
 import { isSiwePlaceholderAddress } from '@/lib/web3/evm-address';
 import {
+  claimSiweNonceAfterVerify,
   consumeSiweNonce,
   registerSiweNonce,
   resetSiweNonceRegistryForTests,
@@ -17,7 +18,12 @@ import {
 } from '@/lib/auth/siwe-nonce-store';
 
 export type { PendingSiweNonce };
-export { consumeSiweNonce, registerSiweNonce, resetSiweNonceRegistryForTests };
+export {
+  claimSiweNonceAfterVerify,
+  consumeSiweNonce,
+  registerSiweNonce,
+  resetSiweNonceRegistryForTests,
+};
 
 export function looksLikeSiweMessage(message: unknown): message is string {
   if (typeof message !== 'string') return false;
@@ -35,6 +41,23 @@ export function hasFreshSiweNonceLine(message: string): boolean {
 
 export function normalizeSiweMessageBytes(message: string): string {
   return message.replace(/\r\n/g, '\n').trimStart();
+}
+
+/** Parse SIWE `Issued At:` for freshness checks (epoch ms), or null. */
+export function parseSiweIssuedAtMs(message: string): number | null {
+  const match = normalizeSiweMessageBytes(message).match(/^Issued At:\s*(.+)$/m);
+  if (!match?.[1]) return null;
+  const ms = Date.parse(match[1].trim());
+  return Number.isFinite(ms) ? ms : null;
+}
+
+/** Domain from the SIWE header line (`{domain} wants you to sign in…`). */
+export function parseSiweDomain(message: string): string | null {
+  const match = normalizeSiweMessageBytes(message).match(
+    /^(.+?) wants you to sign in with your Ethereum account:/m,
+  );
+  const domain = match?.[1]?.trim();
+  return domain || null;
 }
 
 const SIGNATURE_GATE = /^0x[a-fA-F0-9]{130,}$/;

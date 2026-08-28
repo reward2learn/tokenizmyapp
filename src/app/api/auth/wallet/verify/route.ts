@@ -5,10 +5,12 @@
  */
 import { z } from 'zod';
 import {
-  consumeSiweNonce,
+  claimSiweNonceAfterVerify,
   hasFreshSiweNonceLine,
   isValidSignatureFormat,
   looksLikeSiweMessage,
+  parseSiweDomain,
+  parseSiweIssuedAtMs,
   verifySiweSignature,
 } from '@/lib/auth/wallet-siwe';
 import { extendSessionWithWallet, sessionWalletMatches } from '@/lib/auth/wallet-session';
@@ -95,14 +97,26 @@ export async function POST(request: Request): Promise<Response> {
     return jsonError(err instanceof Error ? err.message : 'Signature verification failed', 400);
   }
 
-  const nonceEntry = await consumeSiweNonce(verified.nonce);
+  const issuedAtMs = parseSiweIssuedAtMs(message);
+  const domain = parseSiweDomain(message);
+  if (issuedAtMs == null || !domain) {
+    return jsonError('Invalid SIWE message metadata', 400);
+  }
+
+  const nonceEntry = await claimSiweNonceAfterVerify({
+    nonce: verified.nonce,
+    address: verified.address,
+    chainId: verified.chainId,
+    domain,
+    issuedAtMs,
+  });
   if (!nonceEntry) {
     return jsonError('Invalid or expired nonce', 400);
   }
 
   if (verified.address.toLowerCase() !== nonceEntry.address.toLowerCase()) {
-    const placeholder = SIWE_PLACEHOLDER_ADDRESS;
-    if (nonceEntry.address !== placeholder) {
+    const placeholder = SIWE_PLACEHOLDER_ADDRESS.toLowerCase();
+    if (nonceEntry.address.toLowerCase() !== placeholder) {
       return jsonError('Wallet address does not match nonce request', 400);
     }
   }

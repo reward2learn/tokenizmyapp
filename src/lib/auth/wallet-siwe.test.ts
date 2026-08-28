@@ -30,12 +30,67 @@ describe('wallet-siwe registry', () => {
     expect(first?.nonce).toBe('abc123');
     expect(await consumeSiweNonce('abc123')).toBeNull();
   });
+
+  it('claims a never-registered nonce after a fresh Issued At', async () => {
+    const { claimSiweNonceAfterVerify } = await import('@/lib/auth/siwe-nonce-store');
+    const claimed = await claimSiweNonceAfterVerify({
+      nonce: 'fresh-claim-1',
+      address: '0xAbC000000000000000000000000000000000001',
+      chainId: 11_155_111,
+      domain: 'tokenizmyapp.vercel.app',
+      issuedAtMs: Date.now() - 1_000,
+    });
+    expect(claimed?.nonce).toBe('fresh-claim-1');
+    expect(
+      await claimSiweNonceAfterVerify({
+        nonce: 'fresh-claim-1',
+        address: '0xAbC000000000000000000000000000000000001',
+        chainId: 11_155_111,
+        domain: 'tokenizmyapp.vercel.app',
+        issuedAtMs: Date.now() - 1_000,
+      }),
+    ).toBeNull();
+  });
+
+  it('force-claims a pre-registered nonce whose expires_at already passed', async () => {
+    const { claimSiweNonceAfterVerify } = await import('@/lib/auth/siwe-nonce-store');
+    await registerSiweNonce({
+      nonce: 'stale-expiry',
+      address: '0xAbC000000000000000000000000000000000001',
+      chainId: 11_155_111,
+      domain: 'tokenizmyapp.vercel.app',
+      expiresAt: Date.now() - 60_000,
+    });
+    expect(await consumeSiweNonce('stale-expiry')).toBeNull();
+    const claimed = await claimSiweNonceAfterVerify({
+      nonce: 'stale-expiry',
+      address: '0xAbC000000000000000000000000000000000001',
+      chainId: 11_155_111,
+      domain: 'tokenizmyapp.vercel.app',
+      issuedAtMs: Date.now() - 1_000,
+    });
+    expect(claimed?.nonce).toBe('stale-expiry');
+  });
 });
 
 describe('wallet-siwe message helpers', () => {
   it('detects fresh nonce lines', () => {
     expect(hasFreshSiweNonceLine('Hello\nNonce: abc\n')).toBe(true);
     expect(hasFreshSiweNonceLine('Hello\n')).toBe(false);
+  });
+
+  it('parses Issued At and domain', async () => {
+    const { parseSiweIssuedAtMs, parseSiweDomain } = await import('@/lib/auth/wallet-siwe');
+    const message = `tokenizmyapp.vercel.app wants you to sign in with your Ethereum account:
+0xAbC000000000000000000000000000000000001
+
+URI: https://tokenizmyapp.vercel.app
+Version: 1
+Chain ID: 11155111
+Nonce: abc
+Issued At: 2026-08-28T08:53:43.472Z`;
+    expect(parseSiweDomain(message)).toBe('tokenizmyapp.vercel.app');
+    expect(parseSiweIssuedAtMs(message)).toBe(Date.parse('2026-08-28T08:53:43.472Z'));
   });
 
   it('validates signature format gate', () => {
