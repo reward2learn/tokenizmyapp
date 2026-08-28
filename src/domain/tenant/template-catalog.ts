@@ -199,6 +199,10 @@ const TASKS_PAGE = {
   slug: 'tasks', title: 'Tasks', navLabel: 'Tasks', authTier: 'pin' as const,
   blockTypes: ['action_checklist'],
 };
+const NOTES_PAGE = {
+  slug: 'notes', title: 'Notes', navLabel: 'Notes', authTier: 'google' as const,
+  blockTypes: [] as string[],
+};
 const ADMIN_PAGE = {
   slug: 'admin', title: 'Admin', navLabel: 'Admin', authTier: 'pin' as const,
   blockTypes: ['ops_admin_tabs'],
@@ -216,8 +220,11 @@ const BASIC_NAV = [
   { title: 'Home', path: '/', icon: 'Home', authTier: 'public' as const },
   { title: 'Dashboard', path: '/dashboard', icon: 'Dashboard', authTier: 'public' as const },
   { title: 'Tasks', path: '/tasks', icon: 'CheckCircle', authTier: 'pin' as const },
+  { title: 'Notes', path: '/notes', icon: 'StickyNote2', authTier: 'google' as const },
   { title: 'Admin', path: '/admin', icon: 'Settings', authTier: 'pin' as const },
 ];
+
+const NOTES_NAV = { title: 'Notes', path: '/notes', icon: 'StickyNote2', authTier: 'google' as const };
 
 // ── Template Catalog (10 business sectors) ──────────────
 
@@ -236,6 +243,7 @@ export const TEMPLATE_CATALOG: Record<string, TemplateDefinition> = {
       SUMMARY_PAGE,
       { slug: 'review', title: 'Business Review', navLabel: 'Review', authTier: 'google', blockTypes: ['review_blocks'] },
       TASKS_PAGE,
+      NOTES_PAGE,
       { slug: 'ops-admin', title: 'Ops Admin', navLabel: 'Ops Admin', authTier: 'pin', blockTypes: ['ops_admin_tabs', 'z_report_form', 'costs_form'] },
       { slug: 'ops-tracking', title: 'Ops Tracking', navLabel: 'Ops Tracking', authTier: 'pin', blockTypes: ['kpi_cards', 'sheet_viewer'] },
     ],
@@ -244,6 +252,7 @@ export const TEMPLATE_CATALOG: Record<string, TemplateDefinition> = {
       { title: 'Dashboard', path: '/dashboard', icon: 'Dashboard', authTier: 'public' },
       { title: 'Business Review', path: '/review', icon: 'Description', authTier: 'google' },
       { title: 'Tasks', path: '/tasks', icon: 'CheckCircle', authTier: 'pin' },
+      NOTES_NAV,
       { title: 'Ops Admin', path: '/ops-admin', icon: 'AdminPanelSettings', authTier: 'pin' },
       { title: 'Ops Tracking', path: '/ops-tracking', icon: 'TrackChanges', authTier: 'pin' },
       { title: 'Admin', path: '/admin', icon: 'Settings', authTier: 'pin' },
@@ -267,6 +276,7 @@ export const TEMPLATE_CATALOG: Record<string, TemplateDefinition> = {
       { slug: 'reservations', title: 'Reservations', navLabel: 'Reservations', authTier: 'public', blockTypes: ['dynamic_form'] },
       SUMMARY_PAGE,
       TASKS_PAGE,
+      NOTES_PAGE,
       ADMIN_PAGE,
     ],
     defaultNavItems: [
@@ -275,6 +285,7 @@ export const TEMPLATE_CATALOG: Record<string, TemplateDefinition> = {
       { title: 'Menu', path: '/menu', icon: 'RestaurantMenu', authTier: 'public' },
       { title: 'Reservations', path: '/reservations', icon: 'EventSeat', authTier: 'public' },
       { title: 'Tasks', path: '/tasks', icon: 'CheckCircle', authTier: 'pin' },
+      NOTES_NAV,
       { title: 'Admin', path: '/admin', icon: 'Settings', authTier: 'pin' },
     ],
     schemaOrgType: 'Restaurant',
@@ -296,6 +307,7 @@ export const TEMPLATE_CATALOG: Record<string, TemplateDefinition> = {
       { slug: 'bookings', title: 'Bookings', navLabel: 'Bookings', authTier: 'public', blockTypes: ['dynamic_form'] },
       SUMMARY_PAGE,
       TASKS_PAGE,
+      NOTES_PAGE,
       ADMIN_PAGE,
     ],
     defaultNavItems: [
@@ -304,6 +316,7 @@ export const TEMPLATE_CATALOG: Record<string, TemplateDefinition> = {
       { title: 'Rooms', path: '/rooms', icon: 'Hotel', authTier: 'public' },
       { title: 'Bookings', path: '/bookings', icon: 'BookOnline', authTier: 'public' },
       { title: 'Tasks', path: '/tasks', icon: 'CheckCircle', authTier: 'pin' },
+      NOTES_NAV,
       { title: 'Admin', path: '/admin', icon: 'Settings', authTier: 'pin' },
     ],
     schemaOrgType: ['Hotel', 'LodgingBusiness'],
@@ -325,6 +338,7 @@ export const TEMPLATE_CATALOG: Record<string, TemplateDefinition> = {
       { slug: 'orders', title: 'Orders', navLabel: 'Orders', authTier: 'pin', blockTypes: ['dynamic_form'] },
       SUMMARY_PAGE,
       TASKS_PAGE,
+      NOTES_PAGE,
       ADMIN_PAGE,
     ],
     defaultNavItems: [
@@ -333,6 +347,7 @@ export const TEMPLATE_CATALOG: Record<string, TemplateDefinition> = {
       { title: 'Products', path: '/products', icon: 'Inventory', authTier: 'public' },
       { title: 'Orders', path: '/orders', icon: 'Receipt', authTier: 'pin' },
       { title: 'Tasks', path: '/tasks', icon: 'CheckCircle', authTier: 'pin' },
+      NOTES_NAV,
       { title: 'Admin', path: '/admin', icon: 'Settings', authTier: 'pin' },
     ],
     schemaOrgType: ['Store', 'Product'],
@@ -354,6 +369,7 @@ export const TEMPLATE_CATALOG: Record<string, TemplateDefinition> = {
       { slug: 'claims', title: 'Insurance Claims', navLabel: 'Claims', authTier: 'pin', blockTypes: ['dynamic_form'] },
       SUMMARY_PAGE,
       TASKS_PAGE,
+      NOTES_PAGE,
       ADMIN_PAGE,
     ],
     defaultNavItems: [
@@ -362,6 +378,7 @@ export const TEMPLATE_CATALOG: Record<string, TemplateDefinition> = {
       { title: 'Patients', path: '/patients', icon: 'Person', authTier: 'pin' },
       { title: 'Claims', path: '/claims', icon: 'Assignment', authTier: 'pin' },
       { title: 'Tasks', path: '/tasks', icon: 'CheckCircle', authTier: 'pin' },
+      NOTES_NAV,
       { title: 'Admin', path: '/admin', icon: 'Settings', authTier: 'pin' },
     ],
     schemaOrgType: ['MedicalOrganization', 'Hospital'],
@@ -383,6 +400,7 @@ export const TEMPLATE_CATALOG: Record<string, TemplateDefinition> = {
       { slug: 'warehouse', title: 'Warehouse', navLabel: 'Warehouse', authTier: 'pin', blockTypes: ['dynamic_form'] },
       SUMMARY_PAGE,
       TASKS_PAGE,
+      NOTES_PAGE,
       ADMIN_PAGE,
     ],
     defaultNavItems: [
@@ -391,6 +409,7 @@ export const TEMPLATE_CATALOG: Record<string, TemplateDefinition> = {
       { title: 'Shipments', path: '/shipments', icon: 'LocalShipping', authTier: 'pin' },
       { title: 'Warehouse', path: '/warehouse', icon: 'Warehouse', authTier: 'pin' },
       { title: 'Tasks', path: '/tasks', icon: 'CheckCircle', authTier: 'pin' },
+      NOTES_NAV,
       { title: 'Admin', path: '/admin', icon: 'Settings', authTier: 'pin' },
     ],
     schemaOrgType: ['DeliveryEvent', 'ParcelDelivery'],
@@ -412,6 +431,7 @@ export const TEMPLATE_CATALOG: Record<string, TemplateDefinition> = {
       { slug: 'leases', title: 'Leases', navLabel: 'Leases', authTier: 'pin', blockTypes: ['dynamic_form'] },
       SUMMARY_PAGE,
       TASKS_PAGE,
+      NOTES_PAGE,
       ADMIN_PAGE,
     ],
     defaultNavItems: [
@@ -420,6 +440,7 @@ export const TEMPLATE_CATALOG: Record<string, TemplateDefinition> = {
       { title: 'Properties', path: '/properties', icon: 'Home', authTier: 'public' },
       { title: 'Leases', path: '/leases', icon: 'Description', authTier: 'pin' },
       { title: 'Tasks', path: '/tasks', icon: 'CheckCircle', authTier: 'pin' },
+      NOTES_NAV,
       { title: 'Admin', path: '/admin', icon: 'Settings', authTier: 'pin' },
     ],
     schemaOrgType: 'RealEstateAgent',
@@ -441,6 +462,7 @@ export const TEMPLATE_CATALOG: Record<string, TemplateDefinition> = {
       { slug: 'enrollments', title: 'Enrollments', navLabel: 'Enrollments', authTier: 'pin', blockTypes: ['dynamic_form'] },
       SUMMARY_PAGE,
       TASKS_PAGE,
+      NOTES_PAGE,
       ADMIN_PAGE,
     ],
     defaultNavItems: [
@@ -449,6 +471,7 @@ export const TEMPLATE_CATALOG: Record<string, TemplateDefinition> = {
       { title: 'Courses', path: '/courses', icon: 'School', authTier: 'public' },
       { title: 'Enrollments', path: '/enrollments', icon: 'AssignmentInd', authTier: 'pin' },
       { title: 'Tasks', path: '/tasks', icon: 'CheckCircle', authTier: 'pin' },
+      NOTES_NAV,
       { title: 'Admin', path: '/admin', icon: 'Settings', authTier: 'pin' },
     ],
     schemaOrgType: 'EducationalOrganization',
@@ -470,6 +493,7 @@ export const TEMPLATE_CATALOG: Record<string, TemplateDefinition> = {
       { slug: 'invoices', title: 'Invoices', navLabel: 'Invoices', authTier: 'pin', blockTypes: ['dynamic_form'] },
       SUMMARY_PAGE,
       TASKS_PAGE,
+      NOTES_PAGE,
       ADMIN_PAGE,
     ],
     defaultNavItems: [
@@ -478,6 +502,7 @@ export const TEMPLATE_CATALOG: Record<string, TemplateDefinition> = {
       { title: 'Projects', path: '/projects', icon: 'Folder', authTier: 'pin' },
       { title: 'Invoices', path: '/invoices', icon: 'Receipt', authTier: 'pin' },
       { title: 'Tasks', path: '/tasks', icon: 'CheckCircle', authTier: 'pin' },
+      NOTES_NAV,
       { title: 'Admin', path: '/admin', icon: 'Settings', authTier: 'pin' },
     ],
     schemaOrgType: 'ProfessionalService',
@@ -499,6 +524,7 @@ export const TEMPLATE_CATALOG: Record<string, TemplateDefinition> = {
       { slug: 'quality', title: 'Quality Control', navLabel: 'Quality', authTier: 'pin', blockTypes: ['dynamic_form'] },
       SUMMARY_PAGE,
       TASKS_PAGE,
+      NOTES_PAGE,
       ADMIN_PAGE,
     ],
     defaultNavItems: [
@@ -507,6 +533,7 @@ export const TEMPLATE_CATALOG: Record<string, TemplateDefinition> = {
       { title: 'Production', path: '/production', icon: 'PrecisionManufacturing', authTier: 'pin' },
       { title: 'Quality', path: '/quality', icon: 'Verified', authTier: 'pin' },
       { title: 'Tasks', path: '/tasks', icon: 'CheckCircle', authTier: 'pin' },
+      NOTES_NAV,
       { title: 'Admin', path: '/admin', icon: 'Settings', authTier: 'pin' },
     ],
     schemaOrgType: 'Manufacturer',
@@ -528,6 +555,7 @@ export const TEMPLATE_CATALOG: Record<string, TemplateDefinition> = {
       { slug: 'clients', title: 'Clients', navLabel: 'Clients', authTier: 'pin', blockTypes: ['dynamic_form'] },
       SUMMARY_PAGE,
       TASKS_PAGE,
+      NOTES_PAGE,
       ADMIN_PAGE,
     ],
     defaultNavItems: [
@@ -536,6 +564,7 @@ export const TEMPLATE_CATALOG: Record<string, TemplateDefinition> = {
       { title: 'Appointments', path: '/appointments', icon: 'EventNote', authTier: 'public' },
       { title: 'Clients', path: '/clients', icon: 'PersonSearch', authTier: 'pin' },
       { title: 'Tasks', path: '/tasks', icon: 'CheckCircle', authTier: 'pin' },
+      NOTES_NAV,
       { title: 'Admin', path: '/admin', icon: 'Settings', authTier: 'pin' },
     ],
     schemaOrgType: 'HealthAndBeautyBusiness',
@@ -556,6 +585,7 @@ export const TEMPLATE_CATALOG: Record<string, TemplateDefinition> = {
       { slug: 'ops-admin', title: 'System Admin', navLabel: 'Ops Admin', authTier: 'pin', blockTypes: ['ops_admin_tabs', 'z_report_form', 'costs_form'] },
       SUMMARY_PAGE,
       TASKS_PAGE,
+      NOTES_PAGE,
       ADMIN_PAGE,
     ],
     defaultNavItems: [
@@ -564,6 +594,7 @@ export const TEMPLATE_CATALOG: Record<string, TemplateDefinition> = {
       { title: 'System Admin', path: '/ops-admin', icon: 'AdminPanelSettings', authTier: 'pin' },
       { title: 'Summary', path: '/summary', icon: 'Description', authTier: 'google' },
       { title: 'Tasks', path: '/tasks', icon: 'CheckCircle', authTier: 'pin' },
+      NOTES_NAV,
       { title: 'Admin', path: '/admin', icon: 'Settings', authTier: 'pin' },
     ],
     schemaOrgType: ['SoftwareApplication', 'WebApplication'],
@@ -583,6 +614,7 @@ export const TEMPLATE_CATALOG: Record<string, TemplateDefinition> = {
       dashboardPageWithChat('default'),
       SUMMARY_PAGE,
       TASKS_PAGE,
+      NOTES_PAGE,
     ],
     defaultNavItems: BASIC_NAV,
     schemaOrgType: 'LocalBusiness',

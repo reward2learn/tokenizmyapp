@@ -38,6 +38,7 @@ export const DEFAULT_INFRA_NAV_SLUGS = [
   'ops-admin',
   'ops-tracking',
   'ops-chat',
+  'notes',
   'settings',
 ] as const;
 

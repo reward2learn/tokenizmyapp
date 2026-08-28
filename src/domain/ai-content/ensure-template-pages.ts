@@ -50,6 +50,7 @@ export const BYPASS_ADMIN_SLUGS = new Set([
   'settings',
   'ops-admin',
   'ops-chat',
+  'notes',
 ]);
 
 /**

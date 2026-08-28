@@ -211,6 +211,27 @@ export const uiSlice = createSlice({
       state.adminSelectedAppId = null;
       state.adminActiveSubtab = 'info';
     },
+    /**
+     * Atomically scope org + tenant (+ optional app).
+     *
+     * Used when picking a tenant or app from the dashboard: dispatching
+     * setAdminSelectedOrg first would clear the tenant we are about to set.
+     */
+    setAdminTenantSelection(
+      state,
+      action: {
+        payload: {
+          orgId: string | null;
+          tenantSlug: string;
+          appId?: string | null;
+        };
+      },
+    ) {
+      state.adminSelectedOrgId = action.payload.orgId;
+      state.adminSelectedTenantSlug = action.payload.tenantSlug;
+      state.adminSelectedAppId = action.payload.appId ?? null;
+      state.adminActiveSubtab = 'info';
+    },
     setAdminSelectedApp(state, action: { payload: string | null }) {
       state.adminSelectedAppId = action.payload;
       state.adminActiveSubtab = 'info';
@@ -308,6 +329,7 @@ export const {
   setThemeColors,
   setAdminSelectedOrg,
   setAdminSelectedTenant,
+  setAdminTenantSelection,
   setAdminSelectedApp,
   setAdminActiveSubtab,
   setBillingTab,

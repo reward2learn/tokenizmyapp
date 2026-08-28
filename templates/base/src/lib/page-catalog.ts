@@ -195,6 +195,14 @@ export const PAGE_CATALOG: Record<string, PageDefinition> = {
     authTier: 'google',
     sections: [],
   },
+  notes: {
+    slug: 'notes',
+    title: 'Notes',
+    navLabel: 'Notes',
+    showInNav: true,
+    authTier: 'google',
+    sections: [],
+  },
   admin: {
     slug: 'admin',
     title: 'Platform Admin',

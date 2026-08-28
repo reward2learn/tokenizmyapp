@@ -9,10 +9,55 @@ export interface ChatMessage {
   attachments?: ChatAttachment[];
 }
 
+export type NoteSource = 'manual' | 'assistant' | 'conversation';
+
+export interface NoteShareRecipient {
+  sub: string;
+  name?: string | null;
+  email?: string | null;
+  sharedAt: string;
+}
+
+export interface AppNote {
+  id: string;
+  title: string;
+  content: string;
+  source: NoteSource;
+  createdAt: string;
+  updatedAt?: string;
+  ownerSub: string;
+  shares?: NoteShareRecipient[];
+}
+
+export interface SharedNote extends Omit<AppNote, 'shares'> {
+  originalNoteId: string;
+  sharedFrom: {
+    sub: string;
+    name?: string | null;
+    email?: string | null;
+    sharedAt: string;
+  };
+  shareScope: 'direct' | 'team';
+}
+
+export interface NoteTeamMember {
+  sub: string;
+  name: string | null;
+  email: string | null;
+}
+
+export interface NotesListData {
+  mine: AppNote[];
+  sharedWithMe: SharedNote[];
+  teamMembers: NoteTeamMember[];
+  /** @deprecated use mine */
+  notes?: AppNote[];
+}
+
 export const chatApi = createApi({
   reducerPath: 'chatApi',
   baseQuery,
-  tagTypes: ['Conversations', 'AiFindings'],
+  tagTypes: ['Conversations', 'AiFindings', 'Notes'],
   endpoints: (builder) => ({
     sendMessage: builder.mutation<
       ApiEnvelope<{ reply: string }>,
@@ -151,6 +196,84 @@ export const chatApi = createApi({
         body,
       }),
     }),
+    getNotes: builder.query<ApiEnvelope<NotesListData>, void>({
+      query: () => 'notes',
+      providesTags: ['Notes'],
+    }),
+    createNote: builder.mutation<
+      ApiEnvelope<{ saved: boolean; id: string; note: AppNote }>,
+      { content: string; title?: string; source?: NoteSource }
+    >({
+      query: (body) => ({
+        url: 'notes',
+        method: 'POST',
+        body,
+      }),
+      invalidatesTags: ['Notes'],
+    }),
+    updateNote: builder.mutation<
+      ApiEnvelope<{ updated: boolean; note: AppNote; syncedTo?: number }>,
+      { id: string; title?: string; content?: string }
+    >({
+      query: (body) => ({
+        url: 'notes',
+        method: 'PATCH',
+        body,
+      }),
+      invalidatesTags: ['Notes'],
+    }),
+    shareNote: builder.mutation<
+      ApiEnvelope<{
+        shared: boolean;
+        delivered: number;
+        recipients: { sub: string; label: string }[];
+        note: AppNote;
+      }>,
+      { noteId: string; recipientSub?: string; shareWithAll?: boolean }
+    >({
+      query: (body) => ({
+        url: 'notes/share',
+        method: 'POST',
+        body,
+      }),
+      invalidatesTags: ['Notes'],
+    }),
+    unshareNote: builder.mutation<
+      ApiEnvelope<{
+        revoked: boolean;
+        removedFromInboxes: number;
+        recipients: { sub: string; label: string }[];
+        note: AppNote;
+      }>,
+      { noteId: string; recipientSub?: string; revokeAll?: boolean }
+    >({
+      query: (body) => ({
+        url: 'notes/unshare',
+        method: 'POST',
+        body,
+      }),
+      invalidatesTags: ['Notes'],
+    }),
+    deleteNotes: builder.mutation<
+      ApiEnvelope<{ deleted: boolean; remaining: number }>,
+      string[]
+    >({
+      query: (ids) => ({
+        url: `notes?ids=${ids.map(encodeURIComponent).join(',')}`,
+        method: 'DELETE',
+      }),
+      invalidatesTags: ['Notes'],
+    }),
+    deleteInboxNotes: builder.mutation<
+      ApiEnvelope<{ deleted: boolean; remaining: number }>,
+      string[]
+    >({
+      query: (ids) => ({
+        url: `notes?scope=inbox&ids=${ids.map(encodeURIComponent).join(',')}`,
+        method: 'DELETE',
+      }),
+      invalidatesTags: ['Notes'],
+    }),
   }),
 });
 
@@ -170,4 +293,11 @@ export const {
   useSaveAiFindingsBatchMutation,
   useSummarizeFindingMutation,
   useUpdateReviewMutation,
+  useGetNotesQuery,
+  useCreateNoteMutation,
+  useUpdateNoteMutation,
+  useShareNoteMutation,
+  useUnshareNoteMutation,
+  useDeleteNotesMutation,
+  useDeleteInboxNotesMutation,
 } = chatApi;

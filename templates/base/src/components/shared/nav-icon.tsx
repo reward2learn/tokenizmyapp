@@ -28,6 +28,8 @@ import CalendarMonthIcon from '@mui/icons-material/CalendarMonth';
 import CampaignIcon from '@mui/icons-material/Campaign';
 import FolderIcon from '@mui/icons-material/Folder';
 import InsertDriveFileIcon from '@mui/icons-material/InsertDriveFile';
+import StickyNote2Icon from '@mui/icons-material/StickyNote2';
+import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import type { SvgIconProps } from '@mui/material/SvgIcon';
 
 const ICON_MAP: Record<string, React.ComponentType<SvgIconProps>> = {
@@ -35,6 +37,7 @@ const ICON_MAP: Record<string, React.ComponentType<SvgIconProps>> = {
   Description: DescriptionIcon,
   Summarize: SummarizeIcon,
   Task: TaskIcon,
+  CheckCircle: CheckCircleIcon,
   Timeline: TimelineIcon,
   AdminPanelSettings: AdminPanelSettingsIcon,
   Settings: SettingsIcon,
@@ -57,6 +60,7 @@ const ICON_MAP: Record<string, React.ComponentType<SvgIconProps>> = {
   Campaign: CampaignIcon,
   Folder: FolderIcon,
   InsertDriveFile: InsertDriveFileIcon,
+  StickyNote2: StickyNote2Icon,
 };
 
 /** All available icon names for use in dropdown selectors. */

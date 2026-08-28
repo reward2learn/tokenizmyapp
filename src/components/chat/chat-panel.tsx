@@ -9,14 +9,11 @@ import Dialog from '@mui/material/Dialog';
 import DialogActions from '@mui/material/DialogActions';
 import DialogContent from '@mui/material/DialogContent';
 import DialogTitle from '@mui/material/DialogTitle';
-import FormControl from '@mui/material/FormControl';
 import IconButton from '@mui/material/IconButton';
-import InputLabel from '@mui/material/InputLabel';
 import InputAdornment from '@mui/material/InputAdornment';
 import Menu from '@mui/material/Menu';
 import MenuItem from '@mui/material/MenuItem';
 import Paper from '@mui/material/Paper';
-import Select from '@mui/material/Select';
 import Slider from '@mui/material/Slider';
 import Stack from '@mui/material/Stack';
 import TextField from '@mui/material/TextField';
@@ -40,14 +37,14 @@ import PauseCircleIcon from '@mui/icons-material/PauseCircle';
 import PlayCircleIcon from '@mui/icons-material/PlayCircle';
 import RecordVoiceOverIcon from '@mui/icons-material/RecordVoiceOver';
 import SaveIcon from '@mui/icons-material/Save';
+import StickyNote2Icon from '@mui/icons-material/StickyNote2';
 import SendIcon from '@mui/icons-material/Send';
 import VolumeOffIcon from '@mui/icons-material/VolumeOff';
 import VolumeUpIcon from '@mui/icons-material/VolumeUp';
 import {
-  useCreateAiFindingMutation,
+  useCreateNoteMutation,
   useSaveConversationMutation,
   useSynthesizeVoiceMutation,
-  useUpdateReviewMutation,
 } from '@/store/apis/chat-api';
 import { useAppDispatch, useAppSelector } from '@/store/hooks';
 import {
@@ -75,7 +72,6 @@ import { selectActiveSheetArg, selectSelectedCells } from '@/store/sheet-viewer-
 import { sheetDataApi } from '@/store/apis/sheet-data-api';
 import { buildCellsPrompt, buildPagePrompt, type PromptRow } from '@/lib/sheet-prompt';
 import { buildBlockDataContextNote } from '@/lib/chat/block-data-context-prompt';
-import { listReviewParts, getReviewPartDisplayTitle } from '@/lib/page-catalog';
 import { useTtsVoicePreference } from '@/hooks/use-tts-voice-preference';
 import { useVoiceConversation } from '@/hooks/use-voice-conversation';
 import { VoiceProfileMenu } from '@/components/chat/voice-profile-menu';
@@ -183,25 +179,22 @@ export function ChatPanel({
   const [saveConversation, { isLoading: isSaving }] = useSaveConversationMutation();
   const [synthesizeVoiceMutation] = useSynthesizeVoiceMutation();
   const [ttsVoice, setTtsVoice] = useTtsVoicePreference();
-  const [updateReview] = useUpdateReviewMutation();
-  const [createFinding] = useCreateAiFindingMutation();
+  const [createNote] = useCreateNoteMutation();
 
   const lastAssistant = [...messages].reverse().find((msg) => msg.role === 'assistant' && msg.content.trim());
 
   // ── Message action menu ───────────────────────────────
   const [menuAnchor, setMenuAnchor] = useState<HTMLElement | null>(null);
   const [menuMessageIndex, setMenuMessageIndex] = useState<number | null>(null);
-  const [reviewDialogOpen, setReviewDialogOpen] = useState(false);
-  const [selectedPartSlug, setSelectedPartSlug] = useState('');
   const [actionStatus, setActionStatus] = useState<string | null>(null);
-  const [findingTitle, setFindingTitle] = useState('');
-  const [findingTitleDialogOpen, setFindingTitleDialogOpen] = useState(false);
-  const [pendingFindingContent, setPendingFindingContent] = useState<string | null>(null);
+  const [noteTitle, setNoteTitle] = useState('');
+  const [noteTitleDialogOpen, setNoteTitleDialogOpen] = useState(false);
+  const [pendingNoteContent, setPendingNoteContent] = useState<string | null>(null);
+  const [pendingNoteSource, setPendingNoteSource] = useState<'assistant' | 'conversation'>('assistant');
   const [streamEventsDialogOpen, setStreamEventsDialogOpen] = useState(false);
   const [streamEventsDialogEntries, setStreamEventsDialogEntries] = useState<
     NonNullable<ChatStreamMessage['streamEvents']>
   >([]);
-  const reviewParts = listReviewParts();
 
   const menuMessage = menuMessageIndex !== null ? messages[menuMessageIndex] ?? null : null;
   const menuStreamEvents = menuMessage?.role === 'assistant' ? (menuMessage.streamEvents ?? []) : [];
@@ -438,88 +431,48 @@ export function ChatPanel({
   };
 
   // ── Message action handlers ────────────────────────────
-  const handleUpdateReview = useCallback(() => {
-    setMenuAnchor(null);
-    setSelectedPartSlug('');
-    setActionStatus(null);
-    setReviewDialogOpen(true);
-  }, []);
-
-  const handleConfirmUpdateReview = useCallback(async () => {
-    if (menuMessageIndex === null || !selectedPartSlug) return;
-    const msg = messages[menuMessageIndex];
-    if (!msg || msg.role !== 'assistant') return;
-
-    setActionStatus('Updating...');
-    try {
-      await updateReview({
-        messages: [{ role: 'assistant', content: msg.content }],
-        summary: `Update ${selectedPartSlug} with findings from AI chat.`,
-      }).unwrap();
-      setActionStatus(`✅ Review section updated.`);
-    } catch {
-      setActionStatus('❌ Update failed');
-    }
-  }, [menuMessageIndex, selectedPartSlug, messages, updateReview]);
-
-  const handleUpdateExecutiveSummary = useCallback(async () => {
-    setMenuAnchor(null);
-    setMenuMessageIndex(null);
-    setActionStatus('Updating Executive Summary...');
-
-    const msg = menuMessageIndex !== null ? messages[menuMessageIndex] : null;
-    if (!msg || msg.role !== 'assistant') {
-      setActionStatus('❌ No assistant message selected.');
-      return;
-    }
-
-    try {
-      await updateReview({
-        messages: [{ role: 'assistant', content: msg.content }],
-        summary: 'Update Executive Summary with findings from AI chat.',
-        target: 'executive_summary',
-      }).unwrap();
-      setActionStatus('✅ Executive Summary updated.');
-    } catch {
-      setActionStatus('❌ Update failed');
-    }
-  }, [menuMessageIndex, messages, updateReview]);
-
-  const handleAddToDashboard = useCallback(() => {
+  const handleAddToNotes = useCallback(() => {
     if (menuMessageIndex === null) return;
     const msg = messages[menuMessageIndex];
     if (!msg || msg.role !== 'assistant') return;
 
     setMenuAnchor(null);
     setMenuMessageIndex(null);
+    setPendingNoteContent(msg.content);
+    setPendingNoteSource('assistant');
 
-    // Save the content for the confirm handler
-    setPendingFindingContent(msg.content);
-
-    // Extract first line as default title
     const firstLine = msg.content.split('\n')[0]?.replace(/^#{1,3}\s+/, '').replace(/^\*\*|\*\*$/g, '').trim() ?? '';
-    setFindingTitle(firstLine.slice(0, 80));
-    setFindingTitleDialogOpen(true);
+    setNoteTitle(firstLine.slice(0, 80));
+    setNoteTitleDialogOpen(true);
   }, [menuMessageIndex, messages]);
 
-  const handleConfirmAddToDashboard = useCallback(async () => {
-    if (!pendingFindingContent) return;
+  const handleAddConversationToNotes = useCallback(() => {
+    if (!messages.length) return;
+    setPendingNoteContent(formatTranscript(messages));
+    setPendingNoteSource('conversation');
+    setNoteTitle(`Chat ${new Date().toLocaleString()}`);
+    setNoteTitleDialogOpen(true);
+  }, [messages]);
 
-    setFindingTitleDialogOpen(false);
-    setActionStatus('Saving...');
+  const handleConfirmAddToNotes = useCallback(async () => {
+    if (!pendingNoteContent) return;
+
+    setNoteTitleDialogOpen(false);
+    setActionStatus('Saving note…');
 
     try {
-      await createFinding({
-        content: pendingFindingContent,
-        title: findingTitle || undefined,
+      await createNote({
+        content: pendingNoteContent,
+        title: noteTitle || undefined,
+        source: pendingNoteSource,
       }).unwrap();
-      setActionStatus('✅ Added to Dashboard as AI Findings.');
+      setActionStatus('✅ Saved to Notes.');
     } catch {
       setActionStatus('❌ Save failed');
     } finally {
-      setPendingFindingContent(null);
+      setPendingNoteContent(null);
     }
-  }, [pendingFindingContent, findingTitle, createFinding]);
+  }, [createNote, noteTitle, pendingNoteContent, pendingNoteSource]);
 
   const displayStatus = voiceStatus ?? status ?? sessionStatusMessage;
   const voicePhaseLabel = voiceMode ? VOICE_PHASE_LABEL[voicePhase] : null;
@@ -764,14 +717,8 @@ export function ChatPanel({
               )}
               {menuMessageIndex !== null && messages[menuMessageIndex]?.role === 'assistant' ? (
                 [
-                  <MenuItem key="review" onClick={handleUpdateReview}>
-                    Update Review Section
-                  </MenuItem>,
-                  <MenuItem key="exec" onClick={handleUpdateExecutiveSummary}>
-                    Update Executive Summary
-                  </MenuItem>,
-                  <MenuItem key="dashboard" onClick={handleAddToDashboard}>
-                    Add to Dashboard
+                  <MenuItem key="notes" onClick={handleAddToNotes}>
+                    Add to Notes
                   </MenuItem>,
                   ...(menuStreamEvents.length > 0 || Boolean(messages[menuMessageIndex]?.streamError)
                     ? [
@@ -784,67 +731,34 @@ export function ChatPanel({
               ) : null}
             </Menu>
 
-            {/* ── Review section update dialog ───────────────── */}
-            <Dialog open={reviewDialogOpen} onClose={() => setReviewDialogOpen(false)} maxWidth="xs" fullWidth>
-              <DialogTitle>Update Review Section</DialogTitle>
+            {/* ── Add to Notes confirmation dialog ───────────── */}
+            <Dialog open={noteTitleDialogOpen} onClose={() => setNoteTitleDialogOpen(false)} maxWidth="xs" fullWidth>
+              <DialogTitle>Add to Notes</DialogTitle>
               <DialogContent dividers>
                 <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-                  Select which review section to update with this message content:
-                </Typography>
-                <FormControl fullWidth size="small">
-                  <InputLabel>Review Section</InputLabel>
-                  <Select
-                    value={selectedPartSlug}
-                    label="Review Section"
-                    onChange={(e) => setSelectedPartSlug(e.target.value)}
-                  >
-                    {reviewParts.map((p) => (
-                      <MenuItem key={p.partSlug} value={p.partSlug}>
-                        {getReviewPartDisplayTitle(p.title)}
-                      </MenuItem>
-                    ))}
-                  </Select>
-                </FormControl>
-                {actionStatus ? (
-                  <Typography variant="caption" sx={{ mt: 1, display: 'block', color: actionStatus.includes('✅') ? 'success.main' : 'error.main' }}>
-                    {actionStatus}
-                  </Typography>
-                ) : null}
-              </DialogContent>
-              <DialogActions>
-                <Button onClick={() => setReviewDialogOpen(false)}>Cancel</Button>
-                <Button variant="contained" disabled={!selectedPartSlug} onClick={handleConfirmUpdateReview}>
-                  Update
-                </Button>
-              </DialogActions>
-            </Dialog>
-
-            {/* ── Add to Dashboard confirmation dialog ──────── */}
-            <Dialog open={findingTitleDialogOpen} onClose={() => setFindingTitleDialogOpen(false)} maxWidth="xs" fullWidth>
-              <DialogTitle>Add to AI Findings</DialogTitle>
-              <DialogContent dividers>
-                <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-                  Give this finding a title:
+                  {pendingNoteSource === 'conversation'
+                    ? 'Save this conversation as a note:'
+                    : 'Save this assistant reply as a note:'}
                 </Typography>
                 <TextField
                   fullWidth
                   size="small"
                   label="Title"
-                  value={findingTitle}
-                  onChange={(e) => setFindingTitle(e.target.value)}
+                  value={noteTitle}
+                  onChange={(e) => setNoteTitle(e.target.value)}
                   autoFocus
                 />
               </DialogContent>
               <DialogActions>
-                <Button onClick={() => setFindingTitleDialogOpen(false)}>Cancel</Button>
-                <Button variant="contained" disabled={!findingTitle.trim()} onClick={handleConfirmAddToDashboard}>
-                  Save
+                <Button onClick={() => setNoteTitleDialogOpen(false)}>Cancel</Button>
+                <Button variant="contained" disabled={!noteTitle.trim() && !pendingNoteContent} onClick={() => void handleConfirmAddToNotes()}>
+                  Save to Notes
                 </Button>
               </DialogActions>
             </Dialog>
 
-            <Dialog open={actionStatus !== null && !reviewDialogOpen && !findingTitleDialogOpen} onClose={() => setActionStatus(null)} maxWidth="xs" fullWidth>
-              <DialogTitle>AI Findings</DialogTitle>
+            <Dialog open={actionStatus !== null && !noteTitleDialogOpen} onClose={() => setActionStatus(null)} maxWidth="xs" fullWidth>
+              <DialogTitle>Notes</DialogTitle>
               <DialogContent dividers>
                 {actionStatus ? (
                   <Typography variant="body2" color={actionStatus.includes('✅') ? 'success.main' : 'error.main'}>
@@ -1055,6 +969,18 @@ export function ChatPanel({
                     sx={ICON_BUTTON_SX}
                   >
                     <SaveIcon />
+                  </IconButton>
+                </span>
+              </Tooltip>
+              <Tooltip title="Save conversation to Notes">
+                <span>
+                  <IconButton
+                    onClick={handleAddConversationToNotes}
+                    disabled={!messages.length}
+                    aria-label="Save conversation to Notes"
+                    sx={ICON_BUTTON_SX}
+                  >
+                    <StickyNote2Icon />
                   </IconButton>
                 </span>
               </Tooltip>

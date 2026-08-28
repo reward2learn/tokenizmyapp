@@ -13,7 +13,7 @@
 
 import { useState, useMemo, useEffect } from 'react';
 import { useAppDispatch, useAppSelector } from '@/store/hooks';
-import { setAdminSelectedTenant, setAdminSelectedApp, setAdminActiveSubtab, type AdminTenantSubtab } from '@/store/ui-slice';
+import { setAdminSelectedApp, setAdminActiveSubtab, type AdminTenantSubtab } from '@/store/ui-slice';
 import Alert from '@mui/material/Alert';
 import Box from '@mui/material/Box';
 import Chip from '@mui/material/Chip';
@@ -34,6 +34,7 @@ import EditIcon from '@mui/icons-material/Edit';
 
 import { useListTenantsQuery, type TenantEntry, type AppPackConfig } from '@/store/apis/tenant-api';
 import { useOrgScopedTenants } from '@/lib/admin/use-org-scoped-tenants';
+import { useSelectAdminTenantContext } from '@/lib/admin/use-select-admin-tenant-context';
 import { getTemplate } from '@/domain/tenant/template-catalog';
 import { OrganizationBar } from './organization-bar';
 import { TenantDashboard } from './tenant-dashboard';
@@ -98,6 +99,7 @@ export function TenantAdminPanel() {
   // Scoped by the organization picker in the bar above — shared with the
   // Tenant Applications list so the two sections cannot disagree.
   const { scoped: tenants, selectedOrgId } = useOrgScopedTenants(allTenants);
+  const { selectTenant, selectTenantApp, clearTenantSelection } = useSelectAdminTenantContext();
 
   // Get selected tenant
   const selectedTenant = useMemo(() => {
@@ -142,17 +144,25 @@ export function TenantAdminPanel() {
   // above and must never be sent as a filter (no row is actually stamped with it).
   const effectiveAppId = isSuite ? (selectedAppId ?? undefined) : undefined;
 
-  // Handle tenant selection
+  // Handle tenant selection — also sets the owning organization.
   const handleTenantChange = (slug: string) => {
-    dispatch(setAdminSelectedTenant(slug || null)); // also resets app + subtab
+    if (slug) {
+      selectTenant(slug);
+    } else {
+      clearTenantSelection();
+    }
   };
 
   const handleClearSelection = () => {
-    dispatch(setAdminSelectedTenant(null));
+    clearTenantSelection();
   };
 
   const handleAppSelect = (appId: string) => {
-    dispatch(setAdminSelectedApp(appId));
+    if (selectedTenantSlug) {
+      selectTenantApp(selectedTenantSlug, appId);
+    } else {
+      dispatch(setAdminSelectedApp(appId));
+    }
   };
 
   // Subtab definitions + panel content (accordion on mobile via ResponsiveTabPanels)

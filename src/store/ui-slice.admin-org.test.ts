@@ -4,6 +4,7 @@ import {
   setAdminSelectedApp,
   setAdminSelectedOrg,
   setAdminSelectedTenant,
+  setAdminTenantSelection,
   uiSlice,
 } from '@/store/ui-slice';
 
@@ -52,6 +53,20 @@ describe('adminSelectedOrgId', () => {
     let state = uiSlice.reducer(undefined, setAdminSelectedOrg('org_1'));
     state = uiSlice.reducer(state, setAdminSelectedOrg(null));
     expect(state.adminSelectedOrgId).toBeNull();
+  });
+});
+
+describe('setAdminTenantSelection', () => {
+  it('sets organization, tenant, and app together', () => {
+    const state = uiSlice.reducer(
+      undefined,
+      setAdminTenantSelection({ orgId: 'org_1', tenantSlug: 'acme', appId: 'finance' }),
+    );
+
+    expect(state.adminSelectedOrgId).toBe('org_1');
+    expect(state.adminSelectedTenantSlug).toBe('acme');
+    expect(state.adminSelectedAppId).toBe('finance');
+    expect(state.adminActiveSubtab).toBe('info');
   });
 });
 
