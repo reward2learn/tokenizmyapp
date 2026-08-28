@@ -481,16 +481,18 @@ export async function syncStripeEnvVars(
 
   if (webhook) {
     const replaced = await replaceStripeWebhookSecretOnProject(projectId, webhook);
-    if (replaced.verifyPrefix !== 'whsec') {
+    if (!replaced.created && replaced.verifyPrefix !== 'whsec') {
       throw new Error(
         `STRIPE webhook secret push failed — Vercel still reports ${replaced.verifyPrefix} after ` +
           `deleting ${replaced.deleted} row(s). Check TOKENIZ_SNAPSHOT_WHSEC on the project.`,
       );
     }
-    envCount += 1;
-    console.log(
-      `[vercel-deploy] Pushed ${TOKENIZ_SNAPSHOT_WHSEC_KEY} on ${projectId} (deleted ${replaced.deleted} legacy row(s)).`,
-    );
+    if (replaced.created || replaced.verifyPrefix === 'whsec') {
+      envCount += 1;
+      console.log(
+        `[vercel-deploy] Pushed ${TOKENIZ_SNAPSHOT_WHSEC_KEY} on ${projectId} (deleted ${replaced.deleted} legacy row(s)).`,
+      );
+    }
   } else {
     try {
       const purged = await purgeMarketplaceWebhookSecrets(projectId);

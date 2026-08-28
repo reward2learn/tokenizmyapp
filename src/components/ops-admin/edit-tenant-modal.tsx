@@ -138,6 +138,7 @@ import {
   usePushStripeEnvVarsMutation,
   usePushCryptoEnvVarsMutation,
   usePushVercelTeamEnvVarsMutation,
+  usePushVercelTokenEnvVarsMutation,
   usePushAppEnvVarsMutation,
   useLazyGetStripeMarketplaceStatusQuery,
   useLazyGetAgenticCommerceHealthQuery,
@@ -635,6 +636,8 @@ export function EditTenantModal({ open, tenant, onClose, onSnackbar }: EditTenan
   const [pushStripeEnv, { isLoading: pushingStripeEnv }] = usePushStripeEnvVarsMutation();
   const [pushCryptoEnv, { isLoading: pushingCryptoEnv }] = usePushCryptoEnvVarsMutation();
   const [pushVercelTeamEnv, { isLoading: pushingVercelTeamEnv }] = usePushVercelTeamEnvVarsMutation();
+  const [pushVercelTokenEnv] = usePushVercelTokenEnvVarsMutation();
+  const [vercelTeamPat, setVercelTeamPat] = useState('');
   const [pushAppEnv, { isLoading: pushingAppEnv }] = usePushAppEnvVarsMutation();
   const [syncingSubscriptionPrices, setSyncingSubscriptionPrices] = useState(false);
   const [fetchMarketplaceStatus] = useLazyGetStripeMarketplaceStatusQuery();
@@ -1203,6 +1206,26 @@ export function EditTenantModal({ open, tenant, onClose, onSnackbar }: EditTenan
           message += ` — ⚠️ config saved, but Vercel team env push failed: ${teamMsg}`;
         }
       }
+
+      if (vercelTeamPat.trim()) {
+        try {
+          const patRes = await pushVercelTokenEnv({ slug: tenant.slug, token: vercelTeamPat.trim() }).unwrap();
+          const envCount = patRes.data?.envCount ?? 0;
+          message += ` — Vercel PAT pushed (${envCount} env var${envCount === 1 ? '' : 's'})`;
+          if (patRes.data?.redeployTriggered?.length) message += ', redeploy triggered';
+          else if (patRes.data?.note) message += ` — ${patRes.data.note}`;
+          setVercelTeamPat('');
+        } catch (patErr) {
+          const patMsg =
+            patErr && typeof patErr === 'object' && 'data' in patErr
+              ? String(
+                  (patErr as { data?: { error?: string } }).data?.error ||
+                    'Vercel PAT push failed',
+                )
+              : 'Vercel PAT push failed';
+          message += ` — ⚠️ config saved, but Vercel PAT push failed: ${patMsg}`;
+        }
+      }
       onSnackbar({ message, severity: 'success' });
     } catch (err) {
       const msg = getApiErrorMessage(err, 'Save failed');
@@ -1210,7 +1233,7 @@ export function EditTenantModal({ open, tenant, onClose, onSnackbar }: EditTenan
     } finally {
       setSaving(false);
     }
-  }, [tenant, displayName, editTemplate, editPrimaryColor, editSecondaryColor, license, googleOAuth, dbConfig, envPairs, deployHookUrl, vercelProjectId, vercelTeamSlug, adminEmail, pinSignInEnabled, web3WalletEnabled, cryptoPaymentsEnabled, cryptoTreasuryAddress, updateTenant, updateBrandConfig, onSnackbar, orgId, currentOrg, organizations, assignTenantOrg, stripeKeys, pushStripeEnv, pushCryptoEnv, pushVercelTeamEnv]);
+  }, [tenant, displayName, editTemplate, editPrimaryColor, editSecondaryColor, license, googleOAuth, dbConfig, envPairs, deployHookUrl, vercelProjectId, vercelTeamSlug, vercelTeamPat, adminEmail, pinSignInEnabled, web3WalletEnabled, cryptoPaymentsEnabled, cryptoTreasuryAddress, updateTenant, updateBrandConfig, onSnackbar, orgId, currentOrg, organizations, assignTenantOrg, stripeKeys, pushStripeEnv, pushCryptoEnv, pushVercelTeamEnv, pushVercelTokenEnv]);
 
   const handleApplyCatalogDefaultsAndSync = useCallback(async () => {
     if (!tenant) return;
@@ -3178,6 +3201,31 @@ export function EditTenantModal({ open, tenant, onClose, onSnackbar }: EditTenan
             </Typography>
           </Paper>
         )}
+      </Paper>
+      <Paper variant="outlined" sx={{ p: 2.5, borderColor: 'warning.main', mt: 2 }}>
+        <Typography variant="subtitle2" sx={{ fontWeight: 600, mb: 1.5 }}>
+          Vercel Team API Token (PAT)
+        </Typography>
+        <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+          Tokenizin team personal access token for env read/write, deploy hooks, and Stripe webhook
+          purge. Create at{' '}
+          <a href="https://vercel.com/account/tokens" target="_blank" rel="noopener noreferrer">
+            vercel.com/account/tokens
+          </a>{' '}
+          (scope: Tokenizin team). Written to <code>VERCEL_TOKEN</code> on Save — never stored in
+          tenant config.
+        </Typography>
+        <TextField
+          label="Vercel Team PAT"
+          value={vercelTeamPat}
+          onChange={(e) => setVercelTeamPat(e.target.value)}
+          fullWidth
+          size="small"
+          type="password"
+          placeholder="vca_…"
+          helperText="Leave blank to skip. Cleared from the form after a successful push."
+          slotProps={{ input: { sx: { fontFamily: 'monospace', fontSize: '0.8rem' } } }}
+        />
       </Paper>
     </Stack>
   );

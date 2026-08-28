@@ -10,6 +10,7 @@
 
 import {
   getVercelClient,
+  listVercelBearerTokens,
   resolveBearerToken,
   VERCEL_API,
   TEAM_ID,
@@ -161,41 +162,60 @@ function pickEnvValue(envs: EnvRow[], key: string): string | null {
 }
 
 /**
- * GET decrypted project env — try with TEAM_ID first, then without.
+ * GET decrypted project env — try each bearer (PAT then OAuth), team scope then personal.
  *
- * Mirrors `upsertProjectEnvVar`: writes already succeed after a team-scoped 404
- * by retrying without teamId. Reads used to throw on that same 404 and abort
- * Stripe migrate (webhook secret push + marketplace key merge).
+ * OAuth Sign-in tokens often cannot list decrypted env on team projects (404) while
+ * createProjectEnv upserts still succeed — callers must handle null / upsert-only fallback.
  */
-async function fetchProjectEnvsDecrypted(projectId: string): Promise<EnvRow[]> {
-  const bearer = await resolveBearerToken();
+async function fetchProjectEnvsDecrypted(projectId: string): Promise<EnvRow[] | null> {
+  const tokens = await listVercelBearerTokens();
+  if (tokens.length === 0) {
+    throw new Error(
+      'No Vercel API token available. Set VERCEL_TOKEN (team PAT) or connect via OAuth.',
+    );
+  }
+
   const base = `${VERCEL_API}/v9/projects/${encodeURIComponent(projectId)}/env?decrypted=true`;
   const urls = TEAM_ID ? [appendTeam(base), base] : [base];
 
   let lastStatus = 0;
   let lastBody = '';
-  for (const url of urls) {
-    const res = await fetch(url, {
-      headers: { Authorization: `Bearer ${bearer}` },
-    });
-    if (res.ok) {
-      const data = (await res.json()) as { envs?: EnvRow[] };
-      return data.envs ?? [];
+  for (const { token, source } of tokens) {
+    for (const url of urls) {
+      const res = await fetch(url, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (res.ok) {
+        const data = (await res.json()) as { envs?: EnvRow[] };
+        return data.envs ?? [];
+      }
+      lastStatus = res.status;
+      lastBody = await res.text().catch(() => '');
+      if ((res.status === 404 || res.status === 403) && url !== urls[urls.length - 1]) {
+        continue;
+      }
+      console.warn(
+        `[stripe-marketplace] env list failed (${source}, ${lastStatus}) for ${projectId}`,
+      );
+      break;
     }
-    lastStatus = res.status;
-    lastBody = await res.text().catch(() => '');
-    // 404/403 with team scope often means the project lives outside TEAM_ID —
-    // retry personal / default scope (same as upsertProjectEnvVar).
-    if ((res.status === 404 || res.status === 403) && url !== urls[urls.length - 1]) {
-      continue;
-    }
-    break;
   }
+
+  console.warn(
+    `[stripe-marketplace] decrypted env read unavailable for ${projectId}` +
+      `${TEAM_ID ? ` (teamId=${TEAM_ID})` : ''}: ${lastStatus} ${lastBody.slice(0, 120)}`,
+  );
+  return null;
+}
+
+/** @throws when no token is configured or every token/scope failed. */
+async function requireProjectEnvsDecrypted(projectId: string): Promise<EnvRow[]> {
+  const envs = await fetchProjectEnvsDecrypted(projectId);
+  if (envs) return envs;
   throw new Error(
     `Vercel env read failed for ${projectId}` +
-      `${TEAM_ID ? ` (teamId=${TEAM_ID})` : ''}: ${lastStatus} ${lastBody.slice(0, 200)}. ` +
-      `If the project exists in the dashboard, set VERCEL_TEAM_ID to the Tokenizin team that owns it ` +
-      `(Team Settings → General → Team ID) and ensure VERCEL_TOKEN is a token for that team.`,
+      `${TEAM_ID ? ` (teamId=${TEAM_ID})` : ''}: decrypted env list not permitted for this token. ` +
+      `Set VERCEL_TOKEN to a Tokenizin team PAT (vercel.com/account/tokens) with project env access.`,
   );
 }
 
@@ -204,7 +224,7 @@ export async function listProjectEnvRowsForKey(
   projectId: string,
   key: string,
 ): Promise<EnvRow[]> {
-  const envs = await fetchProjectEnvsDecrypted(projectId);
+  const envs = await requireProjectEnvsDecrypted(projectId);
   return envs.filter((e) => e.key === key && e.value?.trim());
 }
 
@@ -279,17 +299,27 @@ export async function replaceStripeWebhookSecretOnProject(
     throw new Error('STRIPE_WEBHOOK_SECRET must start with whsec_.');
   }
 
+  const envs = await fetchProjectEnvsDecrypted(projectId);
+  const readAvailable = envs !== null;
+
   let deleted = 0;
-  for (const key of SNAPSHOT_WEBHOOK_SECRET_ENV_KEYS) {
-    const snapshotRows = await listProjectEnvRowsForKey(projectId, key);
-    for (const row of snapshotRows) {
-      if (row.id && (await deleteProjectEnvRow(projectId, row.id))) deleted += 1;
+  if (readAvailable) {
+    for (const key of SNAPSHOT_WEBHOOK_SECRET_ENV_KEYS) {
+      const snapshotRows = envs.filter((e) => e.key === key && e.value?.trim());
+      for (const row of snapshotRows) {
+        if (row.id && (await deleteProjectEnvRow(projectId, row.id))) deleted += 1;
+      }
     }
-  }
-  try {
-    deleted += await purgeMarketplaceWebhookSecrets(projectId);
-  } catch (err) {
-    console.warn('[stripe-marketplace] purge eyJ STRIPE_WEBHOOK_SECRET failed:', err);
+    try {
+      deleted += await purgeMarketplaceWebhookSecrets(projectId);
+    } catch (err) {
+      console.warn('[stripe-marketplace] purge eyJ STRIPE_WEBHOOK_SECRET failed:', err);
+    }
+  } else {
+    console.warn(
+      `[stripe-marketplace] upsert-only ${TOKENIZ_SNAPSHOT_WHSEC_KEY} push for ${projectId} — ` +
+        'decrypted env list unavailable (set VERCEL_TOKEN team PAT for purge/verify).',
+    );
   }
 
   const client = await getVercelClient();
@@ -306,6 +336,7 @@ export async function replaceStripeWebhookSecretOnProject(
       await client.projects.createProjectEnv({
         idOrName: projectId,
         teamId,
+        upsert: 'true',
         requestBody,
       });
       created = true;
@@ -318,29 +349,37 @@ export async function replaceStripeWebhookSecretOnProject(
     }
   }
 
-  // Best-effort: replace STRIPE_WEBHOOK_SECRET when not integration-locked.
-  const legacyDeleted = await deleteAllWebhookSecretEnvRows(projectId);
-  deleted += legacyDeleted;
-  for (const teamId of [TEAM_ID, undefined]) {
-    try {
-      await client.projects.createProjectEnv({
-        idOrName: projectId,
-        teamId,
-        requestBody: {
-          key: 'STRIPE_WEBHOOK_SECRET',
-          value,
-          type: 'encrypted' as const,
-          target: ['production' as const, 'preview' as const, 'development' as const],
-        },
-      });
-      break;
-    } catch {
-      /* Marketplace may re-inject eyJ — TOKENIZ_SNAPSHOT_WHSEC is the runtime source. */
+  if (readAvailable) {
+    const legacyDeleted = await deleteAllWebhookSecretEnvRows(projectId);
+    deleted += legacyDeleted;
+    for (const teamId of [TEAM_ID, undefined]) {
+      try {
+        await client.projects.createProjectEnv({
+          idOrName: projectId,
+          teamId,
+          upsert: 'true',
+          requestBody: {
+            key: 'STRIPE_WEBHOOK_SECRET',
+            value,
+            type: 'encrypted' as const,
+            target: ['production' as const, 'preview' as const, 'development' as const],
+          },
+        });
+        break;
+      } catch {
+        /* Marketplace may re-inject eyJ — TOKENIZ_SNAPSHOT_WHSEC is the runtime source. */
+      }
     }
+
+    const verify = await diagnoseWebhookSigningSecretEnv(projectId);
+    return { deleted, created, verifyPrefix: verify.selectedPrefix };
   }
 
-  const verify = await diagnoseWebhookSigningSecretEnv(projectId);
-  return { deleted, created, verifyPrefix: verify.selectedPrefix };
+  return {
+    deleted,
+    created,
+    verifyPrefix: created ? 'whsec' : 'missing',
+  };
 }
 
 /** Prefer TOKENIZ_SNAPSHOT_WHSEC (whsec_) over Marketplace eyJ on STRIPE_WEBHOOK_SECRET. */
@@ -376,6 +415,7 @@ export async function getProjectEnvValues(
   );
 
   const envs = await fetchProjectEnvsDecrypted(projectId);
+  if (!envs) return out;
   for (const key of keyNames) {
     if (want.has(key)) {
       out[key] = pickEnvValue(envs, key);

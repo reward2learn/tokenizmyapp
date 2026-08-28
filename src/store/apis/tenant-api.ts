@@ -516,6 +516,25 @@ export const tenantApi = createApi({
       invalidatesTags: ['Tenants'],
     }),
 
+    /** POST .../vercel-token-env — push VERCEL_TOKEN (+ VERCEL_TEAM_ID); PAT not stored in DB. */
+    pushVercelTokenEnvVars: builder.mutation<
+      ApiEnvelope<{
+        projects: number;
+        envCount: number;
+        pushed: string[];
+        redeployTriggered: string[];
+        note?: string;
+      }>,
+      { slug: string; token?: string }
+    >({
+      query: ({ slug, token }) => ({
+        url: `admin/tenants/${slug}/vercel-token-env`,
+        method: 'POST',
+        body: token ? { token } : {},
+      }),
+      invalidatesTags: ['Tenants'],
+    }),
+
     /** POST admin/tenants/:slug/stripe-webhook-test — full Stripe webhook health checklist. */
     testStripeWebhook: builder.mutation<
       ApiEnvelope<{
@@ -1175,6 +1194,7 @@ export const {
   usePushStripeEnvVarsMutation,
   usePushCryptoEnvVarsMutation,
   usePushVercelTeamEnvVarsMutation,
+  usePushVercelTokenEnvVarsMutation,
   useLazyGetStripeMarketplaceStatusQuery,
   usePrepareStripeMarketplaceInstallMutation,
   useTestStripeWebhookMutation,
