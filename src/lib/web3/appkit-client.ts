@@ -101,7 +101,11 @@ async function createAppKitInstance(config: FactoryWeb3Config) {
     themeMode: 'light',
   });
 
-  void applyFactorySiwxAfterReady(Promise.resolve(appkit));
+  // createAppKit() returns before initialize() finishes. Social-only mode hides
+  // the wallet list; Google/email only render once the AUTH connector exists.
+  // Opening earlier → empty "Connect Wallet" shell while getWallets still 200s.
+  // applyFactorySiwxAfterReady waits on readyPromise, then re-applies SIWX/socials.
+  await applyFactorySiwxAfterReady(Promise.resolve(appkit));
 
   return appkit;
 }
