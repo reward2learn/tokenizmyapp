@@ -108,9 +108,20 @@ export async function POST(
       steps: result.steps,
     });
   } catch (err) {
-    return jsonError(
-      `Stripe webhook test failed: ${err instanceof Error ? err.message : String(err)}`,
-      500,
-    );
+    const message = err instanceof Error ? err.message : String(err);
+    return jsonOk({
+      status: 'fail',
+      ok: false,
+      message: `Stripe webhook test failed: ${message}`,
+      steps: [
+        {
+          id: 'webhook-endpoint',
+          label: 'Webhook endpoint (HTTP 200)',
+          status: 'fail',
+          ok: false,
+          message,
+        },
+      ],
+    });
   }
 }

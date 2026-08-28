@@ -82,15 +82,41 @@ export function buildProjectIntegrationsUrl(projectIdOrName: string): string {
 }
 
 async function vercelGet<T>(path: string): Promise<T> {
-  const bearer = await resolveBearerToken();
-  const res = await fetch(appendTeam(`${VERCEL_API}${path}`), {
-    headers: { Authorization: `Bearer ${bearer}` },
-  });
-  if (!res.ok) {
-    const text = await res.text().catch(() => '');
-    throw new Error(`Vercel GET ${path} failed: ${res.status} ${text}`);
+  const tokens = await listVercelBearerTokens();
+  if (tokens.length === 0) {
+    throw new Error(
+      'No Vercel API token available. Set VERCEL_TOKEN (Tokenizin team PAT) or Connect to Vercel.',
+    );
   }
-  return res.json() as Promise<T>;
+
+  const base = `${VERCEL_API}${path}`;
+  // Project-scoped vcp_ PATs infer team — try without teamId before ?teamId=.
+  const urls = TEAM_ID ? [base, appendTeam(base)] : [base];
+
+  let lastStatus = 0;
+  let lastBody = '';
+  for (const { token, source } of tokens) {
+    for (const url of urls) {
+      const res = await fetch(url, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (res.ok) {
+        return res.json() as Promise<T>;
+      }
+      lastStatus = res.status;
+      lastBody = await res.text().catch(() => '');
+      if ((res.status === 403 || res.status === 404) && url !== urls[urls.length - 1]) {
+        continue;
+      }
+      console.warn(`[stripe-marketplace] GET ${path} failed (${source}, ${lastStatus})`);
+      break;
+    }
+  }
+
+  throw new Error(
+    `Vercel GET ${path} failed: ${lastStatus} ${lastBody.slice(0, 300)}. ` +
+      'Set VERCEL_TOKEN to a Tokenizin-scoped PAT on this deployment, or re-connect Vercel OAuth to the Tokenizin team.',
+  );
 }
 
 type EnvRow = { key: string; id?: string; type?: string; target?: string[]; value?: string; integrationId?: string | null; updatedAt?: number };
@@ -170,9 +196,8 @@ function pickEnvValue(envs: EnvRow[], key: string): string | null {
 async function fetchProjectEnvsDecrypted(projectId: string): Promise<EnvRow[] | null> {
   const tokens = await listVercelBearerTokens();
   if (tokens.length === 0) {
-    throw new Error(
-      'No Vercel API token available. Set VERCEL_TOKEN (team PAT) or connect via OAuth.',
-    );
+    console.warn('[stripe-marketplace] No Vercel bearer token — env read skipped');
+    return null;
   }
 
   const base = `${VERCEL_API}/v9/projects/${encodeURIComponent(projectId)}/env?decrypted=true`;
@@ -208,23 +233,13 @@ async function fetchProjectEnvsDecrypted(projectId: string): Promise<EnvRow[] | 
   return null;
 }
 
-/** @throws when no token is configured or every token/scope failed. */
-async function requireProjectEnvsDecrypted(projectId: string): Promise<EnvRow[]> {
-  const envs = await fetchProjectEnvsDecrypted(projectId);
-  if (envs) return envs;
-  throw new Error(
-    `Vercel env read failed for ${projectId}` +
-      `${TEAM_ID ? ` (teamId=${TEAM_ID})` : ''}: decrypted env list not permitted for this token. ` +
-      `Set VERCEL_TOKEN to a Tokenizin team PAT (vercel.com/account/tokens) with project env access.`,
-  );
-}
-
-/** List decrypted env rows for one key (server-only). */
+/** List decrypted env rows for one key (server-only). Returns [] when env read is unavailable. */
 export async function listProjectEnvRowsForKey(
   projectId: string,
   key: string,
 ): Promise<EnvRow[]> {
-  const envs = await requireProjectEnvsDecrypted(projectId);
+  const envs = await fetchProjectEnvsDecrypted(projectId);
+  if (!envs) return [];
   return envs.filter((e) => e.key === key && e.value?.trim());
 }
 
@@ -461,14 +476,22 @@ export async function getVercelProjectName(projectId: string): Promise<string | 
 
 /** List env var *names* on a project (values are never returned to the UI). */
 export async function listProjectEnvKeyNames(projectId: string): Promise<string[]> {
-  const data = await vercelGet<{ envs?: EnvRow[] }>(
-    `/v9/projects/${encodeURIComponent(projectId)}/env`,
-  );
-  const keys = new Set<string>();
-  for (const env of data.envs ?? []) {
-    if (env.key) keys.add(env.key);
+  try {
+    const data = await vercelGet<{ envs?: EnvRow[] }>(
+      `/v9/projects/${encodeURIComponent(projectId)}/env`,
+    );
+    const keys = new Set<string>();
+    for (const env of data.envs ?? []) {
+      if (env.key) keys.add(env.key);
+    }
+    return [...keys].sort();
+  } catch (err) {
+    console.warn(
+      '[stripe-marketplace] listProjectEnvKeyNames failed:',
+      err instanceof Error ? err.message : err,
+    );
+    return [];
   }
-  return [...keys].sort();
 }
 
 type IntegrationConfiguration = {

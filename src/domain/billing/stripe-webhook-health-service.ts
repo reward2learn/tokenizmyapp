@@ -170,6 +170,18 @@ async function checkVercelWebhookSecret(
   const effective = snapshot?.startsWith('whsec_') ? snapshot : raw;
 
   if (!effective) {
+    const metaWhsec = metadataWebhookSecret?.trim();
+    if (metaWhsec?.startsWith('whsec_')) {
+      return {
+        id: 'vercel-webhook-secret',
+        label,
+        status: 'warn',
+        ok: true,
+        message:
+          'Tenant metadata has whsec_ but Vercel env API could not be read (set VERCEL_TOKEN team PAT on this deployment). ' +
+          'Signed POST test uses metadata secret; push TOKENIZ_SNAPSHOT_WHSEC via Organization & Billing → Save Changes.',
+      };
+    }
     return {
       id: 'vercel-webhook-secret',
       label,

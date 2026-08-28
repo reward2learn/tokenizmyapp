@@ -244,6 +244,21 @@ export async function testStripeWebhookForProject(input: {
     };
   }
 
+  const useBillingTarget =
+    input.billingTarget === true
+    || projectName === 'tokenizmyapp'
+    || projectId === FACTORY_VERCEL_PROJECT_ID;
+
+  const signingProjectId = useBillingTarget ? FACTORY_VERCEL_PROJECT_ID : projectId;
+
+  const metaWhsec = input.metadataWebhookSecret?.trim();
+  let resolvedSigningSecret =
+    metaWhsec?.startsWith('whsec_') ? metaWhsec : null;
+
+  if (!resolvedSigningSecret && signingProjectId === FACTORY_VERCEL_PROJECT_ID) {
+    resolvedSigningSecret = await loadFactoryTenantWebhookSecret();
+  }
+
   const keyNames = await listProjectEnvKeyNames(projectId);
   const stripeKeys = stripeKeyNames(keyNames);
   const envValues = await getProjectEnvValues(projectId, [
@@ -254,12 +269,6 @@ export async function testStripeWebhookForProject(input: {
     'NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY',
   ]);
 
-  const useBillingTarget =
-    input.billingTarget === true
-    || projectName === 'tokenizmyapp'
-    || projectId === FACTORY_VERCEL_PROJECT_ID;
-
-  const signingProjectId = useBillingTarget ? FACTORY_VERCEL_PROJECT_ID : projectId;
   const signingEnvValues =
     signingProjectId === projectId
       ? envValues
@@ -271,26 +280,18 @@ export async function testStripeWebhookForProject(input: {
 
   const signingDiagnostic = await diagnoseWebhookSigningSecretEnv(signingProjectId).catch(() => null);
 
-  const metaWhsec = input.metadataWebhookSecret?.trim();
-  const envWhsec =
-    signingEnvValues[TOKENIZ_SNAPSHOT_WHSEC_KEY]?.trim() ||
-    signingEnvValues.STRIPE_SNAPSHOT_WEBHOOK_SECRET?.trim() ||
-    signingEnvValues.STRIPE_WEBHOOK_SECRET?.trim();
-
-  let resolvedSigningSecret =
-    metaWhsec?.startsWith('whsec_')
-      ? metaWhsec
-      : envWhsec?.startsWith('whsec_')
-        ? envWhsec
-        : null;
+  if (!resolvedSigningSecret) {
+    const envWhsec =
+      signingEnvValues[TOKENIZ_SNAPSHOT_WHSEC_KEY]?.trim() ||
+      signingEnvValues.STRIPE_SNAPSHOT_WEBHOOK_SECRET?.trim() ||
+      signingEnvValues.STRIPE_WEBHOOK_SECRET?.trim();
+    if (envWhsec?.startsWith('whsec_')) {
+      resolvedSigningSecret = envWhsec;
+    }
+  }
 
   if (!resolvedSigningSecret && signingDiagnostic?.selectedPrefix === 'whsec' && metaWhsec?.startsWith('whsec_')) {
     resolvedSigningSecret = metaWhsec;
-  }
-
-  if (!resolvedSigningSecret && signingProjectId === FACTORY_VERCEL_PROJECT_ID) {
-    const fromDb = await loadFactoryTenantWebhookSecret();
-    if (fromDb) resolvedSigningSecret = fromDb;
   }
 
   const secretKeyPresent = Boolean(envValues.STRIPE_SECRET_KEY?.trim());
