@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest';
 import {
   addMessage,
   appendToken,
+  applyStreamStatus,
+  applyStreamTool,
   chatStreamSlice,
   clearMessages,
   clearRateLimit,
@@ -179,5 +181,52 @@ describe('chatStreamSlice', () => {
   it('setComposerInput controls the composer text field', () => {
     const state = chatStreamSlice.reducer(undefined, setComposerInput('hello'));
     expect(state.composerInput).toBe('hello');
+  });
+
+  it('tracks in-card stream progress for status and tools', () => {
+    let state = chatStreamSlice.reducer(undefined, setStreaming(true));
+    state = chatStreamSlice.reducer(state, addMessage({ role: 'assistant', content: '' }));
+    state = chatStreamSlice.reducer(state, applyStreamStatus('Thinking…'));
+    expect(state.messages[0]?.streamProgress?.[0]).toMatchObject({
+      kind: 'status',
+      message: 'Thinking…',
+    });
+
+    state = chatStreamSlice.reducer(
+      state,
+      applyStreamTool({ name: 'list_tenants', phase: 'start', callId: 'c1' }),
+    );
+    state = chatStreamSlice.reducer(
+      state,
+      applyStreamTool({ name: 'list_tenants', phase: 'done', callId: 'c1' }),
+    );
+    expect(state.messages[0]?.streamProgress?.some(
+      (step) => step.kind === 'tool' && step.name === 'list_tenants' && step.phase === 'done',
+    )).toBe(true);
+
+    state = chatStreamSlice.reducer(state, appendToken('Here are your tenants'));
+    expect(state.messages[0]?.streamProgress?.some((step) => step.kind === 'status')).toBe(false);
+
+    state = chatStreamSlice.reducer(state, setStreaming(false));
+    expect(state.messages[0]?.streamProgress?.every(
+      (step) => step.kind === 'tool' && step.phase === 'done',
+    )).toBe(true);
+    // Full event timeline survives for the ⋮ “View event stream” modal.
+    expect(state.messages[0]?.streamEvents?.some((e) => e.type === 'status')).toBe(true);
+    expect(state.messages[0]?.streamEvents?.filter((e) => e.type === 'tool')).toHaveLength(2);
+  });
+
+  it('pins streamError on an empty assistant bubble when the turn fails', () => {
+    let state = chatStreamSlice.reducer(undefined, setStreaming(true));
+    state = chatStreamSlice.reducer(state, addMessage({ role: 'assistant', content: '' }));
+    state = chatStreamSlice.reducer(state, applyStreamStatus('Thinking…'));
+    state = chatStreamSlice.reducer(state, setStreamError('The assistant returned an empty response.'));
+    state = chatStreamSlice.reducer(state, setStreaming(false));
+
+    expect(state.messages[0]?.content).toBe('');
+    expect(state.messages[0]?.streamError).toBe('The assistant returned an empty response.');
+    expect(state.messages[0]?.streamEvents?.some(
+      (e) => e.type === 'error' && e.error === 'The assistant returned an empty response.',
+    )).toBe(true);
   });
 });

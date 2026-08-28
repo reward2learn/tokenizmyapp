@@ -34,6 +34,59 @@ export interface ChatStreamMessage {
   role: 'user' | 'assistant';
   content: string;
   attachments?: ChatAttachment[];
+  /**
+   * Live in-card progress (status / thinking / tools).
+   * After the turn ends, completed tool chips remain; status/thinking are cleared.
+   */
+  streamProgress?: ChatStreamProgressStep[];
+  /**
+   * Append-only timeline of SSE progress events for this turn.
+   * Survives completion so the ⋮ menu can open a full event-stream modal.
+   */
+  streamEvents?: ChatStreamEventLogEntry[];
+  /** Set when the turn failed and the assistant bubble has no reply text. */
+  streamError?: string;
+}
+
+/** In-card progress steps driven by SSE `status` / `thinking` / `tool` events. */
+export type ChatStreamProgressStep =
+  | { kind: 'status'; id: string; message: string }
+  | { kind: 'thinking'; id: string; content: string }
+  | { kind: 'tool'; id: string; name: string; phase: 'start' | 'done'; callId?: string };
+
+/** Append-only event log entry for the post-turn “View event stream” modal. */
+export type ChatStreamEventLogEntry =
+  | { type: 'status'; message: string; at: number }
+  | { type: 'thinking'; content: string; at: number }
+  | { type: 'tool'; name: string; phase: 'start' | 'done'; callId?: string; at: number }
+  | { type: 'error'; error: string; at: number };
+
+function lastAssistantMessage(state: ChatStreamState): ChatStreamMessage | undefined {
+  const last = state.messages[state.messages.length - 1];
+  return last?.role === 'assistant' ? last : undefined;
+}
+
+function ensureAssistantProgress(message: ChatStreamMessage): ChatStreamProgressStep[] {
+  if (!message.streamProgress) message.streamProgress = [];
+  return message.streamProgress;
+}
+
+function ensureStreamEvents(message: ChatStreamMessage): ChatStreamEventLogEntry[] {
+  if (!message.streamEvents) message.streamEvents = [];
+  return message.streamEvents;
+}
+
+function pushStreamEvent(message: ChatStreamMessage, entry: ChatStreamEventLogEntry): void {
+  const events = ensureStreamEvents(message);
+  // Coalesce consecutive thinking deltas into one timeline row.
+  if (entry.type === 'thinking') {
+    const last = events[events.length - 1];
+    if (last?.type === 'thinking') {
+      last.content += entry.content;
+      return;
+    }
+  }
+  events.push(entry);
 }
 
 export interface ChatSessionUsageTotals {
@@ -254,6 +307,25 @@ export const sendStreamingMessage = createAsyncThunk<
         return;
       }
 
+      if (event.type === 'status') {
+        dispatch(applyStreamStatus(event.message));
+        return;
+      }
+
+      if (event.type === 'thinking') {
+        dispatch(appendStreamThinking(event.content));
+        return;
+      }
+
+      if (event.type === 'tool') {
+        dispatch(applyStreamTool({
+          name: event.name,
+          phase: event.phase,
+          callId: event.callId,
+        }));
+        return;
+      }
+
       if (event.type === 'action') {
         if (isChatSessionAction(event.action)) {
           dispatch(queueSessionAction(event.action));
@@ -368,13 +440,104 @@ export const chatStreamSlice = createSlice({
     },
     appendToken(state, action: { payload: string }) {
       state.streamingText += action.payload;
-      const last = state.messages[state.messages.length - 1];
-      if (last?.role === 'assistant') {
+      const last = lastAssistantMessage(state);
+      if (last) {
         last.content += action.payload;
+        // Drop transient "Thinking…" once tokens arrive; keep tool trail.
+        if (last.streamProgress?.length) {
+          last.streamProgress = last.streamProgress.filter((step) => step.kind !== 'status');
+        }
       }
+    },
+    applyStreamStatus(state, action: { payload: string }) {
+      const last = lastAssistantMessage(state);
+      if (!last) return;
+      const progress = ensureAssistantProgress(last);
+      const existing = progress.find((step) => step.kind === 'status');
+      if (existing && existing.kind === 'status') {
+        existing.message = action.payload;
+      } else {
+        progress.push({ kind: 'status', id: `status-${Date.now()}`, message: action.payload });
+      }
+      pushStreamEvent(last, { type: 'status', message: action.payload, at: Date.now() });
+    },
+    appendStreamThinking(state, action: { payload: string }) {
+      const last = lastAssistantMessage(state);
+      if (!last) return;
+      const progress = ensureAssistantProgress(last);
+      const existing = progress.find((step) => step.kind === 'thinking');
+      if (existing && existing.kind === 'thinking') {
+        existing.content += action.payload;
+      } else {
+        progress.push({ kind: 'thinking', id: `thinking-${Date.now()}`, content: action.payload });
+      }
+      pushStreamEvent(last, { type: 'thinking', content: action.payload, at: Date.now() });
+    },
+    applyStreamTool(
+      state,
+      action: { payload: { name: string; phase: 'start' | 'done'; callId?: string } },
+    ) {
+      const last = lastAssistantMessage(state);
+      if (!last) return;
+      const progress = ensureAssistantProgress(last);
+      const { name, phase, callId } = action.payload;
+      const matchIndex = progress.findIndex(
+        (step) =>
+          step.kind === 'tool'
+          && step.phase === 'start'
+          && (callId ? step.callId === callId : step.name === name),
+      );
+      if (phase === 'done' && matchIndex >= 0) {
+        const step = progress[matchIndex];
+        if (step?.kind === 'tool') {
+          step.phase = 'done';
+        }
+      } else {
+        progress.push({
+          kind: 'tool',
+          id: `tool-${callId ?? name}-${Date.now()}`,
+          name,
+          phase,
+          ...(callId ? { callId } : {}),
+        });
+      }
+      pushStreamEvent(last, {
+        type: 'tool',
+        name,
+        phase,
+        at: Date.now(),
+        ...(callId ? { callId } : {}),
+      });
     },
     setStreaming(state, action: { payload: boolean }) {
       state.isStreaming = action.payload;
+      if (!action.payload) {
+        const last = lastAssistantMessage(state);
+        if (!last) return;
+
+        // Keep completed tool chips on the card; drop ephemeral status/thinking.
+        if (last.streamProgress?.length) {
+          last.streamProgress = last.streamProgress.filter(
+            (step) => step.kind === 'tool' && step.phase === 'done',
+          );
+          if (last.streamProgress.length === 0) {
+            delete last.streamProgress;
+          }
+        }
+
+        // If the assistant never produced text, pin the error on the bubble
+        // and keep it in the event log (streamEvents survive for the ⋮ modal).
+        if (!last.content.trim() && state.error) {
+          last.streamError = state.error;
+          const events = ensureStreamEvents(last);
+          const alreadyLogged = events.some(
+            (entry) => entry.type === 'error' && entry.error === state.error,
+          );
+          if (!alreadyLogged) {
+            events.push({ type: 'error', error: state.error, at: Date.now() });
+          }
+        }
+      }
     },
     setStreamError(state, action: { payload: string | null }) {
       state.error = action.payload;
@@ -494,7 +657,10 @@ export const chatStreamSlice = createSlice({
 
 export const {
   addMessage,
+  appendStreamThinking,
   appendToken,
+  applyStreamStatus,
+  applyStreamTool,
   clearMessages,
   clearPendingSessionActions,
   clearRateLimit,

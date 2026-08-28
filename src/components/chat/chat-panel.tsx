@@ -5,7 +5,6 @@ import { usePathname, useSearchParams } from 'next/navigation';
 import Box from '@mui/material/Box';
 import Button from '@mui/material/Button';
 import Chip from '@mui/material/Chip';
-import CircularProgress from '@mui/material/CircularProgress';
 import Dialog from '@mui/material/Dialog';
 import DialogActions from '@mui/material/DialogActions';
 import DialogContent from '@mui/material/DialogContent';
@@ -68,6 +67,8 @@ import {
   type ChatStreamMessage,
 } from '@/store/chat-stream-slice';
 import { StripeTopUpDialog } from '@/components/ops-admin/stripe-topup-dialog';
+import { AssistantStreamProgress } from '@/components/chat/assistant-stream-progress';
+import { AssistantStreamEventsDialog } from '@/components/chat/assistant-stream-events-dialog';
 import { getClientTenantConfig } from '@shared/lib/config/tenant';
 import { getChatStarterPrompt } from '@shared/lib/config/template-profile';
 import { selectActiveSheetArg, selectSelectedCells } from '@/store/sheet-viewer-slice';
@@ -196,7 +197,26 @@ export function ChatPanel({
   const [findingTitle, setFindingTitle] = useState('');
   const [findingTitleDialogOpen, setFindingTitleDialogOpen] = useState(false);
   const [pendingFindingContent, setPendingFindingContent] = useState<string | null>(null);
+  const [streamEventsDialogOpen, setStreamEventsDialogOpen] = useState(false);
+  const [streamEventsDialogEntries, setStreamEventsDialogEntries] = useState<
+    NonNullable<ChatStreamMessage['streamEvents']>
+  >([]);
   const reviewParts = listReviewParts();
+
+  const menuMessage = menuMessageIndex !== null ? messages[menuMessageIndex] ?? null : null;
+  const menuStreamEvents = menuMessage?.role === 'assistant' ? (menuMessage.streamEvents ?? []) : [];
+
+  const handleViewEventStream = useCallback(() => {
+    const events = menuStreamEvents.length
+      ? menuStreamEvents
+      : (menuMessage?.streamError
+        ? [{ type: 'error' as const, error: menuMessage.streamError, at: Date.now() }]
+        : []);
+    setStreamEventsDialogEntries(events);
+    setMenuAnchor(null);
+    setMenuMessageIndex(null);
+    setStreamEventsDialogOpen(true);
+  }, [menuMessage, menuStreamEvents]);
 
   const handleUseInChat = useCallback(() => {
     if (menuMessageIndex === null) return;
@@ -599,7 +619,26 @@ export function ChatPanel({
                         whiteSpace: 'pre-wrap',
                       }}
                     >
-                      <Typography variant="body2">{msg.content || (isStreaming ? '...' : '')}</Typography>
+                      {msg.role === 'assistant'
+                        && (
+                          (msg.streamProgress?.length ?? 0) > 0
+                          || (isStreaming && index === messages.length - 1)
+                        )
+                        ? (
+                          <AssistantStreamProgress
+                            steps={msg.streamProgress ?? []}
+                            isStreaming={isStreaming && index === messages.length - 1}
+                            hasContent={Boolean(msg.content)}
+                          />
+                        ) : null}
+                      {msg.role === 'assistant' && msg.streamError && !msg.content.trim() ? (
+                        <Typography variant="body2" color="error.main" sx={{ mb: msg.content ? 1 : 0 }}>
+                          {msg.streamError}
+                        </Typography>
+                      ) : null}
+                      {msg.content ? (
+                        <Typography variant="body2">{msg.content}</Typography>
+                      ) : null}
                       {msg.attachments?.length ? (
                         <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap', mt: 1, gap: 1 }}>
                           {msg.attachments.map((attachment) => {
@@ -734,6 +773,13 @@ export function ChatPanel({
                   <MenuItem key="dashboard" onClick={handleAddToDashboard}>
                     Add to Dashboard
                   </MenuItem>,
+                  ...(menuStreamEvents.length > 0 || Boolean(messages[menuMessageIndex]?.streamError)
+                    ? [
+                      <MenuItem key="stream" onClick={handleViewEventStream}>
+                        View event stream
+                      </MenuItem>,
+                    ]
+                    : []),
                 ]
               ) : null}
             </Menu>
@@ -810,6 +856,15 @@ export function ChatPanel({
                 <Button onClick={() => setActionStatus(null)}>Close</Button>
               </DialogActions>
             </Dialog>
+
+            <AssistantStreamEventsDialog
+              open={streamEventsDialogOpen}
+              onClose={() => {
+                setStreamEventsDialogOpen(false);
+                setStreamEventsDialogEntries([]);
+              }}
+              events={streamEventsDialogEntries}
+            />
 
             <TemplateDraftCard />
 
@@ -1084,7 +1139,6 @@ export function ChatPanel({
                   Current page content
                 </MenuItem>
               </Menu>
-              {isStreaming ? <CircularProgress size={22} sx={{ ml: 0.5 }} /> : null}
             </Stack>
             {attachments.length ? (
               <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap', gap: 1 }}>

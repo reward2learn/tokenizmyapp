@@ -80,6 +80,23 @@ describe('sse-parser', () => {
     expect(remainder).toBe('data: {"cho');
   });
 
+  it('parseSsePayload extracts status, thinking, and tool progress events', () => {
+    expect(parseSsePayload({ type: 'status', message: 'Thinking…' })).toEqual([
+      { type: 'status', message: 'Thinking…' },
+    ]);
+    expect(parseSsePayload({ type: 'thinking', content: 'drafting' })).toEqual([
+      { type: 'thinking', content: 'drafting' },
+    ]);
+    expect(parseSsePayload({
+      type: 'tool',
+      name: 'list_tenants',
+      phase: 'start',
+      callId: 'call_1',
+    })).toEqual([
+      { type: 'tool', name: 'list_tenants', phase: 'start', callId: 'call_1' },
+    ]);
+  });
+
   it('parseSsePayload extracts calculator tool_result events', () => {
     const events = parseSsePayload({
       type: 'tool_result',

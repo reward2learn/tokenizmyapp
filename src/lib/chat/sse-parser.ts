@@ -1,6 +1,8 @@
 import type { CustomTemplateDraft, CreditTopUpAction } from '@/lib/chat/session-tools';
 import type { ChatTurnUsage } from '@/lib/billing/ai-usage-summary';
 
+export type SseToolPhase = 'start' | 'done';
+
 export type SseStreamEvent =
   | { type: 'token'; token: string }
   | { type: 'action'; action: string }
@@ -10,6 +12,12 @@ export type SseStreamEvent =
   | { type: 'credit_topup'; creditTopUp: CreditTopUpAction }
   /** Aggregated credit/token usage for this chat turn. */
   | { type: 'usage'; usage: ChatTurnUsage }
+  /** Human-readable phase for the assistant card (Thinking…, Writing…). */
+  | { type: 'status'; message: string }
+  /** Optional model reasoning / chain-of-thought delta when the provider emits it. */
+  | { type: 'thinking'; content: string }
+  /** Session/platform tool lifecycle for in-card progress. */
+  | { type: 'tool'; name: string; phase: SseToolPhase; callId?: string }
   /** Calculator (or other tool-scoped) chat — tool finished with a result payload. */
   | { type: 'tool_result'; tool: string; result: unknown }
   /** Calculator chat — persisted user/assistant message ids after the turn. */
@@ -48,6 +56,10 @@ function isChatTurnUsage(value: unknown): value is ChatTurnUsage {
   );
 }
 
+function isSseToolPhase(value: unknown): value is SseToolPhase {
+  return value === 'start' || value === 'done';
+}
+
 /** Parse one SSE JSON payload into stream events. */
 export function parseSsePayload(payload: unknown): SseStreamEvent[] {
   const data = payload as {
@@ -56,6 +68,11 @@ export function parseSsePayload(payload: unknown): SseStreamEvent[] {
     draft?: CustomTemplateDraft;
     creditTopUp?: CreditTopUpAction;
     usage?: ChatTurnUsage;
+    message?: string;
+    content?: string;
+    name?: string;
+    phase?: string;
+    callId?: string;
     tool?: string;
     result?: unknown;
     userMessage?: unknown;
@@ -79,6 +96,28 @@ export function parseSsePayload(payload: unknown): SseStreamEvent[] {
 
   if (data.type === 'usage' && isChatTurnUsage(data.usage)) {
     return [{ type: 'usage', usage: data.usage }];
+  }
+
+  if (data.type === 'status' && typeof data.message === 'string' && data.message.trim()) {
+    return [{ type: 'status', message: data.message.trim() }];
+  }
+
+  if (data.type === 'thinking' && typeof data.content === 'string' && data.content) {
+    return [{ type: 'thinking', content: data.content }];
+  }
+
+  if (
+    data.type === 'tool'
+    && typeof data.name === 'string'
+    && data.name.trim()
+    && isSseToolPhase(data.phase)
+  ) {
+    return [{
+      type: 'tool',
+      name: data.name.trim(),
+      phase: data.phase,
+      ...(typeof data.callId === 'string' && data.callId ? { callId: data.callId } : {}),
+    }];
   }
 
   if (data.type === 'tool_result' && typeof data.tool === 'string') {

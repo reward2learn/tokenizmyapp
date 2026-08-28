@@ -62,6 +62,10 @@ interface OpenAiStreamDelta {
     finish_reason?: string | null;
     delta?: {
       content?: string;
+      /** OpenAI o-series / some Ollama reasoning models. */
+      reasoning_content?: string;
+      /** Alternate reasoning field used by some providers. */
+      reasoning?: string;
       tool_calls?: {
         index?: number;
         id?: string;
@@ -198,6 +202,7 @@ async function requestOpenAiCompletion(
 export async function consumeOpenAiStream(
   body: ReadableStream<Uint8Array>,
   onContent?: (chunk: string) => void | Promise<void>,
+  onThinking?: (chunk: string) => void | Promise<void>,
 ): Promise<ConsumedOpenAiStream> {
   const reader = body.getReader();
   const decoder = new TextDecoder();
@@ -252,6 +257,11 @@ export async function consumeOpenAiStream(
       if (delta?.content) {
         content += delta.content;
         await onContent?.(delta.content);
+      }
+
+      const thinkingChunk = delta?.reasoning_content ?? delta?.reasoning;
+      if (thinkingChunk) {
+        await onThinking?.(thinkingChunk);
       }
 
       if (delta?.tool_calls) {
@@ -520,6 +530,12 @@ async function completeChatWithStreaming(options: {
 
     try {
       for (let round = 0; round < MAX_TOOL_ROUNDS; round += 1) {
+        // Surface progress before the provider call so the assistant card is not blank.
+        await writeLine({
+          type: 'status',
+          message: round === 0 ? 'Thinking…' : 'Thinking with tool results…',
+        });
+
         const chatResp = await requestOpenAiCompletion(
           options.chatCompletionsUrl,
           options.apiKey,
@@ -540,11 +556,19 @@ async function completeChatWithStreaming(options: {
           break;
         }
 
+        let emittedWritingStatus = false;
         const { finishReason, content, toolCalls, usage } = await consumeOpenAiStream(
           chatResp.body,
           async (chunk) => {
+            if (!emittedWritingStatus) {
+              emittedWritingStatus = true;
+              await writeLine({ type: 'status', message: 'Writing response…' });
+            }
             streamedChars += chunk.length;
             await writeLine({ choices: [{ delta: { content: chunk } }] });
+          },
+          async (thinkingChunk) => {
+            await writeLine({ type: 'thinking', content: thinkingChunk });
           },
         );
 
@@ -562,6 +586,13 @@ async function completeChatWithStreaming(options: {
             });
 
             for (const toolCall of chatToolCalls) {
+              const toolName = toolCall.function.name;
+              await writeLine({
+                type: 'tool',
+                name: toolName,
+                phase: 'start',
+                callId: toolCall.id,
+              });
               const { toolMessage, sessionResult } = await executeChatToolCall(
                 toolCall,
                 options.toolContext,
@@ -579,6 +610,12 @@ async function completeChatWithStreaming(options: {
               if (sessionResult?.clientAction === 'open_credit_topup' && sessionResult.creditTopUp) {
                 await writeLine({ type: 'chat_action', action: sessionResult.clientAction });
               }
+              await writeLine({
+                type: 'tool',
+                name: toolName,
+                phase: 'done',
+                callId: toolCall.id,
+              });
               currentMessages.push({
                 role: 'tool',
                 tool_call_id: toolCall.id,
