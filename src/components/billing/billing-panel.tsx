@@ -56,15 +56,15 @@ import {
   type BillingInterval,
 } from '@/lib/billing/plans';
 import {
-  EmbeddedPlanCheckoutDialog,
-  type EmbeddedPlanCheckoutTarget,
-} from '@/components/billing/embedded-plan-checkout';
+  PlanCheckoutDialog,
+} from '@/components/billing/plan-checkout-dialog';
 import { CreditGrantsTable } from '@/components/billing/credit-grants-table';
 import { CreditUsageTable } from '@/components/billing/credit-usage-table';
 import { BillingDetailsTab } from '@/components/billing/billing-details-tab';
 import { CloudCreditsTab } from '@/components/billing/cloud-credits-tab';
 import { PaymentMethodsTab } from '@/components/billing/payment-methods-tab';
-import { StripeTopUpDialog } from '@/components/ops-admin/stripe-topup-dialog';
+import { CreditTopUpDialog } from '@/components/billing/credit-topup-dialog';
+import { CryptoPrepaidBanner } from '@/components/billing/crypto-prepaid-banner';
 import { TenantManagedOrgAlert } from '@/components/settings/tenant-managed-message';
 import {
   ResponsiveTabPanels,
@@ -142,6 +142,7 @@ export function BillingPanel({
             orgId={orgId}
             currentPlanId={subscription?.planId ?? 'free'}
             currentInterval={(subscription?.interval ?? 'monthly') as BillingInterval}
+            currentPeriodEnd={subscription?.currentPeriodEnd ?? null}
             status={subscription?.status ?? 'active'}
             pendingPlanId={linkage?.pendingPlanId ?? null}
             gracePeriodEndsAt={linkage?.gracePeriodEndsAt ?? null}
@@ -149,6 +150,7 @@ export function BillingPanel({
             paymentsReady={Boolean(readiness?.ready)}
             publishableKey={checkoutData?.data?.publishableKey ?? null}
             hasExistingSubscription={Boolean(linkage?.subscriptionId)}
+            cryptoPlanEnabled={Boolean(checkoutData?.data?.cryptoReadiness?.enabled)}
             readOnly={readOnly}
           />
         ),
@@ -327,6 +329,7 @@ function PlanTab({
   orgId,
   currentPlanId,
   currentInterval,
+  currentPeriodEnd,
   status,
   pendingPlanId,
   gracePeriodEndsAt,
@@ -334,11 +337,13 @@ function PlanTab({
   paymentsReady,
   publishableKey,
   hasExistingSubscription,
+  cryptoPlanEnabled = false,
   readOnly = false,
 }: {
   orgId: string;
   currentPlanId: PlanId;
   currentInterval: BillingInterval;
+  currentPeriodEnd: string | null;
   status: string;
   pendingPlanId: string | null;
   gracePeriodEndsAt: string | null;
@@ -346,13 +351,14 @@ function PlanTab({
   paymentsReady: boolean;
   publishableKey: string | null;
   hasExistingSubscription: boolean;
+  cryptoPlanEnabled?: boolean;
   readOnly?: boolean;
 }) {
   const dispatch = useAppDispatch();
   const [interval, setInterval] = useState<BillingInterval>(
     YEARLY_SELF_SERVE_ENABLED ? currentInterval : 'monthly',
   );
-  const [checkoutTarget, setCheckoutTarget] = useState<EmbeddedPlanCheckoutTarget | null>(null);
+  const [checkoutPlanId, setCheckoutPlanId] = useState<PlanId | null>(null);
   const [checkoutOpen, setCheckoutOpen] = useState(false);
   const [startCheckout, { isLoading }] = useStartCheckoutMutation();
   const [error, setError] = useState<string | null>(null);
@@ -363,6 +369,8 @@ function PlanTab({
   }, [currentInterval]);
 
   const embeddedReady = paymentsReady && Boolean(publishableKey);
+  const canStartNewCheckout =
+    embeddedReady || (!hasExistingSubscription && cryptoPlanEnabled);
 
   const canBuy = (planId: string) =>
     purchasable.some((p) => p.planId === planId && p.interval === interval);
@@ -399,12 +407,12 @@ function PlanTab({
       return;
     }
 
-    if (!embeddedReady || !publishableKey) {
-      setError('Embedded Checkout is not ready — confirm Stripe keys and publishable key are configured.');
+    if (!canStartNewCheckout) {
+      setError('Checkout is not ready — configure Stripe or enable crypto payments.');
       return;
     }
 
-    setCheckoutTarget({ planId, interval });
+    setCheckoutPlanId(planId);
     setCheckoutOpen(true);
   };
 
@@ -524,6 +532,12 @@ function PlanTab({
       {error && <Alert severity="error">{error}</Alert>}
       {notice && <Alert severity="success">{notice}</Alert>}
 
+      <CryptoPrepaidBanner
+        planId={currentPlanId}
+        currentPeriodEnd={currentPeriodEnd}
+        hasStripeSubscription={hasExistingSubscription}
+      />
+
       {YEARLY_SELF_SERVE_ENABLED && (
         <Box sx={{ display: 'flex', justifyContent: 'center' }}>
           <ToggleButtonGroup
@@ -636,7 +650,7 @@ function PlanTab({
                     isCurrentPlanAndInterval ||
                     isLoading ||
                     !purchasableNow ||
-                    (!hasExistingSubscription && !embeddedReady)
+                    (!hasExistingSubscription && !canStartNewCheckout)
                   }
                   onClick={() => choose(plan.id)}
                 >
@@ -660,14 +674,20 @@ function PlanTab({
         })}
       </Box>
 
-      <EmbeddedPlanCheckoutDialog
-        open={checkoutOpen}
-        onClose={() => setCheckoutOpen(false)}
-        orgId={orgId}
-        target={checkoutTarget}
-        publishableKey={publishableKey}
-        onComplete={handleCheckoutComplete}
-      />
+      {checkoutPlanId ? (
+        <PlanCheckoutDialog
+          open={checkoutOpen}
+          onClose={() => {
+            setCheckoutOpen(false);
+            setCheckoutPlanId(null);
+          }}
+          orgId={orgId}
+          planId={checkoutPlanId}
+          publishableKey={publishableKey}
+          hasStripeSubscription={hasExistingSubscription}
+          onComplete={handleCheckoutComplete}
+        />
+      ) : null}
     </Stack>
   );
 }
@@ -857,7 +877,7 @@ function AiCreditsPurchase({
       )}
 
       {topUpPackId && canTopUp && (
-        <StripeTopUpDialog
+        <CreditTopUpDialog
           open
           orgId={orgId}
           packId={topUpPackId}

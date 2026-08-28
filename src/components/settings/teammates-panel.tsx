@@ -1,33 +1,39 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useMemo, useState, type ReactNode } from 'react';
 import Alert from '@mui/material/Alert';
 import Autocomplete from '@mui/material/Autocomplete';
 import Box from '@mui/material/Box';
 import Button from '@mui/material/Button';
 import Chip from '@mui/material/Chip';
 import MenuItem from '@mui/material/MenuItem';
+import Paper from '@mui/material/Paper';
 import Skeleton from '@mui/material/Skeleton';
 import Stack from '@mui/material/Stack';
 import Tab from '@mui/material/Tab';
 import Table from '@mui/material/Table';
 import TableBody from '@mui/material/TableBody';
 import TableCell from '@mui/material/TableCell';
+import TableContainer from '@mui/material/TableContainer';
 import TableHead from '@mui/material/TableHead';
 import TableRow from '@mui/material/TableRow';
 import Tabs from '@mui/material/Tabs';
 import TextField from '@mui/material/TextField';
 import Typography from '@mui/material/Typography';
+import { useTheme } from '@mui/material/styles';
+import useMediaQuery from '@mui/material/useMediaQuery';
 import {
   useAddOrgMemberMutation,
   useGetOrganizationQuery,
   useInviteOrgTeammateMutation,
   useListOrgMemberCandidatesQuery,
+  type OrgMember,
   type OrgMemberCandidate,
   type OrgMemberRole,
 } from '@/store/apis/organization-api';
 import { NoOrganization } from '@/components/settings/settings-panel';
 import { TenantManagedOrgAlert } from '@/components/settings/tenant-managed-message';
+import { RADIUS } from '@/theme/design-tokens';
 
 /** Organization billing-seat roles (not tenant app access). */
 const SEAT_ROLES: { id: OrgMemberRole; help: string }[] = [
@@ -44,6 +50,209 @@ function candidateLabel(c: OrgMemberCandidate): string {
   const email = c.email && c.name ? ` (${c.email})` : '';
   const where = c.tenantSlug ? ` · ${c.tenantSlug}` : '';
   return `${who}${email}${where}`;
+}
+
+function CardField({ label, children }: { label: string; children: ReactNode }) {
+  return (
+    <Box sx={{ minWidth: 0 }}>
+      <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.25 }}>
+        {label}
+      </Typography>
+      {children}
+    </Box>
+  );
+}
+
+function SeatRoleChip({ role }: { role: OrgMemberRole }) {
+  return (
+    <Chip
+      label={role}
+      size="small"
+      color={role === 'owner' ? 'primary' : 'default'}
+      variant={role === 'member' ? 'outlined' : 'filled'}
+    />
+  );
+}
+
+function BillingSeatsTable({
+  members,
+  memberLabelBySub,
+  isMobile,
+}: {
+  members: OrgMember[];
+  memberLabelBySub: Map<string, string>;
+  isMobile: boolean;
+}) {
+  if (isMobile) {
+    return (
+      <Stack spacing={1.5} sx={{ minWidth: 0 }}>
+        {members.map((m) => (
+          <Paper
+            key={m.id}
+            variant="outlined"
+            sx={{ p: 1.5, minWidth: 0, borderRadius: `${RADIUS.card}px` }}
+          >
+            <Stack spacing={1.25}>
+              <CardField label="Person">
+                <Typography variant="body2" sx={{ wordBreak: 'break-word' }}>
+                  {memberLabelBySub.get(m.userId) ?? m.userId}
+                </Typography>
+                {memberLabelBySub.has(m.userId) ? (
+                  <Typography
+                    variant="caption"
+                    color="text.secondary"
+                    sx={{ fontFamily: 'monospace', display: 'block', wordBreak: 'break-all' }}
+                  >
+                    {m.userId}
+                  </Typography>
+                ) : null}
+              </CardField>
+              <CardField label="Seat role">
+                <SeatRoleChip role={m.role} />
+              </CardField>
+              <CardField label="Added">
+                <Typography variant="body2">
+                  {new Date(m.createdAt).toLocaleDateString()}
+                </Typography>
+              </CardField>
+            </Stack>
+          </Paper>
+        ))}
+      </Stack>
+    );
+  }
+
+  return (
+    <TableContainer sx={{ width: '100%', maxWidth: '100%', overflowX: 'auto' }}>
+      <Table size="small" sx={{ minWidth: 480 }}>
+        <TableHead>
+          <TableRow>
+            <TableCell>Person</TableCell>
+            <TableCell>Seat role</TableCell>
+            <TableCell>Added</TableCell>
+          </TableRow>
+        </TableHead>
+        <TableBody>
+          {members.map((m) => (
+            <TableRow key={m.id}>
+              <TableCell sx={{ wordBreak: 'break-word' }}>
+                <Typography variant="body2">
+                  {memberLabelBySub.get(m.userId) ?? m.userId}
+                </Typography>
+                {memberLabelBySub.has(m.userId) && (
+                  <Typography
+                    variant="caption"
+                    color="text.secondary"
+                    sx={{ fontFamily: 'monospace', display: 'block', wordBreak: 'break-all' }}
+                  >
+                    {m.userId}
+                  </Typography>
+                )}
+              </TableCell>
+              <TableCell>
+                <SeatRoleChip role={m.role} />
+              </TableCell>
+              <TableCell>{new Date(m.createdAt).toLocaleDateString()}</TableCell>
+            </TableRow>
+          ))}
+        </TableBody>
+      </Table>
+    </TableContainer>
+  );
+}
+
+function AppUsersTable({
+  candidates,
+  isMobile,
+}: {
+  candidates: OrgMemberCandidate[];
+  isMobile: boolean;
+}) {
+  if (isMobile) {
+    return (
+      <Stack spacing={1.5} sx={{ minWidth: 0 }}>
+        {candidates.map((c) => (
+          <Paper
+            key={`${c.tenantSlug}:${c.sub}`}
+            variant="outlined"
+            sx={{ p: 1.5, minWidth: 0, borderRadius: `${RADIUS.card}px` }}
+          >
+            <Stack spacing={1.25}>
+              <CardField label="Person">
+                <Typography variant="body2" sx={{ wordBreak: 'break-word' }}>
+                  {c.name || c.email || c.sub}
+                </Typography>
+                {c.email && c.name ? (
+                  <Typography
+                    variant="caption"
+                    color="text.secondary"
+                    sx={{ display: 'block', wordBreak: 'break-all' }}
+                  >
+                    {c.email}
+                  </Typography>
+                ) : null}
+              </CardField>
+              <CardField label="Tenant">
+                <Typography variant="body2">{c.tenantSlug}</Typography>
+              </CardField>
+              <CardField label="Auth">
+                <Chip label={c.tier} size="small" variant="outlined" />
+              </CardField>
+              <CardField label="Billing seat">
+                <Chip
+                  label={c.alreadyMember ? 'Yes' : 'No'}
+                  size="small"
+                  color={c.alreadyMember ? 'primary' : 'default'}
+                  variant={c.alreadyMember ? 'filled' : 'outlined'}
+                />
+              </CardField>
+            </Stack>
+          </Paper>
+        ))}
+      </Stack>
+    );
+  }
+
+  return (
+    <TableContainer sx={{ width: '100%', maxWidth: '100%', overflowX: 'auto' }}>
+      <Table size="small" sx={{ minWidth: 560 }}>
+        <TableHead>
+          <TableRow>
+            <TableCell>Person</TableCell>
+            <TableCell>Tenant</TableCell>
+            <TableCell>Auth</TableCell>
+            <TableCell>Billing seat</TableCell>
+          </TableRow>
+        </TableHead>
+        <TableBody>
+          {candidates.map((c) => (
+            <TableRow key={`${c.tenantSlug}:${c.sub}`}>
+              <TableCell sx={{ wordBreak: 'break-word' }}>
+                <Typography variant="body2">{c.name || c.email || c.sub}</Typography>
+                {c.email && c.name ? (
+                  <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
+                    {c.email}
+                  </Typography>
+                ) : null}
+              </TableCell>
+              <TableCell>{c.tenantSlug}</TableCell>
+              <TableCell>
+                <Chip label={c.tier} size="small" variant="outlined" />
+              </TableCell>
+              <TableCell>
+                <Chip
+                  label={c.alreadyMember ? 'Yes' : 'No'}
+                  size="small"
+                  color={c.alreadyMember ? 'primary' : 'default'}
+                  variant={c.alreadyMember ? 'filled' : 'outlined'}
+                />
+              </TableCell>
+            </TableRow>
+          ))}
+        </TableBody>
+      </Table>
+    </TableContainer>
+  );
 }
 
 /**
@@ -66,6 +275,8 @@ export function TeammatesPanel({
   );
   const [addMember, { isLoading: isAdding }] = useAddOrgMemberMutation();
   const [inviteAppUser, { isLoading: isInviting }] = useInviteOrgTeammateMutation();
+  const theme = useTheme();
+  const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
 
   const [tab, setTab] = useState<PeopleTab>('seats');
   const [selected, setSelected] = useState<OrgMemberCandidate | null>(null);
@@ -141,7 +352,7 @@ export function TeammatesPanel({
   };
 
   return (
-    <Stack spacing={3} sx={{ maxWidth: 760 }}>
+    <Stack spacing={3} sx={{ maxWidth: 760, width: '100%', minWidth: 0 }}>
       <Box>
         <Typography variant="h6">People</Typography>
         <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
@@ -183,44 +394,11 @@ export function TeammatesPanel({
               a membership row to be billed.
             </Alert>
           ) : (
-            <Table size="small">
-              <TableHead>
-                <TableRow>
-                  <TableCell>Person</TableCell>
-                  <TableCell>Seat role</TableCell>
-                  <TableCell>Added</TableCell>
-                </TableRow>
-              </TableHead>
-              <TableBody>
-                {members.map((m) => (
-                  <TableRow key={m.id}>
-                    <TableCell>
-                      <Typography variant="body2">
-                        {memberLabelBySub.get(m.userId) ?? m.userId}
-                      </Typography>
-                      {memberLabelBySub.has(m.userId) && (
-                        <Typography
-                          variant="caption"
-                          color="text.secondary"
-                          sx={{ fontFamily: 'monospace', display: 'block' }}
-                        >
-                          {m.userId}
-                        </Typography>
-                      )}
-                    </TableCell>
-                    <TableCell>
-                      <Chip
-                        label={m.role}
-                        size="small"
-                        color={m.role === 'owner' ? 'primary' : 'default'}
-                        variant={m.role === 'member' ? 'outlined' : 'filled'}
-                      />
-                    </TableCell>
-                    <TableCell>{new Date(m.createdAt).toLocaleDateString()}</TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
+            <BillingSeatsTable
+              members={members}
+              memberLabelBySub={memberLabelBySub}
+              isMobile={isMobile}
+            />
           )}
 
           {!readOnly && (
@@ -293,42 +471,7 @@ export function TeammatesPanel({
               No app users yet. Invite someone below to create a PIN viewer on a tenant.
             </Alert>
           ) : (
-            <Table size="small">
-              <TableHead>
-                <TableRow>
-                  <TableCell>Person</TableCell>
-                  <TableCell>Tenant</TableCell>
-                  <TableCell>Auth</TableCell>
-                  <TableCell>Billing seat</TableCell>
-                </TableRow>
-              </TableHead>
-              <TableBody>
-                {candidates.map((c) => (
-                  <TableRow key={`${c.tenantSlug}:${c.sub}`}>
-                    <TableCell>
-                      <Typography variant="body2">{c.name || c.email || c.sub}</Typography>
-                      {c.email && c.name ? (
-                        <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
-                          {c.email}
-                        </Typography>
-                      ) : null}
-                    </TableCell>
-                    <TableCell>{c.tenantSlug}</TableCell>
-                    <TableCell>
-                      <Chip label={c.tier} size="small" variant="outlined" />
-                    </TableCell>
-                    <TableCell>
-                      <Chip
-                        label={c.alreadyMember ? 'Yes' : 'No'}
-                        size="small"
-                        color={c.alreadyMember ? 'primary' : 'default'}
-                        variant={c.alreadyMember ? 'filled' : 'outlined'}
-                      />
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
+            <AppUsersTable candidates={candidates} isMobile={isMobile} />
           )}
 
           {!readOnly && (

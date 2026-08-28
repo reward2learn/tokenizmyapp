@@ -20,11 +20,11 @@ const PUBLIC_SLUGS = new Set(['dashboard', 'terms-of-service', 'privacy-policy']
  */
 const CSP = [
   "default-src 'self'",
-  "frame-src 'self' https://vercel.live https://js.stripe.com https://hooks.stripe.com",
+  "frame-src 'self' https://vercel.live https://js.stripe.com https://hooks.stripe.com https://secure.walletconnect.org https://secure.walletconnect.com",
   "script-src 'self' 'unsafe-eval' 'unsafe-inline' https://vercel.live https://js.stripe.com",
   "style-src 'self' 'unsafe-inline'",
   "img-src 'self' data: https:",
-  "connect-src 'self' https://accounts.google.com https://oauth2.googleapis.com https://api.openai.com https://api.vercel.com https://vercel.live https://api.stripe.com",
+  "connect-src 'self' https://accounts.google.com https://oauth2.googleapis.com https://api.openai.com https://api.vercel.com https://vercel.live https://api.stripe.com https://api.reown.com https://api.web3modal.org https://pulse.walletconnect.org https://rpc.walletconnect.org wss://relay.walletconnect.org wss://relay.walletconnect.com",
   "font-src 'self' https://fonts.gstatic.com",
   "frame-ancestors 'none'",
   "form-action 'self'",
@@ -64,6 +64,10 @@ function injectSessionHeaders(headers: Headers, session: SessionClaims): void {
   headers.set('X-Session-Permissions', JSON.stringify(session.permissions ?? []));
   if (session.roleCode) headers.set('X-Session-RoleCode', session.roleCode);
   headers.set('X-Session-PlatformAdmin', session.platformAdmin ? '1' : '0');
+  if (session.walletAddress) headers.set('X-Session-WalletAddress', session.walletAddress);
+  if (session.walletChainId != null) {
+    headers.set('X-Session-WalletChainId', String(session.walletChainId));
+  }
   headers.set('X-Session-Verified', '1');
 }
 

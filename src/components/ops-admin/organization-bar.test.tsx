@@ -9,8 +9,8 @@ import { uiSlice } from '@/store/ui-slice';
 
 // The top-up dialog pulls in Stripe Elements, which is irrelevant here and
 // expensive to load in jsdom. It only renders when opened.
-vi.mock('@/components/ops-admin/stripe-topup-dialog', () => ({
-  StripeTopUpDialog: () => null,
+vi.mock('@/components/billing/credit-topup-dialog', () => ({
+  CreditTopUpDialog: () => null,
 }));
 
 const ORGS = [

@@ -63,7 +63,7 @@ import {
   setTopUpDialog,
   type ChatStreamMessage,
 } from '@/store/chat-stream-slice';
-import { StripeTopUpDialog } from '@/components/ops-admin/stripe-topup-dialog';
+import { CreditTopUpDialog } from '@/components/billing/credit-topup-dialog';
 import { AssistantStreamProgress } from '@/components/chat/assistant-stream-progress';
 import { AssistantStreamEventsDialog } from '@/components/chat/assistant-stream-events-dialog';
 import { getClientTenantConfig } from '@shared/lib/config/tenant';
@@ -1124,7 +1124,7 @@ export function ChatPanel({
       </Box>
 
       {topUpDialog && (
-        <StripeTopUpDialog
+        <CreditTopUpDialog
           open
           orgId={topUpDialog.orgId}
           packId={topUpDialog.packId}

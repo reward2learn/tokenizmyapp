@@ -360,6 +360,12 @@ export async function runNightlyDunningPass(db?: RawDb): Promise<{
   const { enforceDunningDowngrades } = await import('@/domain/billing/stripe-webhook-service');
   await enforceDunningDowngrades(db);
 
+  const { enforceCryptoPrepaidDowngrades } = await import('@/domain/billing/crypto-plan-service');
+  const cryptoDowngrades = await enforceCryptoPrepaidDowngrades(db);
+  if (cryptoDowngrades.downgraded.length > 0) {
+    console.log(`[cron-dunning] Crypto prepaid expired: ${cryptoDowngrades.downgraded.join(', ')}`);
+  }
+
   const rows = (await db.$queryRawUnsafe(
     `SELECT * FROM billing_dunning_state WHERE locked_at IS NULL`,
   )) as Record<string, unknown>[];

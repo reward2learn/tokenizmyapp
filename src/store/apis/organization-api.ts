@@ -573,6 +573,14 @@ export const organizationApi = createApi({
         priceMismatches: string[];
         /** Tenant publishable key for Stripe.js embedded Checkout. */
         publishableKey: string | null;
+        cryptoReadiness: {
+          enabled: boolean;
+          hasTreasury: boolean;
+          chainId: number;
+          usdcContract: string | undefined;
+          hasRpcUrl: boolean;
+        };
+        cryptoPrepaidMonths: number[];
       }>,
       string
     >({
@@ -687,6 +695,95 @@ export const organizationApi = createApi({
         body: { checkoutSessionId },
       }),
       invalidatesTags: ['Credits'],
+    }),
+
+    /** Create a USDC payment intent for a crypto credit top-up. */
+    createCryptoTopUpIntent: builder.mutation<
+      ApiEnvelope<{
+        intentId: string;
+        treasury: string;
+        amountUsdc: string;
+        chainId: number;
+        usdcContract: string;
+        reference: string;
+        expiresAt: string;
+        pack: { id: string; label: string; baseCredits: number; bonusCredits: number; priceCents: number };
+      }>,
+      { orgId: string; packId: string }
+    >({
+      query: ({ orgId, packId }) => ({
+        url: `admin/organizations/${orgId}/crypto-topup`,
+        method: 'POST',
+        body: { packId },
+      }),
+    }),
+
+    /** Confirm USDC top-up after on-chain transfer (idempotent). */
+    confirmCryptoTopUp: builder.mutation<
+      ApiEnvelope<{
+        orgId: string;
+        packId: string;
+        intentId: string;
+        txHash: string;
+        alreadyGranted: boolean;
+        balance: { available: number; expiringSoon: number; debt: number; net: number };
+        baseCredits: number;
+        bonusCredits: number;
+      }>,
+      { orgId: string; intentId: string; txHash: string }
+    >({
+      query: ({ orgId, intentId, txHash }) => ({
+        url: `admin/organizations/${orgId}/crypto-topup/confirm`,
+        method: 'POST',
+        body: { intentId, txHash },
+      }),
+      invalidatesTags: ['Credits'],
+    }),
+
+    /** Create a USDC payment intent for a prepaid plan pack. */
+    createCryptoPlanIntent: builder.mutation<
+      ApiEnvelope<{
+        intentId: string;
+        treasury: string;
+        amountUsdc: string;
+        chainId: number;
+        usdcContract: string;
+        reference: string;
+        expiresAt: string;
+        planId: string;
+        prepaidMonths: number;
+        priceCents: number;
+      }>,
+      { orgId: string; planId: string; prepaidMonths: number }
+    >({
+      query: ({ orgId, planId, prepaidMonths }) => ({
+        url: `admin/organizations/${orgId}/crypto-plan`,
+        method: 'POST',
+        body: { planId, prepaidMonths },
+      }),
+    }),
+
+    /** Confirm USDC prepaid plan after on-chain transfer. */
+    confirmCryptoPlanPurchase: builder.mutation<
+      ApiEnvelope<{
+        orgId: string;
+        planId: string;
+        prepaidMonths: number;
+        intentId: string;
+        txHash: string;
+        alreadyApplied: boolean;
+        creditsGranted: number;
+        periodEnd: string;
+        subscription: { planId: string; status: string; currentPeriodEnd: string };
+      }>,
+      { orgId: string; intentId: string; txHash: string }
+    >({
+      query: ({ orgId, intentId, txHash }) => ({
+        url: `admin/organizations/${orgId}/crypto-plan/confirm`,
+        method: 'POST',
+        body: { intentId, txHash },
+      }),
+      invalidatesTags: ['Subscription', 'Credits'],
     }),
 
     createAgenticTopUp: builder.mutation<
@@ -1066,6 +1163,10 @@ export const {
   useStartCheckoutMutation,
   useCreateTopUpIntentMutation,
   useConfirmTopUpPaymentMutation,
+  useCreateCryptoTopUpIntentMutation,
+  useConfirmCryptoTopUpMutation,
+  useCreateCryptoPlanIntentMutation,
+  useConfirmCryptoPlanPurchaseMutation,
   useCreateAgenticTopUpMutation,
   useGetOrgRateCardQuery,
   useUpsertOrgRateCardMutation,

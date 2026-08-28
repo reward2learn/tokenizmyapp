@@ -1,5 +1,6 @@
 'use client';
 
+import Stack from '@mui/material/Stack';
 import {
   useCreateMySetupIntentMutation,
   useListMyPaymentMethodsQuery,
@@ -9,6 +10,7 @@ import {
 } from '@/store/apis/organization-api';
 import { useAppDispatch } from '@/store/hooks';
 import { PaymentMethodsPanel } from '@/components/billing/payment-methods-panel';
+import { CryptoWalletPanel } from '@/components/billing/crypto-wallet-panel';
 
 /**
  * Settings → Personal → Payment Method (user Stripe customer).
@@ -27,7 +29,12 @@ export function PersonalPaymentMethodsPanel({ orgId }: { orgId: string }) {
   const paymentsConfigured = data?.data?.readiness?.hasSecretKey ?? false;
 
   return (
-    <PaymentMethodsPanel
+    <Stack spacing={3}>
+      <CryptoWalletPanel
+        title="Crypto wallet (USDC)"
+        description="Connect with Google to pay for AI credit top-ups with USDC. Card top-ups use Stripe below."
+      />
+      <PaymentMethodsPanel
       title="Payment Method"
       description="Used for AI credit top-ups."
       emptyHint="Add a card so AI credit top-ups can use a saved payment method."
@@ -52,5 +59,6 @@ export function PersonalPaymentMethodsPanel({ orgId }: { orgId: string }) {
         dispatch(organizationApi.util.invalidateTags(['MyPaymentMethods']));
       }}
     />
+    </Stack>
   );
 }

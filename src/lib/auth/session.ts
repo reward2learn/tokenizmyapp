@@ -64,6 +64,10 @@ export async function getSessionFromRequest(request: Request): Promise<SessionCl
       platformAdmin: request.headers.get('X-Session-PlatformAdmin') === '1',
       groups: JSON.parse(request.headers.get('X-Session-Groups') ?? '[]'),
       permissions: JSON.parse(request.headers.get('X-Session-Permissions') ?? '[]'),
+      walletAddress: request.headers.get('X-Session-WalletAddress') ?? undefined,
+      walletChainId: request.headers.get('X-Session-WalletChainId')
+        ? Number.parseInt(request.headers.get('X-Session-WalletChainId')!, 10)
+        : undefined,
     };
   }
 

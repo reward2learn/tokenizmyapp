@@ -20,6 +20,10 @@ export interface SessionClaims extends JWTPayload {
   groups?: string[];
   /** Effective capability codes (e.g. "financials:write"); platform admins carry "*". */
   permissions?: string[];
+  /** Linked social / embedded wallet (SIWE). */
+  walletAddress?: string;
+  walletChainId?: number;
+  walletLinkedAt?: number;
 }
 
 /** True when the session is a platform admin by claim or platform-admin group membership. */

@@ -203,6 +203,18 @@ export async function getPlanForOrg(orgId: string, db?: RawDb): Promise<PlanDef>
   // A past-due or canceled subscription falls back to Free entitlements without
   // rewriting plan_id, so the original plan survives for a successful recovery.
   if (sub.status === 'canceled' || sub.status === 'past_due') return getPlan(DEFAULT_PLAN_ID);
+
+  const { getStripeLinkage } = await import('@/domain/billing/stripe-service');
+  const { isCryptoPrepaidPeriodActive } = await import('@/domain/billing/crypto-plan-service');
+  const linkage = await getStripeLinkage(orgId, db);
+  if (
+    !linkage.subscriptionId &&
+    sub.planId !== DEFAULT_PLAN_ID &&
+    !isCryptoPrepaidPeriodActive(sub.currentPeriodEnd)
+  ) {
+    return getPlan(DEFAULT_PLAN_ID);
+  }
+
   return getPlan(sub.planId);
 }
 

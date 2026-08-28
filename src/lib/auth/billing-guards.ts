@@ -72,3 +72,15 @@ export async function requireOrgCreditPurchase(
   if (!access.ok) return access;
   return guard;
 }
+
+/**
+ * Crypto top-up rail — JWT must carry a linked wallet (SIWE Phase 2).
+ */
+export async function requireLinkedWallet(guard: GuardResult): Promise<GuardResult> {
+  if (!guard.ok) return guard;
+  const wallet = guard.session.walletAddress?.trim();
+  if (!wallet) {
+    return forbidden('Link a social wallet before paying with USDC.');
+  }
+  return guard;
+}

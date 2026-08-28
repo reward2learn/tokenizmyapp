@@ -356,6 +356,8 @@ async function handleMe(request: Request): Promise<NextResponse> {
         platformAdmin,
         groups: effectiveUserGroups(session?.groups, platformAdmin),
         permissions: session?.permissions ?? [],
+        walletAddress: session?.walletAddress ?? null,
+        walletChainId: session?.walletChainId ?? null,
       },
     });
   } catch {

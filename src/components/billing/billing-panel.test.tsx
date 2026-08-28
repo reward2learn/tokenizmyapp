@@ -7,8 +7,8 @@ import { organizationApi } from '@/store/apis/organization-api';
 import { authSlice } from '@/store/auth-slice';
 import { uiSlice } from '@/store/ui-slice';
 
-vi.mock('@/components/ops-admin/stripe-topup-dialog', () => ({
-  StripeTopUpDialog: () => null,
+vi.mock('@/components/billing/credit-topup-dialog', () => ({
+  CreditTopUpDialog: () => null,
 }));
 
 vi.mock('@/components/billing/payment-methods-tab', () => ({

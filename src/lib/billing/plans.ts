@@ -315,6 +315,27 @@ export function canPurchaseCreditPacks(planId: PlanId): boolean {
   return planId !== 'free';
 }
 
+/** Self-serve plans purchasable via crypto prepaid packs (not enterprise). */
+export const CRYPTO_PREPAID_PLAN_IDS = ['pro', 'business'] as const;
+
+export type CryptoPrepaidPlanId = (typeof CRYPTO_PREPAID_PLAN_IDS)[number];
+
+export function isCryptoPrepaidPlanId(planId: string): planId is CryptoPrepaidPlanId {
+  return (CRYPTO_PREPAID_PLAN_IDS as readonly string[]).includes(planId);
+}
+
+/** Total USD cents for a crypto prepaid plan pack (monthly list price × months). */
+export function prepaidPlanPriceCents(
+  planId: PlanId,
+  months: number,
+): number | null {
+  if (!isCryptoPrepaidPlanId(planId)) return null;
+  const plan = getPlan(planId);
+  if (plan.priceMonthly == null || plan.priceMonthly <= 0) return null;
+  if (!Number.isInteger(months) || months <= 0) return null;
+  return plan.priceMonthly * months;
+}
+
 /**
  * Cloud Credits top-up amounts (USD cents). Same floors as AI packs — $25 min.
  * Custom amounts are accepted at/above CREDIT_PACK_MIN_PRICE_CENTS.

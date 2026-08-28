@@ -49,3 +49,75 @@ export function usdcContractForChain(chainId: number): `0x${string}` | undefined
 export const CRYPTO_PLAN_PREPAID_MONTHS = [1, 3, 6, 12] as const;
 
 export type CryptoPlanPrepaidMonths = (typeof CRYPTO_PLAN_PREPAID_MONTHS)[number];
+
+/** USDC has 6 decimals — convert pack price (USD cents) to atomic units. */
+export function usdcAmountFromCents(priceCents: number): bigint {
+  if (!Number.isFinite(priceCents) || priceCents <= 0) {
+    throw new Error(`Invalid price cents: ${priceCents}`);
+  }
+  return BigInt(Math.round(priceCents)) * 10_000n;
+}
+
+function parseEnvBool(value: string | undefined): boolean {
+  return value?.trim().toLowerCase() === 'true';
+}
+
+/** Server-side crypto rail availability (treasury + feature flag). */
+export function isCryptoPaymentsEnabledServer(): boolean {
+  const flagged =
+    parseEnvBool(process.env.CRYPTO_PAYMENTS_ENABLED) ||
+    parseEnvBool(process.env.NEXT_PUBLIC_CRYPTO_PAYMENTS_ENABLED);
+  if (!flagged && process.env.NODE_ENV !== 'development') return false;
+  return Boolean(resolveTreasuryAddress());
+}
+
+/** Client-side crypto rail toggle visibility. */
+export function isCryptoPaymentsEnabledClient(): boolean {
+  const flagged =
+    parseEnvBool(process.env.NEXT_PUBLIC_CRYPTO_PAYMENTS_ENABLED) ||
+    parseEnvBool(process.env.NEXT_PUBLIC_WEB3_WALLET_ENABLED);
+  if (!flagged && process.env.NODE_ENV !== 'development') return false;
+  return true;
+}
+
+export interface CryptoPaymentsReadiness {
+  enabled: boolean;
+  hasTreasury: boolean;
+  chainId: number;
+  usdcContract: string | undefined;
+  hasRpcUrl: boolean;
+}
+
+export function cryptoPaymentsReadiness(): CryptoPaymentsReadiness {
+  const chainId = resolvePaymentChainId();
+  const usdcContract = usdcContractForChain(chainId);
+  const treasury = resolveTreasuryAddress();
+  const hasRpcUrl = Boolean(resolveRpcUrl(chainId));
+  const enabled = isCryptoPaymentsEnabledServer() && Boolean(treasury && usdcContract);
+  return {
+    enabled,
+    hasTreasury: Boolean(treasury),
+    chainId,
+    usdcContract,
+    hasRpcUrl,
+  };
+}
+
+/** RPC URL for on-chain payment verification. */
+export function resolveRpcUrl(chainId: number): string | undefined {
+  if (chainId === PAYMENT_CHAIN_ID_PRODUCTION) {
+    return (
+      process.env.BASE_RPC_URL?.trim() ||
+      process.env.NEXT_PUBLIC_BASE_RPC_URL?.trim() ||
+      'https://mainnet.base.org'
+    );
+  }
+  if (chainId === PAYMENT_CHAIN_ID_STAGING) {
+    return (
+      process.env.SEPOLIA_RPC_URL?.trim() ||
+      process.env.NEXT_PUBLIC_SEPOLIA_RPC_URL?.trim() ||
+      'https://rpc.sepolia.org'
+    );
+  }
+  return undefined;
+}

@@ -25,6 +25,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             (data.data.groups ?? []).includes('platform-admin'),
         ),
         permissions: data.data.permissions ?? [],
+        walletAddress: data.data.walletAddress ?? null,
+        walletChainId: data.data.walletChainId ?? null,
       }));
       return;
     }

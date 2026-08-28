@@ -10,6 +10,8 @@ export interface AuthState {
   platformAdmin?: boolean;
   groups: string[];
   permissions: string[];
+  walletAddress?: string | null;
+  walletChainId?: number | null;
 }
 
 const initialState: AuthState = {
@@ -20,6 +22,8 @@ const initialState: AuthState = {
   platformAdmin: false,
   groups: [],
   permissions: [],
+  walletAddress: null,
+  walletChainId: null,
 };
 
 export const authSlice = createSlice({
@@ -36,6 +40,8 @@ export const authSlice = createSlice({
           platformAdmin?: boolean;
           groups?: string[];
           permissions?: string[];
+          walletAddress?: string | null;
+          walletChainId?: number | null;
         };
       },
     ) {
@@ -45,6 +51,8 @@ export const authSlice = createSlice({
       state.platformAdmin = action.payload.platformAdmin ?? false;
       state.groups = action.payload.groups ?? [];
       state.permissions = action.payload.permissions ?? [];
+      state.walletAddress = action.payload.walletAddress ?? null;
+      state.walletChainId = action.payload.walletChainId ?? null;
       state.bootstrapped = true;
     },
     setTier(state, action: { payload: AuthTier }) {
@@ -54,6 +62,8 @@ export const authSlice = createSlice({
     resetAuth(state) {
       state.tier = 'public';
       state.user = null;
+      state.walletAddress = null;
+      state.walletChainId = null;
       state.bootstrapped = true;
     },
     setUserDisplayName(state, action: { payload: string }) {

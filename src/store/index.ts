@@ -2,6 +2,7 @@ import { configureStore } from '@reduxjs/toolkit';
 import { authSlice } from '@/store/auth-slice';
 import { uiSlice } from '@/store/ui-slice';
 import { chatStreamSlice } from '@/store/chat-stream-slice';
+import { walletSlice } from '@/store/wallet-slice';
 import { chatListenerMiddleware } from '@/store/chat-listener-middleware';
 import { sheetViewerSlice, sheetViewerListenerMiddleware } from '@/store/sheet-viewer-slice';
 import { authApi } from '@/store/apis/auth-api';
@@ -49,11 +50,12 @@ const apiMiddleware = [
 ] as const;
 
 export function makeStore() {
-  return configureStore({
+  const store = configureStore({
     reducer: {
       auth: authSlice.reducer,
       ui: uiSlice.reducer,
       chatStream: chatStreamSlice.reducer,
+      wallet: walletSlice.reducer,
       sheetViewer: sheetViewerSlice.reducer,
       undoRedo: undoRedoSlice.reducer,
       [authApi.reducerPath]: authApi.reducer,
@@ -78,6 +80,14 @@ export function makeStore() {
     middleware: (getDefaultMiddleware) =>
       getDefaultMiddleware().concat(...apiMiddleware),
   });
+
+  if (typeof window !== 'undefined') {
+    void import('@/store/wallet-watcher').then(({ attachWalletWatcher }) =>
+      attachWalletWatcher(store),
+    );
+  }
+
+  return store;
 }
 
 export type AppStore = ReturnType<typeof makeStore>;

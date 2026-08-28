@@ -18,10 +18,7 @@ import ToggleButton from '@mui/material/ToggleButton';
 import ToggleButtonGroup from '@mui/material/ToggleButtonGroup';
 import Typography from '@mui/material/Typography';
 import CheckIcon from '@mui/icons-material/Check';
-import {
-  EmbeddedPlanCheckout,
-  type EmbeddedPlanCheckoutTarget,
-} from '@/components/billing/embedded-plan-checkout';
+import { PlanCheckoutDialog } from '@/components/billing/plan-checkout-dialog';
 import {
   organizationApi,
   useGetBillingCheckoutQuery,
@@ -39,7 +36,7 @@ function formatMoney(cents: number, currency = 'usd'): string {
   }).format(cents / 100);
 }
 
-type CheckoutTarget = EmbeddedPlanCheckoutTarget;
+type CheckoutTarget = PlanId;
 
 function stripeReadinessMessage(readiness: {
   hasSecretKey: boolean;
@@ -86,7 +83,8 @@ export function ChoosePlanDialog({
   const dispatch = useAppDispatch();
   const [interval, setInterval] = useState<BillingInterval>('monthly');
   const [step, setStep] = useState<'pick' | 'checkout'>('pick');
-  const [checkoutTarget, setCheckoutTarget] = useState<CheckoutTarget | null>(null);
+  const [checkoutPlanId, setCheckoutPlanId] = useState<CheckoutTarget | null>(null);
+  const [planCheckoutOpen, setPlanCheckoutOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
 
@@ -110,8 +108,12 @@ export function ChoosePlanDialog({
   const currentPlanId = (subscription?.planId ?? 'free') as PlanId;
   const currentInterval = (subscription?.interval ?? 'monthly') as BillingInterval;
   const paymentsReady = readiness?.ready === true;
-  const embeddedReady = paymentsReady && Boolean(publishableKey);
   const hasExistingSubscription = Boolean(checkoutData?.data?.linkage?.subscriptionId);
+  const embeddedReady = paymentsReady && Boolean(publishableKey);
+  const cryptoPlanEnabled = Boolean(
+    !hasExistingSubscription && checkoutData?.data?.cryptoReadiness?.enabled,
+  );
+  const canStartNewCheckout = embeddedReady || cryptoPlanEnabled;
 
   useEffect(() => {
     if (!open) return;
@@ -123,7 +125,8 @@ export function ChoosePlanDialog({
 
   const resetCheckoutStep = () => {
     setStep('pick');
-    setCheckoutTarget(null);
+    setCheckoutPlanId(null);
+    setPlanCheckoutOpen(false);
   };
 
   const handleClose = () => {
@@ -167,13 +170,13 @@ export function ChoosePlanDialog({
       return;
     }
 
-    if (!embeddedReady || !publishableKey) {
-      setError('Embedded Checkout is not ready — complete Stripe Flight Check (keys + publishable key + prices).');
+    if (!canStartNewCheckout) {
+      setError('Checkout is not ready — complete Stripe Flight Check or enable crypto payments.');
       return;
     }
 
-    setCheckoutTarget({ planId, interval });
-    setStep('checkout');
+    setCheckoutPlanId(planId);
+    setPlanCheckoutOpen(true);
   };
 
   const loading = orgLoading || checkoutLoading;
@@ -343,7 +346,7 @@ export function ChoosePlanDialog({
                             isCurrentPlanAndInterval ||
                             checkoutStarting ||
                             !purchasableNow ||
-                            (!hasExistingSubscription && !embeddedReady)
+                            (!hasExistingSubscription && !canStartNewCheckout)
                           }
                           onClick={() => choose(plan.id)}
                         >
@@ -370,20 +373,22 @@ export function ChoosePlanDialog({
               <Typography variant="caption" color="text.secondary">
                 {hasExistingSubscription
                   ? 'Existing subscriptions are changed in place (proration rules apply).'
-                  : 'Checkout opens embedded Stripe inside this dialog. After payment, webhooks grant the plan and monthly AI credits.'}
+                  : 'New subscriptions: pay monthly with Stripe or prepaid USDC (1/3/6/12 months).'}
               </Typography>
             </>
           )}
 
-          {step === 'checkout' && checkoutTarget && publishableKey && (
-            <EmbeddedPlanCheckout
+          {checkoutPlanId ? (
+            <PlanCheckoutDialog
+              open={planCheckoutOpen}
+              onClose={resetCheckoutStep}
               orgId={orgId}
-              target={checkoutTarget}
+              planId={checkoutPlanId}
               publishableKey={publishableKey}
-              onBack={resetCheckoutStep}
+              hasStripeSubscription={hasExistingSubscription}
               onComplete={handleCheckoutComplete}
             />
-          )}
+          ) : null}
         </Stack>
       </DialogContent>
     </Dialog>

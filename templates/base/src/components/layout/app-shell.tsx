@@ -584,18 +584,15 @@ export function AppShell({ children }: { children: ReactNode }) {
                   height: '100%',
                 }
               : {
+                  // Below md (<900px): full-viewport overlay — ignore stored resize width.
                   position: 'fixed',
-                  top: 0,
-                  right: 0,
+                  inset: 0,
                   zIndex: (t) => t.zIndex.drawer + 1,
-                  width: chatDrawerOpen ? `min(100vw, ${Math.max(chatDrawerWidth, 280)}px)` : 0,
-                  maxWidth: '100vw',
+                  width: chatDrawerOpen ? '100vw' : 0,
                   height: '100dvh',
-                  boxShadow: chatDrawerOpen ? 8 : 0,
+                  borderLeft: 'none',
                   visibility: chatDrawerOpen ? 'visible' : 'hidden',
-                  transition: chatDrawerResizing
-                    ? 'none'
-                    : 'width 220ms cubic-bezier(0.4, 0, 0.2, 1), box-shadow 220ms',
+                  transition: 'visibility 220ms',
                 }),
           }}
         >

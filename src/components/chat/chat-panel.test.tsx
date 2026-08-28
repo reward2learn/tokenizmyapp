@@ -18,8 +18,8 @@ vi.mock('next/navigation', () => ({
   useSearchParams: () => searchParamsRef.current,
 }));
 
-vi.mock('@/components/ops-admin/stripe-topup-dialog', () => ({
-  StripeTopUpDialog: () => null,
+vi.mock('@/components/billing/credit-topup-dialog', () => ({
+  CreditTopUpDialog: () => null,
 }));
 
 vi.mock('@/components/billing/use-billing-org', () => ({

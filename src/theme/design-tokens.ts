@@ -240,6 +240,9 @@ export function createAppTheme(brand: BrandColors, mode: ResolvedThemeMode = 'li
             backgroundImage: 'none',
             borderRadius: RADIUS.card,
           },
+          rounded: {
+            backgroundColor: 'var(--app-border)',
+          },
           // `elevation={0}` is used across the app for bordered panels — keep it flat.
           elevation0: { boxShadow: 'none' },
           elevation1: { boxShadow: SHADOWS.card },

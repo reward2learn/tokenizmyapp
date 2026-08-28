@@ -19,4 +19,6 @@ export interface SessionPayload {
   platformAdmin?: boolean;
   groups?: string[];
   permissions?: string[];
+  walletAddress?: string | null;
+  walletChainId?: number | null;
 }

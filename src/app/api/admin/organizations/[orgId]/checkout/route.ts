@@ -43,6 +43,10 @@ import {
 import { getSubscription } from '@/domain/billing/entitlement-service';
 import { getStripePublishableKey, listPurchasablePrices } from '@/lib/billing/stripe-client';
 import { isPlanId, isSelfServeBillingInterval } from '@/lib/billing/plans';
+import {
+  cryptoPaymentsReadiness,
+  CRYPTO_PLAN_PREPAID_MONTHS,
+} from '@/lib/web3/crypto-billing-config';
 
 function formatStripeApiError(err: unknown): string {
   if (err && typeof err === 'object' && 'type' in err) {
@@ -104,6 +108,18 @@ export async function GET(
       console.warn(`[billing] Reconcile failed for ${orgId}:`, (err as Error).message);
     }
 
+    try {
+      const { reconcileCryptoPrepaidSubscription } = await import(
+        '@/domain/billing/crypto-plan-service'
+      );
+      const cryptoReconcile = await reconcileCryptoPrepaidSubscription(orgId, db);
+      if (cryptoReconcile.changed) {
+        console.log(`[billing] ${orgId}: ${cryptoReconcile.reason}`);
+      }
+    } catch (err) {
+      console.warn(`[billing] Crypto prepaid reconcile failed for ${orgId}:`, (err as Error).message);
+    }
+
     // A plan whose card and Stripe price disagree is not sellable: the customer
     // would be charged an amount the page never showed them. Dropping it from
     // `purchasable` greys out its Choose button, which is the same mechanism
@@ -139,6 +155,8 @@ export async function GET(
       // only in the server log.
       reconcileNote: reconcile?.code === 'price_unknown' ? reconcile.reason : null,
       publishableKey: stripeConfig?.publishableKey?.trim() || getStripePublishableKey(),
+      cryptoReadiness: cryptoPaymentsReadiness(),
+      cryptoPrepaidMonths: [...CRYPTO_PLAN_PREPAID_MONTHS],
     });
   } catch (err) {
     return jsonError('Failed to read billing state: ' + (err as Error).message, 500);
