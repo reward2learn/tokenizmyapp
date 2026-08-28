@@ -21,6 +21,7 @@ import {
   normalizeTreasuryAddress,
   readTenantCryptoConfig,
 } from '@/lib/web3/crypto-tenant-config';
+import { clearPlatformCryptoConfigCache } from '@/lib/web3/platform-crypto-config';
 import type { AppPackConfig } from '@/store/apis/tenant-api';
 
 export const dynamic = 'force-dynamic';
@@ -173,6 +174,8 @@ export async function POST(
         }
       }
     }
+
+    clearPlatformCryptoConfigCache();
 
     return jsonOk({
       projects: projects.length,

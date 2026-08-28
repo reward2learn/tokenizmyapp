@@ -13,7 +13,7 @@ import { jsonError, jsonOk } from '@/lib/api/response';
 import { getOrganization } from '@/domain/billing/organization-service';
 import { getStripeLinkage } from '@/domain/billing/stripe-service';
 import { createCryptoPlanIntent } from '@/domain/billing/crypto-payment-service';
-import { cryptoPaymentsReadiness, CRYPTO_PLAN_PREPAID_MONTHS } from '@/lib/web3/crypto-billing-config';
+import { cryptoPaymentsReadinessAsync, CRYPTO_PLAN_PREPAID_MONTHS } from '@/lib/web3/crypto-billing-config';
 import { isPlanId, isCryptoPrepaidPlanId } from '@/lib/billing/plans';
 
 export const dynamic = 'force-dynamic';
@@ -42,10 +42,10 @@ export async function POST(
   let linked = await requireLinkedWallet(guard);
   if (!linked.ok) return linked.response;
 
-  const readiness = cryptoPaymentsReadiness();
+  const readiness = await cryptoPaymentsReadinessAsync();
   if (!readiness.enabled) {
     return jsonError(
-      'Crypto payments are not configured. Set CRYPTO_TREASURY_ADDRESS and CRYPTO_PAYMENTS_ENABLED.',
+      'Crypto payments are not configured. Enable Crypto Payments on the factory tenant (Ops Admin → Edit Tenant → Crypto Payments), set CRYPTO_TREASURY_ADDRESS, and Save — or set CRYPTO_TREASURY_ADDRESS and CRYPTO_PAYMENTS_ENABLED on the Vercel project.',
       503,
     );
   }

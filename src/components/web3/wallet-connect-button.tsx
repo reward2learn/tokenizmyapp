@@ -7,9 +7,39 @@ import AccountBalanceWalletIcon from '@mui/icons-material/AccountBalanceWallet';
 import { useAppDispatch, useAppSelector } from '@/store/hooks';
 import {
   walletConnecting,
+  walletConnected,
+  walletConnectCancelled,
   walletError,
   formatWalletAddress,
 } from '@/store/wallet-slice';
+
+type AppKitLike = {
+  open: (opts?: { view?: string }) => Promise<void>;
+  getAccount?: () => {
+    isConnected?: boolean;
+    address?: string;
+    embeddedWalletInfo?: { authProvider?: string | null };
+  };
+  getChainId?: () => number | string | undefined;
+  getState?: () => { open?: boolean };
+};
+
+function syncConnectedAccount(
+  dispatch: ReturnType<typeof useAppDispatch>,
+  appkit: AppKitLike,
+): boolean {
+  const account = appkit.getAccount?.();
+  if (!account?.isConnected || !account.address) return false;
+  const chainIdRaw = appkit.getChainId?.();
+  dispatch(
+    walletConnected({
+      address: account.address,
+      chainId: typeof chainIdRaw === 'number' ? chainIdRaw : null,
+      connectorId: account.embeddedWalletInfo?.authProvider ?? null,
+    }),
+  );
+  return true;
+}
 
 /**
  * Connect / account control for the factory Reown social wallet.
@@ -24,6 +54,7 @@ export function WalletConnectButton() {
   if (status === 'disabled') return null;
 
   const openModal = async () => {
+    // Retry even if a prior open left status stuck on "connecting".
     dispatch(walletConnecting());
     try {
       const { getAppKit } = await import('@/lib/web3/appkit-client');
@@ -32,10 +63,21 @@ export function WalletConnectButton() {
         dispatch(walletError('Social wallet is not configured for this deployment.'));
         return;
       }
-      const appkit = await pending;
-      // open() resolves when the modal is shown, not when the user finishes.
-      // Stay on "connecting" until subscribeAccount / subscribeState updates.
-      await appkit.open();
+      const appkit = (await pending) as AppKitLike;
+
+      // Prior AppKit session still connected — sync Redux instead of a dead modal.
+      if (syncConnectedAccount(dispatch, appkit)) return;
+
+      // Explicit Connect view: default open() can target Account when JWT is linked
+      // and appear to do nothing (button stuck on Connecting…).
+      await appkit.open({ view: 'Connect' });
+
+      // Give the modal a beat to mount; if it never opened, unlock the button.
+      await new Promise((resolve) => setTimeout(resolve, 600));
+      if (syncConnectedAccount(dispatch, appkit)) return;
+      if (!appkit.getState?.()?.open) {
+        dispatch(walletConnectCancelled());
+      }
     } catch (err) {
       dispatch(walletError(err instanceof Error ? err.message : 'Could not open the wallet.'));
     }
@@ -62,7 +104,7 @@ export function WalletConnectButton() {
           startIcon={<AccountBalanceWalletIcon />}
           variant="outlined"
           size="small"
-          disabled={status === 'connecting'}
+          // Keep clickable while "connecting" so a stuck state can be retried.
           color={status === 'error' ? 'error' : 'primary'}
         >
           {status === 'connecting' ? 'Connecting…' : 'Connect social wallet'}

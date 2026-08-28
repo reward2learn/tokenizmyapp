@@ -44,7 +44,7 @@ import { getSubscription } from '@/domain/billing/entitlement-service';
 import { getStripePublishableKey, listPurchasablePrices } from '@/lib/billing/stripe-client';
 import { isPlanId, isSelfServeBillingInterval } from '@/lib/billing/plans';
 import {
-  cryptoPaymentsReadiness,
+  cryptoPaymentsReadinessAsync,
   CRYPTO_PLAN_PREPAID_MONTHS,
 } from '@/lib/web3/crypto-billing-config';
 
@@ -155,7 +155,7 @@ export async function GET(
       // only in the server log.
       reconcileNote: reconcile?.code === 'price_unknown' ? reconcile.reason : null,
       publishableKey: stripeConfig?.publishableKey?.trim() || getStripePublishableKey(),
-      cryptoReadiness: cryptoPaymentsReadiness(),
+      cryptoReadiness: await cryptoPaymentsReadinessAsync(),
       cryptoPrepaidMonths: [...CRYPTO_PLAN_PREPAID_MONTHS],
     });
   } catch (err) {

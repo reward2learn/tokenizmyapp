@@ -71,13 +71,24 @@ export function attachWalletWatcher(store: WalletStoreLike): void {
       // subscribeAccount only fires on changes — closing the modal without connecting
       // leaves Redux stuck on "connecting" unless we watch modal open/close.
       appkit.subscribeState((modalState) => {
-        if (modalState.open) return;
         const wallet = store.getState().wallet;
+        if (modalState.open) {
+          // Modal visible — keep "connecting" until account or close.
+          return;
+        }
         if (wallet.status !== 'connecting') return;
         const account = appkit.getAccount();
-        if (!account?.isConnected) {
-          store.dispatch(walletConnectCancelled());
+        if (account?.isConnected && account.address) {
+          store.dispatch(
+            walletConnected({
+              address: account.address,
+              chainId: readChainId(appkit),
+              connectorId: account.embeddedWalletInfo?.authProvider ?? null,
+            }),
+          );
+          return;
         }
+        store.dispatch(walletConnectCancelled());
       });
     } catch (err) {
       attached = false;

@@ -1,4 +1,8 @@
 import { DEFAULT_REOWN_PROJECT_ID } from '@/lib/web3/reown';
+import {
+  resolvePlatformCryptoConfig,
+  type PlatformCryptoConfig,
+} from '@/lib/web3/platform-crypto-config';
 
 /**
  * Crypto billing architecture — locked design decisions.
@@ -9,6 +13,7 @@ import { DEFAULT_REOWN_PROJECT_ID } from '@/lib/web3/reown';
  * @see docs/factory-reown-siwe-wallet-link.md — factory Sign in → Connect Wallet → SIWE
  * @see docs/google-oauth-appkit-setup.md — Corrections A–D background
  * @see src/lib/web3/crypto-tenant-config.ts — per-tenant CRYPTO_* via edit wizard
+ * @see src/lib/web3/platform-crypto-config.ts — factory env + tenants.metadata fallback
  */
 
 /** Sepolia — SIWE sign-in messages always target this chain (Correction D in setup doc). */
@@ -30,9 +35,13 @@ export const USDC_BASE_MAINNET = '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913' as
 /** Circle test USDC on Sepolia. */
 export const USDC_SEPOLIA = '0x1c7D4B196Cb0C7B01d743Fcb1Fa41d66781d0590' as const;
 
-/** Platform treasury — single address for all tenants in v1. */
-export function resolveTreasuryAddress(): string | undefined {
-  return process.env.CRYPTO_TREASURY_ADDRESS?.trim() || undefined;
+/** Platform treasury — env first; optional hydrated platform config fallback. */
+export function resolveTreasuryAddress(
+  platform?: PlatformCryptoConfig | null,
+): string | undefined {
+  const fromEnv = process.env.CRYPTO_TREASURY_ADDRESS?.trim() || undefined;
+  if (fromEnv) return fromEnv;
+  return platform?.treasuryAddress;
 }
 
 /** Active payment chain — Base in production, Sepolia elsewhere unless overridden. */
@@ -71,12 +80,20 @@ function parseEnvBool(value: string | undefined): boolean {
 }
 
 /** Server-side crypto rail availability (treasury + feature flag). */
-export function isCryptoPaymentsEnabledServer(): boolean {
+export function isCryptoPaymentsEnabledServer(
+  platform?: PlatformCryptoConfig | null,
+): boolean {
   const flagged =
     parseEnvBool(process.env.CRYPTO_PAYMENTS_ENABLED) ||
-    parseEnvBool(process.env.NEXT_PUBLIC_CRYPTO_PAYMENTS_ENABLED);
-  if (!flagged && process.env.NODE_ENV !== 'development') return false;
-  return Boolean(resolveTreasuryAddress());
+    parseEnvBool(process.env.NEXT_PUBLIC_CRYPTO_PAYMENTS_ENABLED) ||
+    platform?.enabled === true;
+  if (!flagged && process.env.NODE_ENV !== 'development' && !platform?.enabled) {
+    return false;
+  }
+  if (!flagged && process.env.NODE_ENV === 'development') {
+    return Boolean(resolveTreasuryAddress(platform));
+  }
+  return Boolean(resolveTreasuryAddress(platform));
 }
 
 /**
@@ -102,21 +119,32 @@ export interface CryptoPaymentsReadiness {
   chainId: number;
   usdcContract: string | undefined;
   hasRpcUrl: boolean;
+  source?: PlatformCryptoConfig['source'];
 }
 
-export function cryptoPaymentsReadiness(): CryptoPaymentsReadiness {
+export function cryptoPaymentsReadiness(
+  platform?: PlatformCryptoConfig | null,
+): CryptoPaymentsReadiness {
   const chainId = resolvePaymentChainId();
   const usdcContract = usdcContractForChain(chainId);
-  const treasury = resolveTreasuryAddress();
+  const treasury = resolveTreasuryAddress(platform);
   const hasRpcUrl = Boolean(resolveRpcUrl(chainId));
-  const enabled = isCryptoPaymentsEnabledServer() && Boolean(treasury && usdcContract);
+  const enabled =
+    isCryptoPaymentsEnabledServer(platform) && Boolean(treasury && usdcContract);
   return {
     enabled,
     hasTreasury: Boolean(treasury),
     chainId,
     usdcContract,
     hasRpcUrl,
+    source: platform?.source,
   };
+}
+
+/** API routes should use this — hydrates factory tenant registry when env is empty. */
+export async function cryptoPaymentsReadinessAsync(): Promise<CryptoPaymentsReadiness> {
+  const platform = await resolvePlatformCryptoConfig();
+  return cryptoPaymentsReadiness(platform);
 }
 
 /** RPC URL for on-chain payment verification. */

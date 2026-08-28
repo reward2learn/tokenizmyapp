@@ -170,7 +170,9 @@ export function CryptoTopUpPanel({
         <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}>
           {error ? (
             <Alert severity="error">
-              Could not start crypto payment. Crypto may not be configured on this deployment.
+              Could not start crypto payment. Configure Crypto Payments on the factory
+              tenant (Ops Admin → Edit → Crypto Payments + treasury address) or set
+              CRYPTO_TREASURY_ADDRESS / CRYPTO_PAYMENTS_ENABLED on Vercel.
             </Alert>
           ) : (
             <BrandedLoadingIndicator />

@@ -29,6 +29,7 @@ import {
   usdcAmountFromCents,
   usdcContractForChain,
 } from '@/lib/web3/crypto-billing-config';
+import { resolvePlatformCryptoConfig } from '@/lib/web3/platform-crypto-config';
 import { ERC20_TRANSFER_ABI } from '@/lib/web3/erc20-abi';
 
 type RawDb = ReturnType<typeof createRawClient>;
@@ -212,14 +213,15 @@ export async function createCryptoTopUpIntent(
   options: { purchaserUserId?: string | null } = {},
   db?: RawDb,
 ): Promise<CryptoTopUpIntentResult> {
-  const readiness = cryptoPaymentsReadiness();
+  const platform = await resolvePlatformCryptoConfig();
+  const readiness = cryptoPaymentsReadiness(platform);
   if (!readiness.enabled || !readiness.usdcContract) {
     throw new Error(
-      'Crypto payments are not configured. Set CRYPTO_TREASURY_ADDRESS and CRYPTO_PAYMENTS_ENABLED.',
+      'Crypto payments are not configured. Enable Crypto Payments (treasury + flag) on the factory tenant or Vercel env.',
     );
   }
 
-  const treasury = resolveTreasuryAddress();
+  const treasury = resolveTreasuryAddress(platform);
   if (!treasury) throw new Error('CRYPTO_TREASURY_ADDRESS is not set.');
 
   const pack = CREDIT_PACKS.find((p) => p.id === packId);
@@ -477,10 +479,11 @@ export async function createCryptoPlanIntent(
   walletAddress: string,
   db?: RawDb,
 ): Promise<CryptoPlanIntentResult> {
-  const readiness = cryptoPaymentsReadiness();
+  const platform = await resolvePlatformCryptoConfig();
+  const readiness = cryptoPaymentsReadiness(platform);
   if (!readiness.enabled || !readiness.usdcContract) {
     throw new Error(
-      'Crypto payments are not configured. Set CRYPTO_TREASURY_ADDRESS and CRYPTO_PAYMENTS_ENABLED.',
+      'Crypto payments are not configured. Enable Crypto Payments (treasury + flag) on the factory tenant or Vercel env.',
     );
   }
   if (!isPlanId(planId)) {
@@ -497,7 +500,7 @@ export async function createCryptoPlanIntent(
     throw new Error(`Plan "${planId}" is not available for crypto prepaid purchase.`);
   }
 
-  const treasury = resolveTreasuryAddress();
+  const treasury = resolveTreasuryAddress(platform);
   if (!treasury) throw new Error('CRYPTO_TREASURY_ADDRESS is not set.');
 
   const chainId = resolvePaymentChainId();

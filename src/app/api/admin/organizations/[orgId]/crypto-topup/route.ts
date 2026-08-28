@@ -13,7 +13,7 @@ import { sessionIsPlatformAdmin } from '@/lib/auth/jwt';
 import { jsonError, jsonOk } from '@/lib/api/response';
 import { getOrganization, resolveTenantStripeConfig } from '@/domain/billing/organization-service';
 import { createCryptoTopUpIntent } from '@/domain/billing/crypto-payment-service';
-import { cryptoPaymentsReadiness } from '@/lib/web3/crypto-billing-config';
+import { cryptoPaymentsReadinessAsync } from '@/lib/web3/crypto-billing-config';
 import { CREDIT_PACKS, canPurchaseCreditPacks } from '@/lib/billing/plans';
 import { getSubscription } from '@/domain/billing/entitlement-service';
 import { reconcileSubscriptionFromStripe } from '@/domain/billing/stripe-service';
@@ -34,10 +34,10 @@ export async function POST(
   guard = await requireLinkedWallet(guard);
   if (!guard.ok) return guard.response;
 
-  const readiness = cryptoPaymentsReadiness();
+  const readiness = await cryptoPaymentsReadinessAsync();
   if (!readiness.enabled) {
     return jsonError(
-      'Crypto payments are not configured. Set CRYPTO_TREASURY_ADDRESS and CRYPTO_PAYMENTS_ENABLED.',
+      'Crypto payments are not configured. Enable Crypto Payments on the factory tenant (Ops Admin → Edit Tenant → Crypto Payments), set CRYPTO_TREASURY_ADDRESS, and Save — or set CRYPTO_TREASURY_ADDRESS and CRYPTO_PAYMENTS_ENABLED on the Vercel project.',
       503,
     );
   }
