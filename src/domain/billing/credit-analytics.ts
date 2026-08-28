@@ -64,6 +64,7 @@ function inferProvider(model: string | null | undefined, explicit?: string | nul
   if (m.includes('hermes') || m.includes('nous') || m.startsWith('tencent/')) {
     return 'nous-research';
   }
+  if (m.includes('deepseek')) return 'deepseek-studio';
   return 'unknown';
 }
 

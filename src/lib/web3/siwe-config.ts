@@ -8,6 +8,8 @@ import { SIWE_CHAIN_ID } from '@/lib/web3/crypto-billing-config';
 
 let siweAppReady = false;
 let siweAppReadyResolvers: Array<() => void> = [];
+/** Server-built EIP-4361 message from the latest getNonce call (Correction B). */
+let pendingServerSiweMessage: string | null = null;
 
 /** Gates getNonce until AppKit providers finish init (Correction A companion). */
 export function signalSiweAppReady(): void {
@@ -53,18 +55,34 @@ export const factorySiweClient = createSIWEConfig({
 
     const payload = (await response.json()) as {
       success?: boolean;
-      data?: { nonce?: string };
+      data?: { nonce?: string; message?: string };
       nonce?: string;
+      message?: string;
     };
+    const message = payload.data?.message ?? payload.message;
     const nonce = payload.data?.nonce ?? payload.nonce;
     if (!nonce) throw new Error('Invalid nonce response');
+    pendingServerSiweMessage = message ?? null;
     return nonce;
   },
 
-  createMessage: ({ address, ...args }) => formatMessage(args, address),
+  createMessage: ({ address, ...args }) => {
+    if (pendingServerSiweMessage) {
+      const serverMessage = pendingServerSiweMessage;
+      pendingServerSiweMessage = null;
+      return serverMessage;
+    }
+    return formatMessage(args, address);
+  },
 
   verifyMessage: async ({ message, signature }) => {
+    // ReownAuthentication session restoration — no factory nonce to verify.
     if (!hasFreshNonceLine(message)) {
+      return true;
+    }
+
+    // Web3Modal / Reown auth uses CAIP chain ids — not a factory SIWE link.
+    if (/^Chain ID: eip155:/m.test(message)) {
       return true;
     }
 
@@ -94,9 +112,7 @@ export const factorySiweClient = createSIWEConfig({
   },
 
   onSignIn: () => {
-    if (typeof window !== 'undefined') {
-      window.dispatchEvent(new CustomEvent('tokenizmyapp:wallet-linked'));
-    }
+    // Session refresh is handled by wallet-listener-middleware after linkWalletSession.
   },
 
   getSession: async () => {

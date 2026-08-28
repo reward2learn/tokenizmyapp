@@ -1,6 +1,5 @@
 'use client';
 
-import { useEffect, useState } from 'react';
 import Alert from '@mui/material/Alert';
 import Box from '@mui/material/Box';
 import Button from '@mui/material/Button';
@@ -8,10 +7,14 @@ import Paper from '@mui/material/Paper';
 import Stack from '@mui/material/Stack';
 import Typography from '@mui/material/Typography';
 import { WalletConnectButton } from '@/components/web3/wallet-connect-button';
-import { requestWalletLink } from '@/lib/web3/request-wallet-link';
-import { authApi } from '@/store/apis/auth-api';
 import { useAppDispatch, useAppSelector } from '@/store/hooks';
-import { formatWalletAddress } from '@/store/wallet-slice';
+import {
+  disconnectWalletSession,
+  formatWalletAddress,
+  linkWalletSession,
+  walletLinkReset,
+  walletSessionLinked,
+} from '@/store/wallet-slice';
 
 /**
  * Settings → Billing / Personal — social wallet for crypto payments (Phase 4+).
@@ -27,29 +30,30 @@ export function CryptoWalletPanel({
   description?: string;
 }) {
   const dispatch = useAppDispatch();
-  const { status, address, connectorId, error } = useAppSelector((state) => state.wallet);
-  const linkedWallet = useAppSelector((state) => state.auth.walletAddress);
-  const [linking, setLinking] = useState(false);
-  const [linkError, setLinkError] = useState<string | null>(null);
+  const auth = useAppSelector((state) => state.auth);
+  const {
+    status,
+    address,
+    connectorId,
+    error,
+    linkStatus,
+    linkError,
+    disconnectStatus,
+    disconnectError,
+  } = useAppSelector((state) => state.wallet);
 
-  const isLinked =
-    Boolean(linkedWallet && address && linkedWallet.toLowerCase() === address.toLowerCase());
+  const isLinked = walletSessionLinked(auth, address);
+  const isConnected = status === 'connected' && Boolean(address);
+  const hasWalletBinding = isConnected || Boolean(auth.walletAddress);
+  const isBusy = linkStatus === 'linking' || disconnectStatus === 'disconnecting';
 
-  useEffect(() => {
-    if (isLinked) setLinkError(null);
-  }, [isLinked]);
+  const handleLinkWallet = () => {
+    dispatch(walletLinkReset());
+    void dispatch(linkWalletSession());
+  };
 
-  const handleLinkWallet = async () => {
-    setLinking(true);
-    setLinkError(null);
-    try {
-      await requestWalletLink();
-      dispatch(authApi.util.invalidateTags(['Session']));
-    } catch (err) {
-      setLinkError(err instanceof Error ? err.message : 'Could not link wallet.');
-    } finally {
-      setLinking(false);
-    }
+  const handleDisconnectWallet = () => {
+    void dispatch(disconnectWalletSession());
   };
 
   if (status === 'disabled') {
@@ -74,39 +78,86 @@ export function CryptoWalletPanel({
 
         <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 2, alignItems: 'center' }}>
           <WalletConnectButton />
-          {status === 'connected' && address ? (
+          {isConnected && address ? (
             <Typography variant="body2" color="text.secondary">
               Connected{connectorId ? ` via ${connectorId}` : ''}: {formatWalletAddress(address)}
+            </Typography>
+          ) : auth.walletAddress ? (
+            <Typography variant="body2" color="text.secondary">
+              Linked: {formatWalletAddress(auth.walletAddress)}
             </Typography>
           ) : null}
         </Box>
 
         {error ? <Alert severity="error">{error}</Alert> : null}
-        {linkError ? <Alert severity="error">{linkError}</Alert> : null}
+        {linkError && linkStatus === 'error' ? <Alert severity="error">{linkError}</Alert> : null}
+        {disconnectError && disconnectStatus === 'error' ? (
+          <Alert severity="error">{disconnectError}</Alert>
+        ) : null}
 
-        {status === 'connected' && address ? (
+        {isConnected ? (
           isLinked ? (
-            <Alert severity="success" variant="outlined">
-              Wallet connected and linked to your account for crypto payments.
-            </Alert>
+            <Stack spacing={1.5}>
+              <Alert severity="success" variant="outlined">
+                Wallet connected and linked to your account for crypto payments.
+              </Alert>
+              <Box>
+                <Button
+                  variant="outlined"
+                  size="small"
+                  color="inherit"
+                  onClick={handleDisconnectWallet}
+                  disabled={isBusy}
+                >
+                  {disconnectStatus === 'disconnecting' ? 'Disconnecting…' : 'Disconnect wallet'}
+                </Button>
+              </Box>
+            </Stack>
           ) : (
             <Stack spacing={1.5}>
               <Alert severity="warning" variant="outlined">
-                Wallet connected but not linked yet. Sign the one-time message to enable USDC
-                top-ups.
+                Wallet connected via Google — one more signature links it to your account for USDC
+                top-ups. (The Google sign-in above only provisions the embedded wallet.)
               </Alert>
-              <Box>
+              <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
                 <Button
                   variant="contained"
                   size="small"
                   onClick={handleLinkWallet}
-                  disabled={linking}
+                  disabled={isBusy}
                 >
-                  {linking ? 'Waiting for signature…' : 'Link wallet for payments'}
+                  {linkStatus === 'linking' ? 'Waiting for signature…' : 'Link wallet for payments'}
+                </Button>
+                <Button
+                  variant="outlined"
+                  size="small"
+                  color="inherit"
+                  onClick={handleDisconnectWallet}
+                  disabled={isBusy}
+                >
+                  {disconnectStatus === 'disconnecting' ? 'Disconnecting…' : 'Disconnect wallet'}
                 </Button>
               </Box>
             </Stack>
           )
+        ) : hasWalletBinding ? (
+          <Stack spacing={1.5}>
+            <Alert severity="info" variant="outlined">
+              A wallet is linked to your account but not connected in this browser. Disconnect to
+              remove it, or connect again above.
+            </Alert>
+            <Box>
+              <Button
+                variant="outlined"
+                size="small"
+                color="inherit"
+                onClick={handleDisconnectWallet}
+                disabled={isBusy}
+              >
+                {disconnectStatus === 'disconnecting' ? 'Disconnecting…' : 'Disconnect wallet'}
+              </Button>
+            </Box>
+          </Stack>
         ) : null}
       </Stack>
     </Paper>

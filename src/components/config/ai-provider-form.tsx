@@ -202,9 +202,22 @@ export function AiProviderForm() {
 
             {keylessProvider ? (
               <Alert severity="info">
-                TokenizMyApp-Studio-AI uses the factory Ollama proxy (
-                <code>/api/ollama/v1</code>
-                ) — no API key is required. Models are loaded from the Mac Studio tunnel automatically.
+                {selectedProviderId === 'ollama-studio' ? (
+                  <>
+                    TokenizMyApp-Studio-AI uses the factory Ollama proxy (
+                    <code>/api/ollama/v1</code>
+                    ) — no API key is required. Models are loaded from the Mac Studio tunnel automatically.
+                  </>
+                ) : selectedProviderId === 'deepseek-studio' ? (
+                  <>
+                    StarWorld DeepSeek uses the Mac Studio MLX tunnel at{' '}
+                    <code>deepseek.tokenizin.com</code>
+                    {' '}— no API key is required. Load models to pick a variant
+                    (e.g. <code>:no-think</code>, <code>:think</code>).
+                  </>
+                ) : (
+                  'This provider does not require an API key.'
+                )}
               </Alert>
             ) : (
               <>

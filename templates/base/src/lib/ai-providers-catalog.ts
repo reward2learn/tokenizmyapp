@@ -28,6 +28,8 @@
  *   other OpenAI-compatible models. See https://portal.nousresearch.com.
  * - TokenizMyApp-Studio-AI: factory `/api/ollama` catch-all → Mac Studio
  *   (OLLAMA_TUNNEL_HOST, default https://ollama.tokenizin.com).
+ * - StarWorld DeepSeek: Mac Studio MLX DeepSeek OpenAI-compat surface
+ *   (DEEPSEEK_TUNNEL_HOST, default https://deepseek.tokenizin.com).
  */
 
 /** Factory OpenAI-compatible surface for Mac Studio Ollama (no proxy auth). */
@@ -59,6 +61,7 @@ export const AI_PROVIDER_IDS = [
   'opencode-zen',
   'nous-research',
   'ollama-studio',
+  'deepseek-studio',
 ] as const;
 
 /** Builtin provider ids only. Runtime / DB catalog ids are plain `string`. */
@@ -149,6 +152,18 @@ export const AI_PROVIDERS: AiProviderDef[] = [
     docsUrl: FACTORY_OLLAMA_V1_BASE,
     defaultModel: 'qwen2.5:14b',
   },
+  {
+    id: 'deepseek-studio',
+    label: 'StarWorld DeepSeek',
+    keySecretName: 'DEEPSEEK_STUDIO_API_KEY',
+    keyEnvVar: 'DEEPSEEK_STUDIO_API_KEY',
+    keyPlaceholder: 'optional — Mac Studio tunnel has no auth',
+    chatCompletionsUrl: 'https://deepseek.tokenizin.com/v1/chat/completions',
+    modelsUrl: 'https://deepseek.tokenizin.com/v1/models',
+    modelsRequireAuth: false,
+    docsUrl: 'https://deepseek.tokenizin.com/v1',
+    defaultModel: 'DeepSeek-V4-Flash-0731-2.4bit-mixed:no-think',
+  },
 ];
 
 /**
@@ -219,9 +234,35 @@ function ollamaTunnelV1Base(): string {
   return `${tunnel.replace(/\/+$/, '')}/v1`;
 }
 
+/** Mac Studio DeepSeek tunnel base (OpenAI-compatible /v1). */
+function deepseekTunnelV1Base(): string {
+  const tunnel = process.env.DEEPSEEK_TUNNEL_HOST?.trim() || 'https://deepseek.tokenizin.com';
+  return `${tunnel.replace(/\/+$/, '')}/v1`;
+}
+
+/** Friendly label for MLX model paths (e.g. …/DeepSeek-V4-Flash:no-think). */
+function deepSeekModelLabel(id: string): string {
+  const segment = id.includes('/') ? id.split('/').pop() ?? id : id;
+  return segment;
+}
+
+function mapDeepSeekStudioModels(raw: RawModel[]): AiModelOption[] {
+  return raw
+    .filter((m) => !/embed/i.test(m.id))
+    .map((m) => ({
+      id: m.id,
+      label: m.name || deepSeekModelLabel(m.id),
+      description: m.description,
+    }))
+    .sort((a, b) => a.label.localeCompare(b.label));
+}
+
 export function resolveChatCompletionsUrl(provider: AiProviderDef): string {
   if (provider.id === 'ollama-studio') {
     return `${ollamaTunnelV1Base()}/chat/completions`;
+  }
+  if (provider.id === 'deepseek-studio') {
+    return `${deepseekTunnelV1Base()}/chat/completions`;
   }
   return provider.chatCompletionsUrl;
 }
@@ -229,6 +270,9 @@ export function resolveChatCompletionsUrl(provider: AiProviderDef): string {
 function resolveModelsFetchUrl(provider: AiProviderDef): string {
   if (provider.id === 'ollama-studio') {
     return `${ollamaTunnelV1Base()}/models`;
+  }
+  if (provider.id === 'deepseek-studio') {
+    return `${deepseekTunnelV1Base()}/models`;
   }
   return provider.modelsUrl;
 }
@@ -280,6 +324,9 @@ export async function listProviderModels(provider: AiProviderDef, apiKey: string
     case 'ollama-studio':
       // Live tags from Mac Studio via factory /api/ollama → OLLAMA_TUNNEL_HOST.
       return mapGenericChatModels(raw);
+    case 'deepseek-studio':
+      // MLX DeepSeek on Mac Studio — ids may be full paths or short slugs.
+      return mapDeepSeekStudioModels(raw);
     default:
       return mapGenericChatModels(raw);
   }

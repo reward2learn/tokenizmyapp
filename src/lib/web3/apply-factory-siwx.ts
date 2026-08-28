@@ -10,12 +10,20 @@ import { factorySiweClient, signalSiweAppReady } from '@/lib/web3/siwe-config';
 
 /**
  * Wait for AppKit auth init, then re-apply factory SIWX callbacks.
- *
- * AppKit 1.8.x does not expose readyPromise on the public type; a short defer
- * matches the production PRESTIX pattern of re-applying after init completes.
  */
-export async function applyFactorySiwxAfterReady(): Promise<void> {
-  await new Promise((resolve) => setTimeout(resolve, 100));
+export async function applyFactorySiwxAfterReady(
+  appKitPromise?: Promise<unknown>,
+): Promise<void> {
+  if (appKitPromise) {
+    try {
+      const appkit = await appKitPromise;
+      const ready = (appkit as { readyPromise?: Promise<unknown> }).readyPromise;
+      if (ready) await ready;
+    } catch {
+      // Fall through — short defer still re-applies SIWX mapping.
+    }
+  }
+  await new Promise((resolve) => setTimeout(resolve, 150));
   await applyFactorySiwxMapping();
 }
 

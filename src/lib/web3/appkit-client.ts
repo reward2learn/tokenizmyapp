@@ -93,7 +93,7 @@ async function createAppKitInstance(config: FactoryWeb3Config) {
     themeMode: 'light',
   });
 
-  void applyFactorySiwxAfterReady();
+  void applyFactorySiwxAfterReady(Promise.resolve(appkit));
 
   return appkit;
 }

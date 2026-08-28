@@ -206,6 +206,13 @@ export function TenantAiProviderForm({ tenantSlug, appId }: TenantAiProviderForm
                 tunnelHost={ollamaTunnelHost}
                 onTunnelHostChange={setOllamaTunnelHost}
               />
+            ) : selectedProviderId === 'deepseek-studio' ? (
+              <Alert severity="info">
+                StarWorld DeepSeek uses the Mac Studio MLX tunnel at{' '}
+                <code>deepseek.tokenizin.com</code>
+                {' '}— no API key is required. Load models to pick a variant
+                (e.g. <code>:no-think</code>, <code>:think</code>).
+              </Alert>
             ) : (
               <Alert severity="info">
                 This provider uses a keyless backend — no API key is required.

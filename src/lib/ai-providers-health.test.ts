@@ -51,6 +51,7 @@ describe('parseAiProvidersCatalogJson', () => {
       'opencode-zen',
       'nous-research',
       'ollama-studio',
+      'deepseek-studio',
     ]);
   });
 
@@ -95,6 +96,15 @@ describe('keyless provider helpers', () => {
     const studio = AI_PROVIDERS.find((p) => p.id === 'ollama-studio')!;
     expect(resolveChatCompletionsUrl(studio)).toBe('https://ollama.tokenizin.com/v1/chat/completions');
     expect(studio.chatCompletionsUrl).toContain('tokenizmyapp.vercel.app/api/ollama');
+  });
+
+  it('deepseek-studio does not require an API key', async () => {
+    const { providerRequiresApiKey, isProviderConfigured, resolveChatCompletionsUrl } = await import('@/lib/ai-providers-catalog');
+    const deepseek = AI_PROVIDERS.find((p) => p.id === 'deepseek-studio')!;
+    expect(providerRequiresApiKey(deepseek)).toBe(false);
+    expect(isProviderConfigured(deepseek, null)).toBe(true);
+    expect(deepseek.defaultModel).toBe('DeepSeek-V4-Flash-0731-2.4bit-mixed:no-think');
+    expect(resolveChatCompletionsUrl(deepseek)).toBe('https://deepseek.tokenizin.com/v1/chat/completions');
   });
 
   it('buildProviderFetchHeaders omits Authorization for keyless bearer', async () => {

@@ -24,6 +24,9 @@ import { tenantApi } from '@/store/apis/tenant-api';
 import { organizationApi } from '@/store/apis/organization-api';
 import { templateApi } from '@/store/apis/template-api';
 import { undoRedoSlice, undoRedoListenerMiddleware } from '@/store/undo-redo-slice';
+import { walletListenerMiddleware } from '@/store/wallet-listener-middleware';
+import { walletAuthRedirectDetected } from '@/store/wallet-slice';
+import { hasAuthSuccessRedirect } from '@/lib/web3/social-wallet-connectors';
 
 const apiMiddleware = [
   authApi.middleware,
@@ -46,6 +49,7 @@ const apiMiddleware = [
   templateApi.middleware,
   sheetViewerListenerMiddleware,
   chatListenerMiddleware,
+  walletListenerMiddleware,
   undoRedoListenerMiddleware,
 ] as const;
 
@@ -82,6 +86,9 @@ export function makeStore() {
   });
 
   if (typeof window !== 'undefined') {
+    if (hasAuthSuccessRedirect()) {
+      store.dispatch(walletAuthRedirectDetected());
+    }
     void import('@/store/wallet-watcher').then(({ attachWalletWatcher }) =>
       attachWalletWatcher(store),
     );
