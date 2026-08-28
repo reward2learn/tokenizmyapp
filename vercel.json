@@ -15,7 +15,9 @@
     "NEXT_PUBLIC_TENANT_SLUG": "tokenizmyapp",
     "NEXT_PUBLIC_TENANT_DISPLAY_NAME": "TokenizMyApp",
     "NEXT_PUBLIC_TENANT_DESCRIPTION": "Create and configure your business application",
-    "NEXT_PUBLIC_TENANT_APP_TITLE": "TokenizMyApp — Tenant Factory"
+    "NEXT_PUBLIC_TENANT_APP_TITLE": "TokenizMyApp — Tenant Factory",
+    "NEXT_PUBLIC_WEB3_WALLET_ENABLED": "true",
+    "NEXT_PUBLIC_CRYPTO_PAYMENTS_ENABLED": "true"
   },
   "rewrites": [
     {

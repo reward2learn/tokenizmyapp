@@ -298,11 +298,12 @@ export function SettingsPanel({
         sx={{
           width: 220,
           flexShrink: 0,
+          minHeight: 0,
           borderRight: '1px solid',
           borderColor: 'divider',
           display: 'flex',
           flexDirection: 'column',
-          overflow: 'hidden',
+          overflowY: 'auto',
         }}
       >
         <SectionGroup
@@ -324,7 +325,6 @@ export function SettingsPanel({
           flexGrow: 1,
           minWidth: 0,
           minHeight: 0,
-          ...(embedded ? { height: 'calc(90vh - 169px)' } : null),
           overflow: 'auto',
           p: { xs: 2, md: 3 },
         }}

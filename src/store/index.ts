@@ -28,8 +28,9 @@ import { undoRedoSlice, undoRedoListenerMiddleware } from '@/store/undo-redo-sli
 import { aiProviderConfigSlice } from '@/store/ai-provider-config-slice';
 import { aiProviderListenerMiddleware } from '@/store/ai-provider-listener-middleware';
 import { walletListenerMiddleware } from '@/store/wallet-listener-middleware';
-import { walletAuthRedirectDetected } from '@/store/wallet-slice';
+import { walletAuthRedirectDetected, walletEnabled } from '@/store/wallet-slice';
 import { hasAuthSuccessRedirect } from '@/lib/web3/social-wallet-connectors';
+import { isFactoryWeb3Enabled } from '@/lib/web3/factory-web3-config';
 
 const apiMiddleware = [
   authApi.middleware,
@@ -94,6 +95,10 @@ export function makeStore() {
   if (typeof window !== 'undefined') {
     if (hasAuthSuccessRedirect()) {
       store.dispatch(walletAuthRedirectDetected());
+    }
+    // Avoid treating pre-AppKit init as "wallet disabled" — config on, SDK loading.
+    if (isFactoryWeb3Enabled()) {
+      store.dispatch(walletEnabled());
     }
     void import('@/store/wallet-watcher').then(({ attachWalletWatcher }) =>
       attachWalletWatcher(store),

@@ -66,7 +66,14 @@ export function SettingsGate({ variant = 'page' }: { variant?: 'dialog' | 'page'
   const lock = lockData?.data;
 
   return (
-    <Stack spacing={2} sx={variant === 'dialog' ? { minWidth: 0 } : undefined}>
+    <Stack
+      spacing={2}
+      sx={
+        variant === 'dialog'
+          ? { minWidth: 0, flex: 1, minHeight: 0, overflow: 'hidden', display: 'flex', flexDirection: 'column' }
+          : undefined
+      }
+    >
       {lock?.locked ? (
         <Alert severity="error">
           <AlertTitle>Account restricted — unpaid invoices</AlertTitle>

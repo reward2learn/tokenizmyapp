@@ -7,6 +7,7 @@ import Paper from '@mui/material/Paper';
 import Stack from '@mui/material/Stack';
 import Typography from '@mui/material/Typography';
 import { WalletConnectButton } from '@/components/web3/wallet-connect-button';
+import { isFactoryWeb3Enabled } from '@/lib/web3/factory-web3-config';
 import { useAppDispatch, useAppSelector } from '@/store/hooks';
 import {
   disconnectWalletSession,
@@ -56,12 +57,13 @@ export function CryptoWalletPanel({
     void dispatch(disconnectWalletSession());
   };
 
-  if (status === 'disabled') {
+  if (!isFactoryWeb3Enabled()) {
     return (
       <Alert severity="info">
-        Social wallet is not enabled on this deployment. Set{' '}
-        <code>NEXT_PUBLIC_CRYPTO_PAYMENTS_ENABLED=true</code> or{' '}
-        <code>NEXT_PUBLIC_WEB3_WALLET_ENABLED=true</code> on the factory Vercel project, then redeploy.
+        Social wallet is not enabled on this deployment. Remove{' '}
+        <code>NEXT_PUBLIC_CRYPTO_PAYMENTS_ENABLED=false</code> or{' '}
+        <code>NEXT_PUBLIC_WEB3_WALLET_ENABLED=false</code> from the factory Vercel project (or set
+        either to <code>true</code>), then redeploy.
       </Alert>
     );
   }

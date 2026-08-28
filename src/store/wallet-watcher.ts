@@ -2,6 +2,7 @@
  * Bridges Reown AppKit account state into the Redux wallet slice.
  */
 import type { UnknownAction } from '@reduxjs/toolkit';
+import { isFactoryWeb3Enabled } from '@/lib/web3/factory-web3-config';
 import {
   walletEnabled,
   walletConnected,
@@ -24,10 +25,16 @@ export function attachWalletWatcher(store: WalletStoreLike): void {
 
   void (async () => {
     try {
+      if (!isFactoryWeb3Enabled()) {
+        attached = false;
+        return;
+      }
+
       const { getAppKit } = await import('@/lib/web3/appkit-client');
       const pending = getAppKit();
       if (!pending) {
         attached = false;
+        store.dispatch(walletError('Social wallet is not configured for this deployment.'));
         return;
       }
 
