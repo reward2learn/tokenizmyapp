@@ -9,10 +9,16 @@ describe('getFactoryWeb3Config', () => {
     process.env = { ...saved };
   });
 
-  it('is disabled in production without an explicit enable flag', () => {
+  it('is enabled in production with the platform project id fallback', () => {
     process.env.NODE_ENV = 'production';
     delete process.env.NEXT_PUBLIC_WEB3_WALLET_ENABLED;
     delete process.env.NEXT_PUBLIC_CRYPTO_PAYMENTS_ENABLED;
+    expect(getFactoryWeb3Config().enabled).toBe(true);
+  });
+
+  it('is disabled when explicitly turned off', () => {
+    process.env.NODE_ENV = 'production';
+    process.env.NEXT_PUBLIC_CRYPTO_PAYMENTS_ENABLED = 'false';
     expect(getFactoryWeb3Config().enabled).toBe(false);
   });
 

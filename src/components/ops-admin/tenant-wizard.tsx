@@ -145,6 +145,8 @@ interface WizardState {
   };
   /** AI provider catalog + keys seeded into the new tenant DB after Neon. */
   aiProviders: AiProviderWizardValue;
+  /** Social wallet + crypto billing — stamped to Vercel on deploy (default on). */
+  web3WalletEnabled: boolean;
 }
 
 const INITIAL_STATE: WizardState = {
@@ -174,6 +176,7 @@ const INITIAL_STATE: WizardState = {
     directUrl: '',
   },
   aiProviders: emptyAiProviderWizardValue(),
+  web3WalletEnabled: true,
 };
 
 export const PIPELINE_STEPS = [
@@ -465,6 +468,11 @@ export function TenantWizard({ iconOnly = false }: { iconOnly?: boolean }) {
         activeProviderId: state.aiProviders.activeProviderId,
         activeModel: state.aiProviders.activeModel || undefined,
         ollamaTunnelHost: state.aiProviders.ollamaTunnelHost.trim() || undefined,
+      },
+      metadata: {
+        config: {
+          web3WalletEnabled: state.web3WalletEnabled,
+        },
       },
     }).unwrap();
     if (result.success && state.loadingGraphicUrl) {
@@ -1341,6 +1349,24 @@ export function TenantWizard({ iconOnly = false }: { iconOnly?: boolean }) {
                       {state.rateCard.macStudioCostUsd.toLocaleString()} · $
                       {state.rateCard.monthlyThirdPartyUsd.toLocaleString()}/mo 3rd-party
                     </Typography>
+                  </Box>
+                  <Box>
+                    <Typography variant="caption" color="text.secondary">Social Wallet & Crypto Billing</Typography>
+                    <FormControlLabel
+                      control={
+                        <Switch
+                          checked={state.web3WalletEnabled}
+                          onChange={(e) =>
+                            setState((s) => ({ ...s, web3WalletEnabled: e.target.checked }))
+                          }
+                        />
+                      }
+                      label={
+                        state.web3WalletEnabled
+                          ? 'Enabled — deploys NEXT_PUBLIC_WEB3_WALLET_ENABLED and NEXT_PUBLIC_CRYPTO_PAYMENTS_ENABLED'
+                          : 'Disabled — wallet and crypto top-ups hidden on this tenant'
+                      }
+                    />
                   </Box>
                   <Box>
                     <Typography variant="caption" color="text.secondary">AI Providers</Typography>

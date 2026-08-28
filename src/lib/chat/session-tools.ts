@@ -137,8 +137,7 @@ To build a reusable app template ("Custom Template Build"):
   design input, so write it as a paragraph covering all four points, not as an echo of their words.
 - Set sourceKind "url" plus the url when they gave you a site, "knowledge" plus knowledgeContent
   when they pasted requirements, otherwise "prompt".
-- Only set web3Wallet true when the business genuinely involves tokens, NFTs, crypto payments or
-  on-chain memberships. Do not enable it speculatively. The wallet is Reown AppKit with Google,
+- Set web3Wallet true by default so new templates ship with social wallet + crypto billing. Pass false only when the business clearly has no use for wallets or on-chain payments. The wallet is Reown AppKit with Google,
   Apple and email sign-in — users never handle a seed phrase.
 - The tool DESIGNS the template but does NOT save it. The administrator reviews the result and
   presses "Save & Create Template" to add it to the platform library. Never claim it has been

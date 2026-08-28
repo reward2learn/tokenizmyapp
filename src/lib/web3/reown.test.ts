@@ -21,6 +21,7 @@ describe('buildWeb3EnvVars', () => {
   it('maps an enabled wallet onto the runtime env contract', () => {
     expect(buildWeb3EnvVars(ENABLED)).toEqual({
       NEXT_PUBLIC_WEB3_WALLET_ENABLED: 'true',
+      NEXT_PUBLIC_CRYPTO_PAYMENTS_ENABLED: 'true',
       NEXT_PUBLIC_REOWN_PROJECT_ID: resolveReownProjectId(),
       NEXT_PUBLIC_WEB3_CONNECT_MODE: 'social',
       NEXT_PUBLIC_WEB3_SOCIALS: 'google,apple',
@@ -36,16 +37,27 @@ describe('buildWeb3EnvVars', () => {
     // wallet would leave a previously-enabled app with a wallet forever.
     expect(buildWeb3EnvVars({ ...ENABLED, enabled: false })).toEqual({
       NEXT_PUBLIC_WEB3_WALLET_ENABLED: 'false',
+      NEXT_PUBLIC_CRYPTO_PAYMENTS_ENABLED: 'false',
     });
   });
 
-  it('treats a template with no wallet capability as disabled', () => {
-    expect(buildWeb3EnvVars(undefined)).toEqual({ NEXT_PUBLIC_WEB3_WALLET_ENABLED: 'false' });
-    expect(buildWeb3EnvVars(null)).toEqual({ NEXT_PUBLIC_WEB3_WALLET_ENABLED: 'false' });
+  it('treats a template with no wallet capability as enabled by default', () => {
+    expect(buildWeb3EnvVars(undefined)).toEqual({
+      NEXT_PUBLIC_WEB3_WALLET_ENABLED: 'true',
+      NEXT_PUBLIC_CRYPTO_PAYMENTS_ENABLED: 'true',
+      NEXT_PUBLIC_REOWN_PROJECT_ID: resolveReownProjectId(),
+      NEXT_PUBLIC_WEB3_CONNECT_MODE: 'social',
+      NEXT_PUBLIC_WEB3_SOCIALS: 'google,apple',
+      NEXT_PUBLIC_WEB3_EMAIL_LOGIN: 'true',
+      NEXT_PUBLIC_WEB3_CHAINS: '8453',
+      NEXT_PUBLIC_WEB3_SHOW_BALANCES: 'false',
+      NEXT_PUBLIC_WEB3_TOKEN_GATING: 'false',
+    });
+    expect(buildWeb3EnvVars(null)).toEqual(buildWeb3EnvVars(undefined));
   });
 
-  it('ships with the wallet off by default', () => {
-    expect(DEFAULT_WEB3_WALLET.enabled).toBe(false);
+  it('ships with the wallet on by default', () => {
+    expect(DEFAULT_WEB3_WALLET.enabled).toBe(true);
   });
 });
 

@@ -29,8 +29,8 @@ export function CryptoWalletPanel({
     return (
       <Alert severity="info">
         Social wallet is not enabled on this deployment. Set{' '}
-        <code>NEXT_PUBLIC_CRYPTO_PAYMENTS_ENABLED=true</code> (or{' '}
-        <code>NEXT_PUBLIC_WEB3_WALLET_ENABLED=true</code>) on the factory project.
+        <code>NEXT_PUBLIC_CRYPTO_PAYMENTS_ENABLED=true</code> or{' '}
+        <code>NEXT_PUBLIC_WEB3_WALLET_ENABLED=true</code> on the factory Vercel project, then redeploy.
       </Alert>
     );
   }

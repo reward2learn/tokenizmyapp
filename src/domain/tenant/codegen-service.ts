@@ -911,18 +911,23 @@ async function removeReownDependenciesWhenDisabled(outputDir: string, templateId
  */
 async function resolveWalletEnv(templateId: string): Promise<Record<string, string>> {
   try {
-    const [{ resolveTemplate }, { buildWeb3EnvVars }] = await Promise.all([
+    const [{ resolveTemplate }, { buildWeb3EnvVars, resolveWeb3WalletForDeploy }] = await Promise.all([
       import('@/domain/tenant/custom-template-service'),
       import('@/lib/web3/reown'),
     ]);
     const template = await resolveTemplate(templateId);
-    return buildWeb3EnvVars(template.capabilities?.web3Wallet);
+    return buildWeb3EnvVars(
+      resolveWeb3WalletForDeploy(template.capabilities?.web3Wallet),
+    );
   } catch (err) {
     console.warn(
       `[codegen] Could not resolve wallet config for template "${templateId}":`,
       err instanceof Error ? err.message : err,
     );
-    return { NEXT_PUBLIC_WEB3_WALLET_ENABLED: 'false' };
+    return {
+      NEXT_PUBLIC_WEB3_WALLET_ENABLED: 'false',
+      NEXT_PUBLIC_CRYPTO_PAYMENTS_ENABLED: 'false',
+    };
   }
 }
 

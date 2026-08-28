@@ -280,6 +280,12 @@ function initGoogleOAuth(tenant: TenantEntry | null): GoogleOAuthConfig {
   };
 }
 
+function initWeb3WalletEnabled(tenant: TenantEntry | null): boolean {
+  const cfg = (tenant?.metadata?.config ?? {}) as Record<string, unknown>;
+  if (typeof cfg.web3WalletEnabled === 'boolean') return cfg.web3WalletEnabled;
+  return true;
+}
+
 function initDbConfig(tenant: TenantEntry | null): DatabaseConfig {
   if (!tenant) return { dbUrl: '', pooledUrl: '', directUrl: '' };
   const cfg = (tenant.metadata?.config ?? {}) as Record<string, unknown>;
@@ -339,6 +345,7 @@ interface ConfigFieldsInput {
   vercelProjectId: string;
   adminEmail: string;
   pinSignInEnabled: boolean;
+  web3WalletEnabled: boolean;
   stripe: {
     secretKey: string;
     webhookSecret: string;
@@ -363,7 +370,7 @@ interface ConfigFieldsInput {
  * Each caller wraps this the way its own endpoint expects.
  */
 function buildConfigFields(input: ConfigFieldsInput) {
-  const { tenant, license, googleOAuth, dbConfig, envPairs, deployHookUrl, vercelProjectId, adminEmail, pinSignInEnabled, stripe } = input;
+  const { tenant, license, googleOAuth, dbConfig, envPairs, deployHookUrl, vercelProjectId, adminEmail, pinSignInEnabled, web3WalletEnabled, stripe } = input;
   const existingStripe = (
     ((tenant.metadata as Record<string, unknown>)?.config as Record<string, unknown> | undefined)?.stripe
     ?? {}
@@ -442,6 +449,7 @@ function buildConfigFields(input: ConfigFieldsInput) {
       adminEmail: adminEmail || DEFAULT_PLATFORM_ADMIN_EMAIL,
       pinSignInEnabled,
     },
+    web3WalletEnabled,
     // Preserve the suite app list — buildConfigFields only edits the fields
     // the modal exposes; dropping appPack here would wipe every suite app
     // on the next Save (the PUT route now merges, but keep the payload whole).
@@ -677,6 +685,7 @@ export function EditTenantModal({ open, tenant, onClose, onSnackbar }: EditTenan
   // ── Admin & Auth ─────────────────────────────────────────
   const [adminEmail, setAdminEmail] = useState(() => { const c = (tenant?.metadata?.config ?? {}) as Record<string, unknown>; const a = (c.auth ?? {}) as Record<string, unknown>; return (a.adminEmail as string) || DEFAULT_PLATFORM_ADMIN_EMAIL; });
   const [pinSignInEnabled, setPinSignInEnabled] = useState(() => { const c = (tenant?.metadata?.config ?? {}) as Record<string, unknown>; const a = (c.auth ?? {}) as Record<string, unknown>; return a.pinSignInEnabled !== false; });
+  const [web3WalletEnabled, setWeb3WalletEnabled] = useState(() => initWeb3WalletEnabled(tenant));
 
   const importFileRef = useRef<HTMLInputElement>(null);
 
@@ -995,7 +1004,7 @@ export function EditTenantModal({ open, tenant, onClose, onSnackbar }: EditTenan
   const buildDeployPayload = useCallback(() => {
     if (!tenant) return {};
 
-    const fields = buildConfigFields({ tenant, license, googleOAuth, dbConfig, envPairs, deployHookUrl, vercelProjectId, adminEmail, pinSignInEnabled, stripe: stripeKeys });
+    const fields = buildConfigFields({ tenant, license, googleOAuth, dbConfig, envPairs, deployHookUrl, vercelProjectId, adminEmail, pinSignInEnabled, web3WalletEnabled, stripe: stripeKeys });
 
     return {
       template: editTemplate,
@@ -1008,7 +1017,7 @@ export function EditTenantModal({ open, tenant, onClose, onSnackbar }: EditTenan
         ...fields,
       },
     };
-  }, [tenant, editTemplate, displayName, editPrimaryColor, editSecondaryColor, license, googleOAuth, dbConfig, envPairs, deployHookUrl, vercelProjectId, adminEmail, pinSignInEnabled, stripeKeys]);
+  }, [tenant, editTemplate, displayName, editPrimaryColor, editSecondaryColor, license, googleOAuth, dbConfig, envPairs, deployHookUrl, vercelProjectId, adminEmail, pinSignInEnabled, web3WalletEnabled, stripeKeys]);
 
   // ── Save handler ──────────────────────────────────────────
   const handleSave = useCallback(async () => {
@@ -1023,7 +1032,7 @@ export function EditTenantModal({ open, tenant, onClose, onSnackbar }: EditTenan
         secondaryColor: editSecondaryColor,
         vercelProjectId: vercelProjectId || undefined,
         metadata: {
-          config: buildConfigFields({ tenant, license, googleOAuth, dbConfig, envPairs, deployHookUrl, vercelProjectId, adminEmail, pinSignInEnabled, stripe: stripeKeys }),
+          config: buildConfigFields({ tenant, license, googleOAuth, dbConfig, envPairs, deployHookUrl, vercelProjectId, adminEmail, pinSignInEnabled, web3WalletEnabled, stripe: stripeKeys }),
         },
       };
 
@@ -1090,7 +1099,7 @@ export function EditTenantModal({ open, tenant, onClose, onSnackbar }: EditTenan
     } finally {
       setSaving(false);
     }
-  }, [tenant, displayName, editTemplate, editPrimaryColor, editSecondaryColor, license, googleOAuth, dbConfig, envPairs, deployHookUrl, vercelProjectId, adminEmail, pinSignInEnabled, updateTenant, updateBrandConfig, onSnackbar, orgId, currentOrg, organizations, assignTenantOrg, stripeKeys, pushStripeEnv]);
+  }, [tenant, displayName, editTemplate, editPrimaryColor, editSecondaryColor, license, googleOAuth, dbConfig, envPairs, deployHookUrl, vercelProjectId, adminEmail, pinSignInEnabled, web3WalletEnabled, updateTenant, updateBrandConfig, onSnackbar, orgId, currentOrg, organizations, assignTenantOrg, stripeKeys, pushStripeEnv]);
 
   const handleApplyCatalogDefaultsAndSync = useCallback(async () => {
     if (!tenant) return;
@@ -1118,6 +1127,7 @@ export function EditTenantModal({ open, tenant, onClose, onSnackbar }: EditTenan
             vercelProjectId,
             adminEmail,
             pinSignInEnabled,
+            web3WalletEnabled,
             stripe: mergedStripe,
           }),
         },
@@ -1275,7 +1285,9 @@ export function EditTenantModal({ open, tenant, onClose, onSnackbar }: EditTenan
     } catch {
       templateCapabilities = getTemplate(templateIdForCheck).capabilities;
     }
-    const web3Wallet = web3WalletFromTemplate(templateCapabilities);
+    const web3Wallet = web3WalletFromTemplate(templateCapabilities, {
+      web3WalletEnabled: (cfg?.web3WalletEnabled as boolean | undefined) ?? web3WalletEnabled,
+    });
     const socialWalletCheck = evaluateSocialWalletTemplate(web3Wallet);
     addResult(
       'Template: Social Wallet',
@@ -2365,6 +2377,19 @@ export function EditTenantModal({ open, tenant, onClose, onSnackbar }: EditTenan
             }
             label="Flag Stripe Connect platform waitlist (Phase 4 — external agents)"
           />
+
+          <FormControlLabel
+            control={
+              <Switch
+                checked={web3WalletEnabled}
+                onChange={(e) => setWeb3WalletEnabled(e.target.checked)}
+              />
+            }
+            label="Social wallet + crypto billing (NEXT_PUBLIC_WEB3_WALLET_ENABLED / NEXT_PUBLIC_CRYPTO_PAYMENTS_ENABLED)"
+          />
+          <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: -1 }}>
+            Saved to tenant config and applied on the next Vercel deploy. Redeploy after toggling.
+          </Typography>
 
           <FormControlLabel
             control={
@@ -3770,6 +3795,7 @@ export function EditTenantModal({ open, tenant, onClose, onSnackbar }: EditTenan
         </Typography>
         <Stack spacing={0.5}>
           <SummaryRow label="Admin Email" value={adminEmail || DEFAULT_PLATFORM_ADMIN_EMAIL} />
+          <SummaryRow label="Social Wallet" value={web3WalletEnabled ? '✅ Enabled' : '❌ Disabled'} />
           <SummaryRow label="PIN Sign-in" value={pinSignInEnabled ? '✅ Enabled' : '❌ Disabled'} />
         </Stack>
       </Paper>

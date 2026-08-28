@@ -6,7 +6,7 @@
  * than the legacy NEXT_PUBLIC_PROJECT_ID name from generic AppKit docs.
  */
 import type { Web3WalletConfig } from '@/domain/tenant/template-catalog';
-import { DEFAULT_WEB3_WALLET, resolveReownProjectId } from '@/lib/web3/reown';
+import { DEFAULT_WEB3_WALLET, resolveReownProjectId, resolveWeb3WalletForDeploy } from '@/lib/web3/reown';
 
 export interface FlightCheckVerdict {
   status: 'pass' | 'fail' | 'warn';
@@ -16,8 +16,9 @@ export interface FlightCheckVerdict {
 /** Resolve web3Wallet from a merged template definition (built-in or custom). */
 export function web3WalletFromTemplate(
   capabilities: { web3Wallet?: Web3WalletConfig } | null | undefined,
+  tenantConfig?: { web3WalletEnabled?: boolean } | null,
 ): Web3WalletConfig {
-  return capabilities?.web3Wallet ?? DEFAULT_WEB3_WALLET;
+  return resolveWeb3WalletForDeploy(capabilities?.web3Wallet, tenantConfig);
 }
 
 export function evaluateSocialWalletTemplate(
@@ -29,7 +30,7 @@ export function evaluateSocialWalletTemplate(
     return {
       status: 'fail',
       detail:
-        'Web3 wallet is disabled on this template. Enable capabilities.web3Wallet on the custom template (connectMode "social", google in socialProviders) or use a web3Wallet override at generation time.',
+        'Social wallet is disabled for this tenant. Enable it in Edit Tenant → Billing toggles (web3WalletEnabled), or set capabilities.web3Wallet.enabled on a custom template.',
     };
   }
 

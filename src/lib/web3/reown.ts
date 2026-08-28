@@ -48,7 +48,7 @@ export function resolveReownProjectId(): string {
  * have with their users.
  */
 export const DEFAULT_WEB3_WALLET: Web3WalletConfig = {
-  enabled: false,
+  enabled: true,
   connectMode: 'social',
   socialProviders: ['google', 'apple'],
   emailLogin: true,
@@ -60,6 +60,7 @@ export const DEFAULT_WEB3_WALLET: Web3WalletConfig = {
 /** Env keys a deployed app reads for its wallet. Exported for tests and docs. */
 export const WEB3_ENV_KEYS = [
   'NEXT_PUBLIC_WEB3_WALLET_ENABLED',
+  'NEXT_PUBLIC_CRYPTO_PAYMENTS_ENABLED',
   'NEXT_PUBLIC_REOWN_PROJECT_ID',
   'NEXT_PUBLIC_WEB3_CONNECT_MODE',
   'NEXT_PUBLIC_WEB3_SOCIALS',
@@ -68,6 +69,26 @@ export const WEB3_ENV_KEYS = [
   'NEXT_PUBLIC_WEB3_SHOW_BALANCES',
   'NEXT_PUBLIC_WEB3_TOKEN_GATING',
 ] as const;
+
+/** Tenant metadata.config may override template wallet enablement at deploy time. */
+export interface TenantWeb3DeployOverride {
+  web3WalletEnabled?: boolean;
+}
+
+/**
+ * Merge template wallet config with an optional tenant-level override.
+ * Built-in templates omit capabilities.web3Wallet — they inherit DEFAULT_WEB3_WALLET.
+ */
+export function resolveWeb3WalletForDeploy(
+  templateWallet: Web3WalletConfig | null | undefined,
+  tenantConfig?: TenantWeb3DeployOverride | null,
+): Web3WalletConfig {
+  const base = templateWallet ?? DEFAULT_WEB3_WALLET;
+  if (typeof tenantConfig?.web3WalletEnabled === 'boolean') {
+    return { ...base, enabled: tenantConfig.web3WalletEnabled };
+  }
+  return base;
+}
 
 /**
  * Build the wallet env vars for a deployed tenant app.
@@ -83,11 +104,15 @@ export function buildWeb3EnvVars(
   const wallet = config ?? DEFAULT_WEB3_WALLET;
 
   if (!wallet.enabled) {
-    return { NEXT_PUBLIC_WEB3_WALLET_ENABLED: 'false' };
+    return {
+      NEXT_PUBLIC_WEB3_WALLET_ENABLED: 'false',
+      NEXT_PUBLIC_CRYPTO_PAYMENTS_ENABLED: 'false',
+    };
   }
 
   return {
     NEXT_PUBLIC_WEB3_WALLET_ENABLED: 'true',
+    NEXT_PUBLIC_CRYPTO_PAYMENTS_ENABLED: 'true',
     NEXT_PUBLIC_REOWN_PROJECT_ID: resolveReownProjectId(),
     NEXT_PUBLIC_WEB3_CONNECT_MODE: wallet.connectMode,
     NEXT_PUBLIC_WEB3_SOCIALS: wallet.socialProviders.join(','),

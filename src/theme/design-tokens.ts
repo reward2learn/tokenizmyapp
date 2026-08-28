@@ -1,4 +1,5 @@
 import { createTheme } from '@mui/material/styles';
+import type {} from '@mui/x-data-grid/themeAugmentation';
 
 export type ThemeMode = 'light' | 'dark' | 'system';
 export type ResolvedThemeMode = Exclude<ThemeMode, 'system'>;
@@ -206,6 +207,11 @@ export function createAppTheme(brand: BrandColors, mode: ResolvedThemeMode = 'li
       background: { default: n.background, paper: n.surface },
       text: { primary: n.text, secondary: n.textMuted },
       divider: n.border,
+      DataGrid: {
+        bg: NEUTRALS.system.surface,
+        headerBg: NEUTRALS.system.surface,
+        pinnedBg: NEUTRALS.system.surface,
+      },
       action: {
         hover: alpha(brand.primary, 0.06),
         selected: alpha(brand.primary, 0.1),
@@ -241,7 +247,7 @@ export function createAppTheme(brand: BrandColors, mode: ResolvedThemeMode = 'li
             borderRadius: RADIUS.card,
           },
           rounded: {
-            backgroundColor: 'var(--app-border)',
+            backgroundColor: 'var(--app-surface)',
           },
           // `elevation={0}` is used across the app for bordered panels — keep it flat.
           elevation0: { boxShadow: 'none' },
@@ -255,6 +261,21 @@ export function createAppTheme(brand: BrandColors, mode: ResolvedThemeMode = 'li
             border: `1px solid ${n.border}`,
             boxShadow: SHADOWS.card,
           },
+        },
+      },
+      MuiTableContainer: {
+        styleOverrides: {
+          root: { backgroundColor: 'var(--app-surface)' },
+        },
+      },
+      MuiTable: {
+        styleOverrides: {
+          root: { backgroundColor: 'var(--app-surface)' },
+        },
+      },
+      MuiDataGrid: {
+        styleOverrides: {
+          root: { backgroundColor: 'var(--app-surface)' },
         },
       },
       MuiDialog: {

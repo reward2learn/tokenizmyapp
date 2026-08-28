@@ -1056,7 +1056,7 @@ export function TenantDashboard() {
                                   </Typography>
                                   <AddAppButton tenantSlug={t.slug} onSnackbar={setSnackbar} />
                                 </Stack>
-                                <Table size="small" sx={{ bgcolor: 'background.default', borderRadius: 1 }}>
+                                <Table size="small" sx={{ borderRadius: 1 }}>
                                   <TableHead>
                                     <TableRow>
                                       <TableCell sx={{ fontWeight: 700, fontSize: '0.7rem' }}>App</TableCell>

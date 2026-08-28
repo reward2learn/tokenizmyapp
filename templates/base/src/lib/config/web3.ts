@@ -7,6 +7,7 @@
  *
  * Environment Variables:
  *   NEXT_PUBLIC_WEB3_WALLET_ENABLED — "true" to mount the wallet at all
+ *   NEXT_PUBLIC_CRYPTO_PAYMENTS_ENABLED — "true" also enables social wallet + crypto billing UI
  *   NEXT_PUBLIC_REOWN_PROJECT_ID    — Reown project id (public client id)
  *   NEXT_PUBLIC_WEB3_CONNECT_MODE   — social | injected | both
  *   NEXT_PUBLIC_WEB3_SOCIALS        — comma list, e.g. "google,apple"
@@ -86,8 +87,15 @@ const DISABLED: Web3RuntimeConfig = {
  * provider that wraps the whole tree would take the entire app down over an
  * optional feature.
  */
+function isWeb3FeatureEnabled(): boolean {
+  return (
+    parseBool(process.env.NEXT_PUBLIC_WEB3_WALLET_ENABLED) ||
+    parseBool(process.env.NEXT_PUBLIC_CRYPTO_PAYMENTS_ENABLED)
+  );
+}
+
 export function getWeb3Config(): Web3RuntimeConfig {
-  if (!parseBool(process.env.NEXT_PUBLIC_WEB3_WALLET_ENABLED)) return DISABLED;
+  if (!isWeb3FeatureEnabled()) return DISABLED;
 
   const projectId = process.env.NEXT_PUBLIC_REOWN_PROJECT_ID?.trim() ?? '';
   if (!projectId) {

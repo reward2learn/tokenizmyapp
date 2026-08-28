@@ -11,7 +11,7 @@ import {
   TOKENIZ_SNAPSHOT_WHSEC_KEY,
 } from './vercel-stripe-marketplace-service';
 import { DEFAULT_RELAY_REDIRECT_URI } from '@/lib/auth/google-relay';
-import { buildWeb3EnvVars } from '@/lib/web3/reown';
+import { buildWeb3EnvVars, resolveWeb3WalletForDeploy } from '@/lib/web3/reown';
 import { billingIdentityEnvVars } from '@/lib/billing/organization-env';
 import { resolveTemplate } from '@/domain/tenant/custom-template-service';
 import { resolveAssistantProfile, resolveChatStarterPrompt } from '@/domain/tenant/template-assistant-profiles';
@@ -364,7 +364,12 @@ export async function buildEnvVarsForProject(input: DeployTenantInput): Promise<
   // asks for anyway.
   try {
     const template = await resolveTemplate(input.template);
-    Object.assign(envVars, buildWeb3EnvVars(template.capabilities?.web3Wallet));
+    const tenantConfig = (input.metadata?.config ?? {}) as { web3WalletEnabled?: boolean };
+    const web3Wallet = resolveWeb3WalletForDeploy(
+      template.capabilities?.web3Wallet,
+      tenantConfig,
+    );
+    Object.assign(envVars, buildWeb3EnvVars(web3Wallet));
 
     // Stamp the template identity onto the deployment.
     //
@@ -390,6 +395,7 @@ export async function buildEnvVarsForProject(input: DeployTenantInput): Promise<
       err instanceof Error ? err.message : err,
     );
     envVars.NEXT_PUBLIC_WEB3_WALLET_ENABLED = 'false';
+    envVars.NEXT_PUBLIC_CRYPTO_PAYMENTS_ENABLED = 'false';
   }
 
   // Applied last so a tenant's explicit custom env vars (config.env) can

@@ -122,7 +122,7 @@ export async function POST(request: Request): Promise<Response> {
   }
 
   // `web3Wallet: true|false` forces the capability on or off; omitted leaves it
-  // to the model, which is instructed to default to off.
+  // to the model (defaults to enabled).
   const web3WalletOverride =
     typeof body.web3Wallet === 'boolean'
       ? { enabled: body.web3Wallet }

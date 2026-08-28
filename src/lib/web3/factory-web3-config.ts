@@ -76,21 +76,13 @@ const DISABLED: FactoryWeb3Config = {
  */
 export function getFactoryWeb3Config(): FactoryWeb3Config {
   const explicitlyDisabled =
-    process.env.NEXT_PUBLIC_WEB3_WALLET_ENABLED?.trim().toLowerCase() === 'false';
-
-  const explicitlyEnabled =
-    parseBool(process.env.NEXT_PUBLIC_WEB3_WALLET_ENABLED) ||
-    parseBool(process.env.NEXT_PUBLIC_CRYPTO_PAYMENTS_ENABLED);
+    process.env.NEXT_PUBLIC_WEB3_WALLET_ENABLED?.trim().toLowerCase() === 'false' ||
+    process.env.NEXT_PUBLIC_CRYPTO_PAYMENTS_ENABLED?.trim().toLowerCase() === 'false';
 
   const projectId =
     process.env.NEXT_PUBLIC_REOWN_PROJECT_ID?.trim() || DEFAULT_REOWN_PROJECT_ID;
 
   if (explicitlyDisabled || !projectId) return DISABLED;
-
-  if (!explicitlyEnabled && process.env.NODE_ENV === 'production') {
-    // Production: require an explicit enable flag unless crypto payments are on.
-    return DISABLED;
-  }
 
   const connectMode = parseConnectMode(process.env.NEXT_PUBLIC_WEB3_CONNECT_MODE);
   const socialProviders = parseSocials(process.env.NEXT_PUBLIC_WEB3_SOCIALS);
