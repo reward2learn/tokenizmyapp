@@ -48,6 +48,8 @@ export function isValidVercelPat(token: string): boolean {
   if (trimmed.length < 16) return false;
   return VERCEL_PAT_PREFIXES.some((prefix) => trimmed.startsWith(prefix));
 }
+
+export function buildVercelTeamSlugEnvVars(teamSlug: string): Record<string, string> {
   const slug = normalizeVercelTeamSlug(teamSlug);
   return {
     VERCEL_TEAM_SLUG: slug,

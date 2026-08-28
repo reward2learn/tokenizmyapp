@@ -5,6 +5,7 @@
  * fallback) is handled by vercel-sdk-client.ts.
  */
 import { getVercelClient, withTeamId, withTeamId404Null, TEAM_ID, resolveBearerToken, listVercelBearerTokens, VERCEL_API } from './vercel-sdk-client';
+import { Vercel } from '@vercel/sdk';
 import {
   purgeMarketplaceWebhookSecrets,
   replaceStripeWebhookSecretOnProject,
@@ -226,14 +227,12 @@ export async function ensureVercelProject(input: { slug: string; projectId?: str
   }
 }
 
-/** Upsert a single env var — tries all available tokens/teamId combos until one works. */
+/** Upsert a single env var — tries each bearer token, project id/name, and team scope. */
 export async function upsertProjectEnvVar(
-
   projectId: string,
   key: string,
   value: string,
 ): Promise<boolean> {
-  const client = await getVercelClient();
   const requestBody = {
     key,
     value,
@@ -241,29 +240,45 @@ export async function upsertProjectEnvVar(
     target: ['production' as const, 'preview' as const, 'development' as const],
   };
 
-  // Try with teamId first, then without
-  for (const teamId of [TEAM_ID, undefined]) {
-    try {
-      await client.projects.createProjectEnv({
-        idOrName: projectId,
-        teamId,
-        upsert: 'true',
-        requestBody,
-      });
-      console.log(`[vercel-deploy] Set env ${key} via SDK`);
-      return true;
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      if (msg.includes('403') && teamId === TEAM_ID) {
-        continue;
+  const tokens = await listVercelBearerTokens();
+  if (tokens.length === 0) {
+    console.warn('[vercel-deploy] No bearer tokens for env upsert');
+    return false;
+  }
+
+  // Project-scoped vcp_ tokens infer team from scope — try without teamId first.
+  const teamAttempts: (string | undefined)[] = [undefined, TEAM_ID];
+  const idOrNames = [projectId, 'tokenizmyapp'].filter(
+    (id, index, all) => id && all.indexOf(id) === index,
+  );
+
+  for (const { token, source } of tokens) {
+    const client = new Vercel({ bearerToken: token, serverURL: VERCEL_API });
+    for (const idOrName of idOrNames) {
+      for (const teamId of teamAttempts) {
+        try {
+          await client.projects.createProjectEnv({
+            idOrName,
+            teamId,
+            upsert: 'true',
+            requestBody,
+          });
+          console.log(
+            `[vercel-deploy] Set env ${key} (${source}, project=${idOrName}, teamId=${teamId ?? 'inferred'})`,
+          );
+          return true;
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err);
+          if (teamId === TEAM_ID && (msg.includes('403') || msg.includes('400') || msg.includes('404'))) {
+            continue;
+          }
+          if (teamId === undefined && idOrName === idOrNames[idOrNames.length - 1]) {
+            console.warn(
+              `[vercel-deploy] Failed env ${key} (${source}, project=${idOrName}, teamId=none): ${msg.slice(0, 160)}`,
+            );
+          }
+        }
       }
-      if (msg.includes('400') && teamId === TEAM_ID) {
-        continue;
-      }
-      if (msg.includes('404') && teamId === TEAM_ID) {
-        continue;
-      }
-      console.warn(`[vercel-deploy] Failed to set env ${key} (teamId=${teamId || 'none'}): ${msg}`);
     }
   }
 
