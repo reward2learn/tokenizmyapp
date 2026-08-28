@@ -1120,7 +1120,8 @@ export function EditTenantModal({ open, tenant, onClose, onSnackbar }: EditTenan
           message += ` — Stripe env pushed to Vercel (${envCount} env var${envCount === 1 ? '' : 's'})`;
           if (stripeRes.data?.redeployTriggered?.length) {
             message += `, redeploy triggered`;
-          } else if (stripeRes.data?.note) {
+          }
+          if (stripeRes.data?.note) {
             message += ` — ${stripeRes.data.note}`;
           }
           if (stripeRes.data?.priceSync) {

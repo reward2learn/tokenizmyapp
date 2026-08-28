@@ -465,6 +465,7 @@ export const tenantApi = createApi({
         pushed: string[];
         redeployTriggered: string[];
         note?: string;
+        projectErrors?: string[];
         catalogSync?: { ok: boolean; message: string } | null;
         priceSync?: { ok: boolean; message: string } | null;
       }>,

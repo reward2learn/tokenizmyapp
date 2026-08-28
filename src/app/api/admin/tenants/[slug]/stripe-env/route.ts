@@ -178,26 +178,42 @@ export async function POST(
     let envCount = 0;
     const pushed: string[] = [];
     const redeployTriggered: string[] = [];
+    const projectErrors: string[] = [];
     for (const project of projects) {
-      const count = await syncStripeEnvVars(project.id, {
-        secretKey,
-        webhookSecret,
-        publishableKey,
-        selfServeBillingEnabled,
-        prices: pricesToPush,
-      });
-      envCount += count;
-      if (count > 0) pushed.push(project.name);
-      // NEXT_PUBLIC_ vars are inlined at build time — redeploy so the
-      // publishable key reaches the running client bundle.
-      if (count > 0 && project.deployHookUrl) {
-        try {
-          await fetch(project.deployHookUrl, { method: 'POST', headers: { 'Content-Type': 'application/json' } });
-          redeployTriggered.push(project.name);
-        } catch (err) {
-          console.warn(`[stripe-env] Deploy hook failed for ${project.name}:`, err instanceof Error ? err.message : err);
+      // Soft-fail per project (same idea as crypto-env): a stale/deleted
+      // vercel_project_id must not abort pushes to suite apps that still exist.
+      try {
+        const count = await syncStripeEnvVars(project.id, {
+          secretKey,
+          webhookSecret,
+          publishableKey,
+          selfServeBillingEnabled,
+          prices: pricesToPush,
+        });
+        envCount += count;
+        if (count > 0) pushed.push(project.name);
+        // NEXT_PUBLIC_ vars are inlined at build time — redeploy so the
+        // publishable key reaches the running client bundle.
+        if (count > 0 && project.deployHookUrl) {
+          try {
+            await fetch(project.deployHookUrl, { method: 'POST', headers: { 'Content-Type': 'application/json' } });
+            redeployTriggered.push(project.name);
+          } catch (err) {
+            console.warn(`[stripe-env] Deploy hook failed for ${project.name}:`, err instanceof Error ? err.message : err);
+          }
         }
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        console.warn(`[stripe-env] Push failed for ${project.name} (${project.id}):`, msg);
+        projectErrors.push(`${project.name}: ${msg}`);
       }
+    }
+
+    if (pushed.length === 0 && projectErrors.length > 0) {
+      return jsonError(
+        'Failed to push Stripe env vars: ' + projectErrors.join(' · '),
+        500,
+      );
     }
 
     let catalogSync: { ok: boolean; message: string } | null = null;
@@ -219,9 +235,13 @@ export async function POST(
       envCount,
       pushed,
       redeployTriggered,
-      note: redeployTriggered.length === 0
-        ? 'Keys pushed, but no deploy hook is set — redeploy the app so NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY reaches the client bundle.'
-        : undefined,
+      projectErrors: projectErrors.length > 0 ? projectErrors : undefined,
+      note:
+        projectErrors.length > 0
+          ? `Some projects failed (${projectErrors.length}): check Vercel Project ID — ${projectErrors[0]}`
+          : redeployTriggered.length === 0
+            ? 'Keys pushed, but no deploy hook is set — redeploy the app so NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY reaches the client bundle.'
+            : undefined,
       catalogSync,
       priceSync,
     });
