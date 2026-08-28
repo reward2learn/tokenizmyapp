@@ -12,9 +12,11 @@ import { VercelError } from '@vercel/sdk/models/vercelerror.js';
 import { getSecret, setSecret } from '@/lib/secrets';
 import { decrypt } from '@/lib/crypto';
 
+import { VERCEL_TEAM_ID } from '@/lib/vercel-team';
+
 export const VERCEL_API = 'https://api.vercel.com';
-/** Tokenizin Pro team — owns factory `tokenizmyapp` (prj_ia654…). Override via VERCEL_TEAM_ID. */
-export const TEAM_ID = process.env.VERCEL_TEAM_ID || 'team_7m5fwG2qKtVsGtgV35AB3nHi';
+/** @deprecated Prefer importing VERCEL_TEAM_ID from `@/lib/vercel-team`. */
+export const TEAM_ID = VERCEL_TEAM_ID;
 
 // ── OAuth token helpers ─────────────────────────────────────────
 

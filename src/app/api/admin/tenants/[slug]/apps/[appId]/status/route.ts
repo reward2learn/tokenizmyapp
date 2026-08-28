@@ -12,12 +12,12 @@ import { requireWriteAuth } from '@/lib/auth/guards';
 import { jsonError, jsonOk } from '@/lib/api/response';
 import type { AppPackConfig, SuiteAppInstance } from '@/store/apis/tenant-api';
 
+import { isTransientVercelDeploymentUrl, VERCEL_TEAM_ID } from '@/lib/vercel-team';
+
 export const dynamic = 'force-dynamic';
 
 const VERCEL_API = 'https://api.vercel.com';
-const TEAM_ID = process.env.VERCEL_TEAM_ID || 'team_7m5fwG2qKtVsGtgV35AB3nHi';
-/** Team-scoped .vercel.app URLs (deployments, preview aliases) are transient — never stored as appUrl. */
-const TEAM_URL_MARKER = '-ilishaps-projects.vercel.app';
+const TEAM_ID = VERCEL_TEAM_ID;
 
 function getAppPack(tenant: Record<string, unknown>): AppPackConfig | null {
   const meta = (tenant.metadata ?? {}) as Record<string, unknown>;
@@ -105,7 +105,7 @@ export async function GET(
     // canonical appUrl. Keep the stable project alias / custom domain.
     const deploymentUrl = latest.url ? `https://${latest.url}` : undefined;
     const aliasUrl = `https://${slug}-${appId}.vercel.app`;
-    const resolvedAppUrl = app.appUrl && !app.appUrl.includes(TEAM_URL_MARKER) ? app.appUrl : aliasUrl;
+    const resolvedAppUrl = app.appUrl && !isTransientVercelDeploymentUrl(app.appUrl) ? app.appUrl : aliasUrl;
 
     appPack.apps[idx] = { ...app, status: mappedStatus, appUrl: resolvedAppUrl };
     await saveAppPack(db, slug, appPack);

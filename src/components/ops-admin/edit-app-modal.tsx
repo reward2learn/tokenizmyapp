@@ -27,6 +27,7 @@ import Checkbox from '@mui/material/Checkbox';
 import Chip from '@mui/material/Chip';
 import CircularProgress from '@mui/material/CircularProgress';
 import { BrandedLoadingIndicator } from '@/components/branding/branded-loading-indicator';
+import { isTransientVercelDeploymentUrl } from '@/lib/vercel-team';
 import Dialog from '@mui/material/Dialog';
 import DialogActions from '@mui/material/DialogActions';
 import DialogContent from '@mui/material/DialogContent';
@@ -274,9 +275,9 @@ export function EditAppModal({ open, onClose, tenantSlug, app, onSnackbar }: Edi
 
   // ── Derived identity (stable — app already exists) ───────
   const vercelName = `${tenantSlug}-${app.appId}`;
-  // Deployment URLs (team-scoped, e.g. "...-5h46xywpz-ilishaps-projects.vercel.app")
+  // Deployment URLs (team-scoped, e.g. "...-tokenizin-projects.vercel.app")
   // are transient — always display the stable alias for this app.
-  const appUrl = app.appUrl && !app.appUrl.includes('-ilishaps-projects.vercel.app')
+  const appUrl = app.appUrl && !isTransientVercelDeploymentUrl(app.appUrl)
     ? app.appUrl
     : `https://${vercelName}.vercel.app`;
   const valid = !!name.trim();

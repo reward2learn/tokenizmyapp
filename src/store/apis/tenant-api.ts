@@ -497,6 +497,25 @@ export const tenantApi = createApi({
       invalidatesTags: ['Tenants'],
     }),
 
+    /** POST .../vercel-team-env — push VERCEL_TEAM_SLUG + NEXT_PUBLIC_VERCEL_TEAM_SLUG. */
+    pushVercelTeamEnvVars: builder.mutation<
+      ApiEnvelope<{
+        projects: number;
+        envCount: number;
+        pushed: string[];
+        teamSlug: string;
+        redeployTriggered: string[];
+        note?: string;
+      }>,
+      { slug: string }
+    >({
+      query: ({ slug }) => ({
+        url: `admin/tenants/${slug}/vercel-team-env`,
+        method: 'POST',
+      }),
+      invalidatesTags: ['Tenants'],
+    }),
+
     /** POST admin/tenants/:slug/stripe-webhook-test — full Stripe webhook health checklist. */
     testStripeWebhook: builder.mutation<
       ApiEnvelope<{
@@ -1155,6 +1174,7 @@ export const {
   usePushAppEnvVarsMutation,
   usePushStripeEnvVarsMutation,
   usePushCryptoEnvVarsMutation,
+  usePushVercelTeamEnvVarsMutation,
   useLazyGetStripeMarketplaceStatusQuery,
   usePrepareStripeMarketplaceInstallMutation,
   useTestStripeWebhookMutation,

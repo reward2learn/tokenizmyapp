@@ -13,6 +13,11 @@ import {
 import { DEFAULT_RELAY_REDIRECT_URI } from '@/lib/auth/google-relay';
 import { buildWeb3EnvVars, resolveWeb3WalletForDeploy } from '@/lib/web3/reown';
 import { buildCryptoPaymentEnvVars } from '@/lib/web3/crypto-tenant-config';
+import {
+  buildVercelTeamSlugEnvVars,
+  readTenantVercelTeamSlug,
+  vercelProjectDashboardUrl,
+} from '@/lib/vercel-team';
 import { billingIdentityEnvVars } from '@/lib/billing/organization-env';
 import { resolveTemplate } from '@/domain/tenant/custom-template-service';
 import { resolveAssistantProfile, resolveChatStarterPrompt } from '@/domain/tenant/template-assistant-profiles';
@@ -369,6 +374,7 @@ export async function buildEnvVarsForProject(input: DeployTenantInput): Promise<
       web3WalletEnabled?: boolean;
       cryptoPaymentsEnabled?: boolean;
       cryptoTreasuryAddress?: string;
+      vercelTeamSlug?: string;
     };
     const web3Wallet = resolveWeb3WalletForDeploy(
       template.capabilities?.web3Wallet,
@@ -382,6 +388,7 @@ export async function buildEnvVarsForProject(input: DeployTenantInput): Promise<
           }
         : null;
     Object.assign(envVars, buildWeb3EnvVars(web3Wallet, cryptoOverride));
+    Object.assign(envVars, buildVercelTeamSlugEnvVars(readTenantVercelTeamSlug(tenantConfig)));
 
     // Stamp the template identity onto the deployment.
     //
@@ -542,6 +549,24 @@ export async function syncCryptoEnvVars(
   return envCount;
 }
 
+/** Push VERCEL_TEAM_SLUG + NEXT_PUBLIC_VERCEL_TEAM_SLUG to a Vercel project. */
+export async function syncVercelTeamEnvVars(
+  projectId: string,
+  teamSlug: string,
+): Promise<number> {
+  const envVars = buildVercelTeamSlugEnvVars(teamSlug);
+  let envCount = 0;
+  for (const [key, value] of Object.entries(envVars)) {
+    try {
+      const ok = await upsertProjectEnvVar(projectId, key, value);
+      if (ok) envCount++;
+    } catch (err) {
+      console.error(`[vercel-deploy] Failed to set env ${key}:`, err);
+    }
+  }
+  return envCount;
+}
+
 export async function syncEnvVars(
   projectId: string,
   input: DeployTenantInput,
@@ -643,7 +668,7 @@ export async function deployTenant(input: DeployTenantInput): Promise<DeployTena
   return {
     projectId,
     projectName: input.slug,
-    vercelDashboardUrl: `https://vercel.com/ilishaps-projects/${input.slug}`,
+    vercelDashboardUrl: vercelProjectDashboardUrl(input.slug),
     appUrl,
     envCount,
   };
@@ -1231,7 +1256,7 @@ export async function deployTenantWithGit(input: DeployTenantInput): Promise<Dep
   return {
     projectId,
     projectName: input.slug,
-    vercelDashboardUrl: `https://vercel.com/ilishaps-projects/${input.slug}`,
+    vercelDashboardUrl: vercelProjectDashboardUrl(input.slug),
     appUrl,
     envCount,
   };

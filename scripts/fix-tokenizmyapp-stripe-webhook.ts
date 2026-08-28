@@ -108,7 +108,7 @@ async function updateTenantMetadata(whsec: string): Promise<void> {
 
 async function triggerDeployHook(): Promise<void> {
   try {
-    execSync('vercel deploy --prod --yes --scope ilishaps-projects tokenizmyapp 2>&1', {
+    execSync('vercel deploy --prod --yes --scope tokenizin-projects tokenizmyapp 2>&1', {
       stdio: 'inherit',
       env: process.env,
     });

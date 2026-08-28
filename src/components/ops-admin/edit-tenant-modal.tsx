@@ -104,6 +104,12 @@ import {
 import { SchemaOrgTypeChips } from '@/components/ops-admin/schema-org-type-chips';
 import { LoadingGraphicUpload } from '@/components/branding/loading-graphic-upload';
 import { defaultSubscriptionAmounts } from '@/lib/billing/subscription-pricing';
+import {
+  DEFAULT_VERCEL_TEAM_SLUG,
+  normalizeVercelTeamSlug,
+  vercelProjectDomainsUrl,
+  vercelTeamDashboardUrl,
+} from '@/lib/vercel-team';
 import type { AppPackConfig } from '@/store/apis/tenant-api';
 import { useAppDispatch } from '@/store/hooks';
 import { setThemeColors } from '@/store/ui-slice';
@@ -131,6 +137,7 @@ import {
   useRemoveAppFromSuiteMutation,
   usePushStripeEnvVarsMutation,
   usePushCryptoEnvVarsMutation,
+  usePushVercelTeamEnvVarsMutation,
   usePushAppEnvVarsMutation,
   useLazyGetStripeMarketplaceStatusQuery,
   useLazyGetAgenticCommerceHealthQuery,
@@ -365,6 +372,7 @@ interface ConfigFieldsInput {
   envPairs: EnvPair[];
   deployHookUrl: string;
   vercelProjectId: string;
+  vercelTeamSlug: string;
   adminEmail: string;
   pinSignInEnabled: boolean;
   web3WalletEnabled: boolean;
@@ -394,7 +402,7 @@ interface ConfigFieldsInput {
  * Each caller wraps this the way its own endpoint expects.
  */
 function buildConfigFields(input: ConfigFieldsInput) {
-  const { tenant, license, googleOAuth, dbConfig, envPairs, deployHookUrl, vercelProjectId, adminEmail, pinSignInEnabled, web3WalletEnabled, cryptoPaymentsEnabled, cryptoTreasuryAddress, stripe } = input;
+  const { tenant, license, googleOAuth, dbConfig, envPairs, deployHookUrl, vercelProjectId, vercelTeamSlug, adminEmail, pinSignInEnabled, web3WalletEnabled, cryptoPaymentsEnabled, cryptoTreasuryAddress, stripe } = input;
   const existingStripe = (
     ((tenant.metadata as Record<string, unknown>)?.config as Record<string, unknown> | undefined)?.stripe
     ?? {}
@@ -468,6 +476,7 @@ function buildConfigFields(input: ConfigFieldsInput) {
     },
     hooks: { deployHookUrl: deployHookUrl || undefined },
     vercelProjectId: vercelProjectId || undefined,
+    vercelTeamSlug: vercelTeamSlug.trim() || DEFAULT_VERCEL_TEAM_SLUG,
     adminEmail: adminEmail || DEFAULT_PLATFORM_ADMIN_EMAIL,
     auth: {
       adminEmail: adminEmail || DEFAULT_PLATFORM_ADMIN_EMAIL,
@@ -625,6 +634,7 @@ export function EditTenantModal({ open, tenant, onClose, onSnackbar }: EditTenan
   const [showStripeSecrets, setShowStripeSecrets] = useState(false);
   const [pushStripeEnv, { isLoading: pushingStripeEnv }] = usePushStripeEnvVarsMutation();
   const [pushCryptoEnv, { isLoading: pushingCryptoEnv }] = usePushCryptoEnvVarsMutation();
+  const [pushVercelTeamEnv, { isLoading: pushingVercelTeamEnv }] = usePushVercelTeamEnvVarsMutation();
   const [pushAppEnv, { isLoading: pushingAppEnv }] = usePushAppEnvVarsMutation();
   const [syncingSubscriptionPrices, setSyncingSubscriptionPrices] = useState(false);
   const [fetchMarketplaceStatus] = useLazyGetStripeMarketplaceStatusQuery();
@@ -689,6 +699,10 @@ export function EditTenantModal({ open, tenant, onClose, onSnackbar }: EditTenan
   const [importing, setImporting] = useState(false);
   const [deployHookUrl, setDeployHookUrl] = useState(() => { const c = (tenant?.metadata?.config ?? {}) as Record<string, unknown>; return ((c.hooks as Record<string, unknown>)?.deployHookUrl as string) || ''; });
   const [vercelProjectId, setVercelProjectId] = useState(() => tenant?.vercelProjectId || '');
+  const [vercelTeamSlug, setVercelTeamSlug] = useState(() => {
+    const c = (tenant?.metadata?.config ?? {}) as Record<string, unknown>;
+    return String(c.vercelTeamSlug ?? '').trim() || DEFAULT_VERCEL_TEAM_SLUG;
+  });
 
   // ── Flight Check state ────────────────────────────────────
   type CheckItem = { label: string; status: 'pass' | 'fail' | 'warn'; detail: string; _key: string; fixAction?: () => Promise<void>; fixLabel?: string };
@@ -1038,7 +1052,7 @@ export function EditTenantModal({ open, tenant, onClose, onSnackbar }: EditTenan
   const buildDeployPayload = useCallback(() => {
     if (!tenant) return {};
 
-    const fields = buildConfigFields({ tenant, license, googleOAuth, dbConfig, envPairs, deployHookUrl, vercelProjectId, adminEmail, pinSignInEnabled, web3WalletEnabled, cryptoPaymentsEnabled, cryptoTreasuryAddress, stripe: stripeKeys });
+    const fields = buildConfigFields({ tenant, license, googleOAuth, dbConfig, envPairs, deployHookUrl, vercelProjectId, vercelTeamSlug, adminEmail, pinSignInEnabled, web3WalletEnabled, cryptoPaymentsEnabled, cryptoTreasuryAddress, stripe: stripeKeys });
 
     return {
       template: editTemplate,
@@ -1051,7 +1065,7 @@ export function EditTenantModal({ open, tenant, onClose, onSnackbar }: EditTenan
         ...fields,
       },
     };
-  }, [tenant, editTemplate, displayName, editPrimaryColor, editSecondaryColor, license, googleOAuth, dbConfig, envPairs, deployHookUrl, vercelProjectId, adminEmail, pinSignInEnabled, web3WalletEnabled, cryptoPaymentsEnabled, cryptoTreasuryAddress, stripeKeys]);
+  }, [tenant, editTemplate, displayName, editPrimaryColor, editSecondaryColor, license, googleOAuth, dbConfig, envPairs, deployHookUrl, vercelProjectId, vercelTeamSlug, adminEmail, pinSignInEnabled, web3WalletEnabled, cryptoPaymentsEnabled, cryptoTreasuryAddress, stripeKeys]);
 
   // ── Save handler ──────────────────────────────────────────
   const handleSave = useCallback(async () => {
@@ -1070,6 +1084,15 @@ export function EditTenantModal({ open, tenant, onClose, onSnackbar }: EditTenan
       });
       return;
     }
+    try {
+      normalizeVercelTeamSlug(vercelTeamSlug);
+    } catch (err) {
+      onSnackbar({
+        message: `❌ ${err instanceof Error ? err.message : 'Invalid Vercel team slug'}`,
+        severity: 'error',
+      });
+      return;
+    }
     setSaving(true);
     try {
       const payload = {
@@ -1080,7 +1103,7 @@ export function EditTenantModal({ open, tenant, onClose, onSnackbar }: EditTenan
         secondaryColor: editSecondaryColor,
         vercelProjectId: vercelProjectId || undefined,
         metadata: {
-          config: buildConfigFields({ tenant, license, googleOAuth, dbConfig, envPairs, deployHookUrl, vercelProjectId, adminEmail, pinSignInEnabled, web3WalletEnabled, cryptoPaymentsEnabled, cryptoTreasuryAddress, stripe: stripeKeys }),
+          config: buildConfigFields({ tenant, license, googleOAuth, dbConfig, envPairs, deployHookUrl, vercelProjectId, vercelTeamSlug, adminEmail, pinSignInEnabled, web3WalletEnabled, cryptoPaymentsEnabled, cryptoTreasuryAddress, stripe: stripeKeys }),
         },
       };
 
@@ -1160,6 +1183,26 @@ export function EditTenantModal({ open, tenant, onClose, onSnackbar }: EditTenan
               : 'Crypto env push failed';
           message += ` — ⚠️ config saved, but crypto env push failed: ${cryptoMsg}`;
         }
+
+      // Push Vercel team slug to project env (VERCEL_TEAM_SLUG + NEXT_PUBLIC_VERCEL_TEAM_SLUG).
+      if (vercelTeamSlug.trim()) {
+        try {
+          const teamRes = await pushVercelTeamEnv({ slug: tenant.slug }).unwrap();
+          const envCount = teamRes.data?.envCount ?? 0;
+          message += ` — Vercel team slug pushed (${envCount} var${envCount === 1 ? '' : 's'}: ${teamRes.data?.teamSlug ?? vercelTeamSlug})`;
+          if (teamRes.data?.redeployTriggered?.length) message += ', redeploy triggered';
+          else if (teamRes.data?.note) message += ` — ${teamRes.data.note}`;
+        } catch (teamErr) {
+          const teamMsg =
+            teamErr && typeof teamErr === 'object' && 'data' in teamErr
+              ? String(
+                  (teamErr as { data?: { error?: string } }).data?.error ||
+                    'Vercel team env push failed',
+                )
+              : 'Vercel team env push failed';
+          message += ` — ⚠️ config saved, but Vercel team env push failed: ${teamMsg}`;
+        }
+      }
       onSnackbar({ message, severity: 'success' });
     } catch (err) {
       const msg = getApiErrorMessage(err, 'Save failed');
@@ -1167,7 +1210,7 @@ export function EditTenantModal({ open, tenant, onClose, onSnackbar }: EditTenan
     } finally {
       setSaving(false);
     }
-  }, [tenant, displayName, editTemplate, editPrimaryColor, editSecondaryColor, license, googleOAuth, dbConfig, envPairs, deployHookUrl, vercelProjectId, adminEmail, pinSignInEnabled, web3WalletEnabled, cryptoPaymentsEnabled, cryptoTreasuryAddress, updateTenant, updateBrandConfig, onSnackbar, orgId, currentOrg, organizations, assignTenantOrg, stripeKeys, pushStripeEnv, pushCryptoEnv]);
+  }, [tenant, displayName, editTemplate, editPrimaryColor, editSecondaryColor, license, googleOAuth, dbConfig, envPairs, deployHookUrl, vercelProjectId, vercelTeamSlug, adminEmail, pinSignInEnabled, web3WalletEnabled, cryptoPaymentsEnabled, cryptoTreasuryAddress, updateTenant, updateBrandConfig, onSnackbar, orgId, currentOrg, organizations, assignTenantOrg, stripeKeys, pushStripeEnv, pushCryptoEnv, pushVercelTeamEnv]);
 
   const handleApplyCatalogDefaultsAndSync = useCallback(async () => {
     if (!tenant) return;
@@ -1193,6 +1236,7 @@ export function EditTenantModal({ open, tenant, onClose, onSnackbar }: EditTenan
             envPairs,
             deployHookUrl,
             vercelProjectId,
+            vercelTeamSlug,
             adminEmail,
             pinSignInEnabled,
             web3WalletEnabled,
@@ -1260,6 +1304,7 @@ export function EditTenantModal({ open, tenant, onClose, onSnackbar }: EditTenan
     editPrimaryColor,
     editSecondaryColor,
     vercelProjectId,
+    vercelTeamSlug,
     license,
     googleOAuth,
     dbConfig,
@@ -3055,7 +3100,7 @@ export function EditTenantModal({ open, tenant, onClose, onSnackbar }: EditTenan
           <Button
             variant="outlined"
             size="small"
-            href="https://vercel.com/ilishaps-projects"
+            href={vercelTeamDashboardUrl(vercelTeamSlug)}
             target="_blank"
             endIcon={<OpenInNewIcon />}
             sx={{ mt: 0.5, whiteSpace: 'nowrap', flexShrink: 0 }}
@@ -3099,6 +3144,37 @@ export function EditTenantModal({ open, tenant, onClose, onSnackbar }: EditTenan
             </Typography>
             <Typography variant="caption" color="text.secondary" sx={{ fontFamily: 'monospace', fontSize: '0.7rem', wordBreak: 'break-all' }}>
               {vercelProjectId}
+            </Typography>
+          </Paper>
+        )}
+      </Paper>
+      <Paper variant="outlined" sx={{ p: 2.5, borderColor: 'primary.main', mt: 2 }}>
+        <Typography variant="subtitle2" sx={{ fontWeight: 600, mb: 1.5 }}>
+          Vercel Team
+        </Typography>
+        <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+          Team slug for dashboard links and env vars pushed on Save (
+          <code>VERCEL_TEAM_SLUG</code>, <code>NEXT_PUBLIC_VERCEL_TEAM_SLUG</code>).
+          Find it in Vercel → Team Settings → General → Team URL (e.g.{' '}
+          <code>vercel.com/tokenizin-projects</code> → <code>tokenizin-projects</code>).
+        </Typography>
+        <TextField
+          label="Vercel Team Slug"
+          value={vercelTeamSlug}
+          onChange={(e) => setVercelTeamSlug(e.target.value)}
+          fullWidth
+          size="small"
+          placeholder={DEFAULT_VERCEL_TEAM_SLUG}
+          helperText="Saved to tenant config and pushed to this project's Vercel env on Save Changes"
+          slotProps={{ input: { sx: { fontFamily: 'monospace', fontSize: '0.8rem' } } }}
+        />
+        {vercelTeamSlug.trim() && (
+          <Paper variant="outlined" sx={{ p: 1.5, mt: 2, bgcolor: 'background.default' }}>
+            <Typography variant="caption" sx={{ fontWeight: 600, display: 'block', mb: 0.5 }}>
+              Dashboard links use this team
+            </Typography>
+            <Typography variant="caption" color="text.secondary" sx={{ fontFamily: 'monospace', fontSize: '0.7rem', wordBreak: 'break-all' }}>
+              {vercelTeamDashboardUrl(vercelTeamSlug)}
             </Typography>
           </Paper>
         )}
@@ -3532,7 +3608,7 @@ export function EditTenantModal({ open, tenant, onClose, onSnackbar }: EditTenan
         <Button
           variant="outlined"
           size="small"
-          href={tenant?.vercelProjectId ? `https://vercel.com/ilishaps-projects/${tenant.slug}/settings/domains` : 'https://vercel.com/ilishaps-projects'}
+          href={tenant?.vercelProjectId ? vercelProjectDomainsUrl(tenant.slug, vercelTeamSlug) : vercelTeamDashboardUrl(vercelTeamSlug)}
           target="_blank"
           endIcon={<OpenInNewIcon />}
           sx={{ alignSelf: 'flex-start' }}

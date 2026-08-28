@@ -18,9 +18,10 @@ import { deployTenant, deployTenantWithGit, ensureVercelProject } from '@/domain
 import { seedTenantAdminDefaults } from '@/domain/tenant/tenant-service';
 import { redeploySuiteApps } from '@/domain/workflow/suite-provisioning';
 import { DEFAULT_PLATFORM_ADMIN_EMAIL } from '@/domain/security/persons';
+import { VERCEL_TEAM_ID } from '@/lib/vercel-team';
 
 const VERCEL_API = 'https://api.vercel.com';
-const TEAM_ID = process.env.VERCEL_TEAM_ID || 'team_7m5fwG2qKtVsGtgV35AB3nHi';
+const TEAM_ID = VERCEL_TEAM_ID;
 
 /**
  * Poll Vercel deployment status in the background until it reaches 'READY'.

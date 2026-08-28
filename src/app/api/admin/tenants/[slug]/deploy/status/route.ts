@@ -7,9 +7,10 @@
 import { NextResponse } from 'next/server';
 import { requireWriteAuth } from '@/lib/auth/guards';
 import { jsonError, jsonOk } from '@/lib/api/response';
+import { VERCEL_TEAM_ID } from '@/lib/vercel-team';
 
 const VERCEL_API = 'https://api.vercel.com';
-const TEAM_ID = process.env.VERCEL_TEAM_ID || 'team_7m5fwG2qKtVsGtgV35AB3nHi';
+const TEAM_ID = VERCEL_TEAM_ID;
 
 export const dynamic = 'force-dynamic';
 
