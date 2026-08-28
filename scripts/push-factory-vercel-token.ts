@@ -16,7 +16,8 @@ import { upsertProjectEnvVar } from '../src/domain/tenant/vercel-deploy-service'
 import { DEFAULT_VERCEL_TEAM_SLUG, VERCEL_TEAM_ID } from '../src/lib/vercel-team';
 
 const FACTORY_PROJECT_ID = 'prj_ia654I3nS8CWUu6uA57oSKDR01IE';
-const ENV_TARGETS = ['production', 'preview', 'development'] as const;
+/** Factory only ships Production — do not add preview/development (CLI fails if missing). */
+const ENV_TARGETS = ['production'] as const;
 
 function pushEnvViaCli(key: string, value: string): boolean {
   // CLI session auth — PAT in VERCEL_TOKEN makes `--scope tokenizin-projects` fail.
@@ -25,6 +26,7 @@ function pushEnvViaCli(key: string, value: string): boolean {
 
   for (const target of ENV_TARGETS) {
     try {
+      // Vercel CLI ≥54: one environment per call (not "production preview development").
       execFileSync(
         'vercel',
         [
