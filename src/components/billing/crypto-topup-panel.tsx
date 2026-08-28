@@ -18,7 +18,7 @@ import {
   useCreateCryptoTopUpIntentMutation,
 } from '@/store/apis/organization-api';
 import { useAppSelector } from '@/store/hooks';
-import { formatWalletAddress } from '@/store/wallet-slice';
+import { formatWalletAddress, isCryptoWalletReadyForPayment } from '@/store/wallet-slice';
 import { BrandedLoadingIndicator } from '@/components/branding/branded-loading-indicator';
 
 function chainLabel(chainId: number): string {
@@ -50,7 +50,8 @@ export function CryptoTopUpPanel({
   onCancel,
 }: CryptoTopUpPanelProps) {
   const linkedWallet = useAppSelector((state) => state.auth.walletAddress);
-  const connectedAddress = useAppSelector((state) => state.wallet.address);
+  const wallet = useAppSelector((state) => state.wallet);
+  const connectedAddress = wallet.address;
   const [createIntent, { data, isLoading, error }] = useCreateCryptoTopUpIntentMutation();
   const [confirmTopUp] = useConfirmCryptoTopUpMutation();
   const [paying, setPaying] = useState(false);
@@ -61,10 +62,10 @@ export function CryptoTopUpPanel({
   const [txHash, setTxHash] = useState<string | null>(null);
 
   const intent = data?.data ?? null;
-  const walletReady =
-    linkedWallet &&
-    connectedAddress &&
-    linkedWallet.toLowerCase() === connectedAddress.toLowerCase();
+  const walletReady = isCryptoWalletReadyForPayment(
+    { walletAddress: linkedWallet },
+    wallet,
+  );
 
   useEffect(() => {
     if (!walletReady) return;

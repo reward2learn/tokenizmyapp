@@ -31,6 +31,8 @@ import {
   isCryptoPaymentsEnabledClient,
   type CryptoPlanPrepaidMonths,
 } from '@/lib/web3/crypto-billing-config';
+import { useAppSelector } from '@/store/hooks';
+import { cryptoWalletPaymentBlockReason } from '@/store/wallet-slice';
 
 export type PlanCheckoutRail = 'stripe' | 'crypto';
 
@@ -65,11 +67,16 @@ export function PlanCheckoutDialog({
   hasStripeSubscription = false,
   onComplete,
 }: PlanCheckoutDialogProps) {
-  const cryptoEnabled =
-    !hasStripeSubscription && isCryptoPaymentsEnabledClient() && prepaidPlanPriceCents(planId, 1) != null;
+  const auth = useAppSelector((state) => state.auth);
+  const wallet = useAppSelector((state) => state.wallet);
   const [rail, setRail] = useState<PlanCheckoutRail>('stripe');
   const [step, setStep] = useState<'summary' | 'pay'>('summary');
   const [prepaidMonths, setPrepaidMonths] = useState<CryptoPlanPrepaidMonths>(1);
+
+  const cryptoEnabled =
+    !hasStripeSubscription && isCryptoPaymentsEnabledClient() && prepaidPlanPriceCents(planId, 1) != null;
+  const cryptoWalletBlockReason =
+    rail === 'crypto' && cryptoEnabled ? cryptoWalletPaymentBlockReason(auth, wallet) : null;
 
   const plan = getPlan(planId);
   const monthlyCredits = planAiCreditsPerMonth(plan, 'monthly');
@@ -164,6 +171,12 @@ export function PlanCheckoutDialog({
                   before the period ends.
                 </Alert>
               ) : null}
+
+              {cryptoWalletBlockReason ? (
+                <Alert severity="warning" variant="outlined">
+                  {cryptoWalletBlockReason}
+                </Alert>
+              ) : null}
             </Stack>
           </DialogContent>
           <DialogActions>
@@ -171,7 +184,9 @@ export function PlanCheckoutDialog({
             <Button
               onClick={() => setStep('pay')}
               variant="contained"
-              disabled={rail === 'stripe' && !publishableKey}
+              disabled={
+                (rail === 'stripe' && !publishableKey) || Boolean(cryptoWalletBlockReason)
+              }
             >
               Continue to payment
             </Button>

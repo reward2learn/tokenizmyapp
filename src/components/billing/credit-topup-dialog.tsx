@@ -27,7 +27,8 @@ import {
   organizationApi,
   useCreateTopUpIntentMutation,
 } from '@/store/apis/organization-api';
-import { useAppDispatch } from '@/store/hooks';
+import { useAppDispatch, useAppSelector } from '@/store/hooks';
+import { cryptoWalletPaymentBlockReason } from '@/store/wallet-slice';
 
 export type TopUpRail = 'stripe' | 'crypto';
 
@@ -45,6 +46,8 @@ export interface CreditTopUpDialogProps {
  */
 export function CreditTopUpDialog({ open, orgId, packId, onClose }: CreditTopUpDialogProps) {
   const dispatch = useAppDispatch();
+  const auth = useAppSelector((state) => state.auth);
+  const wallet = useAppSelector((state) => state.wallet);
   const cryptoEnabled = isCryptoPaymentsEnabledClient();
   const [rail, setRail] = useState<TopUpRail>('stripe');
   const [step, setStep] = useState<'summary' | 'pay'>('summary');
@@ -53,6 +56,8 @@ export function CreditTopUpDialog({ open, orgId, packId, onClose }: CreditTopUpD
   const pack = CREDIT_PACKS.find((p) => p.id === packId) ?? null;
   const session = data?.data ?? null;
   const totalCredits = pack ? pack.baseCredits + pack.bonusCredits : 0;
+  const cryptoWalletBlockReason =
+    rail === 'crypto' && cryptoEnabled ? cryptoWalletPaymentBlockReason(auth, wallet) : null;
 
   const resetAndClose = () => {
     setStep('summary');
@@ -120,12 +125,21 @@ export function CreditTopUpDialog({ open, orgId, packId, onClose }: CreditTopUpD
                     USDC payments are not enabled on this deployment.
                   </Typography>
                 ) : null}
+                {cryptoWalletBlockReason ? (
+                  <Alert severity="warning" variant="outlined">
+                    {cryptoWalletBlockReason}
+                  </Alert>
+                ) : null}
               </Stack>
             </Stack>
           </DialogContent>
           <DialogActions>
             <Button onClick={resetAndClose}>Cancel</Button>
-            <Button onClick={beginPayment} variant="contained">
+            <Button
+              onClick={beginPayment}
+              variant="contained"
+              disabled={Boolean(cryptoWalletBlockReason)}
+            >
               Continue to payment
             </Button>
           </DialogActions>

@@ -191,3 +191,42 @@ export function walletSessionLinked(
   if (!auth.walletAddress || !walletAddress) return false;
   return auth.walletAddress.toLowerCase() === walletAddress.toLowerCase();
 }
+
+/** True when the browser wallet matches the JWT-linked address and can sign USDC transfers. */
+export function isCryptoWalletReadyForPayment(
+  auth: Pick<AuthState, 'walletAddress'>,
+  wallet: Pick<WalletState, 'status' | 'address'>,
+): boolean {
+  return wallet.status === 'connected' && walletSessionLinked(auth, wallet.address);
+}
+
+/** User-facing reason USDC checkout must stay blocked, or null when payment can proceed. */
+export function cryptoWalletPaymentBlockReason(
+  auth: Pick<AuthState, 'walletAddress'>,
+  wallet: Pick<WalletState, 'status' | 'address' | 'error'>,
+): string | null {
+  if (isCryptoWalletReadyForPayment(auth, wallet)) return null;
+
+  if (wallet.status === 'error') {
+    return 'Wallet connection failed. Open Billing settings, connect with Google, and link your wallet before paying with USDC.';
+  }
+
+  if (wallet.status === 'connected' && wallet.address && !auth.walletAddress) {
+    return 'Wallet connected but not linked — complete the sign-in prompt in Billing settings to link it for USDC payments.';
+  }
+
+  if (
+    wallet.status === 'connected'
+    && wallet.address
+    && auth.walletAddress
+    && !walletSessionLinked(auth, wallet.address)
+  ) {
+    return 'Connected wallet does not match your linked account. Reconnect in Billing settings.';
+  }
+
+  if (auth.walletAddress && wallet.status !== 'connected') {
+    return 'A wallet is linked to your account but not connected in this browser. Connect in Billing settings before paying with USDC.';
+  }
+
+  return 'Link your social wallet in Billing settings before paying with USDC. Connect with Google, then complete the sign-in prompt to link the wallet to your account.';
+}

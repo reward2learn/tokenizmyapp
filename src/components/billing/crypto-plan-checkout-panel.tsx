@@ -20,7 +20,7 @@ import {
   useCreateCryptoPlanIntentMutation,
 } from '@/store/apis/organization-api';
 import { useAppSelector } from '@/store/hooks';
-import { formatWalletAddress } from '@/store/wallet-slice';
+import { formatWalletAddress, isCryptoWalletReadyForPayment } from '@/store/wallet-slice';
 import { BrandedLoadingIndicator } from '@/components/branding/branded-loading-indicator';
 
 function chainLabel(chainId: number): string {
@@ -60,7 +60,7 @@ export function CryptoPlanCheckoutPanel({
   const plan = getPlan(planId);
   const monthlyCredits = planAiCreditsPerMonth(plan, 'monthly');
   const linkedWallet = useAppSelector((state) => state.auth.walletAddress);
-  const connectedAddress = useAppSelector((state) => state.wallet.address);
+  const wallet = useAppSelector((state) => state.wallet);
   const [createIntent, { data, isLoading, error }] = useCreateCryptoPlanIntentMutation();
   const [confirmPurchase] = useConfirmCryptoPlanPurchaseMutation();
   const [paying, setPaying] = useState(false);
@@ -70,10 +70,10 @@ export function CryptoPlanCheckoutPanel({
   const [periodEnd, setPeriodEnd] = useState<string | null>(null);
 
   const intent = data?.data ?? null;
-  const walletReady =
-    linkedWallet &&
-    connectedAddress &&
-    linkedWallet.toLowerCase() === connectedAddress.toLowerCase();
+  const walletReady = isCryptoWalletReadyForPayment(
+    { walletAddress: linkedWallet },
+    wallet,
+  );
 
   useEffect(() => {
     if (!walletReady) return;
