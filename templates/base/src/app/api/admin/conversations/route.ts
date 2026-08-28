@@ -35,7 +35,8 @@ export async function GET(request: Request): Promise<NextResponse> {
   if (!groupGuard.ok) return jsonError('Requires conversations:read', 403);
 
   const url = new URL(request.url);
-  const includeArchived = url.searchParams.get('archived') === 'true';
+  // Match /api/chat?resource=conversations: archived=true → archived only; else active only.
+  const archivedOnly = url.searchParams.get('archived') === 'true';
   const owner = url.searchParams.get('owner');
   const limit = Math.min(parseInt(url.searchParams.get('limit') ?? '100', 10), 200);
 
@@ -55,7 +56,7 @@ export async function GET(request: Request): Promise<NextResponse> {
   try {
     const rows = await db.conversation.findMany({
       where: {
-        ...(includeArchived ? {} : { archived: false }),
+        archived: archivedOnly,
         ...(owner ? { ownerSub: owner } : {}),
       },
       orderBy: { createdAt: 'desc' },

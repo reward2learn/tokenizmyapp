@@ -144,9 +144,12 @@ function RoleManager() {
 }
 
 function ConversationManager() {
-  const { data, isLoading, isError, refetch } = useListAdminConversationsQuery({ limit: 100 });
-  const [archive, { isLoading: isArchiving }] = useArchiveAdminConversationMutation();
   const [showArchived, setShowArchived] = useState(false);
+  const { data, isLoading, isError, refetch } = useListAdminConversationsQuery({
+    limit: 100,
+    archived: showArchived,
+  });
+  const [archive, { isLoading: isArchiving }] = useArchiveAdminConversationMutation();
 
   if (isLoading) {
     return (
@@ -159,7 +162,7 @@ function ConversationManager() {
     return <Alert severity="error">Failed to load conversations.</Alert>;
   }
 
-  const conversations = (data.data.conversations ?? []).filter((c) => showArchived || !c.archived);
+  const conversations = data.data.conversations ?? [];
 
   const handleToggle = async (id: number, archived: boolean) => {
     await archive({ id, archived: !archived }).unwrap();
@@ -189,7 +192,9 @@ function ConversationManager() {
         Platform admins can archive any conversation.
       </Typography>
       {conversations.length === 0 ? (
-        <Typography variant="body2" color="text.secondary">No conversations.</Typography>
+        <Typography variant="body2" color="text.secondary">
+          {showArchived ? 'No archived conversations.' : 'No active conversations.'}
+        </Typography>
       ) : (
         <TableContainer sx={{ width: '100%', maxWidth: '100%', overflowX: 'auto' }}>
           <Table size="small" sx={{ minWidth: 720 }}>
