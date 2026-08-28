@@ -11,6 +11,7 @@ import {
   PURCHASE_CREDITS_OPENAI_TOOL,
 } from '@/lib/chat/session-tools';
 import { PLATFORM_OPENAI_TOOLS } from '@/lib/chat/platform-tools';
+import { SHEET_OPENAI_TOOLS } from '@/lib/chat/sheet-tools';
 
 export type OpenAiFunctionTool = {
   type: 'function';
@@ -35,7 +36,7 @@ export type ChatToolAccessRequirement =
   | 'platformAdmin'
   | 'billingPurchase';
 
-export type ChatToolCategory = 'session' | 'billing' | 'platform';
+export type ChatToolCategory = 'session' | 'billing' | 'platform' | 'workbook';
 
 export interface ChatToolAccessContext {
   /** True when a verified session cookie/JWT is present. */
@@ -62,6 +63,8 @@ function toolByName(name: string): OpenAiFunctionTool {
   if (fromSession) return fromSession as OpenAiFunctionTool;
   const fromPlatform = PLATFORM_OPENAI_TOOLS.find((tool) => tool.function.name === name);
   if (fromPlatform) return fromPlatform as OpenAiFunctionTool;
+  const fromSheet = SHEET_OPENAI_TOOLS.find((tool) => tool.function.name === name);
+  if (fromSheet) return fromSheet as OpenAiFunctionTool;
   throw new Error(`Unknown chat tool: ${name}`);
 }
 
@@ -111,6 +114,18 @@ export const CHAT_TOOL_REGISTRY: RegisteredChatTool[] = [
     category: 'billing',
     access: 'billingPurchase',
     openAiTool: PURCHASE_CREDITS_OPENAI_TOOL as OpenAiFunctionTool,
+  },
+  {
+    name: 'list_workbook_sheets',
+    category: 'workbook',
+    access: 'authenticated',
+    openAiTool: toolByName('list_workbook_sheets'),
+  },
+  {
+    name: 'query_sheet_data',
+    category: 'workbook',
+    access: 'authenticated',
+    openAiTool: toolByName('query_sheet_data'),
   },
   {
     name: 'query_platform_registry',
@@ -180,7 +195,7 @@ export function toolCategoriesPresent(tools: OpenAiFunctionTool[]): {
   platform: boolean;
 } {
   const names = new Set(tools.map((tool) => tool.function.name));
-  const categories = { session: false, billing: false, platform: false };
+  const categories = { session: false, billing: false, platform: false, workbook: false };
   for (const registered of CHAT_TOOL_REGISTRY) {
     if (!names.has(registered.name)) continue;
     categories[registered.category] = true;

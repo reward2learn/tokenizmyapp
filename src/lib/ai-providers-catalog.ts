@@ -91,6 +91,18 @@ export function providerSupportsChatTools(providerId: string | null | undefined)
   return !(LOCAL_STUDIO_PROVIDER_IDS as readonly string[]).includes(providerId);
 }
 
+/** Workbook read tools kept on Mac Studio providers (session/platform tools stripped). */
+export const STUDIO_WORKBOOK_TOOL_NAMES = ['list_workbook_sheets', 'query_sheet_data'] as const;
+
+export function filterChatToolsForProvider<T extends { function: { name: string } }>(
+  tools: T[],
+  providerId: string | null | undefined,
+): T[] {
+  if (providerSupportsChatTools(providerId)) return tools;
+  const allowed = new Set<string>(STUDIO_WORKBOOK_TOOL_NAMES);
+  return tools.filter((tool) => allowed.has(tool.function.name));
+}
+
 /** Canonical builtin provider id list — seed template + defaults. */
 export const AI_PROVIDER_IDS = [
   'openai',

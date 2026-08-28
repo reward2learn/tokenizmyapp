@@ -9,6 +9,10 @@ import {
   executePlatformTool,
   isPlatformToolName,
 } from '@/lib/chat/platform-tools';
+import {
+  executeSheetTool,
+  isSheetToolName,
+} from '@/lib/chat/sheet-tools';
 import type { OpenAiFunctionTool } from '@/lib/chat/chat-tool-registry';
 import { meterAiUsage, type MeterResult } from '@/domain/billing/credit-service';
 import {
@@ -23,12 +27,14 @@ import {
 
 export const CHAT_WEB_SEARCH_INSTRUCTIONS = `Web search is enabled on this chat model. When the user asks about current events, live market data, recent news, or information that may have changed after your training data, search the web before answering. Cite sources briefly when web results are used.`;
 
-/** Mac Studio DeepSeek — text-only chat; no OpenAI function tools on this path. */
-export const DEEPSEEK_CHAT_INSTRUCTIONS = `You are on the StarWorld DeepSeek Mac Studio tunnel (text chat only — function calling is not available on this route).
+/** Mac Studio DeepSeek — workbook tools only; no session/platform function tools. */
+export const DEEPSEEK_CHAT_INSTRUCTIONS = `You are on the StarWorld DeepSeek Mac Studio tunnel.
+
+For spreadsheet, BEP, payroll, P&L, or workbook figures, call query_sheet_data (use list_workbook_sheets first if you need tab names) before answering — never guess or pretend to query data in plain text.
 
 Respond in one direct assistant message. Never simulate a transcript with "USER:" or "ASSISTANT:" role prefixes, and never invent extra user turns.
 
-Do not output blockquoted planning lines (lines starting with ">") or say you will "look up" data unless that data is already in the messages above. If payroll, BEP sheet, or spreadsheet figures are not in the context, say you do not have them and point the user to the relevant section in the app (Business Review, Financial Review, or Ops Admin) instead of looping.`;
+Do not output blockquoted planning lines (lines starting with ">"). After query_sheet_data returns TSV rows, answer from that data and cite the sheet name.`;
 
 interface OpenAiToolCall {
   id: string;
@@ -120,6 +126,18 @@ async function executeChatToolCall(
       toolCall.function.name,
       toolCall.function.arguments,
       { isPlatformAdmin: Boolean(toolContext.isPlatformAdmin) },
+    );
+    return { toolMessage, sessionResult: null };
+  }
+
+  if (isSheetToolName(toolCall.function.name)) {
+    const toolMessage = await executeSheetTool(
+      toolCall.function.name,
+      toolCall.function.arguments,
+      {
+        db: toolContext.db,
+        isAuthenticated: Boolean(toolContext.viewerEmail || toolContext.viewerUserId),
+      },
     );
     return { toolMessage, sessionResult: null };
   }

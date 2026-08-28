@@ -27,7 +27,7 @@ describe('resolveAllowedChatTools', () => {
     expect(namesFor(ctx())).toEqual([]);
   });
 
-  it('gives signed-in users session tools including update_review_documents', () => {
+  it('gives signed-in users session and workbook tools including update_review_documents', () => {
     const names = namesFor(ctx({ isAuthenticated: true }));
     expect(names).toEqual([
       'new_chat_session',
@@ -35,6 +35,8 @@ describe('resolveAllowedChatTools', () => {
       'close_conversation',
       'save_conversation',
       'update_review_documents',
+      'list_workbook_sheets',
+      'query_sheet_data',
     ]);
     expect(names).not.toContain('build_custom_template');
   });
@@ -100,6 +102,20 @@ describe('toolCategoriesPresent', () => {
       session: true,
       billing: true,
       platform: true,
+      workbook: true,
+    });
+  });
+
+  it('flags workbook when only sheet tools are allowed', () => {
+    const tools = resolveAllowedChatTools(ctx({ isAuthenticated: true }));
+    const sheetOnly = tools.filter((t) =>
+      t.function.name === 'list_workbook_sheets' || t.function.name === 'query_sheet_data',
+    );
+    expect(toolCategoriesPresent(sheetOnly)).toEqual({
+      session: false,
+      billing: false,
+      platform: false,
+      workbook: true,
     });
   });
 
@@ -109,6 +125,7 @@ describe('toolCategoriesPresent', () => {
       session: false,
       billing: false,
       platform: false,
+      workbook: false,
     });
   });
 });

@@ -36,6 +36,7 @@ export {
   resolveChatCompletionsUrl,
   listProviderModels,
   providerSupportsChatTools,
+  filterChatToolsForProvider,
   LOCAL_STUDIO_PROVIDER_IDS,
   type AiProviderDef,
   type AiProviderId,

@@ -10,6 +10,7 @@ import {
   resolveChatCompletionsUrl,
   buildProviderFetchHeaders,
   providerSupportsChatTools,
+  filterChatToolsForProvider,
 } from '@/lib/ai-providers';
 import { KnowledgeService } from '@/domain/knowledge/knowledge-service';
 import { getSessionFromRequest } from '@/lib/auth/session';
@@ -53,6 +54,7 @@ import {
   resolveAllowedChatTools,
   toolCategoriesPresent,
 } from '@/lib/chat/chat-tool-registry';
+import { SHEET_TOOL_INSTRUCTIONS } from '@/lib/chat/sheet-tools';
 
 export const dynamic = 'force-dynamic';
 /** Large local models (ollama-studio / 72B) can exceed 60s before first token. */
@@ -569,19 +571,16 @@ async function handleChatPost(request: Request): Promise<Response> {
 
     const chatToolsSupported = providerSupportsChatTools(ai.provider.id);
 
-    // Access-filtered tool list for this viewer. Sent to the provider with
-    // tool_choice: auto so the model picks tools from the prompt alone —
-    // privileged tools are never listed for unauthorized callers.
-    // Mac Studio providers (Ollama / MLX DeepSeek) skip tools entirely.
-    const allowedTools = chatToolsSupported
-      ? resolveAllowedChatTools({
-          isAuthenticated,
-          isPlatformAdmin: isAdmin,
-          isPlatformApp: isPlatformApp(),
-          hasBillingOrg: Boolean(billingOrgId),
-          canPurchaseCredits,
-        })
-      : [];
+    const allowedTools = filterChatToolsForProvider(
+      resolveAllowedChatTools({
+        isAuthenticated,
+        isPlatformAdmin: isAdmin,
+        isPlatformApp: isPlatformApp(),
+        hasBillingOrg: Boolean(billingOrgId),
+        canPurchaseCredits,
+      }),
+      ai.provider.id,
+    );
     const toolCategories = toolCategoriesPresent(allowedTools);
     const allowedToolNames = new Set(allowedTools.map((tool) => tool.function.name));
 
@@ -595,6 +594,7 @@ async function handleChatPost(request: Request): Promise<Response> {
     const systemSections = [
       systemPrompt,
       ...(ai.provider.id === 'deepseek-studio' ? [DEEPSEEK_CHAT_INSTRUCTIONS] : []),
+      ...(toolCategories.workbook ? [SHEET_TOOL_INSTRUCTIONS] : []),
       ...(chatToolsSupported && toolCategories.platform ? [PLATFORM_TOOL_INSTRUCTIONS] : []),
       ...(chatToolsSupported && (toolCategories.session || toolCategories.billing)
         ? [CHAT_SESSION_TOOL_INSTRUCTIONS]

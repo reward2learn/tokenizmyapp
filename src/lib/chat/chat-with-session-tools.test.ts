@@ -86,7 +86,7 @@ describe('openAiErrorMessage', () => {
 });
 
 describe('providerSupportsChatTools', () => {
-  it('disables tools for Mac Studio tunnel providers', () => {
+  it('disables session/platform tools for Mac Studio tunnel providers', () => {
     expect(providerSupportsChatTools('ollama-studio')).toBe(false);
     expect(providerSupportsChatTools('deepseek-studio')).toBe(false);
   });
