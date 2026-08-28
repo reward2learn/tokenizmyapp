@@ -137,15 +137,20 @@ export const factorySiweClient = createSIWEConfig({
     });
 
     if (!response.ok) {
-      console.warn('[siwe] Verify endpoint returned', response.status);
-      return false;
+      const body = (await response.json().catch(() => ({}))) as { error?: string };
+      // Throw so AppKit SIWX re-prompts a fresh signature instead of failing closed.
+      throw new Error(body.error ?? `Wallet verify failed (${response.status})`);
     }
 
     const payload = (await response.json()) as {
       success?: boolean;
       data?: { success?: boolean };
     };
-    return payload.success === true && (payload.data?.success ?? true);
+    const ok = payload.success === true && (payload.data?.success ?? true);
+    if (!ok) {
+      throw new Error('Wallet signature verification failed.');
+    }
+    return true;
   },
 
   onSignIn: () => {

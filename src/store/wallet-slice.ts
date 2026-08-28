@@ -152,6 +152,8 @@ export const walletSlice = createSlice({
       .addCase(linkWalletSession.rejected, (state, action) => {
         state.linkStatus = 'error';
         state.linkError = action.payload ?? action.error.message ?? 'Could not link wallet.';
+        // Allow "Link wallet" / auto-link to request a fresh SIWE signature.
+        state.lastLinkAttemptAddress = null;
       })
       .addCase(disconnectWalletSession.pending, (state) => {
         state.disconnectStatus = 'disconnecting';

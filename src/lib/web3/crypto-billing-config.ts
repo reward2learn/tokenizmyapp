@@ -130,7 +130,8 @@ export function resolveRpcUrl(chainId: number): string | undefined {
     return (
       process.env.SEPOLIA_RPC_URL?.trim() ||
       process.env.NEXT_PUBLIC_SEPOLIA_RPC_URL?.trim() ||
-      'https://rpc.sepolia.org'
+      // rpc.sepolia.org returns 404 for eth_* — publicnode is the reliable default.
+      'https://ethereum-sepolia-rpc.publicnode.com'
     );
   }
   return undefined;

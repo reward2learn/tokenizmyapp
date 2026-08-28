@@ -4,11 +4,11 @@
  * @see docs/google-oauth-appkit-setup.md Phase 4
  */
 import { SiweMessage } from 'siwe';
-import { recoverMessageAddress, verifyMessage } from 'viem';
-import { SIWE_CHAIN_ID } from '@/lib/web3/crypto-billing-config';
-import {
-  isSiwePlaceholderAddress,
-} from '@/lib/web3/evm-address';
+import { createPublicClient, http, recoverMessageAddress, verifyMessage } from 'viem';
+import { base, mainnet, sepolia } from 'viem/chains';
+import type { Chain } from 'viem';
+import { SIWE_CHAIN_ID, resolveRpcUrl } from '@/lib/web3/crypto-billing-config';
+import { isSiwePlaceholderAddress } from '@/lib/web3/evm-address';
 
 export interface PendingSiweNonce {
   nonce: string;
@@ -81,6 +81,9 @@ export interface VerifiedSiweResult {
  * Standard 65-byte EOA signatures — coerce yParity/v into 27/28.
  * Wallets sometimes return 0/1; some connectors emit garbage like 0x20 (32),
  * which makes viem throw "Invalid yParityOrV value" instead of failing closed.
+ *
+ * Never apply this before EIP-1271: Safe/smart accounts validate the exact
+ * bytes (e.g. v=0x1f). Normalizing breaks on-chain isValidSignature.
  */
 export function normalizeEoaSignature(signature: `0x${string}`): `0x${string}` {
   const hex = signature.slice(2);
@@ -119,17 +122,60 @@ function isSmartAccountSignature(signature: string): boolean {
   return /^0x[a-fA-F0-9]+$/.test(signature) && signature.length > 132;
 }
 
+function chainForId(chainId: number): Chain | null {
+  switch (chainId) {
+    case 11_155_111:
+      return sepolia;
+    case 1:
+      return mainnet;
+    case 8453:
+      return base;
+    default:
+      return null;
+  }
+}
+
+/** SIWE chain first, then common deployment homes for Reown/Safe smart accounts. */
+function eip1271ChainIds(preferred: number): number[] {
+  return [...new Set([preferred, SIWE_CHAIN_ID, 1, 8453])];
+}
+
+/**
+ * EIP-1271 / EIP-6492 via a public client. Uses the RAW signature — never
+ * normalize v first (Safe rejects coerced recovery ids with GS026).
+ */
+async function verifyViaEip1271(
+  address: `0x${string}`,
+  message: string,
+  signature: `0x${string}`,
+  chainId: number,
+): Promise<boolean> {
+  const chain = chainForId(chainId);
+  const rpcUrl = resolveRpcUrl(chainId);
+  if (!chain || !rpcUrl) return false;
+
+  const client = createPublicClient({
+    chain,
+    transport: http(rpcUrl),
+  });
+
+  try {
+    return await client.verifyMessage({ address, message, signature });
+  } catch {
+    return false;
+  }
+}
+
 async function verifySignatureForAddress(
   address: `0x${string}`,
   message: string,
   signature: `0x${string}`,
 ): Promise<boolean> {
   if (isSmartAccountSignature(signature)) {
-    try {
-      return await verifyMessage({ address, message, signature });
-    } catch {
-      return false;
+    for (const chainId of eip1271ChainIds(SIWE_CHAIN_ID)) {
+      if (await verifyViaEip1271(address, message, signature, chainId)) return true;
     }
+    return false;
   }
 
   for (const candidate of eoaSignatureCandidates(signature)) {
@@ -173,16 +219,31 @@ export async function verifySiweSignature(
     }
   }
 
-  const ok = await verifySignatureForAddress(verifiedAddress, normalized, signature);
-  if (!ok) {
-    throw new Error('Signature verification failed');
+  const okEoa = await verifySignatureForAddress(verifiedAddress, normalized, signature);
+  if (okEoa) {
+    return {
+      address: verifiedAddress,
+      chainId: siweMessage.chainId,
+      nonce: siweMessage.nonce,
+    };
   }
 
-  return {
-    address: verifiedAddress,
-    chainId: siweMessage.chainId,
-    nonce: siweMessage.nonce,
-  };
+  // Reown social wallets are often Safe-style smart accounts: the SIWE address is
+  // the contract, but the 65-byte signature is from the owner EOA (non-standard v).
+  // EOA recover won't match — fall back to EIP-1271 with the RAW signature bytes.
+  if (!isSiwePlaceholderAddress(messageAddress)) {
+    for (const chainId of eip1271ChainIds(siweMessage.chainId)) {
+      if (await verifyViaEip1271(messageAddress, normalized, signature, chainId)) {
+        return {
+          address: messageAddress,
+          chainId: siweMessage.chainId,
+          nonce: siweMessage.nonce,
+        };
+      }
+    }
+  }
+
+  throw new Error('Signature verification failed');
 }
 
 /** Reset registries — tests only. */

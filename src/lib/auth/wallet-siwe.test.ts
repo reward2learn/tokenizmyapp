@@ -61,6 +61,8 @@ describe('wallet-siwe message helpers', () => {
     expect(normalizeEoaSignature(`0x${rAndS}01`)).toBe(`0x${rAndS}1c`);
     // v = 0x1c stays
     expect(normalizeEoaSignature(`0x${rAndS}1c`)).toBe(`0x${rAndS}1c`);
+    // v = 0x1f (Safe-style) → LSB 1 → 28 — EOA path only; EIP-1271 must keep raw 1f
+    expect(normalizeEoaSignature(`0x${rAndS}1f`)).toBe(`0x${rAndS}1c`);
   });
 });
 

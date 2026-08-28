@@ -9,36 +9,40 @@ import { SIWE_CHAIN_ID } from '@/lib/web3/crypto-billing-config';
 import { waitForSiweAppReady } from '@/lib/web3/siwe-config';
 import { getWagmiConfig } from '@/lib/web3/wagmi-store';
 
+/** Fresh nonce + wallet prompt when verify fails (stale message / rejected mid-flow). */
+const MAX_LINK_SIGN_ATTEMPTS = 2;
+
 function apiBase(): string {
   if (typeof window !== 'undefined') return window.location.origin;
   return process.env.NEXT_PUBLIC_HOST?.trim() || 'http://localhost:3000';
 }
 
-export async function linkFactoryWalletSession(): Promise<{ address: string }> {
-  await waitForSiweAppReady();
+function isUserRejectedSignature(err: unknown): boolean {
+  if (!err || typeof err !== 'object') return false;
+  const code = 'code' in err ? (err as { code?: unknown }).code : undefined;
+  if (code === 4001 || code === 'ACTION_REJECTED') return true;
+  const message = err instanceof Error ? err.message : String(err);
+  return /user rejected|user denied|rejected the request/i.test(message);
+}
 
-  const wagmiConfig = getWagmiConfig();
-  if (!wagmiConfig) {
-    throw new Error('Social wallet is not configured for this deployment.');
+async function switchToSiweChain(
+  wagmiConfig: NonNullable<ReturnType<typeof getWagmiConfig>>,
+  currentChainId: number | undefined,
+): Promise<void> {
+  if (currentChainId === SIWE_CHAIN_ID) return;
+
+  const { switchChain } = await import('wagmi/actions');
+  try {
+    await switchChain(wagmiConfig, { chainId: SIWE_CHAIN_ID });
+    await new Promise((resolve) => setTimeout(resolve, 600));
+  } catch {
+    throw new Error('Switch to Sepolia in your wallet to link for crypto payments.');
   }
+}
 
-  const { getAccount, signMessage, switchChain } = await import('wagmi/actions');
-  const account = getAccount(wagmiConfig);
-  if (!account.address) {
-    throw new Error('Connect your wallet before linking.');
-  }
-
-  if (account.chainId !== SIWE_CHAIN_ID) {
-    try {
-      await switchChain(wagmiConfig, { chainId: SIWE_CHAIN_ID });
-      await new Promise((resolve) => setTimeout(resolve, 600));
-    } catch {
-      throw new Error('Switch to Sepolia in your wallet to link for crypto payments.');
-    }
-  }
-
+async function fetchServerSiweMessage(address: string): Promise<string> {
   const params = new URLSearchParams({
-    address: account.address,
+    address,
     chainId: String(SIWE_CHAIN_ID),
   });
 
@@ -62,9 +66,10 @@ export async function linkFactoryWalletSession(): Promise<{ address: string }> {
   if (!message) {
     throw new Error('Invalid nonce response from server.');
   }
+  return message;
+}
 
-  const signature = await signMessage(wagmiConfig, { message });
-
+async function verifyFactorySiwe(message: string, signature: string): Promise<string> {
   const verifyResponse = await fetch(`${apiBase()}/api/auth/wallet/verify`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -86,7 +91,42 @@ export async function linkFactoryWalletSession(): Promise<{ address: string }> {
     throw new Error('Wallet signature verification failed.');
   }
 
-  const address = verifyPayload.data?.address ?? account.address;
+  return verifyPayload.data?.address ?? '';
+}
 
-  return { address };
+export async function linkFactoryWalletSession(): Promise<{ address: string }> {
+  await waitForSiweAppReady();
+
+  const wagmiConfig = getWagmiConfig();
+  if (!wagmiConfig) {
+    throw new Error('Social wallet is not configured for this deployment.');
+  }
+
+  const { getAccount, signMessage } = await import('wagmi/actions');
+  const account = getAccount(wagmiConfig);
+  if (!account.address) {
+    throw new Error('Connect your wallet before linking.');
+  }
+
+  await switchToSiweChain(wagmiConfig, account.chainId);
+
+  let lastError: Error | null = null;
+
+  for (let attempt = 0; attempt < MAX_LINK_SIGN_ATTEMPTS; attempt++) {
+    try {
+      // Fresh nonce every attempt so a failed verify never reuses a spent/stale message.
+      const message = await fetchServerSiweMessage(account.address);
+      const signature = await signMessage(wagmiConfig, { message });
+      const verifiedAddress = await verifyFactorySiwe(message, signature);
+      return { address: verifiedAddress || account.address };
+    } catch (err) {
+      if (isUserRejectedSignature(err)) {
+        throw new Error('Signature request was rejected. Try linking again when ready.');
+      }
+      lastError = err instanceof Error ? err : new Error(String(err));
+      // Verification failed (or transient) — loop once more for a new sign modal.
+    }
+  }
+
+  throw lastError ?? new Error('Wallet signature verification failed.');
 }
