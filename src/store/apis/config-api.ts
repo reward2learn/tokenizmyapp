@@ -258,5 +258,6 @@ export const {
   useGetAiProviderStatusQuery,
   useSaveAiProviderMutation,
   useClearAiProviderKeyMutation,
+  useGetAiModelsQuery,
   useLazyGetAiModelsQuery,
 } = configApi;

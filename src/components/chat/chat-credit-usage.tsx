@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState, type MouseEvent } from 'react';
+import { useMemo, type MouseEvent } from 'react';
 import Box from '@mui/material/Box';
 import Button from '@mui/material/Button';
 import Chip from '@mui/material/Chip';
@@ -12,7 +12,8 @@ import Divider from '@mui/material/Divider';
 import Stack from '@mui/material/Stack';
 import Typography from '@mui/material/Typography';
 import BoltIcon from '@mui/icons-material/Bolt';
-import { useAppSelector } from '@/store/hooks';
+import { useAppDispatch, useAppSelector } from '@/store/hooks';
+import { setCreditUsageOpen } from '@/store/chat-ui-slice';
 
 function formatTokens(n: number): string {
   if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
@@ -44,25 +45,21 @@ export interface ChatCreditUsageProps {
    * container so the overlay stays centered on the chat (not the viewport).
    */
   containerEl?: HTMLElement | null;
-  /**
-   * Conversation message panel. Dialog paper height matches this element so
-   * the modal aligns with the transcript area; width always spans the chat card.
-   */
-  messagesPanelEl?: HTMLElement | null;
 }
 
 /**
  * Compact chip (always visible in Tools & Options summary) + modal dialog
  * showing credit/token consumption for the current chat conversation.
+ *
+ * Dialog open state and messages-panel height live in chatUi slice; height is
+ * observed from chat-panel via a ref callback (no component useEffect).
  */
-export function ChatCreditUsage({
-  containerEl = null,
-  messagesPanelEl = null,
-}: ChatCreditUsageProps) {
+export function ChatCreditUsage({ containerEl = null }: ChatCreditUsageProps) {
+  const dispatch = useAppDispatch();
   const sessionUsage = useAppSelector((s) => s.chatStream.sessionUsage);
   const lastTurnUsage = useAppSelector((s) => s.chatStream.lastTurnUsage);
-  const [open, setOpen] = useState(false);
-  const [messagesPanelHeight, setMessagesPanelHeight] = useState<number | null>(null);
+  const open = useAppSelector((s) => s.chatUi.creditUsageOpen);
+  const messagesPanelHeight = useAppSelector((s) => s.chatUi.messagesPanelHeight);
 
   const turnCount = sessionUsage.turns.length;
   const sessionCharged = sessionUsage.consumed;
@@ -101,20 +98,6 @@ export function ChatCreditUsage({
     };
   }, [lastTurnUsage, sessionUsage.completionTokens, sessionUsage.promptTokens]);
 
-  useEffect(() => {
-    if (!open || !messagesPanelEl) {
-      setMessagesPanelHeight(null);
-      return;
-    }
-    const syncHeight = () => {
-      setMessagesPanelHeight(messagesPanelEl.getBoundingClientRect().height);
-    };
-    syncHeight();
-    const observer = new ResizeObserver(syncHeight);
-    observer.observe(messagesPanelEl);
-    return () => observer.disconnect();
-  }, [open, messagesPanelEl]);
-
   if (!hasActivity) return null;
 
   const chipLabel = lastExempt || meteringIncomplete
@@ -128,10 +111,10 @@ export function ChatCreditUsage({
   const handleChipClick = (event: MouseEvent<HTMLElement>) => {
     // Keep AccordionSummary from toggling when the chip is in its header.
     event.stopPropagation();
-    setOpen(true);
+    dispatch(setCreditUsageOpen(true));
   };
 
-  const handleClose = () => setOpen(false);
+  const handleClose = () => dispatch(setCreditUsageOpen(false));
 
   const scopedToChat = Boolean(containerEl);
 

@@ -63,6 +63,7 @@ import {
   setTopUpDialog,
   type ChatStreamMessage,
 } from '@/store/chat-stream-slice';
+import { setMessagesPanelHeight } from '@/store/chat-ui-slice';
 import { CreditTopUpDialog } from '@/components/billing/credit-topup-dialog';
 import { AssistantStreamProgress } from '@/components/chat/assistant-stream-progress';
 import { AssistantStreamEventsDialog } from '@/components/chat/assistant-stream-events-dialog';
@@ -150,7 +151,23 @@ export function ChatPanel({
   // Elements for the credit-usage modal: portal into the chat card and match
   // the conversation panel height (see ChatCreditUsage).
   const [chatContainerEl, setChatContainerEl] = useState<HTMLElement | null>(null);
-  const [messagesPanelEl, setMessagesPanelEl] = useState<HTMLElement | null>(null);
+  const messagesPanelObserverRef = useRef<ResizeObserver | null>(null);
+
+  const bindMessagesPanel = useCallback((el: HTMLDivElement | null) => {
+    messagesPanelObserverRef.current?.disconnect();
+    messagesPanelObserverRef.current = null;
+    if (!el) {
+      dispatch(setMessagesPanelHeight(null));
+      return;
+    }
+    const syncHeight = () => {
+      dispatch(setMessagesPanelHeight(el.getBoundingClientRect().height));
+    };
+    syncHeight();
+    const observer = new ResizeObserver(syncHeight);
+    observer.observe(el);
+    messagesPanelObserverRef.current = observer;
+  }, [dispatch]);
   // Composer tool selection lives in the store (chat-stream-slice), not local
   // state — the send thunk reads it directly and it survives the drawer closing.
   const activeTool = useAppSelector((s) => s.chatStream.activeTool);
@@ -521,7 +538,7 @@ export function ChatPanel({
       >
         <Stack spacing={2} sx={isDrawer ? { flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', width: '100%' } : undefined}>
             <Box
-              ref={setMessagesPanelEl}
+              ref={bindMessagesPanel}
               data-testid="chat-messages-panel"
               sx={
                 isDrawer
@@ -916,10 +933,7 @@ export function ChatPanel({
                   onClick={(event) => event.stopPropagation()}
                   onFocus={(event) => event.stopPropagation()}
                 >
-                  <ChatCreditUsage
-                    containerEl={chatContainerEl}
-                    messagesPanelEl={messagesPanelEl}
-                  />
+                  <ChatCreditUsage containerEl={chatContainerEl} />
                 </Box>
               </AccordionSummary>
               <AccordionDetails sx={{ pt: 0, pb: 1 }}>

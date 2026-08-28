@@ -2,6 +2,7 @@ import { configureStore } from '@reduxjs/toolkit';
 import { authSlice } from '@/store/auth-slice';
 import { uiSlice } from '@/store/ui-slice';
 import { chatStreamSlice } from '@/store/chat-stream-slice';
+import { chatUiSlice } from '@/store/chat-ui-slice';
 import { walletSlice } from '@/store/wallet-slice';
 import { chatListenerMiddleware } from '@/store/chat-listener-middleware';
 import { sheetViewerSlice, sheetViewerListenerMiddleware } from '@/store/sheet-viewer-slice';
@@ -24,6 +25,8 @@ import { tenantApi } from '@/store/apis/tenant-api';
 import { organizationApi } from '@/store/apis/organization-api';
 import { templateApi } from '@/store/apis/template-api';
 import { undoRedoSlice, undoRedoListenerMiddleware } from '@/store/undo-redo-slice';
+import { aiProviderConfigSlice } from '@/store/ai-provider-config-slice';
+import { aiProviderListenerMiddleware } from '@/store/ai-provider-listener-middleware';
 import { walletListenerMiddleware } from '@/store/wallet-listener-middleware';
 import { walletAuthRedirectDetected } from '@/store/wallet-slice';
 import { hasAuthSuccessRedirect } from '@/lib/web3/social-wallet-connectors';
@@ -50,6 +53,7 @@ const apiMiddleware = [
   sheetViewerListenerMiddleware,
   chatListenerMiddleware,
   walletListenerMiddleware,
+  aiProviderListenerMiddleware,
   undoRedoListenerMiddleware,
 ] as const;
 
@@ -59,7 +63,9 @@ export function makeStore() {
       auth: authSlice.reducer,
       ui: uiSlice.reducer,
       chatStream: chatStreamSlice.reducer,
+      chatUi: chatUiSlice.reducer,
       wallet: walletSlice.reducer,
+      aiProviderConfig: aiProviderConfigSlice.reducer,
       sheetViewer: sheetViewerSlice.reducer,
       undoRedo: undoRedoSlice.reducer,
       [authApi.reducerPath]: authApi.reducer,

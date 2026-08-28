@@ -1,6 +1,5 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
 import Alert from '@mui/material/Alert';
 import Autocomplete from '@mui/material/Autocomplete';
 import Box from '@mui/material/Box';
@@ -17,14 +16,21 @@ import Select from '@mui/material/Select';
 import Stack from '@mui/material/Stack';
 import TextField from '@mui/material/TextField';
 import Typography from '@mui/material/Typography';
+import { isPending } from '@reduxjs/toolkit';
 import {
   useGetAiProviderStatusQuery,
-  useSaveAiProviderMutation,
-  useClearAiProviderKeyMutation,
-  useLazyGetAiModelsQuery,
-  type AiProviderId,
+  useGetAiModelsQuery,
   type AiModelOption,
 } from '@/store/apis/config-api';
+import {
+  activateAiProviderSelection,
+  clearAiProviderKeyDraft,
+  saveAiProviderKeyDraft,
+  setAiProviderApiKeyDraft,
+  setAiProviderId,
+  setAiProviderModel,
+} from '@/store/ai-provider-config-slice';
+import { useAppDispatch, useAppSelector } from '@/store/hooks';
 
 function sourceLabel(source: 'db' | 'env' | null | undefined): string {
   if (source === 'db') return 'Stored in database';
@@ -38,91 +44,41 @@ function sourceLabel(source: 'db' | 'env' | null | undefined): string {
  * (OpenAI, Vercel AI Gateway, or OpenCode Zen), enter that provider's own
  * API key, then pick a model from that provider's live catalog rather than
  * a hardcoded/stale list — catalogs change too often to bake in.
+ *
+ * UI state lives in aiProviderConfig slice; side effects in ai-provider-listener-middleware.
  */
 export function AiProviderForm() {
-  const { data, isLoading, isError, refetch } = useGetAiProviderStatusQuery();
-  const [saveProvider, { isLoading: isSaving }] = useSaveAiProviderMutation();
-  const [clearKey, { isLoading: isClearing }] = useClearAiProviderKeyMutation();
-  const [fetchModels, { data: modelsData, isFetching: isLoadingModels }] = useLazyGetAiModelsQuery();
+  const dispatch = useAppDispatch();
+  const {
+    selectedProviderId,
+    selectedModel,
+    apiKeyDraft,
+    message,
+    error,
+  } = useAppSelector((state) => state.aiProviderConfig);
 
+  const { data, isLoading, isError } = useGetAiProviderStatusQuery();
   const status = data?.data;
   const providers = status?.providers ?? [];
 
-  const [selectedProviderId, setSelectedProviderId] = useState<AiProviderId>('openai');
-  const [apiKey, setApiKey] = useState('');
-  const [selectedModel, setSelectedModel] = useState<AiModelOption | null>(null);
-  const [message, setMessage] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
-
-  // Once status loads, default the picker to whichever provider is active.
-  useEffect(() => {
-    if (status?.activeProviderId) setSelectedProviderId(status.activeProviderId);
-  }, [status?.activeProviderId]);
-
   const selectedProvider = providers.find((p) => p.id === selectedProviderId);
   const isActiveProvider = status?.activeProviderId === selectedProviderId;
+  const isCurrentSelection =
+    isActiveProvider
+    && selectedModel?.id != null
+    && selectedModel.id === status?.activeModel;
   const keylessProvider = selectedProvider?.requiresApiKey === false;
 
-  // Load the live model list whenever the selected provider is ready —
-  // keyless providers (ollama-studio) need no saved API key.
-  useEffect(() => {
-    if (selectedProvider?.configured) {
-      void fetchModels(selectedProviderId);
-    }
-  }, [selectedProviderId, selectedProvider?.configured, fetchModels]);
+  const { data: modelsData, isFetching: isLoadingModels } = useGetAiModelsQuery(
+    selectedProviderId,
+    { skip: !selectedProvider?.configured },
+  );
+  const models = modelsData?.data?.models ?? [];
 
-  const models = useMemo(() => modelsData?.data?.models ?? [], [modelsData]);
-
-  // Preselect the currently-active model (or the provider's default) once
-  // the model list for this provider has loaded.
-  useEffect(() => {
-    if (models.length === 0) return;
-    const currentModelId = isActiveProvider ? status?.activeModel : selectedProvider?.defaultModel;
-    const match = models.find((m) => m.id === currentModelId);
-    setSelectedModel(match ?? null);
-  }, [models, isActiveProvider, status?.activeModel, selectedProvider?.defaultModel]);
-
-  const handleSaveKey = async () => {
-    setMessage(null);
-    setError(null);
-    try {
-      await saveProvider({ providerId: selectedProviderId, apiKey }).unwrap();
-      setApiKey('');
-      setMessage(`${selectedProvider?.label ?? 'Provider'} API key saved.`);
-      await refetch();
-      void fetchModels(selectedProviderId);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Could not save API key.');
-    }
-  };
-
-  const handleClearKey = async () => {
-    setMessage(null);
-    setError(null);
-    try {
-      await clearKey({ providerId: selectedProviderId }).unwrap();
-      setMessage(`${selectedProvider?.label ?? 'Provider'} database key removed.`);
-      await refetch();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Could not remove API key.');
-    }
-  };
-
-  const handleActivate = async () => {
-    setMessage(null);
-    setError(null);
-    try {
-      await saveProvider({
-        providerId: selectedProviderId,
-        model: selectedModel?.id,
-        activate: true,
-      }).unwrap();
-      setMessage(`${selectedProvider?.label ?? 'Provider'} is now the active AI provider${selectedModel ? ` (model: ${selectedModel.id})` : ''}.`);
-      await refetch();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Could not activate provider.');
-    }
-  };
+  const isSaving = useAppSelector((state) =>
+    isPending(saveAiProviderKeyDraft, activateAiProviderSelection)(state),
+  );
+  const isClearing = useAppSelector((state) => isPending(clearAiProviderKeyDraft)(state));
 
   return (
     <Paper elevation={0} sx={{ p: 3, border: '1px solid', borderColor: 'divider' }}>
@@ -150,7 +106,7 @@ export function AiProviderForm() {
                 color={p.id === status?.activeProviderId ? 'primary' : p.configured ? 'success' : 'default'}
                 variant={p.id === status?.activeProviderId ? 'filled' : 'outlined'}
                 size="small"
-                onClick={() => setSelectedProviderId(p.id)}
+                onClick={() => dispatch(setAiProviderId(p.id))}
               />
             ))}
           </Stack>
@@ -166,7 +122,7 @@ export function AiProviderForm() {
             labelId="ai-provider-select-label"
             label="Provider"
             value={selectedProviderId}
-            onChange={(e) => setSelectedProviderId(e.target.value as AiProviderId)}
+            onChange={(e) => dispatch(setAiProviderId(e.target.value))}
           >
             {providers.map((p) => (
               <MenuItem key={p.id} value={p.id}>
@@ -224,8 +180,8 @@ export function AiProviderForm() {
                 <TextField
                   label={`${selectedProvider.label} API key`}
                   type="password"
-                  value={apiKey}
-                  onChange={(e) => setApiKey(e.target.value)}
+                  value={apiKeyDraft}
+                  onChange={(e) => dispatch(setAiProviderApiKeyDraft(e.target.value))}
                   placeholder={selectedProvider.keyPlaceholder}
                   fullWidth
                   autoComplete="off"
@@ -233,13 +189,17 @@ export function AiProviderForm() {
                 />
 
                 <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5}>
-                  <Button variant="contained" onClick={() => void handleSaveKey()} disabled={isSaving || !apiKey.trim()}>
+                  <Button
+                    variant="contained"
+                    onClick={() => void dispatch(saveAiProviderKeyDraft())}
+                    disabled={isSaving || !apiKeyDraft.trim()}
+                  >
                     {isSaving ? 'Saving…' : 'Save API key'}
                   </Button>
                   <Button
                     variant="outlined"
                     color="inherit"
-                    onClick={() => void handleClearKey()}
+                    onClick={() => void dispatch(clearAiProviderKeyDraft())}
                     disabled={isClearing || selectedProvider.source !== 'db'}
                   >
                     {isClearing ? 'Removing…' : 'Remove database key'}
@@ -252,7 +212,7 @@ export function AiProviderForm() {
               options={models}
               loading={isLoadingModels}
               value={selectedModel}
-              onChange={(_, value) => setSelectedModel(value)}
+              onChange={(_, value: AiModelOption | null) => dispatch(setAiProviderModel(value))}
               getOptionLabel={(m) => m.label}
               isOptionEqualToValue={(a, b) => a.id === b.id}
               disabled={!selectedProvider.configured}
@@ -298,10 +258,14 @@ export function AiProviderForm() {
             <Button
               variant="contained"
               color="secondary"
-              onClick={() => void handleActivate()}
-              disabled={isSaving || !selectedProvider.configured || !selectedModel || isActiveProvider}
+              onClick={() => void dispatch(activateAiProviderSelection())}
+              disabled={isSaving || !selectedProvider.configured || !selectedModel || isCurrentSelection}
             >
-              {isActiveProvider ? 'Currently active' : 'Use this provider + model'}
+              {isCurrentSelection
+                ? 'Currently active'
+                : isActiveProvider
+                  ? 'Update active model'
+                  : 'Use this provider + model'}
             </Button>
           </>
         )}

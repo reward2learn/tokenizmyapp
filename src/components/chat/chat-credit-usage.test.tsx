@@ -4,10 +4,14 @@ import { Provider } from 'react-redux';
 import { configureStore } from '@reduxjs/toolkit';
 import { ChatCreditUsage } from '@/components/chat/chat-credit-usage';
 import { chatStreamSlice, recordTurnUsage } from '@/store/chat-stream-slice';
+import { chatUiSlice } from '@/store/chat-ui-slice';
 
 function renderUsage(preloaded?: Parameters<typeof chatStreamSlice.reducer>[0]) {
   const store = configureStore({
-    reducer: { chatStream: chatStreamSlice.reducer },
+    reducer: {
+      chatStream: chatStreamSlice.reducer,
+      chatUi: chatUiSlice.reducer,
+    },
     preloadedState: preloaded ? { chatStream: preloaded } : undefined,
   });
   return {
@@ -150,7 +154,10 @@ describe('ChatCreditUsage', () => {
     document.body.appendChild(chatRoot);
 
     const store = configureStore({
-      reducer: { chatStream: chatStreamSlice.reducer },
+      reducer: {
+        chatStream: chatStreamSlice.reducer,
+        chatUi: chatUiSlice.reducer,
+      },
       preloadedState: { chatStream: state },
     });
     render(

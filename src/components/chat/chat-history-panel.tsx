@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import Box from '@mui/material/Box';
 import Button from '@mui/material/Button';
 import Checkbox from '@mui/material/Checkbox';
@@ -70,10 +70,11 @@ export function ChatHistoryPanel({ onConversationLoaded }: ChatHistoryPanelProps
     remove,
   } = useSavedConversations({ archived: showArchived, limit: 50 });
 
-  useEffect(() => {
+  const handleArchiveToggle = (checked: boolean) => {
+    setShowArchived(checked);
     setSelectedIds(new Set());
     setSelectMode(false);
-  }, [showArchived]);
+  };
 
   const selectedList = useMemo(() => Array.from(selectedIds), [selectedIds]);
   const allSelected = conversations.length > 0 && selectedList.length === conversations.length;
@@ -172,7 +173,7 @@ export function ChatHistoryPanel({ onConversationLoaded }: ChatHistoryPanelProps
             <Switch
               size="small"
               checked={showArchived}
-              onChange={(event) => setShowArchived(event.target.checked)}
+              onChange={(event) => handleArchiveToggle(event.target.checked)}
               disabled={busy}
             />
           }

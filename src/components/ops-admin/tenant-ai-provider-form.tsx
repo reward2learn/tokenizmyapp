@@ -23,6 +23,9 @@ import {
   useLazyGetTenantAiModelsQuery,
 } from '@/store/apis/tenant-api';
 import type { AiProviderId, AiModelOption } from '@/store/apis/config-api';
+import { chatApi } from '@/store/apis/chat-api';
+import { resetWarmState, setSelectedModel as setChatSelectedModel } from '@/store/chat-stream-slice';
+import { useAppDispatch } from '@/store/hooks';
 import { DEFAULT_OLLAMA_TUNNEL_HOST } from '@/lib/ollama-tunnel-host';
 import { OllamaStudioTunnelPanel } from '@/components/ops-admin/ollama-studio-tunnel-panel';
 
@@ -47,6 +50,7 @@ export interface TenantAiProviderFormProps {
  * tenant's live app immediately, without a redeploy.
  */
 export function TenantAiProviderForm({ tenantSlug, appId }: TenantAiProviderFormProps) {
+  const dispatch = useAppDispatch();
   const { data, isLoading, isError, refetch } = useGetTenantAiProviderStatusQuery({ slug: tenantSlug, appId });
   const [saveProvider, { isLoading: isSaving }] = useSaveTenantAiProviderMutation();
   const [clearKey, { isLoading: isClearing }] = useClearTenantAiProviderKeyMutation();
@@ -68,6 +72,10 @@ export function TenantAiProviderForm({ tenantSlug, appId }: TenantAiProviderForm
 
   const selectedProvider = providers.find((p) => p.id === selectedProviderId);
   const isActiveProvider = status?.activeProviderId === selectedProviderId;
+  const isCurrentSelection =
+    isActiveProvider
+    && Boolean(selectedModel?.id)
+    && selectedModel.id === status?.activeModel;
   const keylessProvider = selectedProvider?.requiresApiKey === false;
 
   useEffect(() => {
@@ -82,7 +90,10 @@ export function TenantAiProviderForm({ tenantSlug, appId }: TenantAiProviderForm
     if (models.length === 0) return;
     const currentModelId = isActiveProvider ? status?.activeModel : selectedProvider?.defaultModel;
     const match = models.find((m) => m.id === currentModelId);
-    setSelectedModel(match ?? null);
+    setSelectedModel((prev) => {
+      if (prev && models.some((m) => m.id === prev.id)) return prev;
+      return match ?? null;
+    });
   }, [models, isActiveProvider, status?.activeModel, selectedProvider?.defaultModel]);
 
   const handleSaveKey = async () => {
@@ -124,6 +135,11 @@ export function TenantAiProviderForm({ tenantSlug, appId }: TenantAiProviderForm
       }).unwrap();
       setMessage(`${selectedProvider?.label ?? 'Provider'} is now active for this ${appId ? 'app' : 'tenant'}${selectedModel ? ` (model: ${selectedModel.id})` : ''}.`);
       await refetch();
+      void dispatch(chatApi.endpoints.getChatAiOptions.initiate(undefined, { forceRefetch: true }));
+      if (selectedModel?.id) {
+        dispatch(setChatSelectedModel(selectedModel.id));
+        dispatch(resetWarmState());
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not activate provider.');
     }
@@ -296,9 +312,13 @@ export function TenantAiProviderForm({ tenantSlug, appId }: TenantAiProviderForm
             variant="contained"
             color="secondary"
             onClick={() => void handleActivate()}
-            disabled={isSaving || !selectedProvider.configured || !selectedModel || isActiveProvider}
+            disabled={isSaving || !selectedProvider.configured || !selectedModel || isCurrentSelection}
           >
-            {isActiveProvider ? 'Currently active' : `Use this provider + model for this ${appId ? 'app' : 'tenant'}`}
+            {isCurrentSelection
+              ? 'Currently active'
+              : isActiveProvider
+                ? 'Update active model'
+                : `Use this provider + model for this ${appId ? 'app' : 'tenant'}`}
           </Button>
         </>
       )}
