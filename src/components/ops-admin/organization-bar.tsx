@@ -113,17 +113,17 @@ export function OrganizationBar({ tenantSlug }: { tenantSlug?: string | null }) 
         sx={{ p: 2, mb: 2, border: '1px solid', borderColor: 'divider', bgcolor: 'background.paper', overflow: 'visible', maxWidth: '100%' }}
       >
         <Stack
-          direction={{ xs: 'column', sm: 'row' }}
+          direction={{ xs: 'column', md: 'row' }}
           spacing={2}
-          sx={{ alignItems: { xs: 'stretch', sm: 'center' } }}
+          sx={{ alignItems: { xs: 'stretch', md: 'center' } }}
         >
           <FormControl
             size="small"
             sx={{
-              minWidth: { xs: 0, sm: 260 },
-              width: { xs: '100%', sm: 'auto' },
+              minWidth: { xs: 0, md: 260 },
+              width: { xs: '100%', md: 'auto' },
               maxWidth: '100%',
-              flex: { xs: 'none', sm: '1 1 260px' },
+              flex: { xs: 'none', md: '1 1 260px' },
             }}
           >
             <InputLabel id="org-selector-label" shrink>
@@ -171,13 +171,14 @@ export function OrganizationBar({ tenantSlug }: { tenantSlug?: string | null }) 
             useFlexGap
             sx={{
               alignItems: 'center',
-              width: { xs: '100%', sm: 'auto' },
+              // Full width in the column layout (<900px) so chips/actions wrap on their own row.
+              width: { xs: '100%', md: 'auto' },
               minWidth: 0,
               maxWidth: '100%',
               flexWrap: 'wrap',
               rowGap: 0.5,
-              flex: { sm: '0 1 auto' },
-              flexShrink: { sm: 0 },
+              flex: { md: '0 1 auto' },
+              flexShrink: { md: 0 },
             }}
           >
             {activeOrg ? (
