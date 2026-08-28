@@ -184,7 +184,7 @@ export function AiProviderForm() {
                   onChange={(e) => dispatch(setAiProviderApiKeyDraft(e.target.value))}
                   placeholder={selectedProvider.keyPlaceholder}
                   fullWidth
-                  autoComplete="off"
+                  autoComplete="new-password"
                   helperText="Paste a new key to replace the stored value. The key is never shown after saving."
                 />
 
@@ -232,6 +232,7 @@ export function AiProviderForm() {
                 <TextField
                   {...params}
                   label="Model"
+                  autoComplete="off"
                   helperText={
                     !selectedProvider.configured
                       ? keylessProvider
@@ -241,8 +242,13 @@ export function AiProviderForm() {
                   }
                   slotProps={{
                     ...params.slotProps,
+                    htmlInput: {
+                      ...params.slotProps?.htmlInput,
+                      autoComplete: 'off',
+                      name: 'ai-model-selection',
+                    },
                     input: {
-                      ...params.slotProps.input,
+                      ...params.slotProps?.input,
                       endAdornment: (
                         <>
                           {isLoadingModels ? <CircularProgress size={16} /> : null}

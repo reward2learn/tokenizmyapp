@@ -420,7 +420,7 @@ export function TenantAiProvidersConfigStep({
                 },
               })}
               placeholder={selected.keyPlaceholder}
-              autoComplete="off"
+              autoComplete="new-password"
               helperText="Paste a key to store (encrypted). Never shown after save in edit mode."
               slotProps={{ input: { sx: { fontFamily: 'monospace', fontSize: '0.8rem' } } }}
             />
@@ -479,6 +479,14 @@ export function TenantAiProvidersConfigStep({
                 {...params}
                 label="Active model"
                 size="small"
+                autoComplete="off"
+                slotProps={{
+                  htmlInput: {
+                    ...params.slotProps?.htmlInput,
+                    autoComplete: 'off',
+                    name: 'ai-model-selection',
+                  },
+                }}
                 helperText={
                   models.length === 0
                     ? keylessProvider

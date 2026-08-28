@@ -243,7 +243,7 @@ export function TenantAiProviderForm({ tenantSlug, appId }: TenantAiProviderForm
                 onChange={(e) => setApiKey(e.target.value)}
                 placeholder={selectedProvider.keyPlaceholder}
                 fullWidth
-                autoComplete="off"
+                autoComplete="new-password"
                 helperText="Paste a new key to replace the stored value. The key is never shown after saving."
               />
 
@@ -285,6 +285,7 @@ export function TenantAiProviderForm({ tenantSlug, appId }: TenantAiProviderForm
               <TextField
                 {...params}
                 label="Model"
+                autoComplete="off"
                 helperText={
                   !selectedProvider.configured
                     ? keylessProvider
@@ -294,8 +295,13 @@ export function TenantAiProviderForm({ tenantSlug, appId }: TenantAiProviderForm
                 }
                 slotProps={{
                   ...params.slotProps,
+                  htmlInput: {
+                    ...params.slotProps?.htmlInput,
+                    autoComplete: 'off',
+                    name: 'ai-model-selection',
+                  },
                   input: {
-                    ...params.slotProps.input,
+                    ...params.slotProps?.input,
                     endAdornment: (
                       <>
                         {isLoadingModels ? <CircularProgress size={16} /> : null}
