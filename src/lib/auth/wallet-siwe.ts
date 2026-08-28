@@ -4,8 +4,11 @@
  * @see docs/google-oauth-appkit-setup.md Phase 4
  */
 import { SiweMessage } from 'siwe';
-import { verifyMessage } from 'viem';
+import { recoverMessageAddress, verifyMessage } from 'viem';
 import { SIWE_CHAIN_ID } from '@/lib/web3/crypto-billing-config';
+import {
+  isSiwePlaceholderAddress,
+} from '@/lib/web3/evm-address';
 
 export interface PendingSiweNonce {
   nonce: string;
@@ -74,6 +77,41 @@ export interface VerifiedSiweResult {
   nonce: string;
 }
 
+/** Standard 65-byte EOA signatures — normalize v to 27/28 for picky verifiers. */
+function normalizeEoaSignature(signature: `0x${string}`): `0x${string}` {
+  const hex = signature.slice(2);
+  if (hex.length !== 130) return signature;
+  const v = Number.parseInt(hex.slice(128, 130), 16);
+  if (v >= 27) return signature;
+  if (v === 0 || v === 1) {
+    const normalizedV = (v + 27).toString(16).padStart(2, '0');
+    return `0x${hex.slice(0, 128)}${normalizedV}` as `0x${string}`;
+  }
+  return signature;
+}
+
+function isSmartAccountSignature(signature: string): boolean {
+  return /^0x[a-fA-F0-9]+$/.test(signature) && signature.length > 132;
+}
+
+async function verifySignatureForAddress(
+  address: `0x${string}`,
+  message: string,
+  signature: `0x${string}`,
+): Promise<boolean> {
+  if (isSmartAccountSignature(signature)) {
+    return verifyMessage({ address, message, signature });
+  }
+
+  const normalized = normalizeEoaSignature(signature);
+  try {
+    await new SiweMessage(message).verify({ signature: normalized });
+    return true;
+  } catch {
+    return verifyMessage({ address, message, signature: normalized });
+  }
+}
+
 export async function verifySiweSignature(
   message: string,
   signature: `0x${string}`,
@@ -85,21 +123,23 @@ export async function verifySiweSignature(
     throw new Error(`SIWE chain must be ${SIWE_CHAIN_ID}`);
   }
 
-  try {
-    await siweMessage.verify({ signature });
-  } catch {
-    const ok = await verifyMessage({
-      address: siweMessage.address as `0x${string}`,
+  const messageAddress = siweMessage.address as `0x${string}`;
+  let verifiedAddress = messageAddress;
+
+  if (isSiwePlaceholderAddress(messageAddress)) {
+    verifiedAddress = await recoverMessageAddress({
       message: normalized,
-      signature,
+      signature: normalizeEoaSignature(signature),
     });
-    if (!ok) {
-      throw new Error('Signature verification failed');
-    }
+  }
+
+  const ok = await verifySignatureForAddress(verifiedAddress, normalized, signature);
+  if (!ok) {
+    throw new Error('Signature verification failed');
   }
 
   return {
-    address: siweMessage.address as `0x${string}`,
+    address: verifiedAddress,
     chainId: siweMessage.chainId,
     nonce: siweMessage.nonce,
   };

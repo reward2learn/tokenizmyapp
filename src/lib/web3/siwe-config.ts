@@ -5,7 +5,7 @@
  */
 import { createSIWEConfig, formatMessage } from '@reown/appkit-siwe';
 import { SIWE_CHAIN_ID } from '@/lib/web3/crypto-billing-config';
-import { isValidEvmAddress } from '@/lib/web3/evm-address';
+import { isValidEvmAddress, siweMessageUsesPlaceholderAddress } from '@/lib/web3/evm-address';
 
 let siweAppReady = false;
 let siweAppReadyResolvers: Array<() => void> = [];
@@ -57,9 +57,17 @@ export const factorySiweClient = createSIWEConfig({
   getNonce: async (address?: string) => {
     await waitForSiweAppReady();
 
-    const params = new URLSearchParams();
     // AppKit SIWX may call getNonce with `<<AccountAddress>>` before the wallet exists.
-    if (isValidEvmAddress(address)) params.set('address', address);
+    // Mint a local nonce only — do not cache a server message with the zero address.
+    if (!isValidEvmAddress(address)) {
+      pendingServerSiweMessage = null;
+      const bytes = new Uint8Array(16);
+      crypto.getRandomValues(bytes);
+      return Array.from(bytes, (byte) => byte.toString(16).padStart(2, '0')).join('');
+    }
+
+    const params = new URLSearchParams();
+    params.set('address', address);
     params.set('chainId', String(SIWE_CHAIN_ID));
 
     const response = await fetch(`${apiBase()}/api/auth/wallet/nonce?${params}`, {
@@ -101,6 +109,11 @@ export const factorySiweClient = createSIWEConfig({
 
     // Web3Modal / Reown auth uses CAIP chain ids — not a factory SIWE link.
     if (/^Chain ID: eip155:/m.test(message)) {
+      return true;
+    }
+
+    // AppKit social-auth SIWX uses a placeholder account line — not factory wallet link.
+    if (siweMessageUsesPlaceholderAddress(message)) {
       return true;
     }
 
