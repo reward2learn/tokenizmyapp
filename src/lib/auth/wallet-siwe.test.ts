@@ -17,8 +17,8 @@ describe('wallet-siwe registry', () => {
     resetSiweNonceRegistryForTests();
   });
 
-  it('registers and consumes a nonce once', () => {
-    registerSiweNonce({
+  it('registers and consumes a nonce once', async () => {
+    await registerSiweNonce({
       nonce: 'abc123',
       address: '0xAbC000000000000000000000000000000000001',
       chainId: 11_155_111,
@@ -26,9 +26,9 @@ describe('wallet-siwe registry', () => {
       expiresAt: Date.now() + 60_000,
     });
 
-    const first = consumeSiweNonce('abc123');
+    const first = await consumeSiweNonce('abc123');
     expect(first?.nonce).toBe('abc123');
-    expect(consumeSiweNonce('abc123')).toBeNull();
+    expect(await consumeSiweNonce('abc123')).toBeNull();
   });
 });
 

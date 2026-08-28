@@ -79,7 +79,7 @@ export async function GET(request: Request): Promise<Response> {
     return jsonError('Invalid wallet address for SIWE nonce', 400);
   }
 
-  registerSiweNonce({
+  await registerSiweNonce({
     nonce,
     address: address.toLowerCase(),
     chainId,

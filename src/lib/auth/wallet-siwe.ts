@@ -9,43 +9,15 @@ import { base, mainnet, sepolia } from 'viem/chains';
 import type { Chain } from 'viem';
 import { SIWE_CHAIN_ID, resolveRpcUrl } from '@/lib/web3/crypto-billing-config';
 import { isSiwePlaceholderAddress } from '@/lib/web3/evm-address';
+import {
+  consumeSiweNonce,
+  registerSiweNonce,
+  resetSiweNonceRegistryForTests,
+  type PendingSiweNonce,
+} from '@/lib/auth/siwe-nonce-store';
 
-export interface PendingSiweNonce {
-  nonce: string;
-  address: string;
-  chainId: number;
-  domain: string;
-  expiresAt: number;
-  used: boolean;
-}
-
-const pendingNonces = new Map<string, PendingSiweNonce>();
-const usedNonces = new Set<string>();
-
-const NONCE_TTL_MS = 15 * 60_000;
-
-export function registerSiweNonce(entry: Omit<PendingSiweNonce, 'used'>): void {
-  pruneExpiredNonces();
-  pendingNonces.set(entry.nonce, { ...entry, used: false });
-}
-
-export function consumeSiweNonce(nonce: string): PendingSiweNonce | null {
-  pruneExpiredNonces();
-  if (usedNonces.has(nonce)) return null;
-  const entry = pendingNonces.get(nonce);
-  if (!entry || entry.used || entry.expiresAt < Date.now()) return null;
-  entry.used = true;
-  usedNonces.add(nonce);
-  pendingNonces.delete(nonce);
-  return entry;
-}
-
-function pruneExpiredNonces(): void {
-  const now = Date.now();
-  for (const [key, entry] of pendingNonces) {
-    if (entry.expiresAt < now) pendingNonces.delete(key);
-  }
-}
+export type { PendingSiweNonce };
+export { consumeSiweNonce, registerSiweNonce, resetSiweNonceRegistryForTests };
 
 export function looksLikeSiweMessage(message: unknown): message is string {
   if (typeof message !== 'string') return false;
@@ -244,10 +216,4 @@ export async function verifySiweSignature(
   }
 
   throw new Error('Signature verification failed');
-}
-
-/** Reset registries — tests only. */
-export function resetSiweNonceRegistryForTests(): void {
-  pendingNonces.clear();
-  usedNonces.clear();
 }

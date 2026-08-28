@@ -95,7 +95,7 @@ export async function POST(request: Request): Promise<Response> {
     return jsonError(err instanceof Error ? err.message : 'Signature verification failed', 400);
   }
 
-  const nonceEntry = consumeSiweNonce(verified.nonce);
+  const nonceEntry = await consumeSiweNonce(verified.nonce);
   if (!nonceEntry) {
     return jsonError('Invalid or expired nonce', 400);
   }
