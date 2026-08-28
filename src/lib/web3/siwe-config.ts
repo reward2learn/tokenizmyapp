@@ -37,6 +37,22 @@ function hasFreshNonceLine(message: string): boolean {
 }
 
 export const factorySiweClient = createSIWEConfig({
+  // Required when Correction A re-applies mapToSIWX() — without this, social
+  // login throws "Failed to get message params!" inside AppKit's SIWX createMessage.
+  getMessageParams: async () => {
+    const uri = apiBase();
+    const domain =
+      typeof window !== 'undefined' ? window.location.host : new URL(uri).host;
+
+    return {
+      domain,
+      uri,
+      chains: [SIWE_CHAIN_ID],
+      statement: 'Sign in with your wallet to link crypto payments on TokenizMyApp.',
+      iat: new Date().toISOString(),
+    };
+  },
+
   getNonce: async (address?: string) => {
     await waitForSiweAppReady();
 
