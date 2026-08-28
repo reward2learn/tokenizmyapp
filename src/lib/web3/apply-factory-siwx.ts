@@ -55,7 +55,9 @@ async function applyFactorySocialFeatures(): Promise<void> {
   const { OptionsController } = await import('@reown/appkit-controllers');
 
   OptionsController.setEnableWallets(!socialOnly);
-  OptionsController.setEnableEmbedded(true);
+  // Keep enableEmbedded false so AppKit appends <w3m-modal> to document.body.
+  // Social wallets are gated by features.reownAuthentication + socials, not this flag.
+  OptionsController.setEnableEmbedded(false);
   OptionsController.setAllWallets(socialOnly ? 'HIDE' : 'SHOW');
   OptionsController.setFeatures({
     socials: config.socialProviders.length ? config.socialProviders : false,

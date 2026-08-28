@@ -83,12 +83,14 @@ async function createAppKitInstance(config: FactoryWeb3Config) {
     siweConfig: factorySiweConfig,
     // showWallets is legacy — AppKit 1.8.x reads enableWallets instead.
     enableWallets: !socialOnly,
-    enableEmbedded: wantsSocial,
+    // Do NOT set enableEmbedded. That flag means "host <w3m-modal> yourself /
+    // skip document.body append" — not "use Reown social embedded wallets".
+    // With it true, open() flips modal state but never mounts the popup.
     allWallets: socialOnly ? 'HIDE' : 'SHOW',
     features: {
       socials: wantsSocial && config.socialProviders.length ? config.socialProviders : false,
       email: wantsSocial && config.emailLogin,
-      // Required for embedded social wallets (Google/Apple OAuth via Reown auth).
+      // Required for social/email wallets (Google/Apple OAuth via Reown auth).
       reownAuthentication: wantsSocial,
       emailShowWallets: !socialOnly,
       swaps: false,

@@ -4,9 +4,8 @@ import Button from '@mui/material/Button';
 import Chip from '@mui/material/Chip';
 import Tooltip from '@mui/material/Tooltip';
 import AccountBalanceWalletIcon from '@mui/icons-material/AccountBalanceWallet';
-import { useAppDispatch, useAppSelector, useAppStore } from '@/store/hooks';
+import { useAppDispatch, useAppSelector } from '@/store/hooks';
 import {
-  walletConnectCancelled,
   walletConnecting,
   walletError,
   formatWalletAddress,
@@ -16,10 +15,10 @@ import {
  * Connect / account control for the factory Reown social wallet.
  *
  * Renders nothing when web3 is disabled. Safe to mount unconditionally.
+ * Modal close without connect is handled by store/wallet-watcher.ts.
  */
 export function WalletConnectButton() {
   const dispatch = useAppDispatch();
-  const store = useAppStore();
   const { status, address, error } = useAppSelector((state) => state.wallet);
 
   if (status === 'disabled') return null;
@@ -34,14 +33,11 @@ export function WalletConnectButton() {
         return;
       }
       const appkit = await pending;
+      // open() resolves when the modal is shown, not when the user finishes.
+      // Stay on "connecting" until subscribeAccount / subscribeState updates.
       await appkit.open();
     } catch (err) {
       dispatch(walletError(err instanceof Error ? err.message : 'Could not open the wallet.'));
-    } finally {
-      const wallet = store.getState().wallet;
-      if (wallet.status === 'connecting') {
-        dispatch(walletConnectCancelled());
-      }
     }
   };
 
