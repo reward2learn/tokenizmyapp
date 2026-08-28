@@ -1,5 +1,12 @@
-/** Minimal ERC-20 ABI for USDC transfer payments. */
+/** Minimal ERC-20 ABI for USDC balance reads + transfer payments. */
 export const ERC20_TRANSFER_ABI = [
+  {
+    type: 'function',
+    name: 'balanceOf',
+    stateMutability: 'view',
+    inputs: [{ name: 'account', type: 'address' }],
+    outputs: [{ name: '', type: 'uint256' }],
+  },
   {
     type: 'function',
     name: 'transfer',

@@ -3,6 +3,7 @@
  */
 import type { UnknownAction } from '@reduxjs/toolkit';
 import { isFactoryWeb3Enabled } from '@/lib/web3/factory-web3-config';
+import { normalizeChainId } from '@/lib/web3/normalize-chain-id';
 import {
   walletEnabled,
   walletConnected,
@@ -100,8 +101,7 @@ export function attachWalletWatcher(store: WalletStoreLike): void {
 }
 
 function readChainId(appkit: { getChainId: () => number | string | undefined }): number | null {
-  const chainId = appkit.getChainId();
-  return typeof chainId === 'number' ? chainId : null;
+  return normalizeChainId(appkit.getChainId());
 }
 
 /** Reset attachment guard — for tests only. */

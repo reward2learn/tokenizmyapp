@@ -94,7 +94,8 @@ async function createAppKitInstance(config: FactoryWeb3Config) {
       reownAuthentication: wantsSocial,
       emailShowWallets: !socialOnly,
       swaps: false,
-      onramp: false,
+      // Needed so checkout can open FundWallet / OnRampProviders when USDC is short.
+      onramp: true,
       analytics: true,
     },
     showWallets: !socialOnly,

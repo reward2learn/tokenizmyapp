@@ -4,6 +4,7 @@ import Button from '@mui/material/Button';
 import Chip from '@mui/material/Chip';
 import Tooltip from '@mui/material/Tooltip';
 import AccountBalanceWalletIcon from '@mui/icons-material/AccountBalanceWallet';
+import { normalizeChainId } from '@/lib/web3/normalize-chain-id';
 import { useAppDispatch, useAppSelector } from '@/store/hooks';
 import {
   walletConnecting,
@@ -30,11 +31,10 @@ function syncConnectedAccount(
 ): boolean {
   const account = appkit.getAccount?.();
   if (!account?.isConnected || !account.address) return false;
-  const chainIdRaw = appkit.getChainId?.();
   dispatch(
     walletConnected({
       address: account.address,
-      chainId: typeof chainIdRaw === 'number' ? chainIdRaw : null,
+      chainId: normalizeChainId(appkit.getChainId?.()),
       connectorId: account.embeddedWalletInfo?.authProvider ?? null,
     }),
   );
