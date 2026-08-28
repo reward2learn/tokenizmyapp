@@ -30,9 +30,12 @@ import Snackbar from '@mui/material/Snackbar';
 import Stepper from '@mui/material/Stepper';
 import Step from '@mui/material/Step';
 import StepLabel from '@mui/material/StepLabel';
+import StepContent from '@mui/material/StepContent';
 import Card from '@mui/material/Card';
 import CardActionArea from '@mui/material/CardActionArea';
 import CardContent from '@mui/material/CardContent';
+import useMediaQuery from '@mui/material/useMediaQuery';
+import { useTheme } from '@mui/material/styles';
 import {
   buildAiCreditsCalculatorReport,
   staticCatalogFaceAmounts,
@@ -115,6 +118,8 @@ const GOAL_CARDS: Array<{
 ];
 
 export function AiCreditsCalculatorTool() {
+  const theme = useTheme();
+  const isMobile = useMediaQuery(theme.breakpoints.down('md'));
   const dispatch = useAppDispatch();
   const calcContext = useAppSelector((s) => s.ui.adminCalculatorContext);
   const adminOrgId = useAppSelector((s) => s.ui.adminSelectedOrgId);
@@ -1214,11 +1219,11 @@ export function AiCreditsCalculatorTool() {
     </Paper>
   );
 
-  const renderStepBody = () => {
-    if (activeStep === 0 || goal == null) return renderGoalStep();
+  const renderStepBodyForIndex = (stepIndex: number) => {
+    if (stepIndex === 0 || goal == null) return renderGoalStep();
 
     if (goal === 'catalog-stripe') {
-      switch (activeStep) {
+      switch (stepIndex) {
         case 1:
           return renderCatalogReviewFaces();
         case 2:
@@ -1231,7 +1236,7 @@ export function AiCreditsCalculatorTool() {
     }
 
     // price-org | prefill-tenant
-    switch (activeStep) {
+    switch (stepIndex) {
       case 1:
         return renderScopeStep();
       case 2:
@@ -1246,6 +1251,8 @@ export function AiCreditsCalculatorTool() {
         return renderGoalStep();
     }
   };
+
+  const renderStepBody = () => renderStepBodyForIndex(activeStep);
 
   const blocked = nextBlockedReason();
 
@@ -1273,15 +1280,24 @@ export function AiCreditsCalculatorTool() {
 
       <Stepper
         activeStep={activeStep}
+        orientation={isMobile ? 'vertical' : 'horizontal'}
         nonLinear={Boolean(goal)}
         sx={{
-          overflowX: 'auto',
-          flexWrap: { xs: 'wrap', md: 'nowrap' },
+          ...(isMobile
+            ? { '& .MuiStepConnector-root': { ml: 1.5 } }
+            : {
+                overflowX: 'auto',
+                flexWrap: 'nowrap',
+              }),
           '& .MuiStepLabel-root': { cursor: goal ? 'pointer' : 'default' },
         }}
       >
         {stepLabels.map((label, idx) => (
-          <Step key={label} completed={Boolean(goal) && idx < activeStep}>
+          <Step
+            key={label}
+            completed={Boolean(goal) && idx < activeStep}
+            expanded={isMobile && activeStep === idx}
+          >
             <StepLabel
               onClick={() => changeGoalFromStepper(idx)}
               sx={{
@@ -1293,6 +1309,26 @@ export function AiCreditsCalculatorTool() {
             >
               {label}
             </StepLabel>
+            {isMobile && activeStep === idx ? (
+              <StepContent
+                sx={{
+                  maxWidth: '100%',
+                  pr: 0,
+                  borderLeftWidth: 1,
+                  ml: 1.5,
+                  pl: 1.5,
+                  minWidth: 0,
+                  '& .MuiCollapse-wrapperInner': { minWidth: 0, maxWidth: '100%' },
+                }}
+              >
+                <Stack spacing={2} sx={{ py: 1, pb: 2, minWidth: 0, maxWidth: '100%', overflowX: 'hidden' }}>
+                  <Paper variant="outlined" sx={{ p: 2, minWidth: 0 }}>
+                    {renderStepBodyForIndex(idx)}
+                  </Paper>
+                  {showAssistant && idx >= 3 && isOrgPath ? renderAssistantRail() : null}
+                </Stack>
+              </StepContent>
+            ) : null}
           </Step>
         ))}
       </Stepper>
@@ -1317,12 +1353,14 @@ export function AiCreditsCalculatorTool() {
         />
       ) : null}
 
-      <Stack direction={{ xs: 'column', lg: 'row' }} spacing={2} sx={{ alignItems: 'stretch' }}>
-        <Paper variant="outlined" sx={{ p: 2, flex: showAssistant ? 1.6 : 1, minWidth: 0 }}>
-          {renderStepBody()}
-        </Paper>
-        {showAssistant ? renderAssistantRail() : null}
-      </Stack>
+      {!isMobile ? (
+        <Stack direction={{ xs: 'column', lg: 'row' }} spacing={2} sx={{ alignItems: 'stretch' }}>
+          <Paper variant="outlined" sx={{ p: 2, flex: showAssistant ? 1.6 : 1, minWidth: 0 }}>
+            {renderStepBody()}
+          </Paper>
+          {showAssistant ? renderAssistantRail() : null}
+        </Stack>
+      ) : null}
 
       <Stack
         direction="row"

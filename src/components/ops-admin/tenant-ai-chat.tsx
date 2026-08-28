@@ -20,6 +20,7 @@ import Switch from '@mui/material/Switch';
 import Table from '@mui/material/Table';
 import TableBody from '@mui/material/TableBody';
 import TableCell from '@mui/material/TableCell';
+import TableContainer from '@mui/material/TableContainer';
 import TableHead from '@mui/material/TableHead';
 import TableRow from '@mui/material/TableRow';
 import Typography from '@mui/material/Typography';
@@ -71,9 +72,9 @@ export function TenantAIChat({ tenantSlug, tenantName, appId }: TenantAIChatProp
   };
 
   return (
-    <Paper variant="outlined" sx={{ p: 3 }}>
-      <Stack direction="row" sx={{ mb: 2, alignItems: 'center', justifyContent: 'space-between' }}>
-        <Box>
+    <Paper variant="outlined" sx={{ p: 3, overflow: 'hidden' }}>
+      <Stack direction="row" sx={{ mb: 2, alignItems: 'center', justifyContent: 'space-between', gap: 1 }}>
+        <Box sx={{ minWidth: 0 }}>
           <Typography variant="h6" sx={{ fontWeight: 700 }}>
             AI Chat Conversations — {tenantName || tenantSlug}
           </Typography>
@@ -81,7 +82,7 @@ export function TenantAIChat({ tenantSlug, tenantName, appId }: TenantAIChatProp
             View and manage AI assistant conversations for this tenant.
           </Typography>
         </Box>
-        <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
+        <Stack direction="row" spacing={1} sx={{ alignItems: 'center', flexShrink: 0 }}>
           <FormControlLabel
             control={
               <Switch
@@ -98,7 +99,8 @@ export function TenantAIChat({ tenantSlug, tenantName, appId }: TenantAIChatProp
         </Stack>
       </Stack>
 
-      <Table size="small">
+      <TableContainer sx={{ width: '100%', maxWidth: '100%', overflowX: 'auto' }}>
+        <Table size="small" sx={{ minWidth: 640 }}>
         <TableHead>
           <TableRow>
             <TableCell>ID</TableCell>
@@ -122,7 +124,7 @@ export function TenantAIChat({ tenantSlug, tenantName, appId }: TenantAIChatProp
             tenantConversations.map((c) => (
               <TableRow key={c.id}>
                 <TableCell sx={{ fontFamily: 'monospace' }}>#{c.id}</TableCell>
-                <TableCell>{c.owner_sub || 'Unknown'}</TableCell>
+                <TableCell sx={{ maxWidth: 220, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{c.owner_sub || 'Unknown'}</TableCell>
                 <TableCell>{c.message_count ?? 0}</TableCell>
                 <TableCell>{new Date(c.created_at).toLocaleDateString()}</TableCell>
                 <TableCell>
@@ -146,6 +148,7 @@ export function TenantAIChat({ tenantSlug, tenantName, appId }: TenantAIChatProp
           )}
         </TableBody>
       </Table>
+      </TableContainer>
 
       <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 2 }}>
         Showing {tenantConversations.length} conversation{tenantConversations.length !== 1 ? 's' : ''} 

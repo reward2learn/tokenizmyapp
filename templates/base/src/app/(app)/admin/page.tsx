@@ -24,6 +24,7 @@ import Tab from '@mui/material/Tab';
 import Table from '@mui/material/Table';
 import TableBody from '@mui/material/TableBody';
 import TableCell from '@mui/material/TableCell';
+import TableContainer from '@mui/material/TableContainer';
 import TableHead from '@mui/material/TableHead';
 import TableRow from '@mui/material/TableRow';
 import Tabs from '@mui/material/Tabs';
@@ -32,7 +33,11 @@ import Tooltip from '@mui/material/Tooltip';
 import Typography from '@mui/material/Typography';
 import useMediaQuery from '@mui/material/useMediaQuery';
 import { useTheme } from '@mui/material/styles';
+import DownloadIcon from '@mui/icons-material/Download';
 import InfoOutlinedIcon from '@mui/icons-material/InfoOutlined';
+import PersonAddIcon from '@mui/icons-material/PersonAdd';
+import RefreshIcon from '@mui/icons-material/Refresh';
+import UploadFileIcon from '@mui/icons-material/UploadFile';
 import { AdminAccessGate } from '@/components/auth/admin-access-gate';
 import { SignInPanelGate } from '@/components/auth/sign-in-panel';
 import { BrandConfigTab } from '@/components/ops-admin/brand-config-tab';
@@ -161,12 +166,12 @@ function ConversationManager() {
   };
 
   return (
-    <Paper variant="outlined" sx={{ p: 3 }}>
+    <Paper variant="outlined" sx={{ p: 3, overflow: 'hidden' }}>
       <Stack direction="row" sx={{ mb: 2, alignItems: 'center', justifyContent: 'space-between' }}>
         <Typography variant="h6" sx={{ fontWeight: 700 }}>
           AI Chat Conversations
         </Typography>
-        <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
+        <Stack direction="row" spacing={1} sx={{ alignItems: 'center', flexShrink: 0 }}>
           <Button size="small" variant="text" onClick={() => refetch()}>
             Refresh
           </Button>
@@ -186,7 +191,8 @@ function ConversationManager() {
       {conversations.length === 0 ? (
         <Typography variant="body2" color="text.secondary">No conversations.</Typography>
       ) : (
-        <Table size="small">
+        <TableContainer sx={{ width: '100%', maxWidth: '100%', overflowX: 'auto' }}>
+          <Table size="small" sx={{ minWidth: 720 }}>
           <TableHead>
             <TableRow>
               <TableCell>ID</TableCell>
@@ -201,10 +207,10 @@ function ConversationManager() {
             {conversations.map((c) => (
               <TableRow key={c.id}>
                 <TableCell>{c.id}</TableCell>
-                <TableCell sx={{ maxWidth: 280 }}>{c.title}</TableCell>
-                <TableCell>{c.user_name}{c.owner_sub ? ` (${c.owner_sub})` : ''}</TableCell>
+                <TableCell sx={{ maxWidth: 280, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{c.title}</TableCell>
+                <TableCell sx={{ maxWidth: 220, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{c.user_name}{c.owner_sub ? ` (${c.owner_sub})` : ''}</TableCell>
                 <TableCell>{c.message_count}</TableCell>
-                <TableCell>{new Date(c.created_at).toLocaleString()}</TableCell>
+                <TableCell sx={{ whiteSpace: 'nowrap' }}>{new Date(c.created_at).toLocaleString()}</TableCell>
                 <TableCell align="right">
                   <Button
                     size="small"
@@ -220,6 +226,7 @@ function ConversationManager() {
             ))}
           </TableBody>
         </Table>
+        </TableContainer>
       )}
     </Paper>
   );
@@ -464,21 +471,46 @@ function UserManager() {
   };
 
   return (
-    <Paper variant="outlined" sx={{ p: 3 }}>
-      <Stack direction="row" sx={{ mb: 2, alignItems: 'center', justifyContent: 'space-between' }}>
+    <Paper variant="outlined" sx={{ p: 3, overflow: 'hidden' }}>
+      <Stack direction="row" sx={{ mb: 2, alignItems: 'center', justifyContent: 'space-between', gap: 1 }}>
         <Typography variant="h6" sx={{ fontWeight: 700 }}>
           User Accounts
         </Typography>
-        <Stack direction="row" spacing={1}>
-          <Button size="small" variant="contained" onClick={() => setAddOpen(true)}>
-            Add User
-          </Button>
-          <Button size="small" variant="outlined" onClick={handleDownloadTemplate}>
-            Download CSV template
-          </Button>
-          <Button size="small" variant="outlined" onClick={() => fileInputRef.current?.click()}>
-            Upload CSV
-          </Button>
+        <Stack direction="row" spacing={0.5} sx={{ flexShrink: 0 }}>
+          <Tooltip title="Add User">
+            <IconButton
+              size="small"
+              onClick={() => setAddOpen(true)}
+              aria-label="Add User"
+              sx={{
+                bgcolor: 'primary.main',
+                color: 'primary.contrastText',
+                '&:hover': { bgcolor: 'primary.dark' },
+              }}
+            >
+              <PersonAddIcon fontSize="small" />
+            </IconButton>
+          </Tooltip>
+          <Tooltip title="Download CSV template">
+            <IconButton
+              size="small"
+              onClick={handleDownloadTemplate}
+              aria-label="Download CSV template"
+              sx={{ border: 1, borderColor: 'primary.main', color: 'primary.main' }}
+            >
+              <DownloadIcon fontSize="small" />
+            </IconButton>
+          </Tooltip>
+          <Tooltip title="Upload CSV">
+            <IconButton
+              size="small"
+              onClick={() => fileInputRef.current?.click()}
+              aria-label="Upload CSV"
+              sx={{ border: 1, borderColor: 'primary.main', color: 'primary.main' }}
+            >
+              <UploadFileIcon fontSize="small" />
+            </IconButton>
+          </Tooltip>
           <input
             ref={fileInputRef}
             type="file"
@@ -490,15 +522,18 @@ function UserManager() {
               e.target.value = '';
             }}
           />
-          <Button size="small" variant="text" onClick={() => refetch()}>
-            Refresh
-          </Button>
+          <Tooltip title="Refresh">
+            <IconButton size="small" onClick={() => refetch()} aria-label="Refresh" color="primary">
+              <RefreshIcon fontSize="small" />
+            </IconButton>
+          </Tooltip>
         </Stack>
       </Stack>
       <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
         Manage user accounts: assign roles, set PINs, and configure group memberships.
       </Typography>
-      <Table size="small">
+      <TableContainer sx={{ width: '100%', maxWidth: '100%', overflowX: 'auto' }}>
+        <Table size="small" sx={{ minWidth: 640 }}>
         <TableHead>
           <TableRow>
             <TableCell>Person</TableCell>
@@ -548,6 +583,7 @@ function UserManager() {
           })}
         </TableBody>
       </Table>
+      </TableContainer>
 
       {/* Details modal: groups + capabilities */}
       <Dialog open={Boolean(details)} onClose={() => setDetails(null)} maxWidth="xs" fullWidth>
