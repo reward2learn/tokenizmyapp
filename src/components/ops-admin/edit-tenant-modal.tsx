@@ -130,6 +130,7 @@ import {
   useAddAppToSuiteMutation,
   useRemoveAppFromSuiteMutation,
   usePushStripeEnvVarsMutation,
+  usePushCryptoEnvVarsMutation,
   usePushAppEnvVarsMutation,
   useLazyGetStripeMarketplaceStatusQuery,
   useLazyGetAgenticCommerceHealthQuery,
@@ -623,6 +624,7 @@ export function EditTenantModal({ open, tenant, onClose, onSnackbar }: EditTenan
   const [stripePreferMarketplace, setStripePreferMarketplace] = useState(true);
   const [showStripeSecrets, setShowStripeSecrets] = useState(false);
   const [pushStripeEnv, { isLoading: pushingStripeEnv }] = usePushStripeEnvVarsMutation();
+  const [pushCryptoEnv, { isLoading: pushingCryptoEnv }] = usePushCryptoEnvVarsMutation();
   const [pushAppEnv, { isLoading: pushingAppEnv }] = usePushAppEnvVarsMutation();
   const [syncingSubscriptionPrices, setSyncingSubscriptionPrices] = useState(false);
   const [fetchMarketplaceStatus] = useLazyGetStripeMarketplaceStatusQuery();
@@ -2541,7 +2543,7 @@ export function EditTenantModal({ open, tenant, onClose, onSnackbar }: EditTenan
                 : 'Optional while disabled — saved for the next enable.'
             }
             placeholder="0x…"
-            InputProps={{ sx: { fontFamily: 'monospace', fontSize: '0.875rem' } }}
+            slotProps={{ input: { sx: { fontFamily: 'monospace', fontSize: '0.875rem' } } }}
           />
           {pushingCryptoEnv ? <LinearProgress /> : null}
           <Typography variant="caption" color="text.secondary">
