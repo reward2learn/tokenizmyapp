@@ -1,6 +1,7 @@
 /**
  * SIWE config for factory AppKit — maps to /api/auth/wallet/* (Phase 2 completes verify).
  *
+ * @see docs/factory-reown-siwe-wallet-link.md
  * @see docs/google-oauth-appkit-setup.md Phase 3
  */
 import { createSIWEConfig, formatMessage } from '@reown/appkit-siwe';

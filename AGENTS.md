@@ -41,6 +41,23 @@ bun run dev          # Starts on localhost:3000
 | `COMPANIES_HOUSE_API_KEY` | Optional Companies House API key for UK filings enrichment. Without it, UK filings are skipped |
 | `VERCEL_TOKEN` / `VERCEL_PROJECT_ID` | Factory Vercel API access — used to mirror `STRIPE_PRICE_*` after catalog Stripe sync (DB remains source of truth) |
 | `OLLAMA_TUNNEL_HOST` | Upstream Mac Studio Ollama base URL for `/api/ollama/[...path]` (default `https://ollama.tokenizin.com`). No proxy auth — path/query/body are forwarded and responses stream through |
+| `NEXT_PUBLIC_REOWN_PROJECT_ID` | Reown AppKit project id (social wallet / SIWE). Optional if `DEFAULT_REOWN_PROJECT_ID` in code is used |
+| `NEXT_PUBLIC_WEB3_CONNECT_MODE` | `social` (factory default), `both`, or `injected` |
+| `NEXT_PUBLIC_WEB3_SOCIALS` | Comma list, e.g. `google` — surfaces AppKit social providers |
+| `NEXT_PUBLIC_WEB3_WALLET_ENABLED` / `NEXT_PUBLIC_CRYPTO_PAYMENTS_ENABLED` | Set either to `false` to disable factory social wallet UI |
+| `POSTGRES_URL` | Also backs durable `siwe_nonces` for factory SIWE claim-on-verify (required on Vercel) |
+
+## Social wallet + SIWE (factory)
+
+**Production journey:** Sign in (`redruby.session`) → Connect Wallet (Reown Google social) → factory SIWE → JWT gains `walletAddress`.
+
+| Resource | Path |
+|----------|------|
+| Canonical docs | `docs/factory-reown-siwe-wallet-link.md` |
+| Corrections A–D background | `docs/google-oauth-appkit-setup.md` |
+| Cursor agent skill | `.cursor/skills/reown-siwe-wallet-link/` |
+
+When changing AppKit, SIWE, `/api/auth/wallet/*`, or crypto wallet UI, load the **`reown-siwe-wallet-link`** skill and follow its invariants (await `readyPromise`, claim-on-verify, EIP-1271 raw signatures).
 
 ## Code layout
 
@@ -51,7 +68,8 @@ This directory **is** the Next.js application (not a symlink to `website/`).
 | `src/app/` | App Router pages + API |
 | `src/components/` | MUI components |
 | `src/store/` | RTK Query + Redux slices |
-| `src/lib/auth/` | JWT / OAuth / PIN |
+| `src/lib/auth/` | JWT / OAuth / PIN / SIWE |
+| `src/lib/web3/` | Reown AppKit, factory SIWE client, wallet link |
 | `zenstack/` | schema.zmodel + generate output |
 
 ## OpenCode agents for this app
@@ -60,10 +78,12 @@ Use primary agent **`opencoder`**. Delegate with:
 
 ```
 Task({
-  subagent_type: "website-ui",   # or website-nextjs / website-api / ...
+  subagent_type: "website-ui",   # or website-nextjs / website-api / website-auth / ...
   description: "short title",
   prompt: "full task for tokenizmyapp/..."
 })
 ```
+
+Wallet / SIWE / AppKit work: prefer **`website-auth`** (+ `website-api` for `/api/auth/wallet/*`) and attach skill **`reown-siwe-wallet-link`**.
 
 Do **not** use `project-manager` for coding tasks (restaurant ops only).

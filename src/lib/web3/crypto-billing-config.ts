@@ -6,7 +6,8 @@ import { DEFAULT_REOWN_PROJECT_ID } from '@/lib/web3/reown';
  * Payment rail: USDC via social wallet (Reown AppKit). Stripe remains the
  * default card rail. Users choose at checkout time (dual-rail UI).
  *
- * @see docs/google-oauth-appkit-setup.md — SIWE auth stack
+ * @see docs/factory-reown-siwe-wallet-link.md — factory Sign in → Connect Wallet → SIWE
+ * @see docs/google-oauth-appkit-setup.md — Corrections A–D background
  */
 
 /** Sepolia — SIWE sign-in messages always target this chain (Correction D in setup doc). */

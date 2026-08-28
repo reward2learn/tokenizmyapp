@@ -4,6 +4,7 @@
  * Reown Cloud remote config can replace custom siweConfig callbacks with
  * ReownAuthentication defaults. Re-applying via mapToSIWX() is the durable fix.
  *
+ * @see docs/factory-reown-siwe-wallet-link.md Correction A
  * @see docs/google-oauth-appkit-setup.md Correction A
  */
 import { getFactoryWeb3Config } from '@/lib/web3/factory-web3-config';

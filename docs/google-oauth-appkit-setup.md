@@ -1,14 +1,16 @@
 # Google OAuth Social Wallet Sign-In with Reown AppKit
 
-This guide explains how to integrate **Google OAuth social wallet sign-in** into a new application using Reown AppKit (`@reown/appkit` v1.8.x + wagmi). It is written to be generic: every phase is directly applicable to any app. Repository-specific details (actual file paths, production nuances) are confined to the final section, [Production Notes / PRESTIX Reference Implementation](#production-notes--prestix-reference-implementation).
+This guide explains how to integrate **Google OAuth social wallet sign-in** into a new application using Reown AppKit (`@reown/appkit` v1.8.x + wagmi). It is written to be generic: every phase is directly applicable to any app.
+
+> **TokenizMyApp factory (current production):** the live journey is **Sign in (app JWT) → Connect Wallet (Reown Google social) → factory SIWE → `walletAddress` on `redruby.session`**. That two-layer model, Corrections **E–G** (claim-on-verify, await `readyPromise`, EIP-1271 raw signatures), and the exact file map are documented in [`factory-reown-siwe-wallet-link.md`](./factory-reown-siwe-wallet-link.md). Agent skill: `.cursor/skills/reown-siwe-wallet-link/`. Prefer that doc when changing the factory billing wallet. This guide remains the generic Corrections **A–D** background; PRESTIX paths in the final section are historical.
 
 The flow combines three pieces:
 
 1. **AppKit social login** — Reown's embedded wallet: the user clicks the Google button, completes OAuth in a popup, and AppKit provisions an embedded (social) EOA/smart-account wallet.
 2. **SIWE (Sign-In With Ethereum)** — the embedded wallet signs an EIP-4361 message; your backend verifies the signature.
-3. **JWS session cookie** — on successful verification, the server issues a signed session cookie (jose), restoring the session on refresh.
+3. **JWS session cookie** — on successful verification, the server issues or **extends** a signed session cookie (jose), restoring the session on refresh.
 
-> **Note:** This guide was cross-validated against a production implementation that shipped Google social sign-in with AppKit v1.8.x. Four corrections (labeled **Correction A–D** inline) represent hard-won production findings — bake them in from the start; do not treat them as optional.
+> **Note:** This guide was cross-validated against production AppKit v1.8.x social sign-in. Corrections **A–D** inline are hard-won findings — bake them in from the start. Factory-specific Corrections **E–G** are only in [`factory-reown-siwe-wallet-link.md`](./factory-reown-siwe-wallet-link.md).
 
 ## Flow Overview
 
@@ -336,27 +338,36 @@ Run these against a real browser session (DevTools → Network + Application tab
 - **CSP allowances for the Reown embedded iframe.** If your app ships a Content-Security-Policy, the embedded wallet runs in an iframe — allow `frame-src` for the Reown auth origins and `connect-src` for their API endpoints, or social login fails with a silent CSP violation in the console.
 - **Mobile vs desktop popup behavior.** On desktop the Google OAuth flow runs in a popup window; on mobile it typically redirects/fullscreens. Test both — popup blockers can silently kill the desktop flow, and the redirect path must preserve the OAuth callback URI you registered in Phase 0.
 
-## Production Notes / PRESTIX Reference Implementation
+## Production Notes — TokenizMyApp factory (current)
 
-The production implementation of this guide lives in the **PRESTIX app** (`prestix.app-1/`). Map each guide concept to the actual repo file:
+**Canonical implementation:** this repository (`tokenizmyapp/`). Full walkthrough: [`factory-reown-siwe-wallet-link.md`](./factory-reown-siwe-wallet-link.md). Agent skill: `.cursor/skills/reown-siwe-wallet-link/`.
 
-| Guide concept | Reference file (`prestix.app-1/…`) |
+| Guide concept | Factory file |
+|---------------|--------------|
+| AppKit init, social-only, await `readyPromise` (A, F) | `src/lib/web3/appkit-client.ts` |
+| Re-apply SIWX + social features (A) | `src/lib/web3/apply-factory-siwx.ts` |
+| SIWE callbacks (B); throw on verify fail | `src/lib/web3/siwe-config.ts` |
+| Explicit JWT wallet link + re-sign retry | `src/lib/web3/factory-wallet-link.ts` |
+| Nonce API — server message, best-effort register (B, E) | `src/app/api/auth/wallet/nonce/route.ts` |
+| Verify — EIP-1271 raw, claim-on-verify, extend JWT (E, G) | `src/app/api/auth/wallet/verify/route.ts` |
+| Signature + claim helpers | `src/lib/auth/wallet-siwe.ts`, `siwe-nonce-store.ts` |
+| Session cookie wallet claims | `src/lib/auth/wallet-session.ts` (`redruby.session`) |
+| Billing UI | `src/components/billing/crypto-wallet-panel.tsx` |
+| CSP / publicnode Sepolia | `src/proxy.ts` |
+
+Factory differences from the generic “wallet IS the session” narrative:
+
+- App identity is already in **`redruby.session`**; SIWE **extends** it with `walletAddress`.
+- Replay protection is **`siwe_nonces` claim-on-verify**, not a separate NextAuth `WalletSession` table.
+- Cookie secret is **`ENCRYPTION_KEY`**, not `NEXTAUTH_SECRET`.
+
+### Historical — PRESTIX (`prestix.app-1/`)
+
+Earlier reference that informed Corrections A–D (NextAuth-style cookie naming). Prefer the factory map above for new work.
+
+| Guide concept | Historical file (`prestix.app-1/…`) |
 |---------------|-------------------------------------|
-| AppKit init, `features.socials`, readyPromise → re-apply SIWX (Correction A) | `src/lib/appkit.ts` |
-| SIWE callbacks: getNonce (active switchChain), `formatMessage`, verifyMessage, getSession, onSignIn, signOut (Corrections B/D) | `src/lib/siwe-config.ts` |
-| Nonce endpoint — GET+POST, 10/min, returns `{ message, nonce, expiresAt }` | `src/app/api/auth/wallet/nonce/route.ts` |
-| Verify endpoint — 5/min, format gate, EIP-1271 fallback, JWS cookie, 30d (Corrections B/C) | `src/app/api/auth/wallet/verify/route.ts` |
-| `verifySIWESignature`, `looksLikeSiweMessage` gate, `.trimStart()`-only hashing, `verifyWithViem` cross-chain retry | `src/lib/siwe.ts` |
-| Cookie name + `secure` flag derivation (Correction C) | `src/lib/auth-cookie-utils.ts` |
-| In-memory rate limiters (nonce 10/min, verify 5/min, session 10/min) | `src/lib/rate-limiter.ts` |
-| `createSession` — UNIQUE nonce replay protection, 30d expiry, message+signature audit | `src/lib/services/session-manager.ts` |
-| Social wallet handler — detection, session check, hydration guard, stale-flag cleanup | `src/components/auth/SocialWalletSIWEHandler.tsx` |
-| Self-hosted ReownAuthentication endpoint (`/auth/v1/authenticate`) | `src/app/auth/v1/authenticate/route.ts` |
-| SIWX re-apply helper (used by `appkit.ts`) | `src/lib/auth/apply-prestix-siwx.ts` |
-
-Repo-specific requirements:
-
-- **`src/lib/appkit-patch.ts` (TokenUtil crash guard) must be imported before any AppKit module** — it prevents `Cannot read properties of null (reading 'asset')` crashes during TokenUtil initialization. In the reference it is the first import in `src/lib/appkit.ts`.
-- **`scripts/patch-reown-auth.js` must be run after `bun install`** — it patches the installed ReownAuthentication module for the self-hosted origin + SIWE guard. Skipping it yields `Forbidden: Nonce mismatch` on social/email login.
-- The SIWE target chain is **Sepolia**; mainnet is available for payments but sign-in messages always target the allowlist-resolved SIWE chain.
-- All reference paths are relative to `prestix.app-1/` — this guide lives alongside the app at `docs/guides/google-oauth-appkit-setup.md` inside that directory.
+| AppKit + SIWX | `src/lib/appkit.ts`, `src/lib/auth/apply-prestix-siwx.ts` |
+| SIWE callbacks | `src/lib/siwe-config.ts` |
+| Nonce / verify | `src/app/api/auth/wallet/nonce/route.ts`, `verify/route.ts` |
+| Social handler | `src/components/auth/SocialWalletSIWEHandler.tsx` |
