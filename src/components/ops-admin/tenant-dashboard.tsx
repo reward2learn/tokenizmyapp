@@ -543,54 +543,50 @@ export function TenantDashboard() {
   const [deployApp] = useDeployAppMutation();
   const [propagateBillingIdentity] = usePropagateBillingIdentityMutation();
 
-  // Tenant registry/columns + every suite app's shared-DB schema in one pass
-  // so new isolation columns / catalog properties land without two menu clicks.
+  // Full migrate: schema + Neon refresh + Google OAuth + Vercel env repoint +
+  // billing identity + Stripe/prices + agentic catalog cron twin (+ deploy hooks).
   const [migratingAll, setMigratingAll] = useState(false);
-  const handleMigrateTenantAndAllApps = async (slug: string, appPack: AppPackConfig | null) => {
+  const handleMigrateTenantAndAllApps = async (slug: string, _appPack: AppPackConfig | null) => {
     handleMenuClose();
     setMigratingAll(true);
-    const appCount = appPack?.apps.length ?? 0;
     try {
       setSnackbar({
-        message: appCount > 0
-          ? `Migrating tenant + ${appCount} app(s)…`
-          : 'Migrating tenant…',
+        message: `Full migrate for "${slug}" — schema, Neon, auth, Vercel, Stripe…`,
         severity: 'success',
       });
 
-      const tenantResult = await migrateTenant(slug).unwrap();
-      const groupsResult = tenantResult.data?.results?.securityGroups;
+      const tenantResult = await migrateTenant({
+        slug,
+        mode: 'full',
+        // TODO(you): set triggerRedeploy: false if you only want env repoint
+        // without firing deploy hooks (NEXT_PUBLIC_* stay stale until next deploy).
+        triggerRedeploy: true,
+      }).unwrap();
 
-      let appsOk = 0;
-      let appsFailed = 0;
-      if (appPack && appPack.apps.length > 0) {
-        for (const app of appPack.apps) {
-          try {
-            const result = await migrateApp({ slug, appId: app.appId }).unwrap();
-            if (result.success) appsOk += 1;
-            else appsFailed += 1;
-          } catch {
-            appsFailed += 1;
-          }
-        }
-      }
+      const steps = tenantResult.data?.steps ?? {};
+      const errors = Object.entries(steps)
+        .filter(([, s]) => s.status === 'error')
+        .map(([k, s]) => `${k}: ${s.detail}`);
+      const oks = Object.entries(steps)
+        .filter(([, s]) => s.status === 'ok')
+        .map(([k]) => k);
 
       const parts = [
-        groupsResult
-          ? `Tenant migrated — security groups: ${groupsResult}`
-          : 'Tenant migrated',
-      ];
-      if (appCount > 0) {
-        parts.push(`${appsOk}/${appCount} app schema(s) synced`);
-        if (appsFailed > 0) parts.push(`${appsFailed} failed`);
-      }
+        errors.length === 0 ? '✅ Full migrate complete' : '⚠️ Full migrate finished with errors',
+        oks.length ? `ok: ${oks.join(', ')}` : null,
+        errors.length ? `failed: ${errors.join(' · ')}` : null,
+      ].filter(Boolean);
+
       setSnackbar({
-        message: parts.join(' · '),
-        severity: appsFailed > 0 ? 'error' : 'success',
+        message: parts.join(' — '),
+        severity: errors.length > 0 ? 'error' : 'success',
       });
       refetch();
-    } catch {
-      setSnackbar({ message: 'Failed to migrate tenant and apps', severity: 'error' });
+    } catch (err) {
+      setSnackbar({
+        message: apiErrorMessage(err, 'Failed to migrate tenant and apps'),
+        severity: 'error',
+      });
     } finally {
       setMigratingAll(false);
     }
@@ -832,20 +828,20 @@ export function TenantDashboard() {
                       <ListItemText>Choose a Plan</ListItemText>
                     </MenuItem>
                     <Divider />
+                    <MenuItem
+                      onClick={() => { void handleMigrateTenantAndAllApps(t.slug, isSuite ? suite : null); }}
+                      disabled={isMigrating || migratingAll}
+                    >
+                      <ListItemIcon><SyncIcon fontSize="small" /></ListItemIcon>
+                      <ListItemText>
+                        {migratingAll ? 'Migrating…' : 'Migrate Tenant & All Apps'}
+                      </ListItemText>
+                    </MenuItem>
                     {isSuite ? (
                       <>
                         <MenuItem onClick={() => { handleMenuClose(); void handleBulkSuiteAction(t.slug, suite, 'seed'); }} disabled={isSeeding}>
                           <ListItemIcon><PlayArrowIcon fontSize="small" /></ListItemIcon>
                           <ListItemText>Seed All Apps</ListItemText>
-                        </MenuItem>
-                        <MenuItem
-                          onClick={() => { void handleMigrateTenantAndAllApps(t.slug, suite); }}
-                          disabled={isMigrating || migratingAll}
-                        >
-                          <ListItemIcon><SyncIcon fontSize="small" /></ListItemIcon>
-                          <ListItemText>
-                            {migratingAll ? 'Migrating…' : 'Migrate Tenant & All Apps'}
-                          </ListItemText>
                         </MenuItem>
                         <MenuItem onClick={() => void handleGenerateLegalDocs(t.slug)} disabled={isGeneratingLegal}>
                           <ListItemIcon><GavelIcon fontSize="small" /></ListItemIcon>
@@ -1023,20 +1019,20 @@ export function TenantDashboard() {
                               <ListItemText>Choose a Plan</ListItemText>
                             </MenuItem>
                             <Divider />
+                            <MenuItem
+                              onClick={() => { void handleMigrateTenantAndAllApps(t.slug, isSuite ? suite! : null); }}
+                              disabled={isMigrating || migratingAll}
+                            >
+                              <ListItemIcon><SyncIcon fontSize="small" /></ListItemIcon>
+                              <ListItemText>
+                                {migratingAll ? 'Migrating…' : 'Migrate Tenant & All Apps'}
+                              </ListItemText>
+                            </MenuItem>
                             {isSuite ? (
                               <>
                                 <MenuItem onClick={() => { handleMenuClose(); void handleBulkSuiteAction(t.slug, suite!, 'seed'); }} disabled={isSeeding}>
                                   <ListItemIcon><PlayArrowIcon fontSize="small" /></ListItemIcon>
                                   <ListItemText>Seed All Apps</ListItemText>
-                                </MenuItem>
-                                <MenuItem
-                                  onClick={() => { void handleMigrateTenantAndAllApps(t.slug, suite!); }}
-                                  disabled={isMigrating || migratingAll}
-                                >
-                                  <ListItemIcon><SyncIcon fontSize="small" /></ListItemIcon>
-                                  <ListItemText>
-                                    {migratingAll ? 'Migrating…' : 'Migrate Tenant & All Apps'}
-                                  </ListItemText>
                                 </MenuItem>
                                 <MenuItem onClick={() => void handleGenerateLegalDocs(t.slug)} disabled={isGeneratingLegal}>
                                   <ListItemIcon><GavelIcon fontSize="small" /></ListItemIcon>

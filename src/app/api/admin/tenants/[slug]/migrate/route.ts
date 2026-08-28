@@ -1,21 +1,25 @@
 /**
  * POST /api/admin/tenants/[slug]/migrate
  *
- * Runs tenant table/column migrations for the specified tenant.
- * Creates missing tables and tenant-isolation columns.
+ * Body (optional JSON):
+ *   { mode?: 'schema' | 'full', triggerRedeploy?: boolean }
+ *
+ * - mode=schema (default): tenant table/column migrations + security groups
+ * - mode=full: schema + Neon URL refresh + Google OAuth sync + Vercel env
+ *   repoint + billing identity + Stripe env/prices + agentic catalog cron twin
+ *   + optional deploy-hook redeploys for existing configured instances
  */
 import { NextResponse } from 'next/server';
-import { PrismaClient } from '@/generated/prisma';
 import { createRawClient } from '@/lib/db';
 import { requireWriteAuth } from '@/lib/auth/guards';
 import { jsonError, jsonOk } from '@/lib/api/response';
-import { ensureTenantsTable } from '@/domain/tenant/tenant-service';
-import { addTenantColumnsIfMissing, seedTemplateSecurityGroups } from '@/domain/tenant/tenant-seed-service';
-import { ensureTenantConfigColumns } from '@/domain/tenant/tenant-config-service';
-import { backfillDefaultOrganization } from '@/domain/billing/organization-service';
-import { ensureBillingTables, getSubscription } from '@/domain/billing/entitlement-service';
+import {
+  runFullTenantMigrate,
+  runSchemaMigrate,
+} from '@/domain/tenant/full-tenant-migrate-service';
 
 export const dynamic = 'force-dynamic';
+export const maxDuration = 300;
 
 export async function POST(
   request: Request,
@@ -25,74 +29,38 @@ export async function POST(
   if (!guard.ok) return guard.response;
 
   const { slug } = await params;
-  const db = createRawClient();
 
-  const results: Record<string, string> = {};
+  let body: { mode?: string; triggerRedeploy?: boolean } = {};
+  try {
+    body = (await request.json()) as typeof body;
+  } catch {
+    /* empty body → schema mode */
+  }
+
+  const mode = body.mode === 'full' ? 'full' : 'schema';
 
   try {
-    // 1. Ensure the tenants table exists
-    await ensureTenantsTable(db);
-    results.tenantsTable = 'ok';
-
-    // 1b. Organization + billing layer (platform root DB only — never the
-    // tenant's dedicated database). Idempotent: creates the tables, ensures
-    // the default org, and adopts any tenant that predates the org layer.
-    await ensureBillingTables(db);
-    const backfill = await backfillDefaultOrganization(db);
-    results.billingTables = 'ok';
-    results.organizationBackfill = backfill.created
-      ? `created default org, assigned ${backfill.tenantsAssigned} tenant(s)`
-      : `assigned ${backfill.tenantsAssigned} tenant(s)`;
-
-    // Every org must resolve to a subscription; Free is created on demand so
-    // nothing downstream has to handle a missing billing row.
-    const sub = await getSubscription(backfill.orgId, db);
-    results.subscription = `${sub.planId} (${sub.status})`;
-
-    // 2. Check tenant exists
-    const rows = await db.$queryRawUnsafe(
-      `SELECT id, db_url, template FROM tenants WHERE slug = $1 LIMIT 1;`, slug,
-    ) as { id: string; db_url: string | null; template: string }[];
-    if (rows.length === 0) return jsonError('Tenant not found', 404);
-    results.tenantExists = 'ok';
-
-    // 3. Run tenant-isolation column migration — against the tenant's own
-    // dedicated database when it has one, never the platform root DB. Every
-    // app in a suite shares this one database (see suite-provisioning.ts).
-    const tenantDbUrl = rows[0].db_url;
-    const migrateClient = tenantDbUrl
-      ? new PrismaClient({ datasources: { db: { url: tenantDbUrl } } })
-      : null;
-    let groupsSynced = 0;
-    try {
-      await addTenantColumnsIfMissing(migrateClient ?? db);
-      results.tenantColumns = 'ok';
-
-      // Push the current global security-group catalog (platform-admin,
-      // ops-admin, finance, viewer) into this tenant's own database — an
-      // idempotent upsert, so it also fixes tenants whose dedicated DB
-      // predates security_groups/user_groups (see addTenantColumnsIfMissing
-      // above) or whose catalog is stale relative to the latest definitions.
-      // Never touches tenant-specific custom groups.
-      groupsSynced = await seedTemplateSecurityGroups(migrateClient ?? db, rows[0].template);
-      results.securityGroups = `${groupsSynced} synced`;
-    } finally {
-      if (migrateClient) await migrateClient.$disconnect();
+    if (mode === 'full') {
+      const result = await runFullTenantMigrate(slug, {
+        triggerRedeploy: body.triggerRedeploy,
+      });
+      return jsonOk(result);
     }
 
-    // 4. Ensure tenant config columns (api_key, etc.) — these live on the
-    // `tenants` registry row itself, which always lives in the root DB.
-    await ensureTenantConfigColumns(db);
-    results.configColumns = 'ok';
-
-    console.log(`[migrate] Migration complete for "${slug}":`, results);
-
+    const db = createRawClient();
+    const { results } = await runSchemaMigrate(slug, db);
+    console.log(`[migrate] Schema migration complete for "${slug}":`, results);
     return jsonOk({
       migrated: true,
+      mode: 'schema' as const,
       results,
     });
   } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    if (message === 'Tenant not found') {
+      return jsonError('Tenant not found', 404);
+    }
     console.error(`[migrate] POST /${slug}/migrate error:`, err);
-    return jsonError('Failed to migrate tenant: ' + (err as Error).message, 500);
+    return jsonError('Failed to migrate tenant: ' + message, 500);
   }
 }

@@ -222,6 +222,29 @@ export async function getMainBranchId(): Promise<string> {
 }
 
 /**
+ * Refresh connection strings for an **already provisioned** Neon branch
+ * (`tenant-{slug}`). Does not create a branch — returns null when the
+ * named branch is missing (manual DB URLs / not Neon-provisioned).
+ */
+export async function refreshTenantDatabaseUrls(
+  slug: string,
+): Promise<ProvisionedDatabase | null> {
+  if (!process.env.NEON_API_KEY?.trim() || !process.env.NEON_PROJECT_ID?.trim()) {
+    return null;
+  }
+  const branchName = `tenant-${slug}`;
+  const databaseName = toPostgresIdentifier(slug);
+  let branchId: string;
+  try {
+    branchId = await findBranchIdByName(branchName);
+  } catch {
+    return null;
+  }
+  const { pooledUrl, directUrl } = await getConnectionStrings(branchId, databaseName);
+  return { pooledUrl, directUrl, branchId, databaseName };
+}
+
+/**
  * Provision an isolated database branch for a tenant.
  *
  * 1. Creates a branch `tenant-{slug}` off the main branch.

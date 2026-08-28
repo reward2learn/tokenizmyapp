@@ -346,11 +346,25 @@ export const tenantApi = createApi({
       invalidatesTags: ['Tenants'],
     }),
 
-    migrateTenant: builder.mutation<ApiEnvelope<{ migrated: boolean; results?: Record<string, string> }>, string>({
-      query: (slug) => ({
-        url: `admin/tenants/${slug}/migrate`,
-        method: 'POST',
-      }),
+    migrateTenant: builder.mutation<
+      ApiEnvelope<{
+        migrated: boolean;
+        mode?: 'schema' | 'full';
+        results?: Record<string, string>;
+        steps?: Record<string, { status: string; detail: string }>;
+      }>,
+      string | { slug: string; mode?: 'schema' | 'full'; triggerRedeploy?: boolean }
+    >({
+      query: (arg) => {
+        const slug = typeof arg === 'string' ? arg : arg.slug;
+        const mode = typeof arg === 'string' ? 'schema' : (arg.mode ?? 'schema');
+        const triggerRedeploy = typeof arg === 'string' ? undefined : arg.triggerRedeploy;
+        return {
+          url: `admin/tenants/${slug}/migrate`,
+          method: 'POST',
+          body: mode === 'full' ? { mode: 'full', triggerRedeploy } : { mode: 'schema' },
+        };
+      },
       invalidatesTags: ['Tenants'],
     }),
 
