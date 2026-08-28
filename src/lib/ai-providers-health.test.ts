@@ -103,7 +103,7 @@ describe('keyless provider helpers', () => {
     const deepseek = AI_PROVIDERS.find((p) => p.id === 'deepseek-studio')!;
     expect(providerRequiresApiKey(deepseek)).toBe(false);
     expect(isProviderConfigured(deepseek, null)).toBe(true);
-    expect(deepseek.defaultModel).toBe('DeepSeek-V4-Flash-0731-2.4bit-mixed:no-think');
+    expect(deepseek.defaultModel).toBe('DeepSeek-V4-Flash-0731-2.4bit-mixed:precise');
     expect(resolveChatCompletionsUrl(deepseek)).toBe('https://deepseek.tokenizin.com/v1/chat/completions');
   });
 

@@ -80,6 +80,17 @@ export function isProviderConfigured(
   return !providerRequiresApiKey(provider) || source !== null;
 }
 
+/**
+ * Mac Studio tunnel providers — OpenAI-compatible chat, but no reliable
+ * function-calling on the chat assistant path (tools are stripped server-side).
+ */
+export const LOCAL_STUDIO_PROVIDER_IDS = ['ollama-studio', 'deepseek-studio'] as const;
+
+export function providerSupportsChatTools(providerId: string | null | undefined): boolean {
+  if (!providerId) return true;
+  return !(LOCAL_STUDIO_PROVIDER_IDS as readonly string[]).includes(providerId);
+}
+
 /** Canonical builtin provider id list — seed template + defaults. */
 export const AI_PROVIDER_IDS = [
   'openai',
@@ -188,7 +199,7 @@ export const AI_PROVIDERS: AiProviderDef[] = [
     modelsUrl: 'https://deepseek.tokenizin.com/v1/models',
     modelsRequireAuth: false,
     docsUrl: 'https://deepseek.tokenizin.com/v1',
-    defaultModel: 'DeepSeek-V4-Flash-0731-2.4bit-mixed:no-think',
+    defaultModel: 'DeepSeek-V4-Flash-0731-2.4bit-mixed:precise',
   },
 ];
 

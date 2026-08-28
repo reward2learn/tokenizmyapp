@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { consumeOpenAiStream, openAiErrorMessage } from '@/lib/chat/chat-with-session-tools';
+import { providerSupportsChatTools } from '@/lib/ai-providers-catalog';
 
 function sseBody(lines: string[]): ReadableStream<Uint8Array> {
   const encoder = new TextEncoder();
@@ -75,5 +76,23 @@ describe('openAiErrorMessage', () => {
 
   it('returns generic message for other providers', () => {
     expect(openAiErrorMessage(502, undefined, 'openai')).toContain('temporarily unavailable');
+  });
+
+  it('returns deepseek-specific guidance on 502', () => {
+    const msg = openAiErrorMessage(502, undefined, 'deepseek-studio');
+    expect(msg).toContain('DeepSeek');
+    expect(msg).toContain('deepseek.tokenizin.com');
+  });
+});
+
+describe('providerSupportsChatTools', () => {
+  it('disables tools for Mac Studio tunnel providers', () => {
+    expect(providerSupportsChatTools('ollama-studio')).toBe(false);
+    expect(providerSupportsChatTools('deepseek-studio')).toBe(false);
+  });
+
+  it('keeps tools for cloud providers', () => {
+    expect(providerSupportsChatTools('openai')).toBe(true);
+    expect(providerSupportsChatTools('vercel-ai-gateway')).toBe(true);
   });
 });

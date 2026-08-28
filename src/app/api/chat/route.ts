@@ -5,7 +5,12 @@ import { NextResponse } from 'next/server';
 import { z } from 'zod';
 import { createClient, createBillingRawClient } from '@/lib/db';
 import { resolveOpenAiKey } from '@/lib/openai';
-import { resolveActiveAiConfig, resolveChatCompletionsUrl, buildProviderFetchHeaders } from '@/lib/ai-providers';
+import {
+  resolveActiveAiConfig,
+  resolveChatCompletionsUrl,
+  buildProviderFetchHeaders,
+  providerSupportsChatTools,
+} from '@/lib/ai-providers';
 import { KnowledgeService } from '@/domain/knowledge/knowledge-service';
 import { getSessionFromRequest } from '@/lib/auth/session';
 import { sessionIsPlatformAdmin } from '@/lib/auth/jwt';
@@ -25,6 +30,7 @@ import {
 import {
   completeChatWithSessionTools,
   CHAT_WEB_SEARCH_INSTRUCTIONS,
+  DEEPSEEK_CHAT_INSTRUCTIONS,
   type OpenAiChatMessage,
 } from '@/lib/chat/chat-with-session-tools';
 import { resolveEffectiveChatModel } from '@/lib/chat/chat-model';
@@ -132,6 +138,7 @@ const DB_KEYWORDS = [
   'show me', 'numbers', 'data', 'report', 'daily metrics',
   'weekly', 'monthly', 'average spend', 'avg spend',
   'spend per guest', ' performance',
+  'payroll', 'staff cost', 'bep', 'break-even', 'break even',
 ];
 
 function detectDatabaseQuery(message: string): boolean {
@@ -560,16 +567,21 @@ async function handleChatPost(request: Request): Promise<Response> {
     const isAuthenticated = Boolean(session?.sub);
     const isAdmin = sessionIsPlatformAdmin(session);
 
+    const chatToolsSupported = providerSupportsChatTools(ai.provider.id);
+
     // Access-filtered tool list for this viewer. Sent to the provider with
     // tool_choice: auto so the model picks tools from the prompt alone —
     // privileged tools are never listed for unauthorized callers.
-    const allowedTools = resolveAllowedChatTools({
-      isAuthenticated,
-      isPlatformAdmin: isAdmin,
-      isPlatformApp: isPlatformApp(),
-      hasBillingOrg: Boolean(billingOrgId),
-      canPurchaseCredits,
-    });
+    // Mac Studio providers (Ollama / MLX DeepSeek) skip tools entirely.
+    const allowedTools = chatToolsSupported
+      ? resolveAllowedChatTools({
+          isAuthenticated,
+          isPlatformAdmin: isAdmin,
+          isPlatformApp: isPlatformApp(),
+          hasBillingOrg: Boolean(billingOrgId),
+          canPurchaseCredits,
+        })
+      : [];
     const toolCategories = toolCategoriesPresent(allowedTools);
     const allowedToolNames = new Set(allowedTools.map((tool) => tool.function.name));
 
@@ -582,16 +594,19 @@ async function handleChatPost(request: Request): Promise<Response> {
 
     const systemSections = [
       systemPrompt,
-      ...(toolCategories.platform ? [PLATFORM_TOOL_INSTRUCTIONS] : []),
-      ...(toolCategories.session || toolCategories.billing ? [CHAT_SESSION_TOOL_INSTRUCTIONS] : []),
-      ...(lowBalance && toolCategories.billing
+      ...(ai.provider.id === 'deepseek-studio' ? [DEEPSEEK_CHAT_INSTRUCTIONS] : []),
+      ...(chatToolsSupported && toolCategories.platform ? [PLATFORM_TOOL_INSTRUCTIONS] : []),
+      ...(chatToolsSupported && (toolCategories.session || toolCategories.billing)
+        ? [CHAT_SESSION_TOOL_INSTRUCTIONS]
+        : []),
+      ...(chatToolsSupported && lowBalance && toolCategories.billing
         ? [`The organization's AI credit balance is low (${creditBalance} remaining). Proactively offer a credit top-up via purchase_credits when appropriate.`]
         : []),
       // Composer pick is a nudge only when the tool is in the allowed set.
-      ...(activeTool === 'build_custom_template' && allowedToolNames.has('build_custom_template')
+      ...(chatToolsSupported && activeTool === 'build_custom_template' && allowedToolNames.has('build_custom_template')
         ? ['The administrator selected the Custom Template Build tool. Gather the four details listed in your instructions (what the business does, who uses the app, what they need to track, and the source) before calling build_custom_template. The tool designs the template but does not save it — tell them to press "Save & Create Template" to add it.']
         : []),
-      ...(activeTool === 'query_platform_data' && toolCategories.platform
+      ...(chatToolsSupported && activeTool === 'query_platform_data' && toolCategories.platform
         ? ['The administrator selected Platform Data Lookup. Call the appropriate platform query tool (query_platform_registry, query_organizations_billing, or query_vercel_inventory) before answering — do not guess counts or statuses.']
         : []),
       ...(webSearchEnabled ? [CHAT_WEB_SEARCH_INSTRUCTIONS] : []),

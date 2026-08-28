@@ -16,9 +16,19 @@ import {
   foldMeterIntoUsage,
   type AiUsageSummary,
 } from '@/lib/billing/ai-usage-summary';
-import { buildProviderFetchHeaders } from '@/lib/ai-providers-catalog';
+import {
+  buildProviderFetchHeaders,
+  providerSupportsChatTools,
+} from '@/lib/ai-providers-catalog';
 
 export const CHAT_WEB_SEARCH_INSTRUCTIONS = `Web search is enabled on this chat model. When the user asks about current events, live market data, recent news, or information that may have changed after your training data, search the web before answering. Cite sources briefly when web results are used.`;
+
+/** Mac Studio DeepSeek — text-only chat; no OpenAI function tools on this path. */
+export const DEEPSEEK_CHAT_INSTRUCTIONS = `You are on the StarWorld DeepSeek Mac Studio tunnel (text chat only — function calling is not available on this route).
+
+Respond in one direct assistant message. Never simulate a transcript with "USER:" or "ASSISTANT:" role prefixes, and never invent extra user turns.
+
+Do not output blockquoted planning lines (lines starting with ">") or say you will "look up" data unless that data is already in the messages above. If payroll, BEP sheet, or spreadsheet figures are not in the context, say you do not have them and point the user to the relevant section in the app (Business Review, Financial Review, or Ops Admin) instead of looping.`;
 
 interface OpenAiToolCall {
   id: string;
@@ -124,7 +134,8 @@ async function executeChatToolCall(
 
 const MAX_TOOL_ROUNDS = 4;
 
-const STUDIO_PROVIDER_ID = 'ollama-studio';
+const OLLAMA_STUDIO_PROVIDER_ID = 'ollama-studio';
+const DEEPSEEK_STUDIO_PROVIDER_ID = 'deepseek-studio';
 
 /** User-facing message for a failed upstream chat completion. Exported for tests. */
 export function openAiErrorMessage(status: number, detail?: string, providerId?: string | null): string {
@@ -133,8 +144,11 @@ export function openAiErrorMessage(status: number, detail?: string, providerId?:
   if (status === 402) return 'The AI provider account has no credits remaining.';
   if (status === 429) return 'The AI service is currently rate-limited.';
   if (status === 502 || status === 503) {
-    if (providerId === STUDIO_PROVIDER_ID) {
+    if (providerId === OLLAMA_STUDIO_PROVIDER_ID) {
       return 'The Mac Studio AI tunnel returned an error. Confirm OLLAMA_TUNNEL_HOST is reachable from Vercel and the model is loaded, then try again.';
+    }
+    if (providerId === DEEPSEEK_STUDIO_PROVIDER_ID) {
+      return 'The Mac Studio DeepSeek tunnel returned an error. Confirm deepseek.tokenizin.com is reachable from Vercel and the model variant is loaded, then try again.';
     }
     return 'The AI service is temporarily unavailable. Please try again in a moment.';
   }
@@ -174,12 +188,11 @@ async function requestOpenAiCompletion(
   allowedTools: OpenAiFunctionTool[] | undefined,
   providerId?: string | null,
 ): Promise<Response> {
-  const studioLocal = providerId === STUDIO_PROVIDER_ID;
-  // Studio local models do not support function calling — strip tools.
+  // Mac Studio tunnels (Ollama + MLX DeepSeek) do not support function calling — strip tools.
   // Otherwise send the access-filtered list; the model picks via tool_choice auto.
-  const tools = studioLocal
-    ? undefined
-    : buildOpenAiTools(webSearchEnabled, allowedTools);
+  const tools = providerSupportsChatTools(providerId)
+    ? buildOpenAiTools(webSearchEnabled, allowedTools)
+    : undefined;
   const body = {
     model,
     messages,

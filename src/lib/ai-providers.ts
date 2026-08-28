@@ -35,6 +35,8 @@ export {
   isProviderConfigured,
   resolveChatCompletionsUrl,
   listProviderModels,
+  providerSupportsChatTools,
+  LOCAL_STUDIO_PROVIDER_IDS,
   type AiProviderDef,
   type AiProviderId,
   type AiModelOption,
