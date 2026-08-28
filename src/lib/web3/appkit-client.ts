@@ -83,6 +83,8 @@ async function createAppKitInstance(config: FactoryWeb3Config) {
     features: {
       socials: wantsSocial && config.socialProviders.length ? config.socialProviders : false,
       email: wantsSocial && config.emailLogin,
+      // Required for embedded social wallets (Google/Apple OAuth via Reown auth).
+      reownAuthentication: wantsSocial,
       swaps: false,
       onramp: false,
       analytics: true,

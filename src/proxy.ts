@@ -18,14 +18,20 @@ const PUBLIC_SLUGS = new Set(['dashboard', 'terms-of-service', 'privacy-policy']
  * A CSP violation is reported only in the browser console, so this failed as
  * "the card form is blank" with nothing in the server logs.
  */
+/**
+ * Reown AppKit social login (Google/Apple) needs the WalletConnect CSP surface
+ * plus Cross-Origin-Opener-Policy — see reown.com/docs advanced/security/csp.
+ * Without COOP, the OAuth popup in secure.walletconnect.org fails with a generic
+ * "Something went wrong" and no server-side error.
+ */
 const CSP = [
   "default-src 'self'",
-  "frame-src 'self' https://vercel.live https://js.stripe.com https://hooks.stripe.com https://secure.walletconnect.org https://secure.walletconnect.com",
+  "frame-src 'self' https://vercel.live https://js.stripe.com https://hooks.stripe.com https://verify.walletconnect.com https://verify.walletconnect.org https://secure.walletconnect.com https://secure.walletconnect.org",
   "script-src 'self' 'unsafe-eval' 'unsafe-inline' https://vercel.live https://js.stripe.com",
-  "style-src 'self' 'unsafe-inline'",
-  "img-src 'self' data: https:",
-  "connect-src 'self' https://accounts.google.com https://oauth2.googleapis.com https://api.openai.com https://api.vercel.com https://vercel.live https://api.stripe.com https://api.reown.com https://api.web3modal.org https://pulse.walletconnect.org https://rpc.walletconnect.org wss://relay.walletconnect.org wss://relay.walletconnect.com",
-  "font-src 'self' https://fonts.gstatic.com",
+  "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
+  "img-src 'self' data: blob: https: https://walletconnect.org https://walletconnect.com https://secure.walletconnect.com https://secure.walletconnect.org https://cdn.zerion.io",
+  "connect-src 'self' https://accounts.google.com https://oauth2.googleapis.com https://www.googleapis.com https://api.openai.com https://api.vercel.com https://vercel.live https://api.stripe.com https://api.reown.com https://api.web3modal.com https://api.web3modal.org https://pulse.walletconnect.com https://pulse.walletconnect.org https://rpc.walletconnect.com https://rpc.walletconnect.org https://relay.walletconnect.com https://relay.walletconnect.org https://keys.walletconnect.com https://keys.walletconnect.org https://notify.walletconnect.com https://notify.walletconnect.org https://echo.walletconnect.com https://echo.walletconnect.org https://push.walletconnect.com https://push.walletconnect.org https://cca-lite.coinbase.com https://mainnet.base.org https://rpc.sepolia.org wss://relay.walletconnect.com wss://relay.walletconnect.org wss://www.walletlink.org",
+  "font-src 'self' https://fonts.gstatic.com https://fonts.reown.com",
   "frame-ancestors 'none'",
   "form-action 'self'",
   "base-uri 'self'",
@@ -39,6 +45,7 @@ function getCookieFromRequest(request: NextRequest, name: string): string | unde
 
 function setSecurityHeaders(response: NextResponse): void {
   response.headers.set('Content-Security-Policy', CSP);
+  response.headers.set('Cross-Origin-Opener-Policy', 'same-origin-allow-popups');
   response.headers.set(
     'Strict-Transport-Security',
     'max-age=63072000; includeSubDomains; preload',
