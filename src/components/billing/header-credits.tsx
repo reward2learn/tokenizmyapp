@@ -30,7 +30,7 @@ import { isPlatformApp } from '@shared/lib/config/tenant';
  * read as "zero credits", which is a different and much more alarming claim
  * than "not applicable here".
  */
-export function HeaderCredits() {
+export function HeaderCredits({ compact = false }: { compact?: boolean }) {
   const dispatch = useAppDispatch();
   const orgId = useBillingOrgId();
   const onPlatform = isPlatformApp();
@@ -79,7 +79,7 @@ export function HeaderCredits() {
         <IconButton
           aria-label={canTopUp ? 'Add AI credits' : 'Request more AI credits'}
           onClick={open}
-          sx={{ color: 'text.secondary', display: { xs: 'none', sm: 'inline-flex' } }}
+          sx={{ color: 'text.secondary', display: compact ? 'none' : { xs: 'none', sm: 'inline-flex' } }}
         >
           <AddCardIcon />
         </IconButton>

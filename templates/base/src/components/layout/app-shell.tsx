@@ -50,10 +50,13 @@ import { useGetNavigationQuery } from '@/store/apis/navigation-api';
 import { NavIcon } from '@/components/shared/nav-icon';
 import { DrawerResizeHandle } from '@/components/shared/drawer-resize-handle';
 import { useResizableDrawerWidth } from '@/hooks/use-resizable-drawer-width';
+import { useElementWidth } from '@/hooks/use-element-width';
 import { getClientTenantConfig } from '@shared/lib/config/tenant';
 
 const DRAWER_WIDTH = 280;
 const CHAT_DRAWER_DEFAULT_WIDTH = 400;
+/** Main column narrower than this uses the compact header (logo only, fewer icons). */
+const HEADER_COMPACT_MAX_WIDTH = 550;
 
 // Lazy-load the chat panel so the shell stays light; it renders in the drawer.
 const ChatDrawerPanel = dynamic(
@@ -86,6 +89,11 @@ export function AppShell({ children }: { children: ReactNode }) {
   // Desktop (≥ md): chat aside pushes main column. Mobile: overlay so AppBar
   // and content keep full viewport width.
   const isChatPushLayout = useMediaQuery(theme.breakpoints.up('md'));
+  const isViewportHeaderCompact = useMediaQuery(theme.breakpoints.down('sm'));
+  const { ref: mainColumnRef, width: mainColumnWidth } = useElementWidth<HTMLDivElement>();
+  const isHeaderCompact =
+    isViewportHeaderCompact ||
+    (mainColumnWidth !== null && mainColumnWidth < HEADER_COMPACT_MAX_WIDTH);
   const drawerOpen = useAppSelector((s) => s.ui.drawerOpen);
   const chatDrawerOpen = useAppSelector((s) => s.ui.chatDrawerOpen);
   const {
@@ -318,7 +326,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   return (
     <Box sx={{ display: 'flex', flexDirection: 'row', width: '100%', minHeight: '100dvh', alignItems: 'stretch' }}>
       {/* Main column: full width on mobile; on md+ it shrinks when chat is open (push). */}
-      <Box sx={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', minHeight: '100dvh' }}>
+      <Box ref={mainColumnRef} sx={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', minHeight: '100dvh' }}>
       <AppBar position="sticky" elevation={0} color="transparent">
         <Toolbar sx={{ minHeight: 52, pt: 'env(safe-area-inset-top, 0px)' }}>
           {/* Hamburger toggle — left aligned */}
@@ -347,7 +355,7 @@ export function AppShell({ children }: { children: ReactNode }) {
                 fontWeight: 800,
                 color: 'text.primary',
                 whiteSpace: 'nowrap',
-                display: brandLogoUrl ? { xs: 'none', sm: 'block' } : 'block',
+                display: brandLogoUrl ? (isHeaderCompact ? 'none' : 'block') : 'block',
               }}
             >
               {brandText}

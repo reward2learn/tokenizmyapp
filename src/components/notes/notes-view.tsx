@@ -28,7 +28,9 @@ import EditIcon from '@mui/icons-material/Edit';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import LinkOffIcon from '@mui/icons-material/LinkOff';
 import NoteAddIcon from '@mui/icons-material/NoteAdd';
+import SearchIcon from '@mui/icons-material/Search';
 import ShareIcon from '@mui/icons-material/Share';
+import InputAdornment from '@mui/material/InputAdornment';
 import { BrandedLoadingIndicator } from '@/components/branding/branded-loading-indicator';
 import { MarkdownBody } from '@/components/blocks/markdown-body';
 import {
@@ -372,10 +374,26 @@ export function NotesView() {
 
   const [title, setTitle] = useState('');
   const [content, setContent] = useState('');
+  const [searchQuery, setSearchQuery] = useState('');
   const [status, setStatus] = useState<string | null>(null);
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
+  const [newNoteExpanded, setNewNoteExpanded] = useState(true);
   const [shareTarget, setShareTarget] = useState<AppNote | null>(null);
   const [editTarget, setEditTarget] = useState<AppNote | null>(null);
+
+  const filteredMine = useMemo((): AppNote[] => {
+    const q = searchQuery.trim().toLowerCase();
+    if (!q) return mine;
+    return mine.filter((note) => note.title.toLowerCase().includes(q));
+  }, [mine, searchQuery]);
+
+  useEffect(() => {
+    if (mine.length === 0) {
+      setNewNoteExpanded(true);
+    } else if (mine.length > 1) {
+      setNewNoteExpanded(false);
+    }
+  }, [mine.length]);
 
   const toggleExpand = useCallback((id: string) => {
     setExpandedIds((prev) => {
@@ -439,43 +457,57 @@ export function NotesView() {
         </Typography>
       </Stack>
 
-      <Paper elevation={0} sx={{ p: 2, mb: 3, border: '1px solid', borderColor: 'divider' }}>
-        <Stack spacing={1.5}>
+      <Accordion
+        expanded={newNoteExpanded}
+        onChange={(_, expanded) => setNewNoteExpanded(expanded)}
+        elevation={0}
+        sx={{
+          mb: 3,
+          border: '1px solid',
+          borderColor: 'divider',
+          '&:before': { display: 'none' },
+        }}
+      >
+        <AccordionSummary expandIcon={<ExpandMoreIcon />}>
           <Typography variant="subtitle2">New note</Typography>
-          <TextField
-            size="small"
-            label="Title"
-            value={title}
-            onChange={(e) => setTitle(e.target.value)}
-            fullWidth
-          />
-          <TextField
-            size="small"
-            label="Note"
-            value={content}
-            onChange={(e) => setContent(e.target.value)}
-            fullWidth
-            multiline
-            minRows={3}
-            placeholder="Write a note…"
-          />
-          <Stack direction="row" spacing={1} sx={{ alignItems: 'center', justifyContent: 'flex-end' }}>
-            {status ? (
-              <Typography variant="caption" color="text.secondary" sx={{ mr: 'auto' }}>
-                {status}
-              </Typography>
-            ) : null}
-            <Button
-              variant="contained"
-              startIcon={<NoteAddIcon />}
-              onClick={() => void handleCreate()}
-              disabled={creating || !content.trim()}
-            >
-              {creating ? 'Saving…' : 'Add note'}
-            </Button>
+        </AccordionSummary>
+        <AccordionDetails>
+          <Stack spacing={1.5}>
+            <TextField
+              size="small"
+              label="Title"
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+              fullWidth
+            />
+            <TextField
+              size="small"
+              label="Note"
+              value={content}
+              onChange={(e) => setContent(e.target.value)}
+              fullWidth
+              multiline
+              minRows={3}
+              placeholder="Write a note…"
+            />
+            <Stack direction="row" spacing={1} sx={{ alignItems: 'center', justifyContent: 'flex-end' }}>
+              {status ? (
+                <Typography variant="caption" color="text.secondary" sx={{ mr: 'auto' }}>
+                  {status}
+                </Typography>
+              ) : null}
+              <Button
+                variant="contained"
+                startIcon={<NoteAddIcon />}
+                onClick={() => void handleCreate()}
+                disabled={creating || !content.trim()}
+              >
+                {creating ? 'Saving…' : 'Add note'}
+              </Button>
+            </Stack>
           </Stack>
-        </Stack>
-      </Paper>
+        </AccordionDetails>
+      </Accordion>
 
       {sharedWithMe.length > 0 ? (
         <Stack spacing={1.5} sx={{ mb: 3 }}>
@@ -531,14 +563,42 @@ export function NotesView() {
       ) : null}
 
       <Stack spacing={1.5}>
-        <Typography variant="subtitle1">My notes</Typography>
+        <Stack
+          direction={{ xs: 'column', sm: 'row' }}
+          spacing={1.5}
+          sx={{ alignItems: { sm: 'center' }, justifyContent: 'space-between' }}
+        >
+          <Typography variant="subtitle1">My notes</Typography>
+          {mine.length > 0 ? (
+            <TextField
+              size="small"
+              placeholder="Search by title…"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              sx={{ width: { xs: '100%', sm: 280 } }}
+              slotProps={{
+                input: {
+                  startAdornment: (
+                    <InputAdornment position="start">
+                      <SearchIcon fontSize="small" color="action" />
+                    </InputAdornment>
+                  ),
+                },
+              }}
+            />
+          ) : null}
+        </Stack>
         {mine.length === 0 ? (
           <Typography variant="body2" color="text.secondary" sx={{ textAlign: 'center', py: 6 }}>
             No notes yet. Add one above, or use “Add to Notes” on an assistant message in AI Chat.
           </Typography>
+        ) : filteredMine.length === 0 ? (
+          <Typography variant="body2" color="text.secondary" sx={{ textAlign: 'center', py: 4 }}>
+            No notes match &ldquo;{searchQuery.trim()}&rdquo;.
+          </Typography>
         ) : (
           <Stack spacing={1}>
-            {mine.map((note) => (
+            {filteredMine.map((note) => (
               <Accordion
                 key={note.id}
                 expanded={expandedIds.has(note.id)}
