@@ -8,6 +8,7 @@ import { randomBytes } from 'node:crypto';
 import { SiweMessage } from 'siwe';
 import { SIWE_CHAIN_ID } from '@/lib/web3/crypto-billing-config';
 import { registerSiweNonce } from '@/lib/auth/wallet-siwe';
+import { resolveSiweNonceAddress } from '@/lib/web3/evm-address';
 import { jsonError, jsonOk } from '@/lib/api/response';
 
 export const dynamic = 'force-dynamic';
@@ -55,23 +56,28 @@ export async function GET(request: Request): Promise<Response> {
   }
 
   const url = new URL(request.url);
-  const address = url.searchParams.get('address')?.trim() || '0x0000000000000000000000000000000000000000';
+  const address = resolveSiweNonceAddress(url.searchParams.get('address'));
   const chainId = SIWE_CHAIN_ID;
   const nonce = randomBytes(16).toString('hex');
   const expiresAt = new Date(Date.now() + 15 * 60_000).toISOString();
 
-  const siweMessage = new SiweMessage({
-    domain: requestDomain(request),
-    address,
-    statement: 'Sign in with Ethereum to TokenizMyApp.',
-    uri: requestOrigin(request),
-    version: '1',
-    chainId,
-    nonce,
-    expirationTime: expiresAt,
-  });
-
-  const message = siweMessage.prepareMessage();
+  let message: string;
+  try {
+    const siweMessage = new SiweMessage({
+      domain: requestDomain(request),
+      address,
+      statement: 'Sign in with Ethereum to TokenizMyApp.',
+      uri: requestOrigin(request),
+      version: '1',
+      chainId,
+      nonce,
+      expirationTime: expiresAt,
+    });
+    message = siweMessage.prepareMessage();
+  } catch (err) {
+    console.error('[wallet/nonce] invalid SIWE message params:', err);
+    return jsonError('Invalid wallet address for SIWE nonce', 400);
+  }
 
   registerSiweNonce({
     nonce,

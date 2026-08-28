@@ -5,6 +5,7 @@
  */
 import { createSIWEConfig, formatMessage } from '@reown/appkit-siwe';
 import { SIWE_CHAIN_ID } from '@/lib/web3/crypto-billing-config';
+import { isValidEvmAddress } from '@/lib/web3/evm-address';
 
 let siweAppReady = false;
 let siweAppReadyResolvers: Array<() => void> = [];
@@ -57,7 +58,8 @@ export const factorySiweClient = createSIWEConfig({
     await waitForSiweAppReady();
 
     const params = new URLSearchParams();
-    if (address) params.set('address', address);
+    // AppKit SIWX may call getNonce with `<<AccountAddress>>` before the wallet exists.
+    if (isValidEvmAddress(address)) params.set('address', address);
     params.set('chainId', String(SIWE_CHAIN_ID));
 
     const response = await fetch(`${apiBase()}/api/auth/wallet/nonce?${params}`, {

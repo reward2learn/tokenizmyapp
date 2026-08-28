@@ -12,6 +12,7 @@ import {
   verifySiweSignature,
 } from '@/lib/auth/wallet-siwe';
 import { extendSessionWithWallet, sessionWalletMatches } from '@/lib/auth/wallet-session';
+import { SIWE_PLACEHOLDER_ADDRESS } from '@/lib/web3/evm-address';
 import { getSessionFromRequest, setSessionCookie } from '@/lib/auth/session';
 import { jsonError, jsonOk } from '@/lib/api/response';
 
@@ -100,7 +101,7 @@ export async function POST(request: Request): Promise<Response> {
   }
 
   if (verified.address.toLowerCase() !== nonceEntry.address.toLowerCase()) {
-    const placeholder = '0x0000000000000000000000000000000000000000';
+    const placeholder = SIWE_PLACEHOLDER_ADDRESS;
     if (nonceEntry.address !== placeholder) {
       return jsonError('Wallet address does not match nonce request', 400);
     }
