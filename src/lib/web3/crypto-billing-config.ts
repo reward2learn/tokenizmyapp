@@ -8,6 +8,7 @@ import { DEFAULT_REOWN_PROJECT_ID } from '@/lib/web3/reown';
  *
  * @see docs/factory-reown-siwe-wallet-link.md — factory Sign in → Connect Wallet → SIWE
  * @see docs/google-oauth-appkit-setup.md — Corrections A–D background
+ * @see src/lib/web3/crypto-tenant-config.ts — per-tenant CRYPTO_* via edit wizard
  */
 
 /** Sepolia — SIWE sign-in messages always target this chain (Correction D in setup doc). */

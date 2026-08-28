@@ -477,6 +477,25 @@ export const tenantApi = createApi({
       invalidatesTags: ['Tenants'],
     }),
 
+    /** POST .../crypto-env — push CRYPTO_* + seed tenant DB app_settings. */
+    pushCryptoEnvVars: builder.mutation<
+      ApiEnvelope<{
+        projects: number;
+        envCount: number;
+        pushed: string[];
+        seededToDb: boolean;
+        redeployTriggered: string[];
+        note?: string;
+      }>,
+      { slug: string }
+    >({
+      query: ({ slug }) => ({
+        url: `admin/tenants/${slug}/crypto-env`,
+        method: 'POST',
+      }),
+      invalidatesTags: ['Tenants'],
+    }),
+
     /** POST admin/tenants/:slug/stripe-webhook-test — full Stripe webhook health checklist. */
     testStripeWebhook: builder.mutation<
       ApiEnvelope<{
@@ -1134,6 +1153,7 @@ export const {
   useEditAppMutation,
   usePushAppEnvVarsMutation,
   usePushStripeEnvVarsMutation,
+  usePushCryptoEnvVarsMutation,
   useLazyGetStripeMarketplaceStatusQuery,
   usePrepareStripeMarketplaceInstallMutation,
   useTestStripeWebhookMutation,

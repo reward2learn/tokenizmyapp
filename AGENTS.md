@@ -44,7 +44,7 @@ bun run dev          # Starts on localhost:3000
 | `NEXT_PUBLIC_REOWN_PROJECT_ID` | Reown AppKit project id (social wallet / SIWE). Optional if `DEFAULT_REOWN_PROJECT_ID` in code is used |
 | `NEXT_PUBLIC_WEB3_CONNECT_MODE` | `social` (factory default), `both`, or `injected` |
 | `NEXT_PUBLIC_WEB3_SOCIALS` | Comma list, e.g. `google` — surfaces AppKit social providers |
-| `NEXT_PUBLIC_WEB3_WALLET_ENABLED` / `NEXT_PUBLIC_CRYPTO_PAYMENTS_ENABLED` | Set either to `false` to disable factory social wallet UI |
+| `NEXT_PUBLIC_WEB3_WALLET_ENABLED` / `NEXT_PUBLIC_CRYPTO_PAYMENTS_ENABLED` | Client wallet / USDC UI toggles. Per-tenant: Edit Tenant → **Crypto Payments** step sets `CRYPTO_PAYMENTS_ENABLED` + `CRYPTO_TREASURY_ADDRESS` (saved to `metadata.config`, pushed via `/crypto-env`, seeded to tenant `app_settings`) |
 | `POSTGRES_URL` | Also backs durable `siwe_nonces` for factory SIWE claim-on-verify (required on Vercel) |
 
 ## Social wallet + SIWE (factory)

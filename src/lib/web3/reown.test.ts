@@ -56,8 +56,17 @@ describe('buildWeb3EnvVars', () => {
     expect(buildWeb3EnvVars(null)).toEqual(buildWeb3EnvVars(undefined));
   });
 
-  it('ships with the wallet on by default', () => {
-    expect(DEFAULT_WEB3_WALLET.enabled).toBe(true);
+  it('applies an explicit crypto override when wallet is on', () => {
+    expect(
+      buildWeb3EnvVars(ENABLED, {
+        cryptoPaymentsEnabled: false,
+        cryptoTreasuryAddress: '',
+      }),
+    ).toMatchObject({
+      NEXT_PUBLIC_WEB3_WALLET_ENABLED: 'true',
+      CRYPTO_PAYMENTS_ENABLED: 'false',
+      NEXT_PUBLIC_CRYPTO_PAYMENTS_ENABLED: 'false',
+    });
   });
 });
 

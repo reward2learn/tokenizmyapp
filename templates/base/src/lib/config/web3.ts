@@ -7,7 +7,9 @@
  *
  * Environment Variables:
  *   NEXT_PUBLIC_WEB3_WALLET_ENABLED — "true" to mount the wallet at all
- *   NEXT_PUBLIC_CRYPTO_PAYMENTS_ENABLED — "true" also enables social wallet + crypto billing UI
+ *   NEXT_PUBLIC_CRYPTO_PAYMENTS_ENABLED — "true" for USDC billing UI (Crypto Payments wizard step)
+ *   CRYPTO_PAYMENTS_ENABLED — server-only USDC rail flag (pushed with treasury)
+ *   CRYPTO_TREASURY_ADDRESS — server-only receiving wallet for USDC
  *   NEXT_PUBLIC_REOWN_PROJECT_ID    — Reown project id (public client id)
  *   NEXT_PUBLIC_WEB3_CONNECT_MODE   — social | injected | both
  *   NEXT_PUBLIC_WEB3_SOCIALS        — comma list, e.g. "google,apple"
@@ -133,4 +135,22 @@ export function getWeb3Config(): Web3RuntimeConfig {
 /** True when this deployment should mount the wallet provider at all. */
 export function isWeb3Enabled(): boolean {
   return getWeb3Config().enabled;
+}
+
+/**
+ * Server-side USDC rail config from env (written by factory crypto-env / deploy).
+ * Prefer these over reading app_settings when both exist — env is authoritative after push.
+ */
+export function getCryptoPaymentsConfig(): {
+  enabled: boolean;
+  treasuryAddress: string | undefined;
+} {
+  const enabled =
+    parseBool(process.env.CRYPTO_PAYMENTS_ENABLED) ||
+    parseBool(process.env.NEXT_PUBLIC_CRYPTO_PAYMENTS_ENABLED);
+  const treasuryAddress = process.env.CRYPTO_TREASURY_ADDRESS?.trim() || undefined;
+  return {
+    enabled: enabled && Boolean(treasuryAddress),
+    treasuryAddress,
+  };
 }

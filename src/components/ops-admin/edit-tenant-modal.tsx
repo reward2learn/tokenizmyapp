@@ -3,8 +3,8 @@
 /**
  * EditTenantModal — Stepper wizard for editing tenant applications.
  *
- * Steps: Template → Preview → License → Organization & Billing → Features
- *        → AI Providers → Google OAuth → Database → Custom Env
+ * Steps: Template → Preview → Slug → License → Database → Organization & Billing
+ *        → Crypto Payments → Features → AI Providers → Google OAuth → Custom Env
  *        → Deploy Hooks → Functional Roles → Custom Domain → Admin & Auth
  *        → Flight Check → Summary
  *
@@ -47,6 +47,7 @@ import Switch from '@mui/material/Switch';
 import TextField from '@mui/material/TextField';
 import Tooltip from '@mui/material/Tooltip';
 import Typography from '@mui/material/Typography';
+import AccountBalanceWalletIcon from '@mui/icons-material/AccountBalanceWallet';
 import AddIcon from '@mui/icons-material/Add';
 import AutoFixHighIcon from '@mui/icons-material/AutoFixHigh';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
@@ -82,6 +83,11 @@ import {
   evaluateSocialWalletTemplate,
   web3WalletFromTemplate,
 } from '@/lib/web3/flight-check-web3';
+import {
+  isValidTreasuryAddress,
+  normalizeTreasuryAddress,
+  readTenantCryptoConfig,
+} from '@/lib/web3/crypto-tenant-config';
 import { templateApi } from '@/store/apis/template-api';
 import { DEFAULT_PLATFORM_ADMIN_EMAIL } from '@/domain/security/persons';
 import { TemplateSelector } from '@/components/ops-admin/tenant-wizard';
@@ -124,6 +130,7 @@ import {
   useAddAppToSuiteMutation,
   useRemoveAppFromSuiteMutation,
   usePushStripeEnvVarsMutation,
+  usePushAppEnvVarsMutation,
   useLazyGetStripeMarketplaceStatusQuery,
   useLazyGetAgenticCommerceHealthQuery,
   useLazyGetStripeEmbeddedCheckoutProbeQuery,
@@ -198,6 +205,7 @@ const EDIT_STEPS: Array<{ label: string; icon: React.ReactNode; key: string }> =
   // (AI providers, OAuth, roles, admin seed, flight check).
   { label: 'Database', icon: <DnsIcon fontSize="small" />, key: 'database' },
   { label: 'Organization & Billing', icon: <CreditCardIcon fontSize="small" />, key: 'org' },
+  { label: 'Crypto Payments', icon: <AccountBalanceWalletIcon fontSize="small" />, key: 'crypto' },
   { label: 'Features', icon: <AutoFixHighIcon fontSize="small" />, key: 'features' },
   { label: 'AI Providers', icon: <KeyIcon fontSize="small" />, key: 'openai' },
   { label: 'Google OAuth', icon: <VerifiedUserIcon fontSize="small" />, key: 'oauth' },
@@ -286,6 +294,19 @@ function initWeb3WalletEnabled(tenant: TenantEntry | null): boolean {
   return true;
 }
 
+function initCryptoPayments(tenant: TenantEntry | null): {
+  cryptoPaymentsEnabled: boolean;
+  cryptoTreasuryAddress: string;
+} {
+  const cfg = (tenant?.metadata?.config ?? {}) as Record<string, unknown>;
+  const crypto = readTenantCryptoConfig(cfg);
+  // Legacy: wallet-on without explicit crypto flag still meant public crypto UI on.
+  if (typeof cfg.cryptoPaymentsEnabled !== 'boolean' && initWeb3WalletEnabled(tenant)) {
+    return { ...crypto, cryptoPaymentsEnabled: false };
+  }
+  return crypto;
+}
+
 function initDbConfig(tenant: TenantEntry | null): DatabaseConfig {
   if (!tenant) return { dbUrl: '', pooledUrl: '', directUrl: '' };
   const cfg = (tenant.metadata?.config ?? {}) as Record<string, unknown>;
@@ -346,6 +367,8 @@ interface ConfigFieldsInput {
   adminEmail: string;
   pinSignInEnabled: boolean;
   web3WalletEnabled: boolean;
+  cryptoPaymentsEnabled: boolean;
+  cryptoTreasuryAddress: string;
   stripe: {
     secretKey: string;
     webhookSecret: string;
@@ -370,7 +393,7 @@ interface ConfigFieldsInput {
  * Each caller wraps this the way its own endpoint expects.
  */
 function buildConfigFields(input: ConfigFieldsInput) {
-  const { tenant, license, googleOAuth, dbConfig, envPairs, deployHookUrl, vercelProjectId, adminEmail, pinSignInEnabled, web3WalletEnabled, stripe } = input;
+  const { tenant, license, googleOAuth, dbConfig, envPairs, deployHookUrl, vercelProjectId, adminEmail, pinSignInEnabled, web3WalletEnabled, cryptoPaymentsEnabled, cryptoTreasuryAddress, stripe } = input;
   const existingStripe = (
     ((tenant.metadata as Record<string, unknown>)?.config as Record<string, unknown> | undefined)?.stripe
     ?? {}
@@ -450,6 +473,8 @@ function buildConfigFields(input: ConfigFieldsInput) {
       pinSignInEnabled,
     },
     web3WalletEnabled,
+    cryptoPaymentsEnabled,
+    cryptoTreasuryAddress: normalizeTreasuryAddress(cryptoTreasuryAddress),
     // Preserve the suite app list — buildConfigFields only edits the fields
     // the modal exposes; dropping appPack here would wipe every suite app
     // on the next Save (the PUT route now merges, but keep the payload whole).
@@ -598,6 +623,7 @@ export function EditTenantModal({ open, tenant, onClose, onSnackbar }: EditTenan
   const [stripePreferMarketplace, setStripePreferMarketplace] = useState(true);
   const [showStripeSecrets, setShowStripeSecrets] = useState(false);
   const [pushStripeEnv, { isLoading: pushingStripeEnv }] = usePushStripeEnvVarsMutation();
+  const [pushAppEnv, { isLoading: pushingAppEnv }] = usePushAppEnvVarsMutation();
   const [syncingSubscriptionPrices, setSyncingSubscriptionPrices] = useState(false);
   const [fetchMarketplaceStatus] = useLazyGetStripeMarketplaceStatusQuery();
 
@@ -686,6 +712,12 @@ export function EditTenantModal({ open, tenant, onClose, onSnackbar }: EditTenan
   const [adminEmail, setAdminEmail] = useState(() => { const c = (tenant?.metadata?.config ?? {}) as Record<string, unknown>; const a = (c.auth ?? {}) as Record<string, unknown>; return (a.adminEmail as string) || DEFAULT_PLATFORM_ADMIN_EMAIL; });
   const [pinSignInEnabled, setPinSignInEnabled] = useState(() => { const c = (tenant?.metadata?.config ?? {}) as Record<string, unknown>; const a = (c.auth ?? {}) as Record<string, unknown>; return a.pinSignInEnabled !== false; });
   const [web3WalletEnabled, setWeb3WalletEnabled] = useState(() => initWeb3WalletEnabled(tenant));
+  const [cryptoPaymentsEnabled, setCryptoPaymentsEnabled] = useState(
+    () => initCryptoPayments(tenant).cryptoPaymentsEnabled,
+  );
+  const [cryptoTreasuryAddress, setCryptoTreasuryAddress] = useState(
+    () => initCryptoPayments(tenant).cryptoTreasuryAddress,
+  );
 
   const importFileRef = useRef<HTMLInputElement>(null);
 
@@ -1004,7 +1036,7 @@ export function EditTenantModal({ open, tenant, onClose, onSnackbar }: EditTenan
   const buildDeployPayload = useCallback(() => {
     if (!tenant) return {};
 
-    const fields = buildConfigFields({ tenant, license, googleOAuth, dbConfig, envPairs, deployHookUrl, vercelProjectId, adminEmail, pinSignInEnabled, web3WalletEnabled, stripe: stripeKeys });
+    const fields = buildConfigFields({ tenant, license, googleOAuth, dbConfig, envPairs, deployHookUrl, vercelProjectId, adminEmail, pinSignInEnabled, web3WalletEnabled, cryptoPaymentsEnabled, cryptoTreasuryAddress, stripe: stripeKeys });
 
     return {
       template: editTemplate,
@@ -1017,11 +1049,25 @@ export function EditTenantModal({ open, tenant, onClose, onSnackbar }: EditTenan
         ...fields,
       },
     };
-  }, [tenant, editTemplate, displayName, editPrimaryColor, editSecondaryColor, license, googleOAuth, dbConfig, envPairs, deployHookUrl, vercelProjectId, adminEmail, pinSignInEnabled, web3WalletEnabled, stripeKeys]);
+  }, [tenant, editTemplate, displayName, editPrimaryColor, editSecondaryColor, license, googleOAuth, dbConfig, envPairs, deployHookUrl, vercelProjectId, adminEmail, pinSignInEnabled, web3WalletEnabled, cryptoPaymentsEnabled, cryptoTreasuryAddress, stripeKeys]);
 
   // ── Save handler ──────────────────────────────────────────
   const handleSave = useCallback(async () => {
     if (!tenant) return;
+    if (cryptoPaymentsEnabled && !normalizeTreasuryAddress(cryptoTreasuryAddress)) {
+      onSnackbar({
+        message: '❌ Crypto payments require a CRYPTO_TREASURY_ADDRESS (receiving 0x… wallet).',
+        severity: 'error',
+      });
+      return;
+    }
+    if (!isValidTreasuryAddress(cryptoTreasuryAddress)) {
+      onSnackbar({
+        message: '❌ CRYPTO_TREASURY_ADDRESS must be a valid EVM address.',
+        severity: 'error',
+      });
+      return;
+    }
     setSaving(true);
     try {
       const payload = {
@@ -1032,7 +1078,7 @@ export function EditTenantModal({ open, tenant, onClose, onSnackbar }: EditTenan
         secondaryColor: editSecondaryColor,
         vercelProjectId: vercelProjectId || undefined,
         metadata: {
-          config: buildConfigFields({ tenant, license, googleOAuth, dbConfig, envPairs, deployHookUrl, vercelProjectId, adminEmail, pinSignInEnabled, web3WalletEnabled, stripe: stripeKeys }),
+          config: buildConfigFields({ tenant, license, googleOAuth, dbConfig, envPairs, deployHookUrl, vercelProjectId, adminEmail, pinSignInEnabled, web3WalletEnabled, cryptoPaymentsEnabled, cryptoTreasuryAddress, stripe: stripeKeys }),
         },
       };
 
@@ -1092,6 +1138,25 @@ export function EditTenantModal({ open, tenant, onClose, onSnackbar }: EditTenan
           message += ` — ⚠️ config saved, but Stripe env push failed: ${stripeMsg}`;
         }
       }
+
+      // Push crypto flags + treasury to Vercel and seed tenant DB (mirrors stripe-env).
+      try {
+          const cryptoRes = await pushCryptoEnv({ slug: tenant.slug }).unwrap();
+          const envCount = cryptoRes.data?.envCount ?? 0;
+          message += ` — Crypto env pushed (${envCount} var${envCount === 1 ? '' : 's'})`;
+          if (cryptoRes.data?.seededToDb) message += ', seeded to tenant DB';
+          if (cryptoRes.data?.redeployTriggered?.length) message += ', redeploy triggered';
+          else if (cryptoRes.data?.note) message += ` — ${cryptoRes.data.note}`;
+        } catch (cryptoErr) {
+          const cryptoMsg =
+            cryptoErr && typeof cryptoErr === 'object' && 'data' in cryptoErr
+              ? String(
+                  (cryptoErr as { data?: { error?: string } }).data?.error ||
+                    'Crypto env push failed',
+                )
+              : 'Crypto env push failed';
+          message += ` — ⚠️ config saved, but crypto env push failed: ${cryptoMsg}`;
+        }
       onSnackbar({ message, severity: 'success' });
     } catch (err) {
       const msg = getApiErrorMessage(err, 'Save failed');
@@ -1099,7 +1164,7 @@ export function EditTenantModal({ open, tenant, onClose, onSnackbar }: EditTenan
     } finally {
       setSaving(false);
     }
-  }, [tenant, displayName, editTemplate, editPrimaryColor, editSecondaryColor, license, googleOAuth, dbConfig, envPairs, deployHookUrl, vercelProjectId, adminEmail, pinSignInEnabled, web3WalletEnabled, updateTenant, updateBrandConfig, onSnackbar, orgId, currentOrg, organizations, assignTenantOrg, stripeKeys, pushStripeEnv]);
+  }, [tenant, displayName, editTemplate, editPrimaryColor, editSecondaryColor, license, googleOAuth, dbConfig, envPairs, deployHookUrl, vercelProjectId, adminEmail, pinSignInEnabled, web3WalletEnabled, cryptoPaymentsEnabled, cryptoTreasuryAddress, updateTenant, updateBrandConfig, onSnackbar, orgId, currentOrg, organizations, assignTenantOrg, stripeKeys, pushStripeEnv, pushCryptoEnv]);
 
   const handleApplyCatalogDefaultsAndSync = useCallback(async () => {
     if (!tenant) return;
@@ -1128,6 +1193,8 @@ export function EditTenantModal({ open, tenant, onClose, onSnackbar }: EditTenan
             adminEmail,
             pinSignInEnabled,
             web3WalletEnabled,
+            cryptoPaymentsEnabled,
+            cryptoTreasuryAddress,
             stripe: mergedStripe,
           }),
         },
@@ -1992,7 +2059,7 @@ export function EditTenantModal({ open, tenant, onClose, onSnackbar }: EditTenan
           onChange={async (dataUrl) => {
             if (!tenant) return;
             try {
-              await uploadTenantLoadingGraphic({ slug: tenant.slug, loadingGraphicUrl: dataUrl }).unwrap();
+              await uploadTenantLoadingGraphic({ slug: tenant.slug, loadingGraphicUrl: dataUrl ?? '' }).unwrap();
               onSnackbar?.({ message: 'Loading graphic updated', severity: 'success' });
             } catch {
               onSnackbar?.({ message: 'Failed to upload loading graphic', severity: 'error' });
@@ -2385,10 +2452,10 @@ export function EditTenantModal({ open, tenant, onClose, onSnackbar }: EditTenan
                 onChange={(e) => setWeb3WalletEnabled(e.target.checked)}
               />
             }
-            label="Social wallet + crypto billing (NEXT_PUBLIC_WEB3_WALLET_ENABLED / NEXT_PUBLIC_CRYPTO_PAYMENTS_ENABLED)"
+            label="Social wallet (NEXT_PUBLIC_WEB3_WALLET_ENABLED) — Reown AppKit connect"
           />
           <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: -1 }}>
-            Saved to tenant config and applied on the next Vercel deploy. Redeploy after toggling.
+            Wallet connect UI. Configure USDC rail + treasury on the <strong>Crypto Payments</strong> step.
           </Typography>
 
           <FormControlLabel
@@ -2425,6 +2492,64 @@ export function EditTenantModal({ open, tenant, onClose, onSnackbar }: EditTenan
         onApplyCatalogDefaultsAndSync={handleApplyCatalogDefaultsAndSync}
         syncing={syncingSubscriptionPrices || pushingStripeEnv}
       />
+    </Stack>
+  );
+
+  // ── Crypto Payments (USDC rail) ────────────────────────────
+  const renderStepCrypto = () => (
+    <Stack spacing={3}>
+      <Typography variant="subtitle1" sx={{ fontWeight: 600 }}>
+        Crypto Payments (USDC)
+      </Typography>
+      <Typography variant="body2" color="text.secondary">
+        Enable the USDC billing rail for this tenant. Values are saved to{' '}
+        <code>tenants.metadata.config</code>, pushed as{' '}
+        <code>CRYPTO_PAYMENTS_ENABLED</code> / <code>CRYPTO_TREASURY_ADDRESS</code> on
+        Save, and seeded into the tenant DB <code>app_settings.tenant_metadata</code> so
+        the deployed app can read them at runtime.
+      </Typography>
+
+      <Alert severity="info">
+        Social wallet connect is configured on <strong>Organization &amp; Billing</strong>.
+        Crypto top-ups also need a linked wallet (Sign in → Connect Wallet → SIWE) on the
+        live app.
+      </Alert>
+
+      <Paper variant="outlined" sx={{ p: 2.5 }}>
+        <Stack spacing={2}>
+          <FormControlLabel
+            control={
+              <Switch
+                checked={cryptoPaymentsEnabled}
+                onChange={(e) => setCryptoPaymentsEnabled(e.target.checked)}
+              />
+            }
+            label="CRYPTO_PAYMENTS_ENABLED — USDC top-ups & prepaid plans"
+          />
+          <TextField
+            label="CRYPTO_TREASURY_ADDRESS"
+            value={cryptoTreasuryAddress}
+            onChange={(e) => setCryptoTreasuryAddress(e.target.value.trim())}
+            fullWidth
+            required={cryptoPaymentsEnabled}
+            error={
+              Boolean(cryptoTreasuryAddress) && !isValidTreasuryAddress(cryptoTreasuryAddress)
+            }
+            helperText={
+              cryptoPaymentsEnabled
+                ? 'Receiving wallet for USDC (Base mainnet in production). Required when enabled.'
+                : 'Optional while disabled — saved for the next enable.'
+            }
+            placeholder="0x…"
+            InputProps={{ sx: { fontFamily: 'monospace', fontSize: '0.875rem' } }}
+          />
+          {pushingCryptoEnv ? <LinearProgress /> : null}
+          <Typography variant="caption" color="text.secondary">
+            Save Changes writes config, pushes Vercel env, seeds the tenant Neon DB, and
+            triggers deploy hooks when available.
+          </Typography>
+        </Stack>
+      </Paper>
     </Stack>
   );
 
@@ -3796,6 +3921,14 @@ export function EditTenantModal({ open, tenant, onClose, onSnackbar }: EditTenan
         <Stack spacing={0.5}>
           <SummaryRow label="Admin Email" value={adminEmail || DEFAULT_PLATFORM_ADMIN_EMAIL} />
           <SummaryRow label="Social Wallet" value={web3WalletEnabled ? '✅ Enabled' : '❌ Disabled'} />
+          <SummaryRow
+            label="Crypto Payments"
+            value={
+              cryptoPaymentsEnabled
+                ? `✅ Enabled → ${cryptoTreasuryAddress ? `${cryptoTreasuryAddress.slice(0, 10)}…` : '⚠️ missing treasury'}`
+                : '❌ Disabled'
+            }
+          />
           <SummaryRow label="PIN Sign-in" value={pinSignInEnabled ? '✅ Enabled' : '❌ Disabled'} />
         </Stack>
       </Paper>
@@ -3858,6 +3991,7 @@ export function EditTenantModal({ open, tenant, onClose, onSnackbar }: EditTenan
       case 'license': return renderStepLicense();
       case 'database': return renderStepDatabase();
       case 'org': return renderStepOrgBilling();
+      case 'crypto': return renderStepCrypto();
       case 'features': return renderStepFeatures();
       case 'openai': return renderStepOpenAi();
       case 'oauth': return renderStepOAuth();

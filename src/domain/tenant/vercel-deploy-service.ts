@@ -12,6 +12,7 @@ import {
 } from './vercel-stripe-marketplace-service';
 import { DEFAULT_RELAY_REDIRECT_URI } from '@/lib/auth/google-relay';
 import { buildWeb3EnvVars, resolveWeb3WalletForDeploy } from '@/lib/web3/reown';
+import { buildCryptoPaymentEnvVars } from '@/lib/web3/crypto-tenant-config';
 import { billingIdentityEnvVars } from '@/lib/billing/organization-env';
 import { resolveTemplate } from '@/domain/tenant/custom-template-service';
 import { resolveAssistantProfile, resolveChatStarterPrompt } from '@/domain/tenant/template-assistant-profiles';
@@ -364,12 +365,23 @@ export async function buildEnvVarsForProject(input: DeployTenantInput): Promise<
   // asks for anyway.
   try {
     const template = await resolveTemplate(input.template);
-    const tenantConfig = (input.metadata?.config ?? {}) as { web3WalletEnabled?: boolean };
+    const tenantConfig = (input.metadata?.config ?? input.metadata ?? {}) as {
+      web3WalletEnabled?: boolean;
+      cryptoPaymentsEnabled?: boolean;
+      cryptoTreasuryAddress?: string;
+    };
     const web3Wallet = resolveWeb3WalletForDeploy(
       template.capabilities?.web3Wallet,
       tenantConfig,
     );
-    Object.assign(envVars, buildWeb3EnvVars(web3Wallet));
+    const cryptoOverride =
+      typeof tenantConfig.cryptoPaymentsEnabled === 'boolean'
+        ? {
+            cryptoPaymentsEnabled: tenantConfig.cryptoPaymentsEnabled,
+            cryptoTreasuryAddress: tenantConfig.cryptoTreasuryAddress,
+          }
+        : null;
+    Object.assign(envVars, buildWeb3EnvVars(web3Wallet, cryptoOverride));
 
     // Stamp the template identity onto the deployment.
     //
@@ -502,6 +514,31 @@ export async function syncStripeEnvVars(
     }
   }
 
+  return envCount;
+}
+
+/**
+ * Push CRYPTO_PAYMENTS_ENABLED + CRYPTO_TREASURY_ADDRESS (+ public mirror) to a
+ * Vercel project. Always writes the enable flags so disable sticks across deploys.
+ */
+export async function syncCryptoEnvVars(
+  projectId: string,
+  crypto: {
+    cryptoPaymentsEnabled: boolean;
+    cryptoTreasuryAddress?: string;
+  },
+): Promise<number> {
+  const envVars = buildCryptoPaymentEnvVars(crypto, { clearTreasuryWhenDisabled: true });
+
+  let envCount = 0;
+  for (const [key, value] of Object.entries(envVars)) {
+    try {
+      const ok = await upsertProjectEnvVar(projectId, key, value);
+      if (ok) envCount++;
+    } catch (err) {
+      console.error(`[vercel-deploy] Failed to set env ${key}:`, err);
+    }
+  }
   return envCount;
 }
 

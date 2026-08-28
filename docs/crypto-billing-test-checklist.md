@@ -4,8 +4,10 @@ Manual verification for dual-rail billing (Stripe + USDC) on the factory app and
 
 ## Prerequisites
 
-- `CRYPTO_TREASURY_ADDRESS` and `CRYPTO_PAYMENTS_ENABLED=true` on the server
-- `NEXT_PUBLIC_CRYPTO_PAYMENTS_ENABLED=true` (or dev default)
+- Factory / tenant: `CRYPTO_TREASURY_ADDRESS` and `CRYPTO_PAYMENTS_ENABLED=true`
+  - **Preferred:** Ops Admin → Edit Tenant → **Crypto Payments** step → enable + paste treasury → Save Changes (pushes Vercel + seeds tenant DB)
+  - Or set the same vars manually on the Vercel project
+- `NEXT_PUBLIC_CRYPTO_PAYMENTS_ENABLED=true` (pushed with the crypto-env route)
 - Social wallet linked via SIWE (Billing → Payment Methods → connect + sign-in prompt)
 - Test wallet funded with USDC on Sepolia (dev) or Base (prod)
 
