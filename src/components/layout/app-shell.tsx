@@ -666,7 +666,7 @@ export function AppShell({ children }: { children: ReactNode }) {
                   position: 'fixed',
                   inset: 0,
                   zIndex: (t) => t.zIndex.drawer + 1,
-                  width: chatDrawerOpen ? '100vw' : 0,
+                  width: chatDrawerOpen ? '99vw' : 0,
                   height: '100dvh',
                   borderLeft: 'none',
                   visibility: chatDrawerOpen ? 'visible' : 'hidden',
