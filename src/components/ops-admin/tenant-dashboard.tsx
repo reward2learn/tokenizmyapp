@@ -91,6 +91,7 @@ import { AppRow } from '@/components/ops-admin/app-row';
 import { AppActionsMenuButton } from '@/components/ops-admin/app-actions-menu';
 import { AddAppButton } from '@/components/ops-admin/add-app-dialog';
 import { SuiteAppsExpanded } from '@/components/ops-admin/suite-apps-expanded';
+import { ExpandedSuiteAppsTable } from '@/components/ops-admin/expanded-suite-apps-table';
 import { CreateAppWizard } from '@/components/ops-admin/create-app-wizard';
 import { ChoosePlanDialog } from '@/components/ops-admin/choose-plan-dialog';
 import { DEFAULT_TENANT } from '@shared/lib/config/tenant';
@@ -1153,73 +1154,13 @@ export function TenantDashboard() {
                                     </TableRow>
                                   </TableHead>
                                   <TableBody>
-                                    {[...suite.apps]
-                                      .sort((a, b) => {
-                                        // Keep CEO Overview last for readability
-                                        const aCeo = a.appId === 'ceo-overview' || a.appId === 'owner-dashboard' ? 1 : 0;
-                                        const bCeo = b.appId === 'ceo-overview' || b.appId === 'owner-dashboard' ? 1 : 0;
-                                        return aCeo - bCeo;
-                                      })
-                                      .map((app) => {
-                                      const appTpl = getTemplate(app.templateId);
-                                      const appStatusColor = STATUS_COLORS[app.status] ?? 'default';
-                                      const isCeo =
-                                        app.appId === 'ceo-overview'
-                                        || app.appId === 'owner-dashboard'
-                                        || (/ceo/i.test(app.appId) && /executive/i.test(app.department));
-                                      return (
-                                        <TableRow key={app.appId}>
-                                          <TableCell
-                                            sx={{
-                                              cursor: 'pointer',
-                                              '&:hover .app-name': { textDecoration: 'underline', color: 'primary.main' },
-                                            }}
-                                            onClick={() => selectTenantApp(t.slug, app.appId)}
-                                          >
-                                            <Stack direction="row" spacing={0.5} sx={{ alignItems: 'center' }}>
-                                              <Typography variant="body2" className="app-name" sx={{ fontWeight: 600, fontSize: '0.8rem' }}>
-                                                {app.name}
-                                              </Typography>
-                                              {isCeo && suite.ceoOverview?.kpis?.length ? (
-                                                <Chip
-                                                  label={`${suite.ceoOverview.kpis.length} KPIs`}
-                                                  size="small"
-                                                  variant="outlined"
-                                                  color="success"
-                                                  sx={{ fontSize: '0.65rem', height: 20 }}
-                                                />
-                                              ) : null}
-                                            </Stack>
-                                          </TableCell>
-                                          <TableCell>
-                                            <Chip label={app.department} size="small" variant="outlined" sx={{ fontSize: '0.7rem' }} />
-                                          </TableCell>
-                                          <TableCell>
-                                            <Chip label={appTpl.label} size="small" variant="outlined" color="info" sx={{ fontSize: '0.7rem' }} />
-                                          </TableCell>
-                                          <TableCell>
-                                            <Chip label={app.status} size="small" color={appStatusColor} sx={{ fontSize: '0.7rem' }} />
-                                          </TableCell>
-                                          <TableCell>
-                                            {app.appUrl ? (
-                                              <Button size="small" variant="text" href={app.appUrl} target="_blank" sx={{ fontSize: '0.7rem', textTransform: 'none' }}>
-                                                {app.appUrl.replace('https://', '').slice(0, 30)}
-                                              </Button>
-                                            ) : (
-                                              <Typography variant="caption" color="text.disabled">—</Typography>
-                                            )}
-                                          </TableCell>
-                                          <TableCell align="right">
-                                            <AppActionsMenuButton
-                                              tenantSlug={t.slug}
-                                              tenantName={t.displayName}
-                                              app={app}
-                                              onSnackbar={setSnackbar}
-                                            />
-                                          </TableCell>
-                                        </TableRow>
-                                      );
-                                    })}
+                                    <ExpandedSuiteAppsTable
+                                      tenantSlug={t.slug}
+                                      tenantName={t.displayName}
+                                      suite={suite}
+                                      onSelectApp={(appId) => selectTenantApp(t.slug, appId)}
+                                      onSnackbar={setSnackbar}
+                                    />
                                   </TableBody>
                                 </Table>
                               </Box>
