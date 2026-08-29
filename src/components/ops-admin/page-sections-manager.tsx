@@ -39,6 +39,7 @@ import {
   useCreatePageSectionMutation,
   useDeletePageSectionsMutation,
   useSetPageContentLockedMutation,
+  useRestoreCatalogContentMutation,
 } from '@/store/apis/admin-api';
 import { useSeedAppMutation, useSeedTenantMutation } from '@/store/apis/tenant-api';
 import { useAppSelector } from '@/store/hooks';
@@ -95,6 +96,7 @@ export function PageSectionsManager({ tenantSlug, appId, isSuite = false }: Page
   const [setLocked, { isLoading: unlocking }] = useSetPageContentLockedMutation();
   const [seedTenant, { isLoading: seedingTenant }] = useSeedTenantMutation();
   const [seedApp, { isLoading: seedingApp }] = useSeedAppMutation();
+  const [restoreCatalog, { isLoading: restoring }] = useRestoreCatalogContentMutation();
   const seeding = seedingTenant || seedingApp;
 
   const resolvedSlug = tenantSlug ?? getTenantConfig().slug;
@@ -167,6 +169,34 @@ export function PageSectionsManager({ tenantSlug, appId, isSuite = false }: Page
           err && typeof err === 'object' && 'data' in err
             ? String((err as { data?: { error?: string } }).data?.error ?? 'Seed failed')
             : 'Seed failed',
+      });
+    }
+  };
+
+  const handleRestoreCatalog = async () => {
+    setMessage(null);
+    try {
+      const result = await restoreCatalog({ slugs: [slug] }).unwrap();
+      const d = result.data;
+      if (d?.restored) {
+        const total = d.results.reduce((sum, r) => sum + r.sectionsDeleted + r.pagesDeleted, 0);
+        setMessage({
+          severity: 'success',
+          text: `Restored catalog content for "${slug}" — ${total} DB rows deleted. The page will now use the in-memory code catalog.`,
+        });
+        // Refetch sections to show the updated state
+        void refetch();
+        void refetchPages();
+      } else {
+        setMessage({ severity: 'error', text: result.error || 'Failed to restore catalog content' });
+      }
+    } catch (err: unknown) {
+      setMessage({
+        severity: 'error',
+        text:
+          err && typeof err === 'object' && 'data' in err
+            ? String((err as { data?: { error?: string } }).data?.error ?? 'Restore failed')
+            : 'Restore failed',
       });
     }
   };
@@ -411,6 +441,16 @@ export function PageSectionsManager({ tenantSlug, appId, isSuite = false }: Page
               disabled={saving || drafts.length === 0}
             >
               Save sections
+            </Button>
+          )}
+          {canWrite && getTenantConfig().slug === 'tokenizmyapp' && (
+            <Button
+              variant="outlined"
+              color="warning"
+              onClick={() => void handleRestoreCatalog()}
+              disabled={restoring || !slug}
+            >
+              {restoring ? 'Restoring…' : 'Use Catalog Content'}
             </Button>
           )}
         </Stack>

@@ -569,6 +569,20 @@ export const adminApi = createApi({
       invalidatesTags: ['PageSections'],
     }),
 
+    /** POST /api/admin/pages/restore-catalog — delete DB page content so the
+     *  runtime resolver falls back to the in-memory code catalog. */
+    restoreCatalogContent: builder.mutation<
+      ApiEnvelope<{ restored: boolean; slugs: string[]; results: Array<{ slug: string; pagesDeleted: number; sectionsDeleted: number }> }>,
+      { slugs?: string[] }
+    >({
+      query: (body) => ({
+        url: 'admin/pages/restore-catalog',
+        method: 'POST',
+        body,
+      }),
+      invalidatesTags: ['PageSections'],
+    }),
+
     /** POST /api/admin/app-pack/generate — start app pack generation */
     generateAppPack: builder.mutation<ApiEnvelope<{ runId: string }>, { prompt: string; mock: boolean; tenantSlug: string }>({
       query: (body) => ({
@@ -692,6 +706,7 @@ export const {
   useUpdatePageSectionsMutation,
   useEnsureHeroNavRoutesMutation,
   useDeletePageSectionsMutation,
+  useRestoreCatalogContentMutation,
   useGenerateCmsFieldMutation,
   useGenerateDashboardSliceMutation,
   usePopulateSheetPagesMutation,
