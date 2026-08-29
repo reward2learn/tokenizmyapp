@@ -80,6 +80,8 @@ import {
 import { useClearSeedMutation } from '@/store/apis/admin-api';
 import { useOrgScopedTenants } from '@/lib/admin/use-org-scoped-tenants';
 import { useSelectAdminTenantContext } from '@/lib/admin/use-select-admin-tenant-context';
+import { useDeployStatusPoller, type DeployStatusMap } from '@/lib/admin/use-deploy-status-poller';
+import { useAppDeployStatusPoller, type AppDeployStatusMap } from '@/lib/admin/use-app-deploy-status-poller';
 import { getTemplate } from '@/domain/tenant/template-catalog';
 import { TenantWizard } from '@/components/ops-admin/tenant-wizard';
 import { TenantUserManager } from '@/components/ops-admin/tenant-user-manager';
@@ -88,6 +90,7 @@ import { VercelConnectButton } from '@/components/ops-admin/vercel-connect-butto
 import { AppRow } from '@/components/ops-admin/app-row';
 import { AppActionsMenuButton } from '@/components/ops-admin/app-actions-menu';
 import { AddAppButton } from '@/components/ops-admin/add-app-dialog';
+import { SuiteAppsExpanded } from '@/components/ops-admin/suite-apps-expanded';
 import { CreateAppWizard } from '@/components/ops-admin/create-app-wizard';
 import { ChoosePlanDialog } from '@/components/ops-admin/choose-plan-dialog';
 import { DEFAULT_TENANT } from '@shared/lib/config/tenant';
@@ -230,6 +233,9 @@ export function TenantDashboard() {
   const [clearDataSlug, setClearDataSlug] = useState<string | null>(null);
   const [clearConfirmText, setClearConfirmText] = useState('');
   const [clearSeed, { isLoading: isClearingData }] = useClearSeedMutation();
+
+  // Auto-fetch deploy status for all tenants
+  const { statusMap: deployStatusMap, isFetching: isFetchingDeployStatus } = useDeployStatusPoller();
 
   const allTenants = useMemo(() => data?.data?.tenants ?? [], [data]);
   // Scoped by the organization picker, shared with the Tenants panel's selector
@@ -767,6 +773,22 @@ export function TenantDashboard() {
                       size="small"
                       color={STATUS_COLORS[t.status] ?? 'default'}
                     />
+                    {/* Vercel deployment state indicator */}
+                    {(() => {
+                      const vercelState = deployStatusMap[t.slug]?.state;
+                      if (!vercelState) return null;
+                      const isNoDeployments = vercelState === 'NO_DEPLOYMENTS' || vercelState === 'NOT_FOUND';
+                      const chipColor = vercelState === 'READY' ? 'success' : vercelState === 'ERROR' ? 'error' : vercelState === 'BUILDING' || vercelState === 'QUEUED' ? 'warning' : 'default';
+                      return (
+                        <Chip
+                          label={isNoDeployments ? 'NO DEPLOYMENTS' : vercelState}
+                          size="small"
+                          variant={isNoDeployments ? 'outlined' : 'filled'}
+                          color={isNoDeployments ? 'warning' : chipColor}
+                          sx={{ fontWeight: isNoDeployments ? 600 : undefined }}
+                        />
+                      );
+                    })()}
                     {t.apiKey ? (
                       <Chip label="Licensed" size="small" color="success" variant="outlined" />
                     ) : (
@@ -782,26 +804,12 @@ export function TenantDashboard() {
                   
                   {/* Suite apps expandable section */}
                   {isSuite && isExpanded && (
-                    <Box sx={{ mt: 2, pt: 2, borderTop: '1px solid', borderColor: 'divider' }}>
-                      <Stack direction="row" sx={{ alignItems: 'center', justifyContent: 'space-between', mb: 1 }}>
-                        <Typography variant="caption" sx={{ fontWeight: 600, color: 'text.secondary' }}>
-                          Suite Apps ({suite.apps.length})
-                        </Typography>
-                        <AddAppButton tenantSlug={t.slug} onSnackbar={setSnackbar} />
-                      </Stack>
-                      <Stack spacing={1}>
-                        {suite.apps.map((app: SuiteAppInstance) => (
-                          <AppRow
-                            key={app.appId}
-                            tenantSlug={t.slug}
-                            tenantName={t.displayName}
-                            app={app}
-                            onSelect={(appId) => selectTenantApp(t.slug, appId)}
-                            onSnackbar={setSnackbar}
-                          />
-                        ))}
-                      </Stack>
-                    </Box>
+                    <SuiteAppsExpanded
+                      tenantSlug={t.slug}
+                      apps={suite.apps}
+                      onSnackbar={setSnackbar}
+                      onSelectApp={(appId) => selectTenantApp(t.slug, appId)}
+                    />
                   )}
                   
                   <Menu
@@ -960,11 +968,29 @@ export function TenantDashboard() {
                           </Stack>
                         </TableCell>
                         <TableCell>
-                          <Chip
-                            label={t.status}
-                            size="small"
-                            color={STATUS_COLORS[t.status] ?? 'default'}
-                          />
+                          <Stack direction="row" spacing={0.5} useFlexGap sx={{ flexWrap: 'wrap' }}>
+                            <Chip
+                              label={t.status}
+                              size="small"
+                              color={STATUS_COLORS[t.status] ?? 'default'}
+                            />
+                            {/* Vercel deployment state indicator */}
+                            {(() => {
+                              const vercelState = deployStatusMap[t.slug]?.state;
+                              if (!vercelState) return null;
+                              const isNoDeployments = vercelState === 'NO_DEPLOYMENTS' || vercelState === 'NOT_FOUND';
+                              const chipColor = vercelState === 'READY' ? 'success' : vercelState === 'ERROR' ? 'error' : vercelState === 'BUILDING' || vercelState === 'QUEUED' ? 'warning' : 'default';
+                              return (
+                                <Chip
+                                  label={isNoDeployments ? 'NO DEPLOYMENTS' : vercelState}
+                                  size="small"
+                                  variant={isNoDeployments ? 'outlined' : 'filled'}
+                                  color={isNoDeployments ? 'warning' : chipColor}
+                                  sx={{ fontWeight: isNoDeployments ? 600 : undefined }}
+                                />
+                              );
+                            })()}
+                          </Stack>
                         </TableCell>
                         <TableCell>
                           {t.apiKey ? (
