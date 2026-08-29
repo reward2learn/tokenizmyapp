@@ -77,7 +77,7 @@ export async function GET(
     }
 
     const deployRes = await fetch(
-      `${VERCEL_API}/v6/deployments?projectId=${app.vercelProjectId}&limit=1&teamId=${TEAM_ID}`,
+      `${VERCEL_API}/v7/deployments?projectId=${app.vercelProjectId}&limit=1&teamId=${TEAM_ID}`,
       { headers: { Authorization: `Bearer ${token}` } },
     );
 

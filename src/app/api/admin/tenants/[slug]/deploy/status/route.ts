@@ -24,7 +24,7 @@ async function fetchLatestDeployment(
   projectId: string,
   token: string,
 ): Promise<{ uid: string; name: string; state: string; url?: string; createdAt?: number; readyAt?: number } | null> {
-  const url = new URL(`${VERCEL_API}/v6/deployments`);
+  const url = new URL(`${VERCEL_API}/v7/deployments`);
   url.searchParams.set('projectId', projectId);
   url.searchParams.set('limit', '1');
   if (TEAM_ID) url.searchParams.set('teamId', TEAM_ID);
@@ -35,6 +35,23 @@ async function fetchLatestDeployment(
   if (!res.ok) {
     const errBody = await res.text().catch(() => '');
     console.warn(`[deploy:status] Vercel API ${res.status} for project ${projectId}: ${errBody.slice(0, 300)}`);
+
+    // Retry without teamId — token may already be team-scoped
+    if (TEAM_ID) {
+      const retryUrl = new URL(`${VERCEL_API}/v7/deployments`);
+      retryUrl.searchParams.set('projectId', projectId);
+      retryUrl.searchParams.set('limit', '1');
+      const retryRes = await fetch(retryUrl.toString(), {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (retryRes.ok) {
+        const retryData = await retryRes.json() as {
+          deployments?: Array<{ uid: string; name: string; state: string; url?: string; createdAt?: number; readyAt?: number }>;
+        };
+        return retryData.deployments?.[0] ?? null;
+      }
+      console.warn(`[deploy:status] Retry without teamId also failed: ${retryRes.status}`);
+    }
     return null;
   }
 

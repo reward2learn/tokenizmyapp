@@ -41,7 +41,7 @@ async function pollDeploymentUntilReady(
 
     try {
       // List recent deployments to find the latest production one
-      const url = new URL(`${VERCEL_API}/v6/deployments`);
+      const url = new URL(`${VERCEL_API}/v7/deployments`);
       url.searchParams.set('projectId', projectId);
       url.searchParams.set('limit', '1');
       if (TEAM_ID) url.searchParams.set('teamId', TEAM_ID);
