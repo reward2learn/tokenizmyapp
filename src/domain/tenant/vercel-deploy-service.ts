@@ -246,8 +246,8 @@ export async function upsertProjectEnvVar(
     return false;
   }
 
-  // Project-scoped vcp_ tokens infer team from scope — try without teamId first.
-  const teamAttempts: (string | undefined)[] = [undefined, TEAM_ID];
+  // Try with TEAM_ID first (project lives under team scope), then without.
+  const teamAttempts: (string | undefined)[] = TEAM_ID ? [TEAM_ID, undefined] : [undefined];
   const idOrNames = [projectId, 'tokenizmyapp'].filter(
     (id, index, all) => id && all.indexOf(id) === index,
   );
