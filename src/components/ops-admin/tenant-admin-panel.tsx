@@ -17,6 +17,7 @@ import { setAdminSelectedApp, setAdminActiveSubtab, type AdminTenantSubtab } fro
 import Alert from '@mui/material/Alert';
 import Box from '@mui/material/Box';
 import Chip from '@mui/material/Chip';
+import CircularProgress from '@mui/material/CircularProgress';
 import FormControl from '@mui/material/FormControl';
 import IconButton from '@mui/material/IconButton';
 import InputLabel from '@mui/material/InputLabel';
@@ -32,9 +33,10 @@ import AutoFixHighIcon from '@mui/icons-material/AutoFixHigh';
 import ClearIcon from '@mui/icons-material/Clear';
 import EditIcon from '@mui/icons-material/Edit';
 
-import { useListTenantsQuery, type TenantEntry, type AppPackConfig } from '@/store/apis/tenant-api';
+import { useListTenantsQuery, type TenantEntry, type AppPackConfig, type SuiteAppInstance } from '@/store/apis/tenant-api';
 import { useOrgScopedTenants } from '@/lib/admin/use-org-scoped-tenants';
 import { useSelectAdminTenantContext } from '@/lib/admin/use-select-admin-tenant-context';
+import { useAppDeployStatusPoller, type AppDeployStatusMap } from '@/lib/admin/use-app-deploy-status-poller';
 import { getTemplate } from '@/domain/tenant/template-catalog';
 import { OrganizationBar } from './organization-bar';
 import { TenantDashboard } from './tenant-dashboard';
@@ -71,6 +73,60 @@ function isSuiteTenant(tenant: TenantEntry): boolean {
   const cfg = (tenant.metadata?.config ?? {}) as Record<string, unknown>;
   const appPack = cfg.appPack as { apps?: unknown[] } | undefined;
   return !!appPack && Array.isArray(appPack.apps) && appPack.apps.length > 0;
+}
+
+// ── AppRow with Vercel deploy status indicator ────────────────
+
+function AppRowWithVercelStatus({
+  tenantSlug,
+  tenantName,
+  app,
+  selected,
+  onSelect,
+  onSnackbar,
+  appStatusMap,
+}: {
+  tenantSlug: string;
+  tenantName: string;
+  app: SuiteAppInstance;
+  selected?: boolean;
+  onSelect?: (appId: string) => void;
+  onSnackbar: (msg: { message: string; severity: 'success' | 'error' }) => void;
+  appStatusMap: AppDeployStatusMap;
+}) {
+  const vercelState = appStatusMap[app.appId]?.vercelState;
+
+  // Determine vercel state chip appearance
+  const isNoDeployments = vercelState === 'NO_DEPLOYMENTS' || vercelState === 'NOT_FOUND';
+  const vercelChipColor = vercelState === 'READY' ? 'success'
+    : vercelState === 'ERROR' ? 'error'
+    : vercelState === 'BUILDING' || vercelState === 'QUEUED' ? 'warning'
+    : 'default';
+
+  return (
+    <Box>
+      <AppRow
+        tenantSlug={tenantSlug}
+        tenantName={tenantName}
+        app={app}
+        selected={selected}
+        onSelect={onSelect}
+        onSnackbar={onSnackbar}
+      />
+      {/* Vercel deployment state — shown below AppRow when available */}
+      {vercelState && (
+        <Stack direction="row" spacing={0.5} sx={{ mt: 0.5, ml: 1.5 }}>
+          <Chip
+            label={isNoDeployments ? 'NO DEPLOYMENTS' : vercelState}
+            size="small"
+            variant={isNoDeployments ? 'outlined' : 'filled'}
+            color={isNoDeployments ? 'warning' : vercelChipColor}
+            sx={{ fontWeight: isNoDeployments ? 600 : undefined, height: 18, fontSize: '0.6rem' }}
+          />
+        </Stack>
+      )}
+    </Box>
+  );
 }
 
 // ── Component ───────────────────────────────────────────────
@@ -138,6 +194,12 @@ export function TenantAdminPanel() {
       dispatch(setAdminSelectedApp(tenantApps[0].appId));
     }
   }, [isSuite, tenantApps, selectedAppId, dispatch]);
+
+  // Auto-fetch Vercel deploy status for all apps under the selected tenant
+  const { statusMap: appStatusMap, isFetching: isFetchingAppStatus } = useAppDeployStatusPoller(
+    selectedTenantSlug,
+    tenantApps as SuiteAppInstance[],
+  );
 
   // The API only understands appId for real suite apps — a single-template
   // tenant's synthetic "app" (its own slug) exists purely for the UI gating
@@ -437,13 +499,16 @@ export function TenantAdminPanel() {
                   {isSuite && selectedAppPack
                     ? `Suite Hierarchy — ${selectedAppPack.name} (${tenantApps.length} apps)`
                     : 'Apps'}
+                  {isFetchingAppStatus && (
+                    <CircularProgress size={12} color="inherit" sx={{ ml: 1 }} />
+                  )}
                 </Typography>
                 {isSuite && <AddAppButton tenantSlug={selectedTenant.slug} onSnackbar={setSnackbar} />}
               </Stack>
               <Stack spacing={1}>
                 {isSuite && selectedAppPack ? (
                   selectedAppPack.apps.map((app) => (
-                    <AppRow
+                    <AppRowWithVercelStatus
                       key={app.appId}
                       tenantSlug={selectedTenant.slug}
                       tenantName={selectedTenant.displayName}
@@ -451,6 +516,7 @@ export function TenantAdminPanel() {
                       selected={app.appId === selectedAppId}
                       onSelect={handleAppSelect}
                       onSnackbar={setSnackbar}
+                      appStatusMap={appStatusMap}
                     />
                   ))
                 ) : (
