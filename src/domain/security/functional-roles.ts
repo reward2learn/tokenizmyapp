@@ -5,7 +5,8 @@
  * (see template-default-roles.ts). Prefer `useListRoleConfigsQuery()` or
  * `roleOptionsFromApi()` in admin UI instead of this static list.
  */
-import { GENERIC_DEFAULT_ROLES, type TemplateRole } from '@/domain/tenant/template-default-roles';
+import { GENERIC_DEFAULT_ROLES } from '@/domain/tenant/template-default-roles';
+import type { TemplateRole } from '@/domain/tenant/template-catalog';
 
 export type FunctionalRole = TemplateRole;
 

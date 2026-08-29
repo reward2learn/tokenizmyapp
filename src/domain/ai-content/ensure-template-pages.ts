@@ -186,7 +186,7 @@ async function loadPageBlockTypes(
       const blockTypes = page.sections.map((s: { blockType: string }) => String(s.blockType));
       const docSources = page.sections
         .filter((s: { blockType: string }) => String(s.blockType) === 'doc_markdown')
-        .map((s: { blockType: string; config: { source?: string } | null }) => {
+        .map((s: any) => {
           const cfg = s.config as { source?: string } | null;
           return String(cfg?.source ?? '');
         });

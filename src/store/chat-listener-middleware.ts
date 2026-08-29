@@ -31,6 +31,19 @@ import {
   type ChatStreamState,
 } from '@/store/chat-stream-slice';
 
+/** Minimal root-state shape used by this middleware. */
+interface ListenerRootState {
+  chatStream: ChatStreamState;
+}
+
+function getState(listenerApi: { getState: () => unknown }): ListenerRootState {
+  return listenerApi.getState() as ListenerRootState;
+}
+
+function dispatch(listenerApi: { dispatch: (action: unknown) => unknown }): any {
+  return listenerApi.dispatch;
+}
+
 const RATE_LIMIT_PATTERN = /rate limit|too large|TPM|tokens per min|max_tokens/i;
 
 function shouldWarmStudio(
@@ -92,16 +105,16 @@ chatListener.startListening({
     const options = action.payload.data;
     if (!options) return;
 
-    const state = listenerApi.getState().chatStream;
+    const state = getState(listenerApi).chatStream;
     const fallback = seedDefaultModel(state, options);
     if (fallback) {
       listenerApi.dispatch(setSelectedModel(fallback));
     }
 
-    const nextState = listenerApi.getState().chatStream;
+    const nextState = getState(listenerApi).chatStream;
     const { warm, model } = shouldWarmStudio(nextState, options);
     if (warm && model) {
-      listenerApi.dispatch(warmStudioModelFlow({ model }));
+      dispatch(listenerApi)(warmStudioModelFlow({ model }));
     } else if (!warm) {
       listenerApi.dispatch(resetWarmState());
     }
@@ -115,14 +128,14 @@ chatListener.startListening({
     chatStreamSlice.actions.resetWarmState,
   ),
   effect: (_action, listenerApi) => {
-    const state = listenerApi.getState().chatStream;
-    const cached = chatApi.endpoints.getChatAiOptions.select(undefined)(listenerApi.getState());
+    const state = getState(listenerApi).chatStream;
+    const cached = chatApi.endpoints.getChatAiOptions.select(undefined)(getState(listenerApi) as any);
     const options = cached?.data?.data;
     if (!options) return;
 
     const { warm, model } = shouldWarmStudio(state, options);
     if (warm && model) {
-      listenerApi.dispatch(warmStudioModelFlow({ model }));
+      dispatch(listenerApi)(warmStudioModelFlow({ model }));
     } else {
       listenerApi.dispatch(resetWarmState());
     }
@@ -136,7 +149,7 @@ chatListener.startListening({
     const error = action.payload;
     if (!error || !RATE_LIMIT_PATTERN.test(error)) return;
 
-    const messages = listenerApi.getState().chatStream.messages;
+    const messages = getState(listenerApi).chatStream.messages;
     const lastUser = [...messages].reverse().find((m) => m.role === 'user');
     if (!lastUser?.content) return;
 
@@ -154,14 +167,14 @@ chatListener.startListening({
     listenerApi.cancelActiveListeners();
 
     while (true) {
-      const { rateLimitCountdown } = listenerApi.getState().chatStream;
+      const { rateLimitCountdown } = getState(listenerApi).chatStream;
       if (rateLimitCountdown === null) return;
       if (rateLimitCountdown <= 0) break;
       await listenerApi.delay(1000);
       listenerApi.dispatch(tickRateLimitCountdown());
     }
 
-    const { lastFailedMessage } = listenerApi.getState().chatStream;
+    const { lastFailedMessage } = getState(listenerApi).chatStream;
     if (!lastFailedMessage) {
       listenerApi.dispatch(clearRateLimit());
       return;
@@ -171,7 +184,7 @@ chatListener.startListening({
     listenerApi.dispatch(setComposerInput(lastFailedMessage));
     listenerApi.dispatch(clearRateLimit());
     await listenerApi.delay(500);
-    listenerApi.dispatch(sendStreamingMessage({ message: lastFailedMessage, history: [] }));
+    dispatch(listenerApi)(sendStreamingMessage({ message: lastFailedMessage, history: [] }));
   },
 });
 
@@ -181,7 +194,7 @@ chatListener.startListening({
   effect: (action, listenerApi) => {
     if (action.payload !== false) return;
 
-    const state = listenerApi.getState().chatStream;
+    const state = getState(listenerApi).chatStream;
     if (!state.pendingSessionActions.length) return;
 
     const actions = [...state.pendingSessionActions];
@@ -197,7 +210,7 @@ chatListener.startListening({
         listenerApi.dispatch(setSessionStatusMessage('Conversation saved.'));
       }
       if (sessionAction === 'open_credit_topup') {
-        const topUp = listenerApi.getState().chatStream.pendingCreditTopUp;
+        const topUp = getState(listenerApi).chatStream.pendingCreditTopUp;
         if (topUp) {
           openCreditTopUp(topUp, listenerApi.dispatch);
         }
@@ -220,7 +233,7 @@ chatListener.startListening({
   effect: (action, listenerApi) => {
     const topUp = action.payload;
     if (!topUp) return;
-    if (listenerApi.getState().chatStream.isStreaming) return;
+    if (getState(listenerApi).chatStream.isStreaming) return;
     openCreditTopUp(topUp, listenerApi.dispatch);
   },
 });

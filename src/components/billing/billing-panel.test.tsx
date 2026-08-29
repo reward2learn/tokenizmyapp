@@ -21,6 +21,80 @@ vi.mock('@/components/billing/cloud-credits-tab', () => ({
 
 const orgId = 'org_test';
 
+const mockOrganization = {
+  id: orgId,
+  slug: 'acme',
+  displayName: 'Acme',
+  logoUrl: null,
+  ownerUserId: null,
+  referredBy: null,
+  billingEmail: null,
+  billingName: null,
+  billingCountry: null,
+  billingLine1: null,
+  billingLine2: null,
+  billingCity: null,
+  billingPostal: null,
+  taxId: null,
+  createdAt: '2024-01-01T00:00:00Z',
+  updatedAt: '2024-01-01T00:00:00Z',
+};
+
+const mockSubscription = {
+  id: 'sub_test',
+  orgId,
+  planId: 'free' as const,
+  interval: 'monthly' as const,
+  status: 'active' as const,
+  currentPeriodStart: '2024-01-01T00:00:00Z',
+  currentPeriodEnd: '2024-02-01T00:00:00Z',
+  cancelAtPeriodEnd: false,
+  anchorDate: '2024-01-01T00:00:00Z',
+};
+
+const mockPlan = {
+  id: 'free' as const,
+  label: 'Free',
+  tagline: 'Build and preview one app.',
+  priceMonthly: 0,
+  priceYearly: 0,
+  aiCreditsPerMonth: 0,
+  cloudMultiplier: 1,
+  maxTenants: 1,
+  maxAppsPerTenant: 1,
+  features: [],
+};
+
+const mockReadiness = {
+  ready: false,
+  hasSecretKey: false,
+  hasWebhookSecret: false,
+  hasPublishableKey: false,
+  configuredPrices: 0,
+  liveMode: false,
+  configError: null,
+};
+
+const mockLinkage = {
+  customerId: null,
+  subscriptionId: null,
+  priceId: null,
+  gracePeriodEndsAt: null,
+  pendingPlanId: null,
+};
+
+const mockBillingCheckout = {
+  subscription: mockSubscription,
+  readiness: mockReadiness,
+  purchasable: [],
+  linkage: mockLinkage,
+  reconcileNote: null,
+  priceMismatches: [],
+  publishableKey: null,
+  cryptoReadiness: { enabled: false, hasTreasury: false, chainId: 11155111, usdcContract: undefined, hasRpcUrl: false },
+  cryptoPrepaidMonths: [],
+};
+
 function renderPanel(readOnly: boolean) {
   const store = configureStore({
     reducer: {
@@ -36,15 +110,10 @@ function renderPanel(readOnly: boolean) {
     organizationApi.util.upsertQueryData('getOrganization', orgId, {
       success: true,
       data: {
-        organization: {
-          id: orgId,
-          slug: 'acme',
-          displayName: 'Acme',
-          logoUrl: null,
-        },
+        organization: mockOrganization,
         members: [],
-        subscription: { planId: 'free', interval: 'monthly', status: 'active' },
-        plan: { id: 'free', name: 'Free' },
+        subscription: mockSubscription,
+        plan: mockPlan,
       },
     }),
   );
@@ -61,14 +130,7 @@ function renderPanel(readOnly: boolean) {
   store.dispatch(
     organizationApi.util.upsertQueryData('getBillingCheckout', orgId, {
       success: true,
-      data: {
-        subscription: { planId: 'free', interval: 'monthly', status: 'active' },
-        readiness: { ready: false },
-        purchasable: [],
-        linkage: null,
-        reconcileNote: null,
-        priceMismatches: [],
-      },
+      data: mockBillingCheckout,
     }),
   );
 
@@ -94,15 +156,10 @@ function renderTopup(readOnly: boolean) {
     organizationApi.util.upsertQueryData('getOrganization', orgId, {
       success: true,
       data: {
-        organization: {
-          id: orgId,
-          slug: 'acme',
-          displayName: 'Acme',
-          logoUrl: null,
-        },
+        organization: mockOrganization,
         members: [],
-        subscription: { planId: 'free', interval: 'monthly', status: 'active' },
-        plan: { id: 'free', name: 'Free' },
+        subscription: mockSubscription,
+        plan: mockPlan,
       },
     }),
   );
@@ -119,14 +176,7 @@ function renderTopup(readOnly: boolean) {
   store.dispatch(
     organizationApi.util.upsertQueryData('getBillingCheckout', orgId, {
       success: true,
-      data: {
-        subscription: { planId: 'free', interval: 'monthly', status: 'active' },
-        readiness: { ready: false },
-        purchasable: [],
-        linkage: null,
-        reconcileNote: null,
-        priceMismatches: [],
-      },
+      data: mockBillingCheckout,
     }),
   );
 
@@ -169,15 +219,10 @@ describe('BillingPanel', () => {
       organizationApi.util.upsertQueryData('getOrganization', orgId, {
         success: true,
         data: {
-          organization: {
-            id: orgId,
-            slug: 'acme',
-            displayName: 'Acme',
-            logoUrl: null,
-          },
+          organization: mockOrganization,
           members: [],
-          subscription: { planId: 'free', interval: 'monthly', status: 'active' },
-          plan: { id: 'free', name: 'Free' },
+          subscription: mockSubscription,
+          plan: mockPlan,
         },
       }),
     );
@@ -194,14 +239,7 @@ describe('BillingPanel', () => {
     store.dispatch(
       organizationApi.util.upsertQueryData('getBillingCheckout', orgId, {
         success: true,
-        data: {
-          subscription: { planId: 'free', interval: 'monthly', status: 'active' },
-          readiness: { ready: false },
-          purchasable: [],
-          linkage: null,
-          reconcileNote: null,
-          priceMismatches: [],
-        },
+        data: mockBillingCheckout,
       }),
     );
 

@@ -193,6 +193,7 @@ export function toolCategoriesPresent(tools: OpenAiFunctionTool[]): {
   session: boolean;
   billing: boolean;
   platform: boolean;
+  workbook: boolean;
 } {
   const names = new Set(tools.map((tool) => tool.function.name));
   const categories = { session: false, billing: false, platform: false, workbook: false };

@@ -181,7 +181,7 @@ export function SubscriptionTierPricingSection({
                     fullWidth
                     type="number"
                     label="Monthly billing ($/mo)"
-                    inputProps={{ min: 0, step: 0.01 }}
+                    slotProps={{ htmlInput: { min: 0, step: 0.01 } }}
                     value={centsToDollarInput(monthlyCents)}
                     onChange={(e) => patchAmount(monthlyKey, e.target.value)}
                     placeholder="99.00"
@@ -192,7 +192,7 @@ export function SubscriptionTierPricingSection({
                     fullWidth
                     type="number"
                     label="Yearly billing ($/mo effective)"
-                    inputProps={{ min: 0, step: 0.01 }}
+                    slotProps={{ htmlInput: { min: 0, step: 0.01 } }}
                     value={centsToDollarInput(yearlyMonthlyCents)}
                     onChange={(e) => patchAmount(yearlyKey, e.target.value)}
                     placeholder="84.15"
@@ -252,7 +252,7 @@ export function SubscriptionTierPricingSection({
                       <TextField
                         size="small"
                         type="number"
-                        inputProps={{ min: 0, step: 0.01 }}
+                        slotProps={{ htmlInput: { min: 0, step: 0.01 } }}
                         value={centsToDollarInput(monthlyCents)}
                         onChange={(e) => patchAmount(monthlyKey, e.target.value)}
                         placeholder="99.00"
@@ -263,7 +263,7 @@ export function SubscriptionTierPricingSection({
                       <TextField
                         size="small"
                         type="number"
-                        inputProps={{ min: 0, step: 0.01 }}
+                        slotProps={{ htmlInput: { min: 0, step: 0.01 } }}
                         value={centsToDollarInput(yearlyMonthlyCents)}
                         onChange={(e) => patchAmount(yearlyKey, e.target.value)}
                         placeholder="84.15"

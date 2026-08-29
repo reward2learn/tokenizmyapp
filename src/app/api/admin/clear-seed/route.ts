@@ -120,7 +120,7 @@ async function resolveClient(tenantSlug: string | undefined, isPlatformAdmin: bo
   // these tables (only added by a Seed/Sync action, or here). Without this,
   // a never-re-seeded tenant's counts/deletes silently no-op per table.
   try {
-    await addTenantColumnsIfMissing(prisma);
+    await addTenantColumnsIfMissing(prisma as any);
   } catch {
     // Best-effort — individual table operations below still guard themselves.
   }
@@ -229,7 +229,7 @@ export async function POST(request: Request): Promise<NextResponse> {
       (parsed.data.mode === 'selected' && parsed.data.tables.includes('knowledge_snippets'));
     if (!parsed.data.tenantSlug && isPlatformApp() && clearedKnowledge) {
       try {
-        const seeded = await seedPlatformKnowledge(prisma, parsed.data.appId ?? '');
+        const seeded = await seedPlatformKnowledge(prisma as any, parsed.data.appId ?? '');
         console.log(`[clear-seed] Re-seeded ${seeded} platform knowledge snippet(s)`);
       } catch (err) {
         console.warn(

@@ -67,7 +67,7 @@ export function TenantAiProviderForm({ tenantSlug, appId }: TenantAiProviderForm
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (status?.activeProviderId) setSelectedProviderId(status.activeProviderId);
+    if (status?.activeProviderId) setSelectedProviderId(status.activeProviderId as AiProviderId);
   }, [status?.activeProviderId]);
 
   const selectedProvider = providers.find((p) => p.id === selectedProviderId);
@@ -75,7 +75,7 @@ export function TenantAiProviderForm({ tenantSlug, appId }: TenantAiProviderForm
   const isCurrentSelection =
     isActiveProvider
     && Boolean(selectedModel?.id)
-    && selectedModel.id === status?.activeModel;
+    && selectedModel!.id === status?.activeModel;
   const keylessProvider = selectedProvider?.requiresApiKey === false;
 
   useEffect(() => {
@@ -167,7 +167,7 @@ export function TenantAiProviderForm({ tenantSlug, appId }: TenantAiProviderForm
               color={p.id === status?.activeProviderId ? 'primary' : p.configured ? 'success' : 'default'}
               variant={p.id === status?.activeProviderId ? 'filled' : 'outlined'}
               size="small"
-              onClick={() => setSelectedProviderId(p.id)}
+              onClick={() => setSelectedProviderId(p.id as AiProviderId)}
             />
           ))}
         </Stack>

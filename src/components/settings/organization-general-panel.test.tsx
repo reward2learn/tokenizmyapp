@@ -16,6 +16,43 @@ const mockOrganization = {
   slug: 'default',
   displayName: 'Default Organization',
   logoUrl: 'https://example.com/logo.png',
+  ownerUserId: null,
+  referredBy: null,
+  billingEmail: null,
+  billingName: null,
+  billingCountry: null,
+  billingLine1: null,
+  billingLine2: null,
+  billingCity: null,
+  billingPostal: null,
+  taxId: null,
+  createdAt: '2024-01-01T00:00:00Z',
+  updatedAt: '2024-01-01T00:00:00Z',
+};
+
+const mockSubscription = {
+  id: 'sub_test',
+  orgId: mockOrganization.id,
+  planId: 'free' as const,
+  interval: 'monthly' as const,
+  status: 'active' as const,
+  currentPeriodStart: '2024-01-01T00:00:00Z',
+  currentPeriodEnd: '2024-02-01T00:00:00Z',
+  cancelAtPeriodEnd: false,
+  anchorDate: '2024-01-01T00:00:00Z',
+};
+
+const mockPlan = {
+  id: 'free' as const,
+  label: 'Free',
+  tagline: 'Build and preview one app.',
+  priceMonthly: 0,
+  priceYearly: 0,
+  aiCreditsPerMonth: 0,
+  cloudMultiplier: 1,
+  maxTenants: 1,
+  maxAppsPerTenant: 1,
+  features: [],
 };
 
 function renderPanel(orgId: string | null = mockOrganization.id) {
@@ -33,8 +70,8 @@ function renderPanel(orgId: string | null = mockOrganization.id) {
       data: {
         organization: mockOrganization,
         members: [],
-        subscription: { planId: 'free', interval: 'monthly' },
-        plan: { id: 'free', name: 'Free' },
+        subscription: mockSubscription,
+        plan: mockPlan,
       },
     }),
   );

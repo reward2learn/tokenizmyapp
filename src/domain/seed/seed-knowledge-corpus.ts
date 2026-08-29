@@ -3,6 +3,7 @@
  * another tenant's business data into its own database.
  */
 import { isPlatformApp } from '@shared/lib/config/tenant';
+// @ts-ignore — JS fixture file, no declaration
 import * as redRubyCorpus from '../../../fixtures/red-ruby/knowledge-base.js';
 
 export type RedRubySeedCorpus = typeof redRubyCorpus;

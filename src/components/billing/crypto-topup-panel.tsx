@@ -236,7 +236,7 @@ export function CryptoTopUpPanel({
 
           <Alert severity="info" variant="outlined">
             Send exactly {formatUsdcAtomic(intent.amountUsdc)} USDC from{' '}
-            {formatWalletAddress(linkedWallet)} to the platform treasury. Your wallet will prompt
+            {formatWalletAddress(linkedWallet ?? null)} to the platform treasury. Your wallet will prompt
             for approval.
           </Alert>
           <Typography variant="caption" color="text.secondary">

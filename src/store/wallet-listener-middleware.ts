@@ -74,11 +74,11 @@ walletListener.startListening({
   matcher: authApi.endpoints.getSession.matchFulfilled,
   effect: (action, listenerApi) => {
     const walletAddress = action.payload.data?.walletAddress;
-    const { wallet } = listenerApi.getState();
+    const { wallet } = (listenerApi as ListenerApi).getState();
     if (
       walletAddress
       && wallet.address
-      && sessionWalletMatches({ walletAddress }, wallet.address)
+      && sessionWalletMatches({ walletAddress, sub: '', tier: '' } as any, wallet.address)
       && wallet.linkStatus !== 'linked'
     ) {
       listenerApi.dispatch(walletLinkConfirmed());

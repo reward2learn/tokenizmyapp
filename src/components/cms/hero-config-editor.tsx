@@ -172,7 +172,7 @@ function SlideFields({
         Navigation buttons (up to 2)
       </Typography>
       {!readOnly ? (
-        <Stack direction="row" justifyContent="flex-end">
+        <Stack direction="row" sx={{ justifyContent: 'flex-end' }}>
           <AiGenerateFieldButton
             fieldKey="navButtons"
             fieldPath={path('navButtons')}

@@ -412,7 +412,7 @@ export async function createAgenticTopUpCheckout(
     throw new Error('Agentic catalog is not live for this tenant — sync the catalog first.');
   }
 
-  const resolvedConfig = stripeConfig ?? resolvedStripe;
+  const resolvedConfig = stripeConfig ?? resolvedStripe ?? undefined;
   const stripe = getStripeFor(resolvedConfig);
   if (!stripe) {
     throw new Error('Stripe is not configured for this tenant.');

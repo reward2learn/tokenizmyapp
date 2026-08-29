@@ -37,7 +37,7 @@ async function openAppKitFundView(view: AppKitFundViews): Promise<void> {
   const pending = getAppKit();
   if (!pending) throw new Error('Social wallet is not configured for this deployment.');
   const appkit = await pending;
-  await appkit.open({ view });
+  await appkit.open({ view: view as any });
 }
 
 function statusAlert(funds: PaymentFundsSnapshot) {
@@ -165,8 +165,8 @@ export function CryptoPaymentFundsPanel({
       }}
     >
       <Stack spacing={1.5}>
-        <Stack direction="row" alignItems="center" justifyContent="space-between" gap={1}>
-          <Stack direction="row" spacing={1} alignItems="center">
+        <Stack direction="row" sx={{ alignItems: 'center', justifyContent: 'space-between', gap: 1 }}>
+          <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
             <AccountBalanceWalletIcon fontSize="small" color="action" />
             <Typography variant="subtitle2">Wallet funds</Typography>
           </Stack>
@@ -190,15 +190,15 @@ export function CryptoPaymentFundsPanel({
           </Box>
         ) : funds ? (
           <Stack spacing={0.75}>
-            <Stack direction="row" justifyContent="space-between" gap={2}>
+            <Stack direction="row" sx={{ justifyContent: 'space-between', gap: 2 }}>
               <Typography variant="body2" color="text.secondary">
                 USDC balance
               </Typography>
-              <Typography variant="body2" fontWeight={600} sx={{ fontVariantNumeric: 'tabular-nums' }}>
+              <Typography variant="body2" sx={{ fontWeight: 600, fontVariantNumeric: 'tabular-nums' }}>
                 {formatUsdcAtomic(funds.usdcBalance)} USDC
               </Typography>
             </Stack>
-            <Stack direction="row" justifyContent="space-between" gap={2}>
+            <Stack direction="row" sx={{ justifyContent: 'space-between', gap: 2 }}>
               <Typography variant="body2" color="text.secondary">
                 Required
               </Typography>
@@ -207,21 +207,20 @@ export function CryptoPaymentFundsPanel({
               </Typography>
             </Stack>
             {funds.usdcShortfall > 0n ? (
-              <Stack direction="row" justifyContent="space-between" gap={2}>
+              <Stack direction="row" sx={{ justifyContent: 'space-between', gap: 2 }}>
                 <Typography variant="body2" color="warning.main">
                   Shortfall
                 </Typography>
                 <Typography
                   variant="body2"
                   color="warning.main"
-                  fontWeight={600}
-                  sx={{ fontVariantNumeric: 'tabular-nums' }}
+                  sx={{ fontWeight: 600, fontVariantNumeric: 'tabular-nums' }}
                 >
                   {formatUsdcAtomic(funds.usdcShortfall)} USDC
                 </Typography>
               </Stack>
             ) : null}
-            <Stack direction="row" justifyContent="space-between" gap={2}>
+            <Stack direction="row" sx={{ justifyContent: 'space-between', gap: 2 }}>
               <Typography variant="body2" color="text.secondary">
                 {funds.nativeSymbol} (gas)
               </Typography>
@@ -243,7 +242,7 @@ export function CryptoPaymentFundsPanel({
         ) : null}
 
         {needsFunding || funds?.status === 'error' ? (
-          <Stack direction="row" flexWrap="wrap" gap={1}>
+          <Stack direction="row" sx={{ flexWrap: 'wrap', gap: 1 }}>
             <Button
               size="small"
               variant="contained"

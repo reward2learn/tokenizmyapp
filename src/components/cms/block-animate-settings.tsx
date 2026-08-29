@@ -34,7 +34,7 @@ function numField(
       fullWidth
       value={value}
       disabled={readOnly}
-      inputProps={inputProps}
+      slotProps={{ input: inputProps }}
       onChange={(e) => {
         const next = Number(e.target.value);
         if (!Number.isFinite(next)) return;

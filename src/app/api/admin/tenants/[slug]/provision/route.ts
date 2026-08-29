@@ -113,7 +113,7 @@ export async function POST(
   const db = createClient({ tier: guard.session.tier, sub: guard.session.sub });
 
   try {
-    await ensureTenantsTable(db);
+    await ensureTenantsTable(db as any);
 
     // Ensure tenant exists
     let tenant = await db.tenant.findUnique({ where: { slug } });

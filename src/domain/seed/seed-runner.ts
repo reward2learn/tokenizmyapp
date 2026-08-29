@@ -344,42 +344,42 @@ function buildKnowledgeSnippets(
       key: 'five_levers',
       category: 'strategy',
       content: FIVE_LEVERS.map(
-        (l) =>
-          `${l.num}. ${l.name} — ${l.impact}\nTarget: ${l.target}\nActions:\n${l.actions.map((a) => `  - ${a}`).join('\n')}`,
+        (l: any) =>
+          `${l.num}. ${l.name} — ${l.impact}\nTarget: ${l.target}\nActions:\n${l.actions.map((a: any) => `  - ${a}`).join('\n')}`,
       ).join('\n\n'),
     },
     {
       key: 'priority_actions_p0',
       category: 'actions',
-      content: PRIORITY_ACTIONS.P0_THIS_WEEK.map((a) => `- ${a}`).join('\n'),
+      content: PRIORITY_ACTIONS.P0_THIS_WEEK.map((a: any) => `- ${a}`).join('\n'),
     },
     {
       key: 'priority_actions_p1',
       category: 'actions',
-      content: PRIORITY_ACTIONS.P1_THIS_MONTH.map((a) => `- ${a}`).join('\n'),
+      content: PRIORITY_ACTIONS.P1_THIS_MONTH.map((a: any) => `- ${a}`).join('\n'),
     },
     {
       key: 'priority_actions_p2',
       category: 'actions',
-      content: PRIORITY_ACTIONS.P2_THIS_QUARTER.map((a) => `- ${a}`).join('\n'),
+      content: PRIORITY_ACTIONS.P2_THIS_QUARTER.map((a: any) => `- ${a}`).join('\n'),
     },
     {
       key: 'key_risks',
       category: 'risks',
-      content: KEY_RISKS.map((r) => `- ${r}`).join('\n'),
+      content: KEY_RISKS.map((r: any) => `- ${r}`).join('\n'),
     },
     {
       key: 'strategic_partnerships',
       category: 'strategy',
       content: Object.values(STRATEGIC_PARTNERSHIPS)
-        .map((p) => `${p.name} (${p.type}): ${p.opportunity} — ${p.revenue_impact}`)
+        .map((p: any) => `${p.name} (${p.type}): ${p.opportunity} — ${p.revenue_impact}`)
         .join('\n'),
     },
     {
       key: 'monthly_targets_table',
       category: 'metrics',
       content: MONTHLY_TARGETS.map(
-        (t) =>
+        (t: any) =>
           `${t.month}: revenue ${t.revenue}, ebitda ${t.ebitda}, guests ${t.guests}/day, spend ${t.spend}, staff ${t.staffPct}%`,
       ).join('\n'),
     },
@@ -604,7 +604,7 @@ function buildTasks(): BuiltTask[] {
       const { ownerCodes, title } = parseTaskLabel(label);
       const play = TASK_PLAYBOOK[playbookKey(title)];
       const description = play
-        ? `${play.description}\n\nSteps:\n${play.steps.map((s, i) => `${i + 1}. ${s}`).join('\n')}`
+        ? `${play.description}\n\nSteps:\n${play.steps.map((s: any, i: any) => `${i + 1}. ${s}`).join('\n')}`
         : null;
       tasks.push({
         title,
@@ -1382,7 +1382,7 @@ export async function seedFromSources(options: SeedOptions = {}): Promise<SeedRe
         `Target: ${lever.target}`,
         '',
         'Actions:',
-        ...lever.actions.map((a) => `- ${a}`),
+        ...lever.actions.map((a: any) => `- ${a}`),
       ].join('\n');
       await prisma.lever.upsert({
         where: { num_appId: { num: lever.num, appId } },

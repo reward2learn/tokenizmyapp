@@ -4,7 +4,7 @@ import type { SessionClaims } from '@/lib/auth/jwt';
 const signSessionMock = vi.fn(async (payload: SessionClaims) => JSON.stringify(payload));
 
 vi.mock('@/lib/auth/jwt', () => ({
-  signSession: (...args: unknown[]) => signSessionMock(...args),
+  signSession: (...args: [SessionClaims]) => signSessionMock(...args),
 }));
 
 import { extendSessionWithWallet, stripWalletFromSession } from '@/lib/auth/wallet-session';

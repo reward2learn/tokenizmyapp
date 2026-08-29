@@ -167,6 +167,17 @@ export async function processStripeEvent(
 }
 
 async function route(event: Stripe.Event, db: RawDb): Promise<WebhookResult> {
+  const eventType = event.type as string;
+
+  // Handle v2 events outside the typed switch (not in Stripe.Event.Type union)
+  if (eventType === 'v2.commerce.product_catalog.import.succeeded' ||
+      eventType === 'v2.commerce.product_catalog.import.completed') {
+    return handleCatalogImportSucceeded(event as any, db);
+  }
+  if (eventType === 'v2.commerce.product_catalog.import.failed') {
+    return handleCatalogImportFailed(event as any, db);
+  }
+
   switch (event.type) {
     case 'checkout.session.completed':
       return handleCheckoutCompleted(event.data.object, db);
@@ -181,11 +192,6 @@ async function route(event: Stripe.Event, db: RawDb): Promise<WebhookResult> {
       return handleInvoicePaymentFailed(event.data.object, db);
     case 'payment_intent.succeeded':
       return handlePaymentIntentSucceeded(event.data.object, db);
-    case 'v2.commerce.product_catalog.import.succeeded':
-    case 'v2.commerce.product_catalog.import.completed':
-      return handleCatalogImportSucceeded(event, db);
-    case 'v2.commerce.product_catalog.import.failed':
-      return handleCatalogImportFailed(event, db);
     default:
       return {
         handled: false,

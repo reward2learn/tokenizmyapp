@@ -15,7 +15,7 @@
 import { PrismaClient } from '@/generated/prisma';
 import { createRawClient } from '@/lib/db';
 import { deployTenant } from '@/domain/tenant/vercel-deploy-service';
-import { seedTenantDefaults, seedTemplateSecurityGroups, resolveTenantAdminEmail } from '@/domain/tenant/tenant-seed-service';
+import { seedTenantDefaults, seedTemplateSecurityGroups, resolveTenantAdminEmail, type SeedSqlClient } from '@/domain/tenant/tenant-seed-service';
 import { ensureTenantsTable } from '@/domain/tenant/tenant-service';
 import { getTemplate } from '@/domain/tenant/template-catalog';
 import type { AppPackConfig, SuiteAppInstance } from '@/store/apis/tenant-api';
@@ -122,7 +122,7 @@ export async function provisionSuiteApps(
     const dedicatedSeedClient = tenantDbUrl
       ? new PrismaClient({ datasources: { db: { url: tenantDbUrl } } })
       : null;
-    const seedDb: unknown = dedicatedSeedClient ?? db;
+    const seedDb = (dedicatedSeedClient ?? db) as SeedSqlClient;
 
     // Get apps to provision (pending or deploying)
     const statusFilter = options?.skipLive ? ['pending', 'deploying'] : ['pending'];

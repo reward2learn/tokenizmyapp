@@ -224,7 +224,7 @@ export function CryptoPlanCheckoutPanel({
 
           <Alert severity="info" variant="outlined">
             Send exactly {formatUsdcAtomic(intent.amountUsdc)} USDC from{' '}
-            {formatWalletAddress(linkedWallet)}. Recurring billing stays on Stripe if you switch
+            {formatWalletAddress(linkedWallet ?? null)}. Recurring billing stays on Stripe if you switch
             later.
           </Alert>
         </Stack>

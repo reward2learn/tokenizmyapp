@@ -57,7 +57,7 @@ export async function POST(
     const dedicatedClient = dedicatedDbUrl
       ? new PrismaClient({ datasources: { db: { url: dedicatedDbUrl } } })
       : null;
-    const seedDb: unknown = dedicatedClient ?? db;
+    const seedDb = (dedicatedClient ?? db) as any;
 
     try {
       if (!isSuite) {

@@ -478,7 +478,7 @@ export async function POST(request: Request): Promise<Response> {
     const dedicatedSeedClient = neonResult?.directUrl
       ? new PrismaClient({ datasources: { db: { url: neonResult.directUrl } } })
       : null;
-    const seedDb: unknown = dedicatedSeedClient ?? db;
+    const seedDb = (dedicatedSeedClient ?? db) as any;
     try {
       await seedTenantDefaults({ ...seedInput, db: seedDb });
       await seedTemplateSecurityGroups(seedDb, parsed.data.template);

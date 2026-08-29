@@ -77,8 +77,8 @@ export async function GET(
 
   const db = createRawClient() as unknown as DbClient;
   try {
-    await ensureTenantsTable(db);
-    await ensureTenantUserColumn(db);
+    await ensureTenantsTable(db as any);
+    await ensureTenantUserColumn(db as any);
 
     // Verify tenant exists
     const tenantRows = await db.$queryRawUnsafe(
@@ -152,8 +152,8 @@ export async function POST(
 
   const db = createRawClient() as unknown as DbClient;
   try {
-    await ensureTenantsTable(db);
-    await ensureTenantUserColumn(db);
+    await ensureTenantsTable(db as any);
+    await ensureTenantUserColumn(db as any);
 
     // Verify tenant exists
     const tenantRows = await db.$queryRawUnsafe(
@@ -248,8 +248,8 @@ export async function DELETE(
 
   const db = createRawClient() as unknown as DbClient;
   try {
-    await ensureTenantsTable(db);
-    await ensureTenantUserColumn(db);
+    await ensureTenantsTable(db as any);
+    await ensureTenantUserColumn(db as any);
 
     // Block deleting the platform's own default admin account — this would
     // lock everyone out of this console. Mirrors the guard in

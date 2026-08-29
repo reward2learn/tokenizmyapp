@@ -76,9 +76,10 @@ export function StripePaymentForm({
 
     // `redirect: 'if_required'` keeps cards inline and only navigates away for
     // methods that genuinely need it (3DS, bank redirects).
-    const { error: confirmError } = await checkoutState.checkout.confirm({
+    const result = await checkoutState.checkout.confirm({
       redirect: 'if_required',
     });
+    const confirmError = 'error' in result ? result.error : null;
 
     if (confirmError) {
       setError(confirmError.message ?? 'The payment could not be completed.');

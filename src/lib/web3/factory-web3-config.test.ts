@@ -10,20 +10,20 @@ describe('getFactoryWeb3Config', () => {
   });
 
   it('is enabled in production with the platform project id fallback', () => {
-    process.env.NODE_ENV = 'production';
+    (process.env as any).NODE_ENV = 'production';
     delete process.env.NEXT_PUBLIC_WEB3_WALLET_ENABLED;
     delete process.env.NEXT_PUBLIC_CRYPTO_PAYMENTS_ENABLED;
     expect(getFactoryWeb3Config().enabled).toBe(true);
   });
 
   it('is disabled when explicitly turned off', () => {
-    process.env.NODE_ENV = 'production';
+    (process.env as any).NODE_ENV = 'production';
     process.env.NEXT_PUBLIC_CRYPTO_PAYMENTS_ENABLED = 'false';
     expect(getFactoryWeb3Config().enabled).toBe(false);
   });
 
   it('enables when NEXT_PUBLIC_CRYPTO_PAYMENTS_ENABLED is true', () => {
-    process.env.NODE_ENV = 'production';
+    (process.env as any).NODE_ENV = 'production';
     process.env.NEXT_PUBLIC_CRYPTO_PAYMENTS_ENABLED = 'true';
     const config = getFactoryWeb3Config();
     expect(config.enabled).toBe(true);
@@ -32,7 +32,7 @@ describe('getFactoryWeb3Config', () => {
   });
 
   it('is enabled in development with the platform project id fallback', () => {
-    process.env.NODE_ENV = 'development';
+    (process.env as any).NODE_ENV = 'development';
     delete process.env.NEXT_PUBLIC_WEB3_WALLET_ENABLED;
     delete process.env.NEXT_PUBLIC_CRYPTO_PAYMENTS_ENABLED;
     expect(getFactoryWeb3Config().enabled).toBe(true);

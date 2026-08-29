@@ -244,7 +244,7 @@ async function saveSectionMarkdown(
     // Prisma model path
     await db.pageSection.update({
       where: { id: placeholder.sectionId },
-      data: { config: validated },
+      data: { config: validated as any },
     });
     await db.appPage.update({
       where: { id: placeholder.pageId },

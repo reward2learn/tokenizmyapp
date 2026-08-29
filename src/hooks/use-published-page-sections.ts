@@ -32,7 +32,7 @@ export function usePublishedPageSections(
   const publishRevision = useAppSelector((s) => s.ui.pageSectionsRevision[pageCacheKey] ?? 0);
   const platformAdmin = useAppSelector((s) => s.auth.platformAdmin);
 
-  const shouldFetchCms = opts?.fetchCms ?? platformAdmin;
+  const shouldFetchCms = Boolean(opts?.fetchCms ?? platformAdmin);
   const hasPublishedCache = Boolean(published && published.length > 0);
   const serverLooksLikeCatalogOnly =
     page.sections.length > 0 && page.sections.every((s) => !s.id);

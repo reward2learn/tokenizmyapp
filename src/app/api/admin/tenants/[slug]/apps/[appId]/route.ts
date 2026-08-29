@@ -127,7 +127,7 @@ export async function POST(
     const dedicatedSeedClient = tenantDbUrl
       ? new PrismaClient({ datasources: { db: { url: tenantDbUrl } } })
       : null;
-    const seedDb: unknown = dedicatedSeedClient ?? db;
+    const seedDb = (dedicatedSeedClient ?? db) as any;
     let result: { pages: number; navItems: number; settings: boolean; adminSeeded: boolean; errors: string[] };
     try {
       result = await seedTenantDefaults({

@@ -58,7 +58,7 @@ export async function syncTenantLoadingGraphicToAppDb(
   loadingGraphicUrl: string | null,
 ): Promise<void> {
   const dbUrl = await resolveDedicatedTenantDbUrl(tenantSlug);
-  const db = dbUrl ? createClientForUrl(dbUrl) : createRawClient();
+  const db = (dbUrl ? createClientForUrl(dbUrl) : createRawClient()) as unknown as DbClient;
   try {
     await updateAppSettings(
       db,

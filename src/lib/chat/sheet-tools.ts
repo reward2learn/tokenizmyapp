@@ -84,7 +84,7 @@ const SHEET_TOOL_NAMES = new Set(
 );
 
 export function isSheetToolName(name: string): boolean {
-  return SHEET_TOOL_NAMES.has(name);
+  return SHEET_TOOL_NAMES.has(name as any);
 }
 
 export interface SheetToolContext {
