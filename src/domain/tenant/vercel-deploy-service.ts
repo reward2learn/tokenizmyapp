@@ -248,9 +248,10 @@ export async function upsertProjectEnvVar(
 
   // Try with TEAM_ID first (project lives under team scope), then without.
   const teamAttempts: (string | undefined)[] = TEAM_ID ? [TEAM_ID, undefined] : [undefined];
-  const idOrNames = [projectId, 'tokenizmyapp'].filter(
-    (id, index, all) => id && all.indexOf(id) === index,
-  );
+  // Only try the target project — NEVER fall back to 'tokenizmyapp' or any other
+  // project. A failed env upsert for a suite app must not corrupt the root
+  // platform admin by overwriting its env vars (NEXT_PUBLIC_TENANT_SLUG, etc.).
+  const idOrNames = projectId ? [projectId] : [];
 
   for (const { token, source } of tokens) {
     const client = new Vercel({ bearerToken: token, serverURL: VERCEL_API });
