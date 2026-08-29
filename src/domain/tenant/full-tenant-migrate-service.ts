@@ -274,6 +274,82 @@ async function stepGoogleAuth(
   }
 }
 
+
+/**
+ * Step: Verify all Vercel projects exist under the current team.
+ * After a team transfer, projects must be re-registered under the new team.
+ * This step checks each project ID and warns if the project is not found
+ * under the current VERCEL_TEAM_ID.
+ */
+async function stepVerifyVercelTeam(
+  slug: string,
+  tenant: Record<string, unknown>,
+): Promise<MigrateStepResult> {
+  const { VERCEL_TEAM_ID } = await import('@/lib/vercel-team');
+  const { getAppPack: getPack } = await import('@/store/apis/tenant-api');
+
+  if (!VERCEL_TEAM_ID) {
+    return stepSkipped('VERCEL_TEAM_ID not set — team verification skipped');
+  }
+
+  const token = process.env.VERCEL_TOKEN;
+  if (!token) {
+    return stepSkipped('VERCEL_TOKEN not set — team verification skipped');
+  }
+
+  const VERCEL_API = 'https://api.vercel.com';
+  const projectIds: { id: string; name: string }[] = [];
+
+  const rootId = String(tenant.vercel_project_id ?? '').trim();
+  if (rootId) projectIds.push({ id: rootId, name: slug });
+
+  const meta = (tenant.metadata ?? {}) as Record<string, unknown>;
+  const cfg = (meta.config ?? {}) as Record<string, unknown>;
+  const pack = (cfg.appPack as { apps?: Array<{ appId: string; vercelProjectId?: string }> }) ?? null;
+  for (const app of pack?.apps ?? []) {
+    const pid = String(app.vercelProjectId ?? '').trim();
+    if (pid) projectIds.push({ id: pid, name: `${slug}/${app.appId}` });
+  }
+
+  if (projectIds.length === 0) {
+    return stepSkipped('No Vercel project IDs to verify');
+  }
+
+  const verified: string[] = [];
+  const notFound: string[] = [];
+  const errors: string[] = [];
+
+  for (const project of projectIds) {
+    try {
+      const url = `${VERCEL_API}/v10/projects/${project.id}?teamId=${VERCEL_TEAM_ID}`;
+      const res = await fetch(url, {
+        headers: { Authorization: \`Bearer \${token}\` },
+      });
+      if (res.ok) {
+        verified.push(project.name);
+      } else if (res.status === 404) {
+        notFound.push(\`\${project.name} (\${project.id})\`);
+      } else {
+        const body = await res.text().catch(() => '');
+        errors.push(\`\${project.name}: HTTP \${res.status} \${body.slice(0, 100)}\`);
+      }
+    } catch (err) {
+      errors.push(\`\${project.name}: \${err instanceof Error ? err.message : String(err)}\`);
+    }
+  }
+
+  if (notFound.length > 0) {
+    return stepError(
+      \`Project(s) NOT found under team \${VERCEL_TEAM_ID}: \${notFound.join(', ')}. \` +
+      \`If you transferred projects to a new team, update VERCEL_TEAM_ID env var and re-run migrate.\`
+    );
+  }
+  if (errors.length > 0) {
+    return stepError(\`Team verification errors: \${errors.join('; ')}\`);
+  }
+  return stepOk(\`\${verified.length} project(s) verified under team \${VERCEL_TEAM_ID}\`);
+}
+
 async function stepVercelEnv(
   slug: string,
   db: RawDb,
@@ -659,6 +735,7 @@ export async function runFullTenantMigrate(
   )) as Record<string, unknown>[];
   if (afterAuth[0]) tenant = afterAuth[0];
 
+  steps.verifyTeam = await stepVerifyVercelTeam(slug, tenant);
   steps.vercel = await stepVercelEnv(slug, db, tenant);
   steps.billingIdentity = await stepBillingIdentity(slug, db);
 

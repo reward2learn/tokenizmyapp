@@ -1957,7 +1957,7 @@ export function EditTenantModal({ open, tenant, onClose, onSnackbar }: EditTenan
           <Button
             variant="outlined"
             size="small"
-            href="https://vercel.com/tokenizin-projects"
+            href={`https://vercel.com/${tenant?.vercelTeamSlug || "tokenizin-projects"}`}
             target="_blank"
             endIcon={<OpenInNewIcon />}
             sx={{ mt: 0.5, whiteSpace: 'nowrap', flexShrink: 0 }}
@@ -2437,7 +2437,7 @@ export function EditTenantModal({ open, tenant, onClose, onSnackbar }: EditTenan
         <Button
           variant="outlined"
           size="small"
-          href={tenant?.vercelProjectId ? `https://vercel.com/tokenizin-projects/${tenant.slug}/settings/domains` : 'https://vercel.com/tokenizin-projects'}
+          href={tenant?.vercelProjectId ? `https://vercel.com/${tenant?.vercelTeamSlug || 'tokenizin-projects'}/${tenant.slug}/settings/domains` : `https://vercel.com/${tenant?.vercelTeamSlug || 'tokenizin-projects'}`}
           target="_blank"
           endIcon={<OpenInNewIcon />}
           sx={{ alignSelf: 'flex-start' }}

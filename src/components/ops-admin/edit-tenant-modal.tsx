@@ -3179,7 +3179,7 @@ export function EditTenantModal({ open, tenant, onClose, onSnackbar }: EditTenan
           Team slug for dashboard links and env vars pushed on Save (
           <code>VERCEL_TEAM_SLUG</code>, <code>NEXT_PUBLIC_VERCEL_TEAM_SLUG</code>).
           Find it in Vercel → Team Settings → General → Team URL (e.g.{' '}
-          <code>vercel.com/tokenizin-projects</code> → <code>tokenizin-projects</code>).
+          <code>vercel.com/your-team</code> → <code>your-team</code>).
         </Typography>
         <TextField
           label="Vercel Team Slug"

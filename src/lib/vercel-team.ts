@@ -3,9 +3,9 @@
  * Override via env or tenant metadata.config.vercelTeamSlug (wizard).
  */
 export const VERCEL_TEAM_ID =
-  process.env.VERCEL_TEAM_ID?.trim() || 'team_7m5fwG2qKtVsGtgV35AB3nHi';
+  process.env.VERCEL_TEAM_ID?.trim() || '';
 
-export const DEFAULT_VERCEL_TEAM_SLUG = 'tokenizin-projects';
+export const DEFAULT_VERCEL_TEAM_SLUG = process.env.VERCEL_TEAM_SLUG?.trim() || '';
 
 export const VERCEL_TEAM_SLUG =
   process.env.VERCEL_TEAM_SLUG?.trim() ||
