@@ -64,7 +64,10 @@ import {
   useReconcileNavigationMutation,
   useListAdminGroupsQuery,
 } from '@/store/apis/admin-api';
+import { useSeedAppMutation, useSeedTenantMutation } from '@/store/apis/tenant-api';
 import { useAppDispatch } from '@/store/hooks';
+import { getTenantConfig, getCurrentAppId } from '@/lib/tenant-config';
+import PlayArrowIcon from '@mui/icons-material/PlayArrow';
 
 const AUTH_TIER_OPTIONS: { value: AuthTier; label: string }[] = [
   { value: 'public', label: 'Public' },
@@ -270,6 +273,9 @@ export function NavigationManager({ tenantSlug, appId }: NavigationManagerProps 
   const [createNavRaw] = useCreateNavigationItemMutation();
   const [updateNavRaw] = useUpdateNavigationItemsMutation();
   const [deleteNavRaw] = useDeleteNavigationItemsMutation();
+  const [seedTenant] = useSeedTenantMutation();
+  const [seedApp] = useSeedAppMutation();
+  const [seedingPage, setSeedingPage] = useState<string | null>(null);
   const [reconcileNavRaw] = useReconcileNavigationMutation();
   const createNav = useCallback(
     (body: Record<string, unknown>) => createNavRaw({ ...body, tenantSlug, appId: appId ?? undefined }),
@@ -315,6 +321,38 @@ export function NavigationManager({ tenantSlug, appId }: NavigationManagerProps 
       setSaving(false);
     }
   }, [reconcileNavRaw, tenantSlug, appId]);
+
+  // ── Seed from template ─────────────────────────────────
+  const handleSeedFromTemplate = useCallback(async (pageSlug: string) => {
+    setSeedingPage(pageSlug);
+    closeRowMenu();
+    try {
+      const resolvedTenantSlug = tenantSlug || getTenantConfig().slug;
+      const resolvedAppId = appId || getCurrentAppId() || undefined;
+
+      let result;
+      if (resolvedAppId) {
+        // Suite app — seed the specific app
+        result = await seedApp({ slug: resolvedTenantSlug, appId: resolvedAppId }).unwrap();
+      } else {
+        // Single-template tenant — seed the whole tenant
+        result = await seedTenant(resolvedTenantSlug).unwrap();
+      }
+
+      const d = result.data;
+      if (d?.seeded) {
+        setSuccess(true);
+        setTimeout(() => setSuccess(false), 3000);
+        // RTKQ invalidatesTags auto-refetches after seed mutations
+      } else {
+        setError('Seed returned no result');
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setSeedingPage(null);
+    }
+  }, [tenantSlug, appId, seedTenant, seedApp]);
 
   // ── Create ────────────────────────────────────────────
   const [newTitle, setNewTitle] = useState('');
@@ -847,28 +885,17 @@ export function NavigationManager({ tenantSlug, appId }: NavigationManagerProps 
           {item.requiredGroups && !isMobile ? (
             <Chip label={item.requiredGroups} size="small" color="info" variant="outlined" sx={{ height: 20, fontSize: { xs: '0.7rem', md: '0.75rem' }, maxWidth: 160 }} />
           ) : null}
-          {isMobile ? (
-            <IconButton
-              size="small"
-              onClick={(e) => {
-                e.stopPropagation();
-                setRowMenu({ anchor: e.currentTarget, item });
-              }}
-              aria-label={`Actions for ${item.title}`}
-              sx={{ flexShrink: 0, width: 36, height: 36, minWidth: 36, minHeight: 36 }}
-            >
-              <MoreVertIcon fontSize="small" />
-            </IconButton>
-          ) : (
-            <>
-              <IconButton size="small" onClick={() => openEdit(item)} aria-label={`Edit ${item.title}`}>
-                <EditIcon fontSize="small" />
-              </IconButton>
-              <IconButton size="small" color="error" onClick={() => handleDelete(item.id)} aria-label={`Delete ${item.title}`}>
-                <DeleteIcon fontSize="small" />
-              </IconButton>
-            </>
-          )}
+          <IconButton
+            size="small"
+            onClick={(e) => {
+              e.stopPropagation();
+              setRowMenu({ anchor: e.currentTarget, item });
+            }}
+            aria-label={`Actions for ${item.title}`}
+            sx={{ flexShrink: 0, width: 36, height: 36, minWidth: 36, minHeight: 36 }}
+          >
+            <MoreVertIcon fontSize="small" />
+          </IconButton>
         </Stack>
       </Paper>
     );
@@ -1027,6 +1054,25 @@ export function NavigationManager({ tenantSlug, appId }: NavigationManagerProps 
         >
           <ListItemIcon><EditIcon fontSize="small" /></ListItemIcon>
           <ListItemText>Edit</ListItemText>
+        </MenuItem>
+        <MenuItem
+          onClick={() => {
+            const target = rowMenu?.item;
+            closeRowMenu();
+            if (target) void handleSeedFromTemplate(target.path || target.title);
+          }}
+          disabled={Boolean(seedingPage)}
+        >
+          <ListItemIcon>
+            {seedingPage === (rowMenu?.item.path || rowMenu?.item.title) ? (
+              <CircularProgress size={18} color="inherit" />
+            ) : (
+              <PlayArrowIcon fontSize="small" />
+            )}
+          </ListItemIcon>
+          <ListItemText>
+            {seedingPage === (rowMenu?.item.path || rowMenu?.item.title) ? 'Seeding…' : 'Seed from Template'}
+          </ListItemText>
         </MenuItem>
         <Divider />
         <MenuItem

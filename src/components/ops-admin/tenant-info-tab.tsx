@@ -1,5 +1,6 @@
 'use client';
 
+import { useState, useEffect } from 'react';
 import Box from '@mui/material/Box';
 import Chip from '@mui/material/Chip';
 import { BrandedLoadingIndicator } from '@/components/branding/branded-loading-indicator';
@@ -13,9 +14,13 @@ import TableRow from '@mui/material/TableRow';
 import Typography from '@mui/material/Typography';
 import OpenInNewIcon from '@mui/icons-material/OpenInNew';
 import RefreshIcon from '@mui/icons-material/Refresh';
+import EditIcon from '@mui/icons-material/Edit';
+import SaveIcon from '@mui/icons-material/Save';
+import CancelIcon from '@mui/icons-material/Cancel';
 import Button from '@mui/material/Button';
+import TextField from '@mui/material/TextField';
 import { useGetAdminBrandConfigQuery, useGetSeedOverviewQuery } from '@/store/apis/admin-api';
-import { useGetTenantQuery, useUploadTenantFaviconMutation, useRemoveTenantFaviconMutation } from '@/store/apis/tenant-api';
+import { useGetTenantQuery, useUpdateTenantMutation, useUploadTenantFaviconMutation, useRemoveTenantFaviconMutation } from '@/store/apis/tenant-api';
 import { getClientTenantConfig } from '@shared/lib/config/tenant';
 import { getTemplate } from '@/domain/tenant/template-catalog';
 
@@ -40,6 +45,8 @@ export function TenantInfoTab({ tenantSlug, appId }: TenantInfoTabProps = {}) {
   const { data: brandData } = useGetAdminBrandConfigQuery(
     tenantSlug ? { tenantSlug, appId: appId ?? undefined } : undefined,
   );
+  const { data: tenantData } = useGetTenantQuery(tenantSlug || tenant.slug);
+  const [updateTenant, { isLoading: updating }] = useUpdateTenantMutation();
 
   const brand = brandData?.data as
     | { tenantDisplayName?: string; tenantTemplate?: string; brandPrimaryColor?: string; brandSecondaryColor?: string }
@@ -47,6 +54,69 @@ export function TenantInfoTab({ tenantSlug, appId }: TenantInfoTabProps = {}) {
   const templateId = brand?.tenantTemplate || 'default';
   const template = getTemplate(templateId);
   const effectiveTemplate = template.label;
+
+  // Editable fields state
+  const [editing, setEditing] = useState(false);
+  const [displayName, setDisplayName] = useState(brand?.tenantDisplayName ?? tenant.displayName);
+  const [metaTitle, setMetaTitle] = useState('');
+  const [metaDescription, setMetaDescription] = useState('');
+  const [saveMessage, setSaveMessage] = useState<{ severity: 'success' | 'error'; text: string } | null>(null);
+
+  // Load metadata from tenant record
+  useEffect(() => {
+    const tenant = tenantData?.data?.tenant;
+    if (tenant) {
+      const meta = (tenant.metadata ?? {}) as Record<string, unknown>;
+      const seo = (meta.seo ?? {}) as Record<string, unknown>;
+      setDisplayName(brand?.tenantDisplayName ?? tenant.displayName ?? tenant.slug);
+      setMetaTitle((seo.title as string) ?? '');
+      setMetaDescription((seo.description as string) ?? '');
+    }
+  }, [tenantData, brand]);
+
+  const handleSave = async () => {
+    if (!tenantSlug && !tenant.slug) return;
+    const slug = tenantSlug || tenant.slug;
+    try {
+      const tenant = tenantData?.data?.tenant;
+      const existingMeta = (tenant?.metadata ?? {}) as Record<string, unknown>;
+      const existingSeo = (existingMeta.seo ?? {}) as Record<string, unknown>;
+
+      await updateTenant({
+        slug,
+        displayName: displayName.trim() || undefined,
+        metadata: {
+          ...existingMeta,
+          seo: {
+            ...existingSeo,
+            title: metaTitle.trim() || undefined,
+            description: metaDescription.trim() || undefined,
+          },
+        },
+      }).unwrap();
+      setEditing(false);
+      setSaveMessage({ severity: 'success', text: 'Tenant info updated' });
+      setTimeout(() => setSaveMessage(null), 3000);
+    } catch (err) {
+      setSaveMessage({
+        severity: 'error',
+        text: err instanceof Error ? err.message : 'Failed to update tenant info',
+      });
+    }
+  };
+
+  const handleCancel = () => {
+    setEditing(false);
+    // Reset to original values
+    const tenant = tenantData?.data?.tenant;
+    if (tenant) {
+      const meta = (tenant.metadata ?? {}) as Record<string, unknown>;
+      const seo = (meta.seo ?? {}) as Record<string, unknown>;
+      setDisplayName(brand?.tenantDisplayName ?? tenant.displayName ?? tenant.slug);
+      setMetaTitle((seo.title as string) ?? '');
+      setMetaDescription((seo.description as string) ?? '');
+    }
+  };
 
   return (
     <Paper variant="outlined" sx={{ p: 3 }}>
@@ -58,13 +128,121 @@ export function TenantInfoTab({ tenantSlug, appId }: TenantInfoTabProps = {}) {
         <Stack spacing={1.5} sx={{ maxWidth: 500 }}>
           <InfoRow label="Slug" value={tenant.slug} />
           {appId ? <InfoRow label="App" value={appId} chip={appId} /> : null}
-          <InfoRow label="Display Name" value={brand?.tenantDisplayName ?? tenant.displayName} />
+
+          {/* Display Name — editable */}
+          <Stack direction="row" spacing={2} sx={{ alignItems: 'center' }}>
+            <Typography variant="caption" color="text.secondary" sx={{ minWidth: 120, fontWeight: 600 }}>
+              Display Name
+            </Typography>
+            {editing ? (
+              <TextField
+                size="small"
+                value={displayName}
+                onChange={(e) => setDisplayName(e.target.value)}
+                placeholder="Tenant display name"
+                sx={{ flex: 1 }}
+              />
+            ) : (
+              <Typography variant="body2" sx={{ fontWeight: 500, flex: 1 }}>
+                {brand?.tenantDisplayName ?? tenant.displayName}
+              </Typography>
+            )}
+          </Stack>
+
           <InfoRow
             label="Template"
             value={effectiveTemplate}
             chip={templateId !== 'default' ? effectiveTemplate : undefined}
           />
           <InfoRow label="App URL" value={`https://${tenant.slug}.vercel.app`} link={`https://${tenant.slug}.vercel.app`} />
+
+          {/* SEO Meta fields — editable */}
+          <Box sx={{ mt: 1, pt: 1, borderTop: 1, borderColor: 'divider' }}>
+            <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 700, display: 'block', mb: 1 }}>
+              HTML Meta Tags
+            </Typography>
+
+            <Stack direction="row" spacing={2} sx={{ alignItems: 'center', mb: 1 }}>
+              <Typography variant="caption" color="text.secondary" sx={{ minWidth: 120, fontWeight: 600 }}>
+                Meta Title
+              </Typography>
+              {editing ? (
+                <TextField
+                  size="small"
+                  value={metaTitle}
+                  onChange={(e) => setMetaTitle(e.target.value)}
+                  placeholder="Page title for search engines"
+                  sx={{ flex: 1 }}
+                />
+              ) : (
+                <Typography variant="body2" sx={{ fontWeight: 500, flex: 1, fontStyle: metaTitle ? 'normal' : 'italic' }}>
+                  {metaTitle || '(not set)'}
+                </Typography>
+              )}
+            </Stack>
+
+            <Stack direction="row" spacing={2} sx={{ alignItems: 'flex-start' }}>
+              <Typography variant="caption" color="text.secondary" sx={{ minWidth: 120, fontWeight: 600, pt: 0.5 }}>
+                Meta Description
+              </Typography>
+              {editing ? (
+                <TextField
+                  size="small"
+                  multiline
+                  rows={2}
+                  value={metaDescription}
+                  onChange={(e) => setMetaDescription(e.target.value)}
+                  placeholder="Short description for search engine results"
+                  sx={{ flex: 1 }}
+                />
+              ) : (
+                <Typography variant="body2" sx={{ fontWeight: 500, flex: 1, fontStyle: metaDescription ? 'normal' : 'italic' }}>
+                  {metaDescription || '(not set)'}
+                </Typography>
+              )}
+            </Stack>
+          </Box>
+
+          {/* Edit / Save / Cancel buttons */}
+          <Stack direction="row" spacing={1} sx={{ mt: 1 }}>
+            {editing ? (
+              <>
+                <Button
+                  size="small"
+                  variant="contained"
+                  color="primary"
+                  startIcon={updating ? <BrandedLoadingIndicator size={14} /> : <SaveIcon />}
+                  onClick={handleSave}
+                  disabled={updating}
+                >
+                  Save
+                </Button>
+                <Button
+                  size="small"
+                  variant="outlined"
+                  startIcon={<CancelIcon />}
+                  onClick={handleCancel}
+                  disabled={updating}
+                >
+                  Cancel
+                </Button>
+              </>
+            ) : (
+              <Button
+                size="small"
+                variant="outlined"
+                startIcon={<EditIcon />}
+                onClick={() => setEditing(true)}
+              >
+                Edit Info
+              </Button>
+            )}
+          </Stack>
+          {saveMessage && (
+            <Typography variant="caption" color={saveMessage.severity === 'success' ? 'success.main' : 'error.main'}>
+              {saveMessage.text}
+            </Typography>
+          )}
 
           {/* Favicon lives on the factory tenants table — skip on suite/tenant deploys
               whose slug is a Vercel project id (e.g. my-finance-review-pro-fin), not a tenants row. */}
