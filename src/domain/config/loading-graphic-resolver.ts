@@ -58,7 +58,13 @@ export async function syncTenantLoadingGraphicToAppDb(
   loadingGraphicUrl: string | null,
 ): Promise<void> {
   const dbUrl = await resolveDedicatedTenantDbUrl(tenantSlug);
-  const db = (dbUrl ? createClientForUrl(dbUrl) : createRawClient()) as unknown as DbClient;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  let db: any;
+  if (dbUrl) {
+    db = createClientForUrl(dbUrl);
+  } else {
+    db = createRawClient();
+  }
   try {
     await updateAppSettings(
       db,

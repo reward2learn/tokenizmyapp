@@ -1,8 +1,6 @@
 import type { DbClient } from '@/lib/db';
-import { createRawClient, createClientForUrl } from '@/lib/db';
-import { getAppSettings, updateAppSettings } from '@/domain/config/app-settings-service';
-import { resolveDedicatedTenantDbUrl } from '@/domain/tenant/tenant-db-resolver';
-import { getOrganization, resolveOrgForTenant } from '@/domain/billing/organization-service';
+import { createRawClient } from '@/lib/db';
+import { getAppSettings } from '@/domain/config/app-settings-service';
 
 export interface ResolvedLoadingGraphic {
   /** Effective graphic shown in the app (app override, else tenant default). */
@@ -27,47 +25,11 @@ async function readRootTenantLoadingGraphicUrl(tenantSlug: string): Promise<stri
   }
 }
 
-async function readOrgLoadingGraphicUrl(tenantSlug: string): Promise<string | null> {
-  try {
-    const rootDb = createRawClient();
-    const org = await resolveOrgForTenant(tenantSlug, rootDb);
-    if (!org) return null;
-    const full = await getOrganization(rootDb, org.id);
-    const value = full?.loadingGraphicUrl?.trim();
-    return value || null;
-  } catch {
-    return null;
-  }
-}
-
 async function readTenantDefaultGraphic(db: DbClient, tenantSlug: string): Promise<string | null> {
   const settings = await getAppSettings(db, tenantSlug);
   const value = settings.brandLoadingGraphicUrl?.trim();
   if (value) return value;
-  const fromRegistry = await readRootTenantLoadingGraphicUrl(tenantSlug);
-  if (fromRegistry) return fromRegistry;
-  return readOrgLoadingGraphicUrl(tenantSlug);
-}
-
-/**
- * Persist tenant default loading graphic to the tenant DB default app_settings row
- * so deployed apps can resolve it without querying the root registry.
- */
-export async function syncTenantLoadingGraphicToAppDb(
-  tenantSlug: string,
-  loadingGraphicUrl: string | null,
-): Promise<void> {
-  const dbUrl = await resolveDedicatedTenantDbUrl(tenantSlug);
-  const db = dbUrl ? createClientForUrl(dbUrl) : createRawClient();
-  try {
-    await updateAppSettings(
-      db,
-      { brandLoadingGraphicUrl: loadingGraphicUrl ?? '' },
-      tenantSlug,
-    );
-  } finally {
-    if (dbUrl) await db.$disconnect();
-  }
+  return readRootTenantLoadingGraphicUrl(tenantSlug);
 }
 
 /**
@@ -84,8 +46,7 @@ export async function resolveLoadingGraphic(
     const tenantStored =
       settings.brandLoadingGraphicUrl?.trim() ||
       (await readRootTenantLoadingGraphicUrl(tenantSlug));
-    const tenantLoadingGraphicUrl =
-      tenantStored || (await readOrgLoadingGraphicUrl(tenantSlug)) || null;
+    const tenantLoadingGraphicUrl = tenantStored || null;
     return {
       loadingGraphicUrl: tenantLoadingGraphicUrl,
       brandLoadingGraphicUrl: tenantStored ?? '',
