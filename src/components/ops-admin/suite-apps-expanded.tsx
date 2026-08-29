@@ -4,15 +4,16 @@
  * SuiteAppsExpanded — Expanded view of suite apps with per-app deploy status.
  * Used when a suite tenant row is expanded in the tenant dashboard.
  */
-import { useMemo } from 'react';
 import Box from '@mui/material/Box';
 import Chip from '@mui/material/Chip';
+import Paper from '@mui/material/Paper';
 import Stack from '@mui/material/Stack';
 import Typography from '@mui/material/Typography';
 import CircularProgress from '@mui/material/CircularProgress';
 import type { SuiteAppInstance } from '@/store/apis/tenant-api';
 import { useAppDeployStatusPoller, type AppDeployStatusMap } from '@/lib/admin/use-app-deploy-status-poller';
-import { AppRow } from './app-row';
+import { getTemplate } from '@/domain/tenant/template-catalog';
+import { AppActionsMenuButton } from './app-actions-menu';
 import { AddAppButton } from './add-app-dialog';
 
 interface SuiteAppsExpandedProps {
@@ -22,22 +23,7 @@ interface SuiteAppsExpandedProps {
   onSelectApp?: (appId: string) => void;
 }
 
-function getVercelStateChip(vercelState: string | undefined) {
-  if (!vercelState) return null;
-  const isNoDeployments = vercelState === 'NO_DEPLOYMENTS' || vercelState === 'NOT_FOUND';
-  const chipColor = vercelState === 'READY' ? 'success' : vercelState === 'ERROR' ? 'error' : vercelState === 'BUILDING' || vercelState === 'QUEUED' ? 'warning' : 'default';
-  return (
-    <Chip
-      label={isNoDeployments ? 'NO DEPLOYMENTS' : vercelState}
-      size="small"
-      variant={isNoDeployments ? 'outlined' : 'filled'}
-      color={isNoDeployments ? 'warning' : chipColor}
-      sx={{ fontWeight: isNoDeployments ? 600 : undefined, height: 18, fontSize: '0.6rem' }}
-    />
-  );
-}
-
-function AppRowWithStatus({
+function AppRowWithLiveStatus({
   tenantSlug,
   app,
   appStatus,
@@ -50,31 +36,63 @@ function AppRowWithStatus({
   onSelect?: (appId: string) => void;
   onSnackbar: (msg: { message: string; severity: 'success' | 'error' }) => void;
 }) {
-  // Use live status if available, otherwise fall back to stored status
+  const tpl = getTemplate(app.templateId);
   const displayStatus = appStatus?.status ?? app.status;
   const displayAppUrl = appStatus?.appUrl ?? app.appUrl;
   const vercelState = appStatus?.vercelState;
 
+  const statusColor = displayStatus === 'live' ? 'success' : displayStatus === 'error' ? 'error' : 'default';
+
+  // Determine vercel state chip appearance
+  const isNoDeployments = vercelState === 'NO_DEPLOYMENTS' || vercelState === 'NOT_FOUND';
+  const vercelChipColor = vercelState === 'READY' ? 'success'
+    : vercelState === 'ERROR' ? 'error'
+    : vercelState === 'BUILDING' || vercelState === 'QUEUED' ? 'warning'
+    : 'default';
+
   return (
-    <Box>
-      <AppRow
-        tenantSlug={tenantSlug}
-        tenantName=""
-        app={{
-          ...app,
-          status: displayStatus,
-          appUrl: displayAppUrl,
-        }}
-        onSelect={onSelect}
-        onSnackbar={onSnackbar}
-      />
-      {/* Vercel deployment state indicator */}
-      {vercelState && (
-        <Stack direction="row" spacing={0.5} sx={{ mt: 0.5, ml: 1.5 }}>
-          {getVercelStateChip(vercelState)}
+    <Paper
+      variant="outlined"
+      onClick={onSelect ? () => onSelect(app.appId) : undefined}
+      sx={{
+        p: 1.5,
+        cursor: onSelect ? 'pointer' : 'default',
+        '&:hover': onSelect ? { borderColor: 'primary.main' } : undefined,
+      }}
+    >
+      <Stack direction="row" spacing={0.5} useFlexGap sx={{ alignItems: 'center', width: '100%', minWidth: 0, flexWrap: 'wrap', rowGap: 0.5 }}>
+        <Box sx={{ flex: '1 1 140px', minWidth: 0 }}>
+          <Typography variant="body2" sx={{ fontWeight: 500, wordBreak: 'break-word' }}>
+            {app.name}
+          </Typography>
+          <Typography variant="caption" color="text.secondary" sx={{ display: 'block', wordBreak: 'break-word' }}>
+            {app.appId}{app.department !== '—' ? ` • ${app.department}` : ''} • {tpl.label}
+          </Typography>
+          {displayAppUrl && (
+            <Typography
+              variant="caption"
+              sx={{ display: 'block', color: 'primary.main', wordBreak: 'break-all', overflowWrap: 'anywhere', maxWidth: '100%' }}
+            >
+              {displayAppUrl}
+            </Typography>
+          )}
+        </Box>
+        <Stack direction="row" spacing={0.5} useFlexGap sx={{ flexShrink: 0, flexWrap: 'wrap', alignItems: 'center' }}>
+          <Chip label={displayStatus} size="small" color={statusColor} />
+          {/* Vercel deployment state — inline with status */}
+          {vercelState && (
+            <Chip
+              label={isNoDeployments ? 'NO DEPLOYMENTS' : vercelState}
+              size="small"
+              variant={isNoDeployments ? 'outlined' : 'filled'}
+              color={isNoDeployments ? 'warning' : vercelChipColor}
+              sx={{ fontWeight: isNoDeployments ? 600 : undefined }}
+            />
+          )}
+          <AppActionsMenuButton tenantSlug={tenantSlug} tenantName="" app={{ ...app, status: displayStatus, appUrl: displayAppUrl }} onSnackbar={onSnackbar} />
         </Stack>
-      )}
-    </Box>
+      </Stack>
+    </Paper>
   );
 }
 
@@ -96,7 +114,7 @@ export function SuiteAppsExpanded({ tenantSlug, apps, onSnackbar, onSelectApp }:
       </Stack>
       <Stack spacing={1}>
         {apps.map((app: SuiteAppInstance) => (
-          <AppRowWithStatus
+          <AppRowWithLiveStatus
             key={app.appId}
             tenantSlug={tenantSlug}
             app={app}

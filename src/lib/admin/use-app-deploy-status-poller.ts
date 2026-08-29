@@ -31,13 +31,11 @@ export function useAppDeployStatusPoller(tenantSlug: string | null, apps: SuiteA
     setIsFetching(true);
     const newMap: AppDeployStatusMap = {};
 
-    // Only fetch status for apps that have a vercelProjectId
-    const appsToCheck = apps.filter((app) => app.vercelProjectId);
-
-    // Fetch statuses in parallel with a small delay between batches
+    // Fetch status for ALL apps — the API endpoint handles the no-project case
+    // and returns NOT_FOUND for undeployed apps.
     const batchSize = 3;
-    for (let i = 0; i < appsToCheck.length; i += batchSize) {
-      const batch = appsToCheck.slice(i, i + batchSize);
+    for (let i = 0; i < apps.length; i += batchSize) {
+      const batch = apps.slice(i, i + batchSize);
       const results = await Promise.allSettled(
         batch.map(async (app) => {
           const result = await refreshAppStatus({ slug: tenantSlug, appId: app.appId }).unwrap();
@@ -60,7 +58,7 @@ export function useAppDeployStatusPoller(tenantSlug: string | null, apps: SuiteA
       });
 
       // Small delay between batches to avoid rate limiting
-      if (i + batchSize < appsToCheck.length) {
+      if (i + batchSize < apps.length) {
         await new Promise((resolve) => setTimeout(resolve, 200));
       }
     }
