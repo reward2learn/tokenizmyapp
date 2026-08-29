@@ -1,6 +1,8 @@
 /**
  * Unlink the wallet from the factory JWT and disconnect AppKit.
  */
+import { clearReownSessionStorage } from '@/lib/web3/clear-reown-storage';
+
 function apiBase(): string {
   if (typeof window !== 'undefined') return window.location.origin;
   return process.env.NEXT_PUBLIC_HOST?.trim() || 'http://localhost:3000';
@@ -49,11 +51,21 @@ export async function disconnectAppKitWallet(): Promise<void> {
 }
 
 export async function disconnectFactoryWallet(): Promise<void> {
+  // Step 1: Unlink JWT — the critical part. This MUST succeed.
   await unlinkFactoryWalletSession();
+
+  // Step 2: Clear Reown/AppKit storage IMMEDIATELY after JWT unlink.
+  // This prevents stale auth tokens from causing a 401 "revoked" hang
+  // on the next page load.  Must happen BEFORE appkit.disconnect() because
+  // disconnect() can hang (stale Cloud session, revoked refresh token, etc.)
+  // and if it hangs, the tokens would never be cleared.
+  await clearReownSessionStorage();
+
+  // Step 3: Try AppKit disconnect (best effort — already cleaned up above).
   try {
     await disconnectAppKitWallet();
   } catch {
-    // JWT unlink succeeded — AppKit may already be disconnected or timed out.
-    // The important part (JWT wallet claims stripped) is already done.
+    // JWT unlink succeeded and storage is cleared — AppKit may already be
+    // disconnected or timed out.  The important parts are done.
   }
 }

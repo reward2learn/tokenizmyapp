@@ -8,6 +8,7 @@
 import type { AppKitNetwork } from '@reown/appkit/networks';
 import type { WagmiAdapter } from '@reown/appkit-adapter-wagmi';
 import { applyFactorySiwxAfterReady } from '@/lib/web3/apply-factory-siwx';
+import { clearReownSessionStorage } from '@/lib/web3/clear-reown-storage';
 import { getFactoryWeb3Config, type FactoryWeb3Config } from '@/lib/web3/factory-web3-config';
 import { factorySiweConfig } from '@/lib/web3/siwe-config';
 import { setWagmiConfig } from '@/lib/web3/wagmi-store';
@@ -125,8 +126,13 @@ export function getAppKit(): Promise<AppKitInstance> | null {
   if (!config.enabled) return null;
 
   if (!instance) {
-    instance = createAppKitInstance(config).catch((err) => {
+    instance = createAppKitInstance(config).catch(async (err) => {
+      console.error('[appkit-client] createAppKitInstance failed:', err);
       instance = null;
+      // If init failed, clear stale Reown storage so next retry starts fresh.
+      // This handles the case where revoked auth tokens cause readyPromise to
+      // hang or throw, leaving AppKit in a corrupted state.
+      await clearReownSessionStorage();
       throw err;
     });
   }
