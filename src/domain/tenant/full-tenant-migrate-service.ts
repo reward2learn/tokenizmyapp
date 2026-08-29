@@ -286,7 +286,6 @@ async function stepVerifyVercelTeam(
   tenant: Record<string, unknown>,
 ): Promise<MigrateStepResult> {
   const { VERCEL_TEAM_ID } = await import('@/lib/vercel-team');
-  const { getAppPack: getPack } = await import('@/store/apis/tenant-api');
 
   if (!VERCEL_TEAM_ID) {
     return stepSkipped('VERCEL_TEAM_ID not set — team verification skipped');
@@ -323,31 +322,31 @@ async function stepVerifyVercelTeam(
     try {
       const url = `${VERCEL_API}/v10/projects/${project.id}?teamId=${VERCEL_TEAM_ID}`;
       const res = await fetch(url, {
-        headers: { Authorization: \`Bearer \${token}\` },
+        headers: { Authorization: `Bearer ${token}` },
       });
       if (res.ok) {
         verified.push(project.name);
       } else if (res.status === 404) {
-        notFound.push(\`\${project.name} (\${project.id})\`);
+        notFound.push(`${project.name} (${project.id})`);
       } else {
         const body = await res.text().catch(() => '');
-        errors.push(\`\${project.name}: HTTP \${res.status} \${body.slice(0, 100)}\`);
+        errors.push(`${project.name}: HTTP ${res.status} ${body.slice(0, 100)}`);
       }
     } catch (err) {
-      errors.push(\`\${project.name}: \${err instanceof Error ? err.message : String(err)}\`);
+      errors.push(`${project.name}: ${err instanceof Error ? err.message : String(err)}`);
     }
   }
 
   if (notFound.length > 0) {
     return stepError(
-      \`Project(s) NOT found under team \${VERCEL_TEAM_ID}: \${notFound.join(', ')}. \` +
-      \`If you transferred projects to a new team, update VERCEL_TEAM_ID env var and re-run migrate.\`
+      `Project(s) NOT found under team ${VERCEL_TEAM_ID}: ${notFound.join(', ')}. ` +
+      `If you transferred projects to a new team, update VERCEL_TEAM_ID env var and re-run migrate.`
     );
   }
   if (errors.length > 0) {
-    return stepError(\`Team verification errors: \${errors.join('; ')}\`);
+    return stepError(`Team verification errors: ${errors.join('; ')}`);
   }
-  return stepOk(\`\${verified.length} project(s) verified under team \${VERCEL_TEAM_ID}\`);
+  return stepOk(`${verified.length} project(s) verified under team ${VERCEL_TEAM_ID}`);
 }
 
 async function stepVercelEnv(
