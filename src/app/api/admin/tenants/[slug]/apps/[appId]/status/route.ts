@@ -77,11 +77,13 @@ export async function GET(
     }
 
     const deployRes = await fetch(
-      `${VERCEL_API}/v6/deployments?projectId=${app.vercelProjectId}&target=production&limit=1&teamId=${TEAM_ID}`,
+      `${VERCEL_API}/v6/deployments?projectId=${app.vercelProjectId}&limit=1&teamId=${TEAM_ID}`,
       { headers: { Authorization: `Bearer ${token}` } },
     );
 
     if (!deployRes.ok) {
+      const errBody = await deployRes.text().catch(() => '');
+      console.warn(`[app-deploy:status] Vercel API ${deployRes.status} for app ${appId} project ${app.vercelProjectId}: ${errBody.slice(0, 300)}`);
       return jsonOk({
         appId,
         status: app.status,

@@ -44,7 +44,6 @@ async function pollDeploymentUntilReady(
       const url = new URL(`${VERCEL_API}/v6/deployments`);
       url.searchParams.set('projectId', projectId);
       url.searchParams.set('limit', '1');
-      url.searchParams.set('target', 'production');
       if (TEAM_ID) url.searchParams.set('teamId', TEAM_ID);
 
       const res = await fetch(url.toString(), {
@@ -52,7 +51,8 @@ async function pollDeploymentUntilReady(
       });
 
       if (!res.ok) {
-        console.warn(`[deploy:poll] Attempt ${attempt + 1}: Vercel API returned ${res.status}`);
+        const errBody = await res.text().catch(() => '');
+        console.warn(`[deploy:poll] Attempt ${attempt + 1}: Vercel API returned ${res.status}: ${errBody.slice(0, 300)}`);
         continue;
       }
 

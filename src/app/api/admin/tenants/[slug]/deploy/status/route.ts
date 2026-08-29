@@ -19,21 +19,24 @@ const TEAM_ID = VERCEL_TEAM_ID;
 
 export const dynamic = 'force-dynamic';
 
-/** Fetch latest production deployment by project ID. */
+/** Fetch latest deployment by project ID. */
 async function fetchLatestDeployment(
   projectId: string,
   token: string,
 ): Promise<{ uid: string; name: string; state: string; url?: string; createdAt?: number; readyAt?: number } | null> {
   const url = new URL(`${VERCEL_API}/v6/deployments`);
   url.searchParams.set('projectId', projectId);
-  url.searchParams.set('target', 'production');
   url.searchParams.set('limit', '1');
   if (TEAM_ID) url.searchParams.set('teamId', TEAM_ID);
 
   const res = await fetch(url.toString(), {
     headers: { Authorization: `Bearer ${token}` },
   });
-  if (!res.ok) return null;
+  if (!res.ok) {
+    const errBody = await res.text().catch(() => '');
+    console.warn(`[deploy:status] Vercel API ${res.status} for project ${projectId}: ${errBody.slice(0, 300)}`);
+    return null;
+  }
 
   const data = await res.json() as {
     deployments?: Array<{ uid: string; name: string; state: string; url?: string; createdAt?: number; readyAt?: number }>;
