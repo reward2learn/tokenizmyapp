@@ -65,8 +65,14 @@ export function WalletConnectButton() {
       }
       const appkit = (await pending) as AppKitLike;
 
-      // Prior AppKit session still connected — sync Redux instead of a dead modal.
-      if (syncConnectedAccount(dispatch, appkit)) return;
+      // When the user clicks from the "connected" Chip, the AppKit session may
+      // still be live — sync Redux and bail.  But when Redux says
+      // disconnected/connecting (i.e. the user explicitly asked to connect),
+      // do NOT trust a stale getAccount() — always try to open the modal.
+      // AppKit can report isConnected=true from IndexedDB while the provider
+      // is actually dead (e.g. after a disconnect + reload where IndexedDB
+      // wasn't fully cleared).  Opening the modal forces AppKit to reconcile.
+      if (status === 'connected' && syncConnectedAccount(dispatch, appkit)) return;
 
       // Explicit Connect view: default open() can target Account when JWT is linked
       // and appear to do nothing (button stuck on Connecting…).

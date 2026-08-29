@@ -57,6 +57,20 @@ export function attachWalletWatcher(store: WalletStoreLike): void {
         }
       });
 
+      // subscribeAccount only fires on *changes* — if AppKit restored a session
+      // from IndexedDB before the subscription was registered, the initial
+      // "connected" event was missed.  Sync once to close that race window.
+      const initialAccount = appkit.getAccount?.();
+      if (initialAccount?.isConnected && initialAccount.address) {
+        store.dispatch(
+          walletConnected({
+            address: initialAccount.address,
+            chainId: readChainId(appkit),
+            connectorId: initialAccount.embeddedWalletInfo?.authProvider ?? null,
+          }),
+        );
+      }
+
       appkit.subscribeNetwork((network) => {
         const state = store.getState().wallet;
         if (state.status !== 'connected' || !state.address) return;
