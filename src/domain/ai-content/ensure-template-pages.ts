@@ -11,7 +11,7 @@
  */
 import type { DbClient } from '@/lib/db';
 import type { SheetPagesSqlClient } from '@/domain/ai-content/ensure-sheet-pages';
-import { getCurrentAppId } from '@shared/lib/config/tenant';
+import { getCurrentAppId, isPlatformApp } from '@shared/lib/config/tenant';
 import { getFullCatalog } from '@/lib/page-catalog';
 
 /** Local progress shape — avoids circular import with content-generator. */
@@ -363,17 +363,29 @@ export async function deliverContentToSeededPages(
                   : 'No review parts generated',
             });
           } else if (page.slug === 'home') {
-            const { ensureTenantHomeSections } = await import(
-              '@/domain/ai-content/ensure-landing-pages'
-            );
-            await ensureTenantHomeSections(db as unknown as SheetPagesSqlClient, opts.homeHero);
-            results.push({
-              slug: page.slug,
-              title: page.title,
-              kind,
-              status: 'updated',
-              detail: 'Hero, KPIs, exec summary, review blocks',
-            });
+            // Platform app home is catalog-owned (marketing) — never overwrite
+            // with CEO Overview sections. Only tenant apps get the CEO dashboard.
+            if (isPlatformApp()) {
+              results.push({
+                slug: page.slug,
+                title: page.title,
+                kind,
+                status: 'skipped',
+                detail: 'Platform app home is catalog-owned (marketing)',
+              });
+            } else {
+              const { ensureTenantHomeSections } = await import(
+                '@/domain/ai-content/ensure-landing-pages'
+              );
+              await ensureTenantHomeSections(db as unknown as SheetPagesSqlClient, opts.homeHero);
+              results.push({
+                slug: page.slug,
+                title: page.title,
+                kind,
+                status: 'updated',
+                detail: 'Hero, KPIs, exec summary, review blocks',
+              });
+            }
           } else {
             results.push({
               slug: page.slug,
@@ -386,19 +398,31 @@ export async function deliverContentToSeededPages(
           break;
         }
         case 'dashboard': {
-          const { ensureDashboardSections } = await import(
-            '@/domain/ai-content/ensure-landing-pages'
-          );
-          await ensureDashboardSections(db as unknown as SheetPagesSqlClient, opts.homeHero);
-          results.push({
-            slug: page.slug,
-            title: page.title,
-            kind,
-            status: opts.dashboardSaved ? 'updated' : 'ready',
-            detail: opts.dashboardSaved
-              ? 'Dashboard data + hero/actions/levers'
-              : 'Layout ready (dashboard data fallback)',
-          });
+          // Platform app dashboard is overridden to "Pricing" in the catalog —
+          // never overwrite with tenant dashboard sections.
+          if (isPlatformApp()) {
+            results.push({
+              slug: page.slug,
+              title: page.title,
+              kind,
+              status: 'skipped',
+              detail: 'Platform app dashboard is catalog-owned (Pricing)',
+            });
+          } else {
+            const { ensureDashboardSections } = await import(
+              '@/domain/ai-content/ensure-landing-pages'
+            );
+            await ensureDashboardSections(db as unknown as SheetPagesSqlClient, opts.homeHero);
+            results.push({
+              slug: page.slug,
+              title: page.title,
+              kind,
+              status: opts.dashboardSaved ? 'updated' : 'ready',
+              detail: opts.dashboardSaved
+                ? 'Dashboard data + hero/actions/levers'
+                : 'Layout ready (dashboard data fallback)',
+            });
+          }
           break;
         }
         case 'tasks': {
