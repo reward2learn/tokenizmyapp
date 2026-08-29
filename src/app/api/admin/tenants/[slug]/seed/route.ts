@@ -11,6 +11,7 @@ import { requireWriteAuth } from '@/lib/auth/guards';
 import { jsonError, jsonOk } from '@/lib/api/response';
 import { ensureTenantsTable } from '@/domain/tenant/tenant-service';
 import { seedTenantDefaults, seedTemplateSecurityGroups, seedTemplateBranding, cleanTenantSeed, resolveTenantAdminEmail } from '@/domain/tenant/tenant-seed-service';
+import { isPlatformApp } from '@shared/lib/config/tenant';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 120; // 2 min timeout for seeding
@@ -88,6 +89,200 @@ export async function POST(
         primaryColor: (tenant.primary_color as string) || '#eb3d28',
         secondaryColor: (tenant.secondary_color as string) || '#0af9fe',
       });
+
+      // ── Platform Admin post-seed: overwrite basic hero with full marketing content ──
+      // The platform-admin template's default pages only include a basic hero block,
+      // but the rich marketing content lives in page-catalog.ts as PLATFORM_HOME and
+      // PLATFORM_PAGE_OVERRIDES. When the DB has rows the code-first fallback is
+      // ignored, so we must write the full content here after the base seed completes.
+      if (tenant.template === 'platform-admin') {
+        try {
+          // ── Home page: 7 marketing sections ──
+          const homePageRows = (await seedDb.$queryRawUnsafe(
+            `SELECT id FROM app_pages WHERE slug = 'home' AND tenant_slug = $1 LIMIT 1;`,
+            slug,
+          )) as { id: string }[];
+
+          if (homePageRows.length > 0) {
+            const homePageId = homePageRows[0].id;
+
+            await seedDb.$executeRawUnsafe(
+              `DELETE FROM page_sections WHERE page_id = $1;`,
+              homePageId,
+            );
+
+            const homeSections: Array<{ blockType: string; config: Record<string, unknown> }> = [
+              {
+                blockType: 'marketing_hero',
+                config: {
+                  headline: 'The best AI app builder for business',
+                  subheadline: 'Build custom software for your business without hiring a developer.',
+                  audiences: ['Internal software', 'Customer software', 'Marketing & SEO', 'Mobile apps'],
+                  quickStarts: ['CRM', 'ERP', 'HR portal', 'Inventory tracker', 'Operations dashboard'],
+                  placeholder: 'Describe the app you want — "a CRM for my 75 person sales team"…',
+                  ctaLabel: 'Try it',
+                  ctaHref: '/admin',
+                  minTier: 'public',
+                },
+              },
+              {
+                blockType: 'customer_proof',
+                config: { heading: 'Customer results', minTier: 'public' },
+              },
+              {
+                blockType: 'product_showcase',
+                config: {
+                  heading: 'From idea to published app in minutes',
+                  items: [
+                    { icon: 'chat', title: 'Build by chatting', body: 'Describe what you want and watch it get built. Change your mind and say so — the app updates with you.' },
+                    { icon: 'builtin', title: 'Everything is built in', body: 'Auth, database, hosting, file storage, AI and API integrations ship with every app. Nothing to wire up, nothing extra to buy.' },
+                    { icon: 'publish', title: 'Publish in a click', body: 'Every app deploys to its own URL immediately. Connect a custom domain when you are ready to make it yours.' },
+                    { icon: 'scale', title: 'Scale without thinking about it', body: 'Apps run serverless on Vercel with a Postgres database per tenant, so traffic spikes are the platform\'s problem, not yours.' },
+                    { icon: 'govern', title: 'Govern with confidence', body: 'Roles, security groups and per-app permissions decide who sees what. Each tenant\'s data lives in its own database.' },
+                  ],
+                  minTier: 'public',
+                },
+              },
+              {
+                blockType: 'capability_marquee',
+                config: {
+                  heading: 'Everything you need is built-in',
+                  subheading: 'Auth, hosting, database, payments, email, AI and hundreds of other features, available the moment your app exists.',
+                  rows: [
+                    ['Auth', 'Users', 'Database', 'Backend', 'Payments', 'Email', 'Storage', 'Hosting', 'Domains'],
+                    ['Files & media', 'CMS', 'Search', 'Branding', 'SEO', 'Mobile', 'Internationalization', 'Chat', 'Notifications'],
+                    ['AI text generation', 'AI image generation', 'AI speech', 'AI transcription', 'Chatbots', 'AI Gateway', 'Realtime'],
+                    ['Roles & permissions', 'Security', 'Secrets', 'Analytics', 'Audits', 'Version control', 'Scheduled events'],
+                  ],
+                  minTier: 'public',
+                },
+              },
+              {
+                blockType: 'testimonials',
+                config: { heading: 'What customers say', minTier: 'public' },
+              },
+              {
+                blockType: 'faq',
+                config: {
+                  heading: 'Frequently asked questions',
+                  items: [
+                    { question: 'What is TokenizMyApp?', answer: 'An AI app builder for businesses. You describe the software your business needs and it builds a working application — database, screens, permissions and hosting included — without hiring a developer.' },
+                    { question: 'How does it work?', answer: '1. Chat with the AI about what you want to build.\n2. Watch it get built.\n3. Publish the app to its own URL, or to a domain you own.\n4. Keep chatting to change it.' },
+                    { question: 'What can I build?', answer: 'Internal tools like CRMs, ERPs, HR portals, inventory trackers and operations dashboards, as well as customer-facing sites and portals. Templates cover restaurants, hotels, retail, healthcare, logistics, property, education, professional services, manufacturing and wellness.' },
+                    { question: 'Do I need coding experience?', answer: 'No. You describe what you need in plain language. Everything technical — the database, the API, authentication, deployment — is handled for you.' },
+                    { question: 'Can I publish to my own domain?', answer: 'Yes. Every app gets a free URL immediately, and you can connect a custom domain on a paid plan.' },
+                    { question: 'Who can see my data?', answer: 'Each tenant gets its own Postgres database rather than sharing one. Access inside an app is controlled by roles and security groups that you configure.' },
+                    { question: 'What does it cost?', answer: 'There is a free plan with a monthly allowance of AI credits, and paid plans that add custom domains, more apps and a larger allowance. You can start without a card.' },
+                  ],
+                  minTier: 'public',
+                },
+              },
+              {
+                blockType: 'cta_banner',
+                config: {
+                  heading: 'Start building for free',
+                  subheading: 'No credit card required. Describe your idea and start building in seconds.',
+                  ctaLabel: 'Start building',
+                  ctaHref: '/admin',
+                  minTier: 'public',
+                },
+              },
+            ];
+
+            for (let i = 0; i < homeSections.length; i++) {
+              const section = homeSections[i];
+              await seedDb.$executeRawUnsafe(
+                `INSERT INTO page_sections (id, page_id, sort_order, block_type, config)
+                 VALUES ($1, $2, $3, CAST($4 AS "BlockType"), CAST($5 AS jsonb));`,
+                `home:section:${i}`,
+                homePageId,
+                i,
+                section.blockType,
+                JSON.stringify(section.config),
+              );
+            }
+
+            console.log(`[seed] Platform admin home page seeded with ${homeSections.length} marketing sections`);
+          }
+
+          // ── Dashboard / Pricing page: update title + 3 sections ──
+          const dashPageRows = (await seedDb.$queryRawUnsafe(
+            `SELECT id FROM app_pages WHERE slug = 'dashboard' AND tenant_slug = $1 LIMIT 1;`,
+            slug,
+          )) as { id: string }[];
+
+          if (dashPageRows.length > 0) {
+            const dashPageId = dashPageRows[0].id;
+
+            await seedDb.$executeRawUnsafe(
+              `UPDATE app_pages SET title = 'Pricing', nav_label = 'Pricing' WHERE id = $1;`,
+              dashPageId,
+            );
+
+            await seedDb.$executeRawUnsafe(
+              `DELETE FROM page_sections WHERE page_id = $1;`,
+              dashPageId,
+            );
+
+            const dashSections: Array<{ blockType: string; config: Record<string, unknown> }> = [
+              {
+                blockType: 'pricing_table',
+                config: {
+                  heading: 'Pricing',
+                  subheading: 'Start for free and upgrade as you grow.',
+                  highlightPlanId: 'business',
+                  ctaHref: '/admin',
+                  minTier: 'public',
+                },
+              },
+              {
+                blockType: 'faq',
+                config: {
+                  heading: 'Frequently asked questions',
+                  items: [
+                    { question: 'Can I change my plan at any time?', answer: 'Yes. Upgrades take effect immediately and are charged pro rata for the rest of the current period, without resetting your billing date. Downgrades take effect at the end of the period you have already paid for, so you keep what you bought.' },
+                    { question: 'What are AI credits?', answer: 'Credits are spent when the platform generates something for you — an app, a schema, a template, or a chat reply. Each plan includes a monthly allowance, and credits expire 30 days after they are granted. You can buy top-ups on a paid plan.' },
+                    { question: 'What happens if I run out of credits?', answer: 'Work already in progress finishes rather than failing halfway. The shortfall is recorded and the next generation is blocked until it is settled, which the next monthly allowance does automatically.' },
+                    { question: 'What payment methods do you accept?', answer: 'Cards, through Stripe. Card details are entered directly with Stripe and never reach our servers. Other payment methods are handled case by case on Enterprise.' },
+                    { question: 'What does hosting cost?', answer: 'Hosting, the database, authentication, storage and email are included in every plan. Paid plans include a larger share of cloud usage.' },
+                    { question: 'Can I use my own AI provider key?', answer: 'Yes, on paid plans. You can bring your own provider key; AI credit usage is still metered against your plan balance so spend stays visible and capped.' },
+                  ],
+                  minTier: 'public',
+                },
+              },
+              {
+                blockType: 'cta_banner',
+                config: {
+                  heading: 'Start building for free',
+                  subheading: 'No credit card required.',
+                  ctaLabel: 'Start building',
+                  ctaHref: '/admin',
+                  minTier: 'public',
+                },
+              },
+            ];
+
+            for (let i = 0; i < dashSections.length; i++) {
+              const section = dashSections[i];
+              await seedDb.$executeRawUnsafe(
+                `INSERT INTO page_sections (id, page_id, sort_order, block_type, config)
+                 VALUES ($1, $2, $3, CAST($4 AS "BlockType"), CAST($5 AS jsonb));`,
+                `dashboard:section:${i}`,
+                dashPageId,
+                i,
+                section.blockType,
+                JSON.stringify(section.config),
+              );
+            }
+
+            console.log(`[seed] Platform admin pricing page seeded with ${dashSections.length} sections`);
+          }
+
+          console.log('[seed] Platform admin marketing content seeded');
+        } catch (marketingErr) {
+          console.error('[seed] Failed to seed platform admin marketing content:', marketingErr);
+        }
+      }
 
       if (result.errors?.length > 0) {
         console.error(`[seed] Seed errors for "${slug}":`, result.errors);

@@ -17,6 +17,7 @@ import RefreshIcon from '@mui/icons-material/Refresh';
 import EditIcon from '@mui/icons-material/Edit';
 import SaveIcon from '@mui/icons-material/Save';
 import CancelIcon from '@mui/icons-material/Cancel';
+import AutoAwesomeIcon from '@mui/icons-material/AutoAwesome';
 import Button from '@mui/material/Button';
 import TextField from '@mui/material/TextField';
 import { useGetAdminBrandConfigQuery, useGetSeedOverviewQuery } from '@/store/apis/admin-api';
@@ -60,7 +61,13 @@ export function TenantInfoTab({ tenantSlug, appId }: TenantInfoTabProps = {}) {
   const [displayName, setDisplayName] = useState(brand?.tenantDisplayName ?? tenant.displayName);
   const [metaTitle, setMetaTitle] = useState('');
   const [metaDescription, setMetaDescription] = useState('');
+  const [useCase, setUseCase] = useState('');
+  const [goals, setGoals] = useState<string[]>([]);
+  const [benefits, setBenefits] = useState<string[]>([]);
+  const [functionality, setFunctionality] = useState<string[]>([]);
   const [saveMessage, setSaveMessage] = useState<{ severity: 'success' | 'error'; text: string } | null>(null);
+  const [generatingSeo, setGeneratingSeo] = useState(false);
+  const [generateMessage, setGenerateMessage] = useState<{ severity: 'success' | 'error'; text: string } | null>(null);
 
   // Load metadata from tenant record
   useEffect(() => {
@@ -71,6 +78,10 @@ export function TenantInfoTab({ tenantSlug, appId }: TenantInfoTabProps = {}) {
       setDisplayName(brand?.tenantDisplayName ?? tenant.displayName ?? tenant.slug);
       setMetaTitle((seo.title as string) ?? '');
       setMetaDescription((seo.description as string) ?? '');
+      setUseCase((seo.useCase as string) ?? '');
+      setGoals(Array.isArray(seo.goals) ? (seo.goals as string[]) : []);
+      setBenefits(Array.isArray(seo.benefits) ? (seo.benefits as string[]) : []);
+      setFunctionality(Array.isArray(seo.functionality) ? (seo.functionality as string[]) : []);
     }
   }, [tenantData, brand]);
 
@@ -91,6 +102,10 @@ export function TenantInfoTab({ tenantSlug, appId }: TenantInfoTabProps = {}) {
             ...existingSeo,
             title: metaTitle.trim() || undefined,
             description: metaDescription.trim() || undefined,
+            useCase: useCase.trim() || undefined,
+            goals: goals.length > 0 ? goals : undefined,
+            benefits: benefits.length > 0 ? benefits : undefined,
+            functionality: functionality.length > 0 ? functionality : undefined,
           },
         },
       }).unwrap();
@@ -115,6 +130,46 @@ export function TenantInfoTab({ tenantSlug, appId }: TenantInfoTabProps = {}) {
       setDisplayName(brand?.tenantDisplayName ?? tenant.displayName ?? tenant.slug);
       setMetaTitle((seo.title as string) ?? '');
       setMetaDescription((seo.description as string) ?? '');
+      setUseCase((seo.useCase as string) ?? '');
+      setGoals(Array.isArray(seo.goals) ? (seo.goals as string[]) : []);
+      setBenefits(Array.isArray(seo.benefits) ? (seo.benefits as string[]) : []);
+      setFunctionality(Array.isArray(seo.functionality) ? (seo.functionality as string[]) : []);
+    }
+  };
+
+  const handleGenerateSeo = async () => {
+    setGeneratingSeo(true);
+    setGenerateMessage(null);
+    try {
+      const res = await fetch(`/api/admin/tenants/${tenant.slug}/generate-seo`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          displayName: displayName.trim() || tenant.displayName,
+          template: templateId,
+          description: metaDescription.trim() || undefined,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Generation failed');
+
+      const seo = data.data ?? data;
+      if (seo.seo?.title) setMetaTitle(seo.seo.title);
+      if (seo.seo?.description) setMetaDescription(seo.seo.description);
+      if (seo.useCase) setUseCase(seo.useCase);
+      if (Array.isArray(seo.goals)) setGoals(seo.goals);
+      if (Array.isArray(seo.benefits)) setBenefits(seo.benefits);
+      if (Array.isArray(seo.functionality)) setFunctionality(seo.functionality);
+
+      setGenerateMessage({ severity: 'success', text: 'SEO metadata generated — review and save' });
+      setTimeout(() => setGenerateMessage(null), 5000);
+    } catch (err) {
+      setGenerateMessage({
+        severity: 'error',
+        text: err instanceof Error ? err.message : 'Failed to generate SEO metadata',
+      });
+    } finally {
+      setGeneratingSeo(false);
     }
   };
 
@@ -201,6 +256,57 @@ export function TenantInfoTab({ tenantSlug, appId }: TenantInfoTabProps = {}) {
                 </Typography>
               )}
             </Stack>
+
+            {/* AI-generated app metadata */}
+            {useCase && (
+              <Stack direction="row" spacing={2} sx={{ alignItems: 'flex-start' }}>
+                <Typography variant="caption" color="text.secondary" sx={{ minWidth: 120, fontWeight: 600, pt: 0.5 }}>
+                  Use Case
+                </Typography>
+                <Typography variant="body2" sx={{ fontWeight: 500, flex: 1 }}>
+                  {useCase}
+                </Typography>
+              </Stack>
+            )}
+
+            {goals.length > 0 && (
+              <Stack direction="row" spacing={2} sx={{ alignItems: 'flex-start' }}>
+                <Typography variant="caption" color="text.secondary" sx={{ minWidth: 120, fontWeight: 600, pt: 0.5 }}>
+                  Goals
+                </Typography>
+                <Stack direction="row" spacing={0.5} sx={{ flexWrap: 'wrap', gap: 0.5 }}>
+                  {goals.map((g: string, i: number) => (
+                    <Chip key={i} label={g} size="small" variant="outlined" color="primary" />
+                  ))}
+                </Stack>
+              </Stack>
+            )}
+
+            {benefits.length > 0 && (
+              <Stack direction="row" spacing={2} sx={{ alignItems: 'flex-start' }}>
+                <Typography variant="caption" color="text.secondary" sx={{ minWidth: 120, fontWeight: 600, pt: 0.5 }}>
+                  Benefits
+                </Typography>
+                <Stack direction="row" spacing={0.5} sx={{ flexWrap: 'wrap', gap: 0.5 }}>
+                  {benefits.map((b: string, i: number) => (
+                    <Chip key={i} label={b} size="small" variant="outlined" color="success" />
+                  ))}
+                </Stack>
+              </Stack>
+            )}
+
+            {functionality.length > 0 && (
+              <Stack direction="row" spacing={2} sx={{ alignItems: 'flex-start' }}>
+                <Typography variant="caption" color="text.secondary" sx={{ minWidth: 120, fontWeight: 600, pt: 0.5 }}>
+                  Functionality
+                </Typography>
+                <Stack direction="row" spacing={0.5} sx={{ flexWrap: 'wrap', gap: 0.5 }}>
+                  {functionality.map((f: string, i: number) => (
+                    <Chip key={i} label={f} size="small" variant="outlined" color="info" />
+                  ))}
+                </Stack>
+              </Stack>
+            )}
           </Box>
 
           {/* Edit / Save / Cancel buttons */}
@@ -228,16 +334,33 @@ export function TenantInfoTab({ tenantSlug, appId }: TenantInfoTabProps = {}) {
                 </Button>
               </>
             ) : (
-              <Button
-                size="small"
-                variant="outlined"
-                startIcon={<EditIcon />}
-                onClick={() => setEditing(true)}
-              >
-                Edit Info
-              </Button>
+              <>
+                <Button
+                  size="small"
+                  variant="outlined"
+                  startIcon={<EditIcon />}
+                  onClick={() => setEditing(true)}
+                >
+                  Edit Info
+                </Button>
+                <Button
+                  size="small"
+                  variant="outlined"
+                  color="secondary"
+                  startIcon={generatingSeo ? <BrandedLoadingIndicator size={14} /> : <AutoAwesomeIcon />}
+                  onClick={handleGenerateSeo}
+                  disabled={generatingSeo}
+                >
+                  {generatingSeo ? 'Generating...' : 'Generate with AI'}
+                </Button>
+              </>
             )}
           </Stack>
+          {generateMessage && (
+            <Typography variant="caption" color={generateMessage.severity === 'success' ? 'success.main' : 'error.main'}>
+              {generateMessage.text}
+            </Typography>
+          )}
           {saveMessage && (
             <Typography variant="caption" color={saveMessage.severity === 'success' ? 'success.main' : 'error.main'}>
               {saveMessage.text}
