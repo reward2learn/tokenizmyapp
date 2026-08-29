@@ -11,6 +11,22 @@ import { getFactoryWeb3Config } from '@/lib/web3/factory-web3-config';
 import { factorySiweClient, signalSiweAppReady } from '@/lib/web3/siwe-config';
 
 /**
+ * Race a promise against a timeout to prevent indefinite hangs.
+ */
+function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(
+      () => reject(new Error(`[siwx] ${label} timed out after ${ms}ms`)),
+      ms,
+    );
+    promise.then(
+      (val) => { clearTimeout(timer); resolve(val); },
+      (err) => { clearTimeout(timer); reject(err); },
+    );
+  });
+}
+
+/**
  * Wait for AppKit auth init, then re-apply factory SIWX callbacks.
  */
 export async function applyFactorySiwxAfterReady(
@@ -19,15 +35,28 @@ export async function applyFactorySiwxAfterReady(
   if (appKitPromise) {
     try {
       const appkit = await appKitPromise;
+      console.log('[siwx] appkit resolved in applyFactorySiwxAfterReady');
       const ready = (appkit as { readyPromise?: Promise<unknown> }).readyPromise;
-      if (ready) await ready;
-    } catch {
+      if (ready) {
+        console.log('[siwx] waiting on readyPromise...');
+        // Guard against readyPromise hanging (stale IndexedDB session, etc.)
+        await withTimeout(ready, 12_000, 'readyPromise');
+        console.log('[siwx] readyPromise resolved');
+      } else {
+        console.log('[siwx] no readyPromise found');
+      }
+    } catch (err) {
+      console.error('[siwx] error waiting for ready:', err);
       // Fall through — short defer still re-applies SIWX mapping.
     }
   }
+  console.log('[siwx] sleeping 150ms...');
   await new Promise((resolve) => setTimeout(resolve, 150));
+  console.log('[siwx] applying SIWX mapping...');
   await applyFactorySiwxMapping();
+  console.log('[siwx] applying social features...');
   await applyFactorySocialFeatures();
+  console.log('[siwx] applyFactorySiwxAfterReady complete');
 }
 
 async function applyFactorySiwxMapping(): Promise<void> {

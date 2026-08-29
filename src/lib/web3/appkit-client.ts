@@ -60,11 +60,13 @@ function factoryMetadata() {
 }
 
 async function createAppKitInstance(config: FactoryWeb3Config) {
+  console.log('[appkit-client] createAppKitInstance starting...');
   const [{ createAppKit }, { WagmiAdapter }, networks] = await Promise.all([
     import('@reown/appkit'),
     import('@reown/appkit-adapter-wagmi'),
     resolveNetworks(config.chains),
   ]);
+  console.log('[appkit-client] imports resolved, creating AppKit...');
 
   const wantsSocial = config.connectMode !== 'injected';
   const socialOnly = config.connectMode === 'social';
@@ -101,12 +103,15 @@ async function createAppKitInstance(config: FactoryWeb3Config) {
     showWallets: !socialOnly,
     themeMode: 'light',
   });
+  console.log('[appkit-client] createAppKit returned, <w3m-modal> in DOM:', !!document.querySelector('w3m-modal'));
 
   // createAppKit() returns before initialize() finishes. Social-only mode hides
   // the wallet list; Google/email only render once the AUTH connector exists.
   // Opening earlier → empty "Connect Wallet" shell while getWallets still 200s.
   // applyFactorySiwxAfterReady waits on readyPromise, then re-applies SIWX/socials.
+  console.log('[appkit-client] awaiting applyFactorySiwxAfterReady...');
   await applyFactorySiwxAfterReady(Promise.resolve(appkit));
+  console.log('[appkit-client] applyFactorySiwxAfterReady done, ready to return');
 
   return appkit;
 }
@@ -126,6 +131,16 @@ export function getAppKit(): Promise<AppKitInstance> | null {
     });
   }
   return instance;
+}
+
+/**
+ * Force-reset the memoized AppKit instance.  Called when the init promise
+ * hangs or the instance is in a corrupted state (stale IndexedDB session).
+ * Next call to getAppKit() will create a fresh instance.
+ */
+export function resetAppKit(): void {
+  console.log('[appkit-client] resetAppKit called — clearing singleton');
+  instance = null;
 }
 
 /** Reset memoized instance — for tests only. */

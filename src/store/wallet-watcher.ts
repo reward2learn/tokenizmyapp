@@ -28,12 +28,14 @@ export function attachWalletWatcher(store: WalletStoreLike): void {
   void (async () => {
     try {
       if (!isFactoryWeb3Enabled()) {
+        console.log('[wallet-watcher] web3 not enabled, skipping');
         attached = false;
         return;
       }
 
       const { getAppKit } = await import('@/lib/web3/appkit-client');
       const pending = getAppKit();
+      console.log('[wallet-watcher] getAppKit returned:', pending ? 'Promise' : 'null');
       if (!pending) {
         attached = false;
         store.dispatch(walletError('Social wallet is not configured for this deployment.'));
@@ -41,9 +43,11 @@ export function attachWalletWatcher(store: WalletStoreLike): void {
       }
 
       const appkit = await pending;
+      console.log('[wallet-watcher] appkit resolved, initial getAccount:', JSON.stringify(appkit.getAccount?.()));
       store.dispatch(walletEnabled());
 
       appkit.subscribeAccount((account) => {
+        console.log('[wallet-watcher] subscribeAccount fired:', JSON.stringify(account));
         if (account.isConnected && account.address) {
           store.dispatch(
             walletConnected({
