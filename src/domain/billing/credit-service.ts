@@ -22,7 +22,7 @@
  * tokens, timestamp on the ledger row) — there is no operator free path.
  */
 import type { createRawClient } from '@/lib/db';
-import { getPlan, CREDIT_PACKS, type CreditPack } from '@/lib/billing/plans';
+import { getPlan, CREDIT_PACKS, purchasedCreditsForUsd, type CreditPack } from '@/lib/billing/plans';
 import { creditsForUsage } from '@/lib/billing/credit-rates';
 import { jsonErrorLite } from '@/lib/api/response-lite';
 
@@ -519,12 +519,25 @@ export interface RedeemPackResult {
 export async function redeemCreditPack(
   orgId: string,
   packId: string,
-  options: { paymentRef?: string | null; ownerUserId?: string | null } = {},
+  options: { paymentRef?: string | null; ownerUserId?: string | null; amountCents?: number } = {},
   db?: RawDb,
 ): Promise<RedeemPackResult> {
   db ??= await getDb();
 
-  const pack = CREDIT_PACKS.find((p) => p.id === packId);
+  const staticPack = CREDIT_PACKS.find((p) => p.id === packId);
+  const pack = staticPack ?? (() => {
+    // Custom amount pack — build from provided amountCents.
+    if (!options.amountCents) return null;
+    const dollars = options.amountCents / 100;
+    const credits = purchasedCreditsForUsd(dollars);
+    return {
+      id: packId,
+      label: `$${dollars % 1 === 0 ? dollars : dollars.toFixed(2)}`,
+      priceCents: options.amountCents,
+      baseCredits: credits,
+      bonusCredits: 0,
+    };
+  })();
   if (!pack) {
     throw new Error(
       `Unknown credit pack "${packId}". Available: ${CREDIT_PACKS.map((p) => p.id).join(', ')}`,

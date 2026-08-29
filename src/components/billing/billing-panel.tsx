@@ -52,8 +52,10 @@ import {
   YEARLY_SELF_SERVE_ENABLED,
   canPurchaseCreditPacks,
   planAiCreditsPerMonth,
+  purchasedCreditsForUsd,
   type PlanId,
   type BillingInterval,
+  type CreditPack,
 } from '@/lib/billing/plans';
 import {
   PlanCheckoutDialog,
@@ -721,9 +723,28 @@ function AiCreditsPurchase({
   onOpenPlanTab?: () => void;
 }) {
   const [topUpPackId, setTopUpPackId] = useState<string | null>(null);
+  const [customAmount, setCustomAmount] = useState('');
   const [requestOpen, setRequestOpen] = useState(false);
   const [requestCopied, setRequestCopied] = useState(false);
   const { user } = useAppSelector((s) => s.auth);
+
+  /** Build a dynamic CreditPack from a custom dollar amount string. */
+  const buildCustomPack = (amountStr: string) => {
+    const dollars = parseFloat(amountStr);
+    if (!Number.isFinite(dollars) || dollars <= 0) return null;
+    const priceCents = Math.round(dollars * 100);
+    const credits = purchasedCreditsForUsd(dollars);
+    return {
+      id: `custom-${priceCents}`,
+      label: `$${dollars % 1 === 0 ? dollars : dollars.toFixed(2)}`,
+      priceCents,
+      baseCredits: credits,
+      bonusCredits: 0,
+    };
+  };
+
+  const customPack = buildCustomPack(customAmount);
+  const customCreditsPreview = customPack ? customPack.baseCredits : 0;
 
   const byPlan =
     selfServeTopUp && balance?.shared !== undefined
@@ -850,6 +871,53 @@ function AiCreditsPurchase({
               </Button>
             ))}
           </Stack>
+          <Stack direction="row" spacing={1} sx={{ mt: 1.5, alignItems: 'center' }}>
+            <TextField
+              size="small"
+              placeholder="Custom amount"
+              value={customAmount}
+              onChange={(e) => {
+                // Allow only digits and one decimal point, max 2 decimal places
+                const val = e.target.value;
+                if (/^\d*\.?\d{0,2}$/.test(val) || val === '') {
+                  setCustomAmount(val);
+                }
+              }}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && customPack) {
+                  setTopUpPackId(customPack.id);
+                }
+              }}
+              slotProps={{
+                input: {
+                  startAdornment: (
+                    <InputAdornment position="start">$</InputAdornment>
+                  ),
+                  endAdornment: customPack ? (
+                    <InputAdornment position="end">
+                      <Typography variant="caption" color="text.secondary">
+                        {customCreditsPreview.toLocaleString()} credits
+                      </Typography>
+                    </InputAdornment>
+                  ) : undefined,
+                },
+              }}
+              sx={{ minWidth: 160 }}
+              disabled={!readiness?.ready}
+            />
+            <Button
+              variant="outlined"
+              startIcon={<BoltIcon />}
+              disabled={!readiness?.ready || !customPack}
+              onClick={() => {
+                if (customPack) setTopUpPackId(customPack.id);
+              }}
+            >
+              {customPack
+                ? `${customPack.label} — ${customCreditsPreview.toLocaleString()} credits`
+                : 'Enter amount'}
+            </Button>
+          </Stack>
         </Box>
       ) : mayPurchase && !planAllowsTopUp ? (
         <Box>
@@ -881,7 +949,11 @@ function AiCreditsPurchase({
           open
           orgId={orgId}
           packId={topUpPackId}
-          onClose={() => setTopUpPackId(null)}
+          customPack={topUpPackId.startsWith('custom-') ? customPack : undefined}
+          onClose={() => {
+            setTopUpPackId(null);
+            setCustomAmount('');
+          }}
         />
       )}
 

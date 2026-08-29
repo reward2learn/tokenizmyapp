@@ -666,12 +666,12 @@ export const organizationApi = createApi({
         publishableKey: string | null;
         pack: { id: string; label: string; baseCredits: number; bonusCredits: number };
       }>,
-      { orgId: string; packId: string }
+      { orgId: string; packId: string; amountCents?: number }
     >({
-      query: ({ orgId, packId }) => ({
+      query: ({ orgId, packId, amountCents }) => ({
         url: `admin/organizations/${orgId}/topup`,
         method: 'POST',
-        body: { packId },
+        body: { packId, amountCents },
       }),
     }),
 
@@ -709,12 +709,12 @@ export const organizationApi = createApi({
         expiresAt: string;
         pack: { id: string; label: string; baseCredits: number; bonusCredits: number; priceCents: number };
       }>,
-      { orgId: string; packId: string }
+      { orgId: string; packId: string; amountCents?: number }
     >({
-      query: ({ orgId, packId }) => ({
+      query: ({ orgId, packId, amountCents }) => ({
         url: `admin/organizations/${orgId}/crypto-topup`,
         method: 'POST',
-        body: { packId },
+        body: { packId, amountCents },
       }),
     }),
 

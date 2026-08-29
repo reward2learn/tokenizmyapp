@@ -26,13 +26,15 @@ import {
   stripeReadiness,
 } from '@/domain/billing/stripe-service';
 import { getStripePublishableKey, requireStripeFor } from '@/lib/billing/stripe-client';
-import { CREDIT_PACKS, canPurchaseCreditPacks } from '@/lib/billing/plans';
+import { CREDIT_PACKS, canPurchaseCreditPacks, purchasedCreditsForUsd } from '@/lib/billing/plans';
 import { getSubscription } from '@/domain/billing/entitlement-service';
 
 export const dynamic = 'force-dynamic';
 
 const postSchema = z.object({
   packId: z.string().min(1),
+  /** Optional custom amount in USD cents — used for packs not in CREDIT_PACKS. */
+  amountCents: z.number().int().positive().max(100_000).optional(),
 });
 
 export async function POST(
@@ -73,7 +75,23 @@ export async function POST(
     );
   }
 
-  const pack = CREDIT_PACKS.find((p) => p.id === parsed.data.packId);
+  const staticPack = CREDIT_PACKS.find((p) => p.id === parsed.data.packId);
+  const pack = staticPack ?? (() => {
+    // Custom amount pack — build a synthetic CreditPack from amountCents.
+    const amountCents = parsed.data.amountCents;
+    if (!amountCents) {
+      return null;
+    }
+    const dollars = amountCents / 100;
+    const credits = purchasedCreditsForUsd(dollars);
+    return {
+      id: parsed.data.packId,
+      label: `$${dollars % 1 === 0 ? dollars : dollars.toFixed(2)}`,
+      priceCents: amountCents,
+      baseCredits: credits,
+      bonusCredits: 0,
+    };
+  })();
   if (!pack) {
     return jsonError(
       `Unknown credit pack "${parsed.data.packId}". Available: ${CREDIT_PACKS.map((p) => p.id).join(', ')}`,
@@ -125,7 +143,7 @@ export async function POST(
       returnUrl,
       db,
       stripe,
-      { purchaserUserId },
+      { purchaserUserId, amountCents: pack.priceCents },
     );
 
     return jsonOk({

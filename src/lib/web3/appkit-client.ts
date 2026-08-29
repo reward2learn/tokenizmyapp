@@ -7,10 +7,9 @@
  */
 import type { AppKitNetwork } from '@reown/appkit/networks';
 import type { WagmiAdapter } from '@reown/appkit-adapter-wagmi';
-import { applyFactorySiwxAfterReady } from '@/lib/web3/apply-factory-siwx';
+import { applyFactorySocialFeaturesAfterReady } from '@/lib/web3/apply-factory-siwx';
 import { clearReownSessionStorage } from '@/lib/web3/clear-reown-storage';
 import { getFactoryWeb3Config, type FactoryWeb3Config } from '@/lib/web3/factory-web3-config';
-import { factorySiweConfig } from '@/lib/web3/siwe-config';
 import { setWagmiConfig } from '@/lib/web3/wagmi-store';
 import { SIWE_CHAIN_ID } from '@/lib/web3/crypto-billing-config';
 
@@ -83,7 +82,10 @@ async function createAppKitInstance(config: FactoryWeb3Config) {
     defaultNetwork,
     projectId: config.projectId,
     metadata: factoryMetadata(),
-    siweConfig: factorySiweConfig,
+    // Do NOT pass siweConfig here — factory SIWE link uses
+    // linkFactoryWalletSession (direct nonce→sign→verify) instead of the
+    // AppKit SIWE callbacks. Passing factorySiweConfig causes ReownAuthentication
+    // to use the factory nonce format (hex) instead of JWT, resulting in 401s.
     // showWallets is legacy — AppKit 1.8.x reads enableWallets instead.
     enableWallets: !socialOnly,
     // Do NOT set enableEmbedded. That flag means "host <w3m-modal> yourself /
@@ -109,10 +111,11 @@ async function createAppKitInstance(config: FactoryWeb3Config) {
   // createAppKit() returns before initialize() finishes. Social-only mode hides
   // the wallet list; Google/email only render once the AUTH connector exists.
   // Opening earlier → empty "Connect Wallet" shell while getWallets still 200s.
-  // applyFactorySiwxAfterReady waits on readyPromise, then re-applies SIWX/socials.
-  console.log('[appkit-client] awaiting applyFactorySiwxAfterReady...');
-  await applyFactorySiwxAfterReady(Promise.resolve(appkit));
-  console.log('[appkit-client] applyFactorySiwxAfterReady done, ready to return');
+  // applyFactorySocialFeaturesAfterReady waits on readyPromise, then re-applies socials.
+  // It does NOT override SIWX — factory SIWE link goes through linkFactoryWalletSession.
+  console.log('[appkit-client] awaiting applyFactorySocialFeaturesAfterReady...');
+  await applyFactorySocialFeaturesAfterReady(Promise.resolve(appkit));
+  console.log('[appkit-client] applyFactorySocialFeaturesAfterReady done, ready to return');
 
   return appkit;
 }

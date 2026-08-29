@@ -30,6 +30,7 @@ import {
   PLANS,
   isSelfServeBillingInterval,
   selfServeBillingIntervals,
+  purchasedCreditsForUsd,
   type PlanId,
   type BillingInterval,
 } from '@/lib/billing/plans';
@@ -616,12 +617,25 @@ export async function createTopUpCheckoutSession(
   returnUrl: string,
   db?: RawDb,
   stripe?: Stripe,
-  options: { purchaserUserId?: string | null } = {},
+  options: { purchaserUserId?: string | null; amountCents?: number } = {},
 ): Promise<{ clientSecret: string; checkoutSessionId: string; amountCents: number }> {
   db = await getDb(db);
   stripe = stripe ?? requireStripe();
 
-  const pack = CREDIT_PACKS.find((p) => p.id === packId);
+  const staticPack = CREDIT_PACKS.find((p) => p.id === packId);
+  const pack = staticPack ?? (() => {
+    // Custom amount pack — build from provided amountCents.
+    if (!options.amountCents) return null;
+    const dollars = options.amountCents / 100;
+    const credits = purchasedCreditsForUsd(dollars);
+    return {
+      id: packId,
+      label: `$${dollars % 1 === 0 ? dollars : dollars.toFixed(2)}`,
+      priceCents: options.amountCents,
+      baseCredits: credits,
+      bonusCredits: 0,
+    };
+  })();
   if (!pack) {
     throw new Error(
       `Unknown credit pack "${packId}". Available: ${CREDIT_PACKS.map((p) => p.id).join(', ')}`,
@@ -643,6 +657,10 @@ export async function createTopUpCheckoutSession(
     orgId,
     packId: pack.id,
     kind: 'credit_topup',
+    // Store amountCents so custom packs can be reconstructed on confirm/webhook.
+    ...(pack.priceCents !== (staticPack?.priceCents ?? pack.priceCents)
+      ? { amountCents: String(pack.priceCents) }
+      : {}),
     ...(options.purchaserUserId ? { purchaserUserId: options.purchaserUserId } : {}),
   };
 
@@ -748,10 +766,15 @@ export async function confirmTopUpCheckoutSession(
 
   const ownerUserId = session.metadata?.purchaserUserId?.trim() || null;
 
+  // For custom packs, pass amountCents so redeemCreditPack can compute credits.
+  const customAmountCents = session.metadata?.amountCents
+    ? Number(session.metadata.amountCents)
+    : undefined;
+
   const result = await redeemCreditPack(
     orgId,
     packId,
-    { paymentRef: session.id, ownerUserId },
+    { paymentRef: session.id, ownerUserId, amountCents: customAmountCents },
     db,
   );
 

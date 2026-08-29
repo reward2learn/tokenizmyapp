@@ -1,17 +1,21 @@
 /**
- * SIWE config for factory AppKit — maps to /api/auth/wallet/* (Phase 2 completes verify).
+ * SIWE helpers for factory wallet link — signalSiweAppReady / waitForSiweAppReady.
+ *
+ * Previously exported factorySiweConfig (AppKit SIWE callbacks) and
+ * factorySiweClient (mapToSIWX source). Those are no longer used — factory SIWE
+ * link goes through linkFactoryWalletSession (direct nonce→sign→verify) instead
+ * of AppKit's SIWE callback system. Passing factorySiweConfig to createAppKit()
+ * caused ReownAuthentication to use the factory nonce format (hex) instead of
+ * JWT, resulting in 401s from the Reown Cloud API.
  *
  * @see docs/factory-reown-siwe-wallet-link.md
- * @see docs/google-oauth-appkit-setup.md Phase 3
+ * @see docs/google-oauth-appkit-setup.md
  */
-import { createSIWEConfig, formatMessage } from '@reown/appkit-siwe';
 import { SIWE_CHAIN_ID, SIWE_STATEMENT } from '@/lib/web3/crypto-billing-config';
 import { isValidEvmAddress, siweMessageUsesPlaceholderAddress } from '@/lib/web3/evm-address';
 
 let siweAppReady = false;
 let siweAppReadyResolvers: Array<() => void> = [];
-/** Server-built EIP-4361 message from the latest getNonce call (Correction B). */
-let pendingServerSiweMessage: string | null = null;
 
 /** Gates getNonce until AppKit providers finish init (Correction A companion). */
 export function signalSiweAppReady(): void {
@@ -38,23 +42,14 @@ function hasFreshNonceLine(message: string): boolean {
   return /^Nonce: /m.test(message);
 }
 
-export const factorySiweClient = createSIWEConfig({
-  // Required when Correction A re-applies mapToSIWX() — without this, social
-  // login throws "Failed to get message params!" inside AppKit's SIWX createMessage.
-  getMessageParams: async () => {
-    const uri = apiBase();
-    const domain =
-      typeof window !== 'undefined' ? window.location.host : new URL(uri).host;
-
-    return {
-      domain,
-      uri,
-      chains: [SIWE_CHAIN_ID],
-      statement: SIWE_STATEMENT,
-      iat: new Date().toISOString(),
-    };
-  },
-
+/**
+ * Factory SIWE config — used by linkFactoryWalletSession for nonce→sign→verify.
+ *
+ * These callbacks are NOT passed to createAppKit(). They exist so that
+ * linkFactoryWalletSession can call them directly if needed, and so that
+ * the SIWE flow is documented in one place.
+ */
+export const factorySiweConfig = {
   getNonce: async (address?: string) => {
     await waitForSiweAppReady();
 
@@ -85,22 +80,15 @@ export const factorySiweClient = createSIWEConfig({
       nonce?: string;
       message?: string;
     };
-    const message = payload.data?.message ?? payload.message;
     const nonce = payload.data?.nonce ?? payload.nonce;
     if (!nonce) throw new Error('Invalid nonce response');
-    pendingServerSiweMessage = message ?? null;
     return nonce;
   },
 
-  createMessage: ({ address, ...args }) => {
-    // Correction B: the server-built message is authoritative when present.
-    if (pendingServerSiweMessage) {
-      const serverMessage = pendingServerSiweMessage;
-      pendingServerSiweMessage = null;
-      return serverMessage;
-    }
+  createMessage: ({ address, ...args }: { address: string; [key: string]: unknown }) => {
     // Placeholder / pre-wallet SIWX probes only — never for a real link address.
     if (!isValidEvmAddress(address)) {
+      const { formatMessage } = require('@reown/appkit-siwe');
       return formatMessage(args, address);
     }
     throw new Error(
@@ -108,7 +96,7 @@ export const factorySiweClient = createSIWEConfig({
     );
   },
 
-  verifyMessage: async ({ message, signature }) => {
+  verifyMessage: async ({ message, signature }: { message: string; signature: string }) => {
     // ReownAuthentication session restoration — no factory nonce to verify.
     if (!hasFreshNonceLine(message)) {
       return true;
@@ -184,7 +172,4 @@ export const factorySiweClient = createSIWEConfig({
     });
     return true;
   },
-});
-
-/** Passed to createAppKit({ siweConfig }) — an AppKitSIWEClient instance. */
-export const factorySiweConfig = factorySiweClient;
+};

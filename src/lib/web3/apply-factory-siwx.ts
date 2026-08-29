@@ -1,14 +1,17 @@
 /**
- * Correction A — re-apply factory SIWX mapping after AppKit init settles.
+ * Re-apply factory social features after AppKit init settles.
  *
- * Reown Cloud remote config can replace custom siweConfig callbacks with
- * ReownAuthentication defaults. Re-applying via mapToSIWX() is the durable fix.
+ * Previously this also called OptionsController.setSIWX() to override the
+ * factory SIWE config globally. That caused ReownAuthentication to use the
+ * factory nonce format (hex) instead of JWT, resulting in 401s from the
+ * Reown Cloud API. Factory SIWE link now goes through linkFactoryWalletSession
+ * (direct nonce→sign→verify), so no global SIWX override is needed.
  *
- * @see docs/factory-reown-siwe-wallet-link.md Correction A
- * @see docs/google-oauth-appkit-setup.md Correction A
+ * @see docs/factory-reown-siwe-wallet-link.md
+ * @see docs/google-oauth-appkit-setup.md
  */
 import { getFactoryWeb3Config } from '@/lib/web3/factory-web3-config';
-import { factorySiweClient, signalSiweAppReady } from '@/lib/web3/siwe-config';
+import { signalSiweAppReady } from '@/lib/web3/siwe-config';
 
 /**
  * Race a promise against a timeout to prevent indefinite hangs.
@@ -27,15 +30,16 @@ function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise
 }
 
 /**
- * Wait for AppKit auth init, then re-apply factory SIWX callbacks.
+ * Wait for AppKit auth init, then re-apply factory social features.
+ * Does NOT override SIWX — factory SIWE link goes through linkFactoryWalletSession.
  */
-export async function applyFactorySiwxAfterReady(
+export async function applyFactorySocialFeaturesAfterReady(
   appKitPromise?: Promise<unknown>,
 ): Promise<void> {
   if (appKitPromise) {
     try {
       const appkit = await appKitPromise;
-      console.log('[siwx] appkit resolved in applyFactorySiwxAfterReady');
+      console.log('[siwx] appkit resolved in applyFactorySocialFeaturesAfterReady');
       const ready = (appkit as { readyPromise?: Promise<unknown> }).readyPromise;
       if (ready) {
         console.log('[siwx] waiting on readyPromise...');
@@ -47,30 +51,17 @@ export async function applyFactorySiwxAfterReady(
       }
     } catch (err) {
       console.error('[siwx] error waiting for ready:', err);
-      // Fall through — short defer still re-applies SIWX mapping.
+      // Fall through — short defer still re-applies social features.
     }
   }
   console.log('[siwx] sleeping 150ms...');
   await new Promise((resolve) => setTimeout(resolve, 150));
-  console.log('[siwx] applying SIWX mapping...');
-  await applyFactorySiwxMapping();
+  // Signal readiness so linkFactoryWalletSession (waitForSiweAppReady) can proceed.
+  console.log('[siwx] signaling siweAppReady...');
+  signalSiweAppReady();
   console.log('[siwx] applying social features...');
   await applyFactorySocialFeatures();
-  console.log('[siwx] applyFactorySiwxAfterReady complete');
-}
-
-async function applyFactorySiwxMapping(): Promise<void> {
-  const { OptionsController, SIWXUtil, ChainController } = await import(
-    '@reown/appkit-controllers'
-  );
-
-  OptionsController.setSIWX(factorySiweClient.mapToSIWX());
-  signalSiweAppReady();
-
-  const caipAddress = ChainController.getActiveCaipAddress();
-  if (caipAddress) {
-    await SIWXUtil.initializeIfEnabled(caipAddress);
-  }
+  console.log('[siwx] applyFactorySocialFeaturesAfterReady complete');
 }
 
 /**

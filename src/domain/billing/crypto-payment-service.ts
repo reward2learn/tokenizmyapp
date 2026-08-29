@@ -14,7 +14,7 @@ import {
 } from 'viem';
 import { base, sepolia } from 'viem/chains';
 import type { createRawClient } from '@/lib/db';
-import { CREDIT_PACKS, isPlanId, prepaidPlanPriceCents, type CreditPack, type PlanId } from '@/lib/billing/plans';
+import { CREDIT_PACKS, isPlanId, prepaidPlanPriceCents, purchasedCreditsForUsd, type CreditPack, type PlanId } from '@/lib/billing/plans';
 import {
   CRYPTO_PLAN_PREPAID_MONTHS,
   type CryptoPlanPrepaidMonths,
@@ -210,7 +210,7 @@ export async function createCryptoTopUpIntent(
   orgId: string,
   packId: string,
   walletAddress: string,
-  options: { purchaserUserId?: string | null } = {},
+  options: { purchaserUserId?: string | null; amountCents?: number } = {},
   db?: RawDb,
 ): Promise<CryptoTopUpIntentResult> {
   const platform = await resolvePlatformCryptoConfig();
@@ -224,7 +224,20 @@ export async function createCryptoTopUpIntent(
   const treasury = resolveTreasuryAddress(platform);
   if (!treasury) throw new Error('CRYPTO_TREASURY_ADDRESS is not set.');
 
-  const pack = CREDIT_PACKS.find((p) => p.id === packId);
+  const staticPack = CREDIT_PACKS.find((p) => p.id === packId);
+  const pack = staticPack ?? (() => {
+    // Custom amount pack — build from provided amountCents.
+    if (!options.amountCents) return null;
+    const dollars = options.amountCents / 100;
+    const credits = purchasedCreditsForUsd(dollars);
+    return {
+      id: packId,
+      label: `$${dollars % 1 === 0 ? dollars : dollars.toFixed(2)}`,
+      priceCents: options.amountCents,
+      baseCredits: credits,
+      bonusCredits: 0,
+    };
+  })();
   if (!pack) {
     throw new Error(
       `Unknown credit pack "${packId}". Available: ${CREDIT_PACKS.map((p) => p.id).join(', ')}`,

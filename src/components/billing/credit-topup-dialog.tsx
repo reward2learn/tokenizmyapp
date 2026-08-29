@@ -36,6 +36,14 @@ export interface CreditTopUpDialogProps {
   open: boolean;
   orgId: string;
   packId: string;
+  /** Dynamic pack for custom amounts — bypasses CREDIT_PACKS lookup. */
+  customPack?: {
+    id: string;
+    label: string;
+    priceCents: number;
+    baseCredits: number;
+    bonusCredits: number;
+  } | null;
   onClose: () => void;
 }
 
@@ -44,7 +52,7 @@ export interface CreditTopUpDialogProps {
  *
  * Stripe remains the default rail; crypto is opt-in when factory web3 is enabled.
  */
-export function CreditTopUpDialog({ open, orgId, packId, onClose }: CreditTopUpDialogProps) {
+export function CreditTopUpDialog({ open, orgId, packId, customPack, onClose }: CreditTopUpDialogProps) {
   const dispatch = useAppDispatch();
   const auth = useAppSelector((state) => state.auth);
   const wallet = useAppSelector((state) => state.wallet);
@@ -53,7 +61,7 @@ export function CreditTopUpDialog({ open, orgId, packId, onClose }: CreditTopUpD
   const [step, setStep] = useState<'summary' | 'pay'>('summary');
   const [createIntent, { data, isLoading, error, reset }] = useCreateTopUpIntentMutation();
 
-  const pack = CREDIT_PACKS.find((p) => p.id === packId) ?? null;
+  const pack = customPack ?? (CREDIT_PACKS.find((p) => p.id === packId) ?? null);
   const session = data?.data ?? null;
   const totalCredits = pack ? pack.baseCredits + pack.bonusCredits : 0;
   const cryptoWalletBlockReason =
@@ -77,7 +85,12 @@ export function CreditTopUpDialog({ open, orgId, packId, onClose }: CreditTopUpD
   const beginPayment = async () => {
     if (rail === 'stripe') {
       setStep('pay');
-      await createIntent({ orgId, packId }).unwrap().catch(() => null);
+      // For custom packs, pass amountCents so the API can price dynamically.
+      const payload: { orgId: string; packId: string; amountCents?: number } = { orgId, packId };
+      if (customPack) {
+        payload.amountCents = customPack.priceCents;
+      }
+      await createIntent(payload).unwrap().catch(() => null);
       return;
     }
     setStep('pay');
@@ -154,6 +167,7 @@ export function CreditTopUpDialog({ open, orgId, packId, onClose }: CreditTopUpD
           totalCredits={totalCredits}
           onDone={finish}
           onCancel={resetAndClose}
+          amountCents={customPack?.priceCents}
         />
       )}
 

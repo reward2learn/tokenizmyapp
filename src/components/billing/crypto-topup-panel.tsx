@@ -36,6 +36,8 @@ export interface CryptoTopUpPanelProps {
   totalCredits: number;
   onDone: () => void;
   onCancel: () => void;
+  /** Custom amount in cents for packs not in CREDIT_PACKS. */
+  amountCents?: number;
 }
 
 export function CryptoTopUpPanel({
@@ -45,6 +47,7 @@ export function CryptoTopUpPanel({
   totalCredits,
   onDone,
   onCancel,
+  amountCents,
 }: CryptoTopUpPanelProps) {
   const linkedWallet = useAppSelector((state) => state.auth.walletAddress);
   const wallet = useAppSelector((state) => state.wallet);
@@ -73,8 +76,10 @@ export function CryptoTopUpPanel({
 
   useEffect(() => {
     if (!walletReady) return;
-    createIntent({ orgId, packId }).catch(() => null);
-  }, [createIntent, orgId, packId, walletReady]);
+    const payload: { orgId: string; packId: string; amountCents?: number } = { orgId, packId };
+    if (amountCents) payload.amountCents = amountCents;
+    createIntent(payload).catch(() => null);
+  }, [createIntent, orgId, packId, walletReady, amountCents]);
 
   const handlePay = async () => {
     if (!intent || !walletReady || !funds?.canPay || treasuryMisconfigured) return;
