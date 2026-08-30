@@ -200,19 +200,7 @@ export const AI_PROVIDERS: AiProviderDef[] = [
     modelsRequireAuth: false,
     docsUrl: FACTORY_OLLAMA_V1_BASE,
     defaultModel: 'qwen2.5:14b',
-  },
-  {
-    id: 'deepseek-studio',
-    label: 'StarWorld DeepSeek',
-    keySecretName: 'DEEPSEEK_STUDIO_API_KEY',
-    keyEnvVar: 'DEEPSEEK_STUDIO_API_KEY',
-    keyPlaceholder: 'optional — Mac Studio tunnel has no auth',
-    chatCompletionsUrl: 'https://deepseek.tokenizin.com/v1/chat/completions',
-    modelsUrl: 'https://deepseek.tokenizin.com/v1/models',
-    modelsRequireAuth: false,
-    docsUrl: 'https://deepseek.tokenizin.com/v1',
-    defaultModel: 'DeepSeek-V4-Flash-0731-2.4bit-mixed:precise',
-  },
+  } 
 ];
 
 /**
