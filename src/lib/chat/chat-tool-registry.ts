@@ -59,7 +59,7 @@ export interface RegisteredChatTool {
 }
 
 function toolByName(name: string): OpenAiFunctionTool {
-  const fromSession = CHAT_SESSION_OPENAI_TOOLS.find((tool) => tool.function.name === name);
+  const fromSession = CHAT_SESSION_OPENAI_TOOLS.find((tool) => tool.function?.name === name);
   if (fromSession) return fromSession as OpenAiFunctionTool;
   const fromPlatform = PLATFORM_OPENAI_TOOLS.find((tool) => tool.function.name === name);
   if (fromPlatform) return fromPlatform as OpenAiFunctionTool;
@@ -108,6 +108,12 @@ export const CHAT_TOOL_REGISTRY: RegisteredChatTool[] = [
     category: 'session',
     access: 'platformAdmin',
     openAiTool: toolByName('build_custom_template'),
+  },
+  {
+    name: 'build_delivery_marketplace_app',
+    category: 'session',
+    access: 'platformAdmin',
+    openAiTool: toolByName('build_delivery_marketplace_app'),
   },
   {
     name: 'purchase_credits',

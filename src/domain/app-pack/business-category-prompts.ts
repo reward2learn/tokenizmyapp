@@ -145,6 +145,12 @@ export const BUSINESS_CATEGORY_PROMPTS: BusinessCategoryPreset[] = [
       'KPIs and realtime actionable items.',
     templateIds: ['manufacturing', 'supply-chain', 'financial-analytics'],
   },
+  {
+    category: 'P2P Delivery Marketplace',
+    prompt:
+      'Build an app pack for a P2P delivery marketplace: Marketplace & Requests (buyer requests, item details, route matching, pricing), Traveler Operations (travel plans, luggage capacity, route optimization), Orders & Escrow (9-state order workflow, USDC escrow, dispute resolution), User Management (profiles, reputation scoring, KYC), Chat & Messaging (real-time buyer-traveler communication), Finance (revenue tracking, fee structure, escrow settlements), plus a CEO Overview with cross-department KPIs and realtime actionable items.',
+    templateIds: ['delivery-marketplace', 'financial-analytics'],
+  },
 ];
 
 export function getBusinessCategory(category: string): BusinessCategoryPreset | undefined {

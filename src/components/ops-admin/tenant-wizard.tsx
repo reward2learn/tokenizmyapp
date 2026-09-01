@@ -514,6 +514,7 @@ export function TenantWizard({ iconOnly = false }: { iconOnly?: boolean }) {
       'education': `I run ${name}, an educational institution. We manage courses, student enrollments, assignments, grades, and track student progress.`,
       'professional-services': `I run ${name}, a professional services firm. We manage projects, track time entries, generate invoices, and track client deliverables.`,
       'manufacturing': `I run ${name}, a manufacturing company. We manage production orders, bill of materials, quality checks, and track inventory lots.`,
+      'delivery-marketplace': `I run ${name}, a P2P global shopping and delivery marketplace. Buyers post delivery requests for items from other cities/countries, and travelers monetize spare luggage space. All payments are in USDC with escrow protection. The platform has a 9-step order workflow: PENDING → MATCHED → PAID → IN_TRANSIT → DELIVERED → CONFIRMED → REVIEW_PENDING → COMPLETED/DISPUTED. Key features include route-based request matching, real-time chat, 5-star reputation scoring, and dispute resolution.`,
       'default': `I run ${name}. We need a business operations dashboard with financial overview, task management, and AI chat.`,
     };
     return prompts[tpl.id] ?? prompts['default'];
@@ -773,7 +774,7 @@ export function TenantWizard({ iconOnly = false }: { iconOnly?: boolean }) {
                                 {isActive ? <CheckCircleIcon color="primary" fontSize="small" /> : null}
                               </Stack>
                               <Stack direction="row" sx={{ gap: 0.5, flexWrap: 'wrap' }}>
-                                {preset.templateIds.map((tid) => (
+                                {preset.templateIds.map((tid: string) => (
                                   <Chip key={tid} label={getTemplate(tid).label} size="small" variant="outlined" />
                                 ))}
                               </Stack>

@@ -38,6 +38,7 @@ const W3C_STANDARDS: Record<string, string> = {
   'professional-services': 'UBL for billing/invoices and project management data',
   manufacturing: 'B2MML (Business To Manufacturing Markup Language) for production data',
   'spas-and-wellness': 'HL7 for appointment scheduling and client health records, ISO 19011 for wellness service quality management',
+  'delivery-marketplace': 'UBL (Universal Business Language) for orders/invoices and ISO 20022 for payment messaging and escrow settlements',
 };
 
 const SCHEMA_ORG_TYPES: Record<string, string> = {
@@ -52,6 +53,7 @@ const SCHEMA_ORG_TYPES: Record<string, string> = {
   'professional-services': 'ProfessionalService',
   manufacturing: 'Manufacturer',
   'spas-and-wellness': 'HealthAndBeautyBusiness',
+  'delivery-marketplace': 'WebApplication',
 };
 
 // NOTE: must stay a subset of the ZenStack BlockType enum in

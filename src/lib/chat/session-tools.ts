@@ -10,6 +10,7 @@ export type ChatSessionAction =
   | 'save_conversation'
   | 'update_review_documents'
   | 'build_custom_template'
+  | 'build_delivery_marketplace_app'
   | 'open_credit_topup';
 
 export const CHAT_SESSION_ACTIONS: ChatSessionAction[] = [
@@ -19,6 +20,7 @@ export const CHAT_SESSION_ACTIONS: ChatSessionAction[] = [
   'save_conversation',
   'update_review_documents',
   'build_custom_template',
+  'build_delivery_marketplace_app',
   'open_credit_topup',
 ];
 
@@ -30,7 +32,7 @@ export const CHAT_SESSION_ACTIONS: ChatSessionAction[] = [
  * to the chat route as `activeTool`, which attaches the tool regardless of how
  * the message happens to be phrased.
  */
-export type ChatComposerTool = 'build_custom_template' | 'query_platform_data';
+export type ChatComposerTool = 'build_custom_template' | 'query_platform_data' | 'build_delivery_marketplace_app';
 
 export interface ChatComposerToolDef {
   id: ChatComposerTool;
@@ -76,6 +78,13 @@ export const CHAT_COMPOSER_TOOLS: ChatComposerToolDef[] = [
     adminOnly: true,
     requiresAdminRoute: false,
     platformOnly: true,
+  },
+  {
+    id: 'build_delivery_marketplace_app',
+    label: 'Build Delivery Marketplace App',
+    description: 'Generate a complete GoFetch P2P delivery marketplace app from a business description.',
+    placeholder: 'Describe your delivery marketplace — what items, routes, and features you need...',
+    adminOnly: true,
   },
 ];
 
@@ -142,6 +151,20 @@ To build a reusable app template ("Custom Template Build"):
 - The tool DESIGNS the template but does NOT save it. The administrator reviews the result and
   presses "Save & Create Template" to add it to the platform library. Never claim it has been
   created, added or saved — say it is ready for review and name the button.
+- Once saved it becomes selectable in the "Create New App" wizard for any tenant.
+
+To build a delivery marketplace app (GoFetch):
+- Available only to platform administrators in the admin console.
+- GATHER THE DETAILS FIRST. Before calling, you need:
+    1. The business name for the marketplace.
+    2. What the marketplace does -- what items are traded, what routes are served, who the buyers and travelers are.
+    3. Key features they want (escrow, real-time chat, route matching, reputation scoring, etc.).
+    4. Whether to enable Web3 wallet with USDC escrow (default: yes).
+  Ask for whatever is missing in ONE short message.
+- Then call "build_delivery_marketplace_app" with the business name, description, features array, and web3 flag.
+- The tool BUILDS the app configuration from the delivery-marketplace template but does NOT save it.
+  The administrator reviews the result and either presses "Save & Create Template" to add it to the
+  platform template library, or "Create Tenant" to deploy it directly.
 - Once saved it becomes selectable in the "Create New App" wizard for any tenant.
 
 To purchase AI credit top-ups:
@@ -274,6 +297,49 @@ export const CHAT_SESSION_OPENAI_TOOLS = [
             description: 'Brief reason shown to the user (e.g. low balance, user requested).',
           },
         },
+        additionalProperties: false,
+      },
+    },
+  },
+  {
+    id: 'build_delivery_marketplace_app',
+    label: 'Build Delivery Marketplace App',
+    description: 'Generate a complete GoFetch P2P delivery marketplace app from a business description.',
+    placeholder: 'Describe your delivery marketplace — what items, routes, and features you need...',
+    adminOnly: true,
+  },
+  {
+    type: 'function' as const,
+    function: {
+      name: 'build_delivery_marketplace_app',
+      description:
+        'Generate a complete P2P delivery marketplace app (GoFetch) from a business description. Returns a draft with template, pages, navigation, Web3 wallet config, and AI assistant persona for the administrator to review.',
+      parameters: {
+        type: 'object',
+        properties: {
+          businessName: {
+            type: 'string',
+            description: 'The name of the marketplace business.',
+          },
+          description: {
+            type: 'string',
+            description: 'What the marketplace does — items traded, routes served, target audience.',
+          },
+          features: {
+            type: 'array',
+            items: { type: 'string' },
+            description: 'Key features to include (e.g., escrow, real-time chat, route matching).',
+          },
+          sourceUrl: {
+            type: 'string',
+            description: 'Optional website URL to model the marketplace on.',
+          },
+          web3Enabled: {
+            type: 'boolean',
+            description: 'Enable Web3 wallet with USDC escrow on Base Sepolia. Defaults to true.',
+          },
+        },
+        required: ['businessName', 'description'],
         additionalProperties: false,
       },
     },
@@ -619,6 +685,131 @@ export async function executeSessionTool(
       } catch (err) {
         return { toolMessage: `Error updating review: ${err instanceof Error ? err.message : String(err)}` };
       }
+    }
+    case 'build_delivery_marketplace_app': {
+      if (!ctx.isPlatformAdmin) {
+        return {
+          toolMessage:
+            'Building delivery marketplace apps is restricted to platform administrators in the admin console. ' +
+            'Tell the user this action is not available here.',
+        };
+      }
+
+      const businessName = typeof args.businessName === 'string' ? args.businessName.trim() : '';
+      const description = typeof args.description === 'string' ? args.description.trim() : '';
+      if (!businessName) {
+        return { toolMessage: 'A business name is required.' };
+      }
+      if (!description || description.length < 20) {
+        return {
+          toolMessage:
+            'Provide more detail about the marketplace -- what items are traded, what routes are served, ' +
+            'and who the buyers and travelers are. At least 20 characters.',
+        };
+      }
+
+      const features = Array.isArray(args.features) ? args.features.filter((f): f is string => typeof f === 'string') : [];
+      const sourceUrl = typeof args.sourceUrl === 'string' ? args.sourceUrl.trim() : undefined;
+      const web3Enabled = typeof args.web3Enabled === 'boolean' ? args.web3Enabled : true;
+
+      // Lazy imports
+      const [{ getTemplate }, credits] = await Promise.all([
+        import('@/domain/tenant/template-catalog'),
+        import('@/domain/billing/credit-service'),
+      ]);
+
+      // Pre-flight credit gate
+      const gate = await credits.requireCreditsForOrg(
+        await credits.resolvePlatformOrgId(),
+        undefined,
+        credits.CREDIT_FLOWS.templateGeneration,
+        ctx.viewerEmail,
+      );
+      if (!gate.ok) {
+        return {
+          toolMessage:
+            'Cannot build a delivery marketplace app: this organization has no AI credits remaining. ' +
+            'Tell the administrator to upgrade the plan or add credits.',
+        };
+      }
+
+      const template = getTemplate('delivery-marketplace');
+      const wallet = template.capabilities?.web3Wallet;
+      const pageTitles = template.defaultPages.map((p) => p.title);
+      const navLabels = template.defaultNavItems.map((n) => n.title);
+
+      // Build the delivery marketplace app definition
+      const appDefinition = {
+        label: `${businessName} -- Delivery Marketplace`,
+        description: description,
+        icon: 'LocalShipping',
+        templateType: 'single' as const,
+        templateId: 'delivery-marketplace',
+        defaultColors: template.defaultColors,
+        defaultPages: template.defaultPages,
+        defaultNavItems: template.defaultNavItems,
+        capabilities: template.capabilities,
+        assistant: {
+          role: 'delivery marketplace assistant',
+          domain: description,
+          currency: 'USDC',
+          keyMetrics: ['orders_completed', 'reputation_score', 'delivery_time', 'escrow_value'],
+          capabilities: features.length > 0 ? features : [
+            'Help find delivery requests by route and category',
+            'Track order status through the 9-step escrow workflow',
+            'Manage travel plans and inbox matching',
+            'Explain staking, escrow, and fee structure',
+            'Resolve disputes and review transactions',
+          ],
+          answerStyle: [
+            'Be concise and helpful',
+            'Use USDC for all monetary values',
+            'Highlight trust and safety features',
+            'Reference order state machine when discussing status',
+          ],
+          starterPrompt: `Welcome to ${businessName}! I can help you find delivery requests, track orders, or manage your travel plans. What would you like to do?`,
+        },
+        defaultRoles: template.defaultRoles,
+        web3Wallet: wallet,
+        sourceUrl,
+      };
+
+      const walletSummary = wallet?.enabled
+        ? `Reown wallet enabled -- ${wallet.connectMode} sign-in via ${[
+            ...wallet.socialProviders,
+            ...(wallet.emailLogin ? ['email'] : []),
+          ].join('/') || 'wallet extension'}, chains ${wallet.chains.join(', ')}. USDC escrow on Base Sepolia.`
+        : 'Web3 wallet not enabled.';
+
+      return {
+        toolMessage: [
+          `Designed a delivery marketplace app: \`${appDefinition.label}\``,
+          appDefinition.description,
+          `Pages: ${pageTitles.join(', ')}.`,
+          `Navigation: ${navLabels.join(', ')}.`,
+          `Roles: ${(template.defaultRoles ?? []).map((r) => r.name).join(', ')}.`,
+          walletSummary,
+          `AI Assistant: ${appDefinition.assistant.starterPrompt}`,
+          'It has NOT been saved yet -- tell the administrator to review it and press',
+          '"Save & Create Template" to add it to the platform template library, or',
+          '"Create Tenant" to deploy it directly as a new tenant app.',
+        ].join(' '),
+        clientAction: 'build_delivery_marketplace_app' as ChatSessionAction,
+        templateDraft: {
+          label: appDefinition.label,
+          description: appDefinition.description,
+          icon: appDefinition.icon,
+          templateType: appDefinition.templateType,
+          definition: appDefinition as unknown as Record<string, unknown>,
+          capabilities: (appDefinition.capabilities ?? {}) as unknown as Record<string, unknown>,
+          sourceKind: sourceUrl ? 'url' as const : 'prompt' as const,
+          sourceRef: sourceUrl ?? null,
+          prompt: description,
+          pageTitles,
+          rationale: `Built from the delivery-marketplace template with ${features.length || 'default'} custom features.`,
+          walletSummary,
+        },
+      };
     }
     default:
       return { toolMessage: `Unknown session tool: ${toolName}` };

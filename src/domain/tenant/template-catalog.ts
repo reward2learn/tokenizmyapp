@@ -601,6 +601,86 @@ export const TEMPLATE_CATALOG: Record<string, TemplateDefinition> = {
     xsdStandard: 'schema.org',
   },
 
+  // 13. GoFetch — Delivery Marketplace
+  'delivery-marketplace': {
+    id: 'delivery-marketplace',
+    label: 'GoFetch — Delivery Marketplace',
+    description: 'P2P global shopping & delivery with USDC escrow. Buyers post requests, travelers monetize spare luggage, escrow protects both parties.',
+    icon: 'LocalShipping',
+    templateType: 'single',
+    source: 'builtin',
+    defaultColors: { primary: '#2A5A4A', secondary: '#C97A5E' },  // Sage Green (Trust) + Terracotta (Warmth)
+    defaultPages: [
+      HOME_PAGE,
+      dashboardPageWithChat('delivery-marketplace'),
+      { slug: 'explore', title: 'Explore Requests', navLabel: 'Explore', authTier: 'public', blockTypes: ['hero', 'dynamic_form'] },
+      { slug: 'orders', title: 'My Orders', navLabel: 'Orders', authTier: 'google', blockTypes: ['dynamic_form'] },
+      { slug: 'trips', title: 'Travel Plans', navLabel: 'Trips', authTier: 'google', blockTypes: ['dynamic_form'] },
+      { slug: 'wallet', title: 'Wallet', navLabel: 'Wallet', authTier: 'google', blockTypes: ['kpi_cards'] },
+      { slug: 'chat', title: 'Messages', navLabel: 'Messages', authTier: 'google', blockTypes: [] as string[] },
+      SUMMARY_PAGE,
+      { slug: 'profile', title: 'Profile', navLabel: 'Profile', authTier: 'google', blockTypes: ['dynamic_form'] },
+      TASKS_PAGE,
+      NOTES_PAGE,
+      ADMIN_PAGE,
+    ],
+    defaultNavItems: [
+      HOME_NAV,
+      { title: 'Explore', path: '/explore', icon: 'Search', authTier: 'public' },
+      { title: 'Orders', path: '/orders', icon: 'ShoppingBag', authTier: 'google' },
+      { title: 'Trips', path: '/trips', icon: 'Flight', authTier: 'google' },
+      { title: 'Wallet', path: '/wallet', icon: 'AccountBalanceWallet', authTier: 'google' },
+      { title: 'Messages', path: '/chat', icon: 'Chat', authTier: 'google' },
+      { title: 'Profile', path: '/profile', icon: 'Person', authTier: 'google' },
+      NOTES_NAV,
+      { title: 'Admin', path: '/admin', icon: 'Settings', authTier: 'pin' },
+    ],
+    capabilities: {
+      web3Wallet: {
+        enabled: true,
+        connectMode: 'both',  // Social + injected wallets
+        socialProviders: ['google', 'apple'],
+        emailLogin: true,
+        chains: [84532],  // Base Sepolia
+        showBalances: true,
+        tokenGating: false,
+      },
+    },
+    assistant: {
+      role: 'delivery marketplace assistant',
+      domain: 'P2P global shopping and delivery',
+      currency: 'USDC',
+      keyMetrics: [
+        'orders_completed',
+        'reputation_score',
+        'delivery_time',
+        'escrow_value',
+      ],
+      capabilities: [
+        'Help find delivery requests by route and category',
+        'Track order status through the 9-step escrow workflow',
+        'Manage travel plans and inbox matching',
+        'Explain staking, escrow, and fee structure',
+        'Resolve disputes and review transactions',
+      ],
+      answerStyle: [
+        'Be concise and helpful',
+        'Use USDC for all monetary values',
+        'Highlight trust and safety features',
+        'Reference order state machine when discussing status',
+      ],
+      starterPrompt: 'Welcome to GoFetch! I can help you find delivery requests, track orders, or manage your travel plans. What would you like to do?',
+    },
+    defaultRoles: [
+      { code: 'buyer', name: 'Buyer' },
+      { code: 'traveler', name: 'Traveler' },
+      { code: 'arbitrator', name: 'Arbitrator' },
+      { code: 'admin', name: 'Admin', isPlatformAdmin: true },
+    ],
+    schemaOrgType: 'WebApplication',
+    xsdStandard: 'UBL (orders), ISO 20022 (payment)',
+  },
+
   // Default (minimal — kept for backward compatibility)
   default: {
     id: 'default',
