@@ -70,9 +70,10 @@ async function main(): Promise<void> {
     inTransaction = true;
 
     await client.query(SECRETS_TABLE_DDL);
+    // Explicit updated_at — some Neon schemas lack a DEFAULT after prisma db push.
     await client.query(
-      `INSERT INTO secrets (key_name, encrypted_value, iv, auth_tag)
-       VALUES ($1, $2, $3, $4)
+      `INSERT INTO secrets (key_name, encrypted_value, iv, auth_tag, updated_at)
+       VALUES ($1, $2, $3, $4, CURRENT_TIMESTAMP)
        ON CONFLICT (key_name) DO UPDATE SET
          encrypted_value = EXCLUDED.encrypted_value,
          iv = EXCLUDED.iv,

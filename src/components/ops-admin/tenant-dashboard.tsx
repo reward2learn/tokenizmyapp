@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { Fragment, useMemo, useState } from 'react';
 import Alert from '@mui/material/Alert';
 import Box from '@mui/material/Box';
 import Button from '@mui/material/Button';
@@ -941,9 +941,9 @@ export function TenantDashboard() {
                   const isExpanded = expandedRows.has(t.slug);
                   const isSuite = isSuiteTenant(t);
                   return (
-                    <>
+                    <Fragment key={t.id}>
                       {/* ── Parent Row ── */}
-                      <TableRow key={t.id} sx={{ '& > *': { borderBottom: 'unset' } }}>
+                      <TableRow sx={{ '& > *': { borderBottom: 'unset' } }}>
                         <TableCell>
                           {isSuite ? (
                             <IconButton size="small" onClick={() => toggleRow(t.slug)} aria-label={isExpanded ? 'Collapse' : 'Expand'}>
@@ -1168,7 +1168,7 @@ export function TenantDashboard() {
                           </TableCell>
                         </TableRow>
                       ) : null}
-                    </>
+                    </Fragment>
                   );
                 })}
               </TableBody>

@@ -87,3 +87,15 @@ Task({
 Wallet / SIWE / AppKit work: prefer **`website-auth`** (+ `website-api` for `/api/auth/wallet/*`) and attach skill **`reown-siwe-wallet-link`**.
 
 Do **not** use `project-manager` for coding tasks (restaurant ops only).
+
+## Learned User Preferences
+
+- Prefer local verification with `bun install` / `bun run dev`; when debugging Google sign-in, the browser origin port must match Google Cloud Authorized redirect URIs exactly (e.g. `http://localhost:3000` vs `3001`).
+- Local chat needs a DB-backed default AI provider (Config → AI Provider or `bun run seed:chatbot-key`); an `OPENAI_API_KEY` in env alone does not clear “No AI provider configured.”
+
+## Learned Workspace Facts
+
+- Local `.env` / `.env.local` may set `NEXT_PUBLIC_TENANT_SLUG` to a tenant (e.g. `tokenizmyapp-finance`); factory admin/creation UI requires `tokenizmyapp`.
+- If a lockfile exists above the repo, Turbopack can mis-resolve the workspace root; `turbopack.root` in `next.config.mjs` must point at this app directory.
+- Without `GOOGLE_RELAY_*` locally, Google OAuth uses `${origin}/api/auth/callback/google` via the real App Router route (proxy must not rewrite it away); set the session cookie on that Response so it survives the post-login redirect.
+- `navigation_items.id` is a global primary key; navigation seed/insert must tolerate cross-tenant ID collisions (PK pre-check / `ON CONFLICT`), not only scoped existence checks.
