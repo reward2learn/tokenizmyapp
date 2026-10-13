@@ -36,11 +36,29 @@ export function buildClearSessionCookie(): string {
 }
 
 export function setSessionCookie(response: NextResponse, token: string): void {
-  response.headers.append('Set-Cookie', buildSessionCookie(token));
+  // Prefer the cookies API so Next attaches Set-Cookie on redirects reliably
+  // (header append alone was dropped after Google callback in local proxy).
+  response.cookies.set({
+    name: COOKIE_NAME,
+    value: token,
+    path: '/',
+    httpOnly: true,
+    sameSite: 'lax',
+    secure: isProduction(),
+    maxAge: SESSION_MAX_AGE,
+  });
 }
 
 export function clearSessionCookie(response: NextResponse): void {
-  response.headers.append('Set-Cookie', buildClearSessionCookie());
+  response.cookies.set({
+    name: COOKIE_NAME,
+    value: '',
+    path: '/',
+    httpOnly: true,
+    sameSite: 'lax',
+    secure: isProduction(),
+    maxAge: 0,
+  });
 }
 
 function parseCookieHeader(raw: string): Record<string, string> {

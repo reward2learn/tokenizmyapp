@@ -61,7 +61,18 @@ const verifyPinSchema = z.object({
 
 export async function GET(request: Request) {
   const url = new URL(request.url);
-  const action = url.searchParams.get('action') ?? '';
+  let action = url.searchParams.get('action') ?? '';
+
+  // Public redirect URI is /api/auth/callback/google. If a rewrite left the
+  // browser path intact on request.url without ?action=, still run callback
+  // when Google's OAuth params are present.
+  if (
+    !action &&
+    (url.pathname.endsWith('/api/auth/callback/google') || url.pathname.endsWith('/callback/google')) &&
+    (url.searchParams.has('code') || url.searchParams.has('error'))
+  ) {
+    action = 'google-callback';
+  }
 
   switch (action) {
     case 'google-config':

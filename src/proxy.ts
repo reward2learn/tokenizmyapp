@@ -83,39 +83,54 @@ function injectSessionHeaders(headers: Headers, session: SessionClaims): void {
 export async function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
-  // Phase 5: Rewrites (moved from next.config.mjs)
-  if (pathname === '/api/auth/callback/google') {
-    const response = NextResponse.rewrite(new URL('/api/auth?action=google-callback', request.url));
-    setSecurityHeaders(response);
-    return response;
-  }
+  // Phase 5: Rewrites (moved from next.config.mjs).
+  // Google callback is a real route at /api/auth/callback/google — do not
+  // rewrite it (rewrite + Set-Cookie redirect was dropping the session).
   if (pathname === '/api/monthly-actuals') {
-    const response = NextResponse.rewrite(new URL('/api/financial-overview?resource=monthly-actuals', request.url));
+    const dest = request.nextUrl.clone();
+    dest.pathname = '/api/financial-overview';
+    dest.searchParams.set('resource', 'monthly-actuals');
+    const response = NextResponse.rewrite(dest);
     setSecurityHeaders(response);
     return response;
   }
   if (pathname === '/api/pos-scan') {
-    const response = NextResponse.rewrite(new URL('/api/pos?action=scan', request.url));
+    const dest = request.nextUrl.clone();
+    dest.pathname = '/api/pos';
+    dest.searchParams.set('action', 'scan');
+    const response = NextResponse.rewrite(dest);
     setSecurityHeaders(response);
     return response;
   }
   if (pathname === '/api/pos-parse') {
-    const response = NextResponse.rewrite(new URL('/api/pos?action=parse', request.url));
+    const dest = request.nextUrl.clone();
+    dest.pathname = '/api/pos';
+    dest.searchParams.set('action', 'parse');
+    const response = NextResponse.rewrite(dest);
     setSecurityHeaders(response);
     return response;
   }
   if (pathname === '/api/voice') {
-    const response = NextResponse.rewrite(new URL('/api/chat?resource=voice', request.url));
+    const dest = request.nextUrl.clone();
+    dest.pathname = '/api/chat';
+    dest.searchParams.set('resource', 'voice');
+    const response = NextResponse.rewrite(dest);
     setSecurityHeaders(response);
     return response;
   }
   if (pathname === '/api/conversations') {
-    const response = NextResponse.rewrite(new URL('/api/chat?resource=conversations', request.url));
+    const dest = request.nextUrl.clone();
+    dest.pathname = '/api/chat';
+    dest.searchParams.set('resource', 'conversations');
+    const response = NextResponse.rewrite(dest);
     setSecurityHeaders(response);
     return response;
   }
   if (pathname === '/api/reports') {
-    const response = NextResponse.rewrite(new URL('/api/financial-overview?resource=reports', request.url));
+    const dest = request.nextUrl.clone();
+    dest.pathname = '/api/financial-overview';
+    dest.searchParams.set('resource', 'reports');
+    const response = NextResponse.rewrite(dest);
     setSecurityHeaders(response);
     return response;
   }

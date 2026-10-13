@@ -23,10 +23,6 @@
   },
   "rewrites": [
     {
-      "source": "/api/auth/callback/google",
-      "destination": "/api/auth?action=google-callback"
-    },
-    {
       "source": "/api/monthly-actuals",
       "destination": "/api/financial-overview?resource=monthly-actuals"
     },
