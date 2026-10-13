@@ -44,13 +44,22 @@ export async function applyFactorySocialFeaturesAfterReady(
       if (ready) {
         console.log('[siwx] waiting on readyPromise...');
         // Guard against readyPromise hanging (stale IndexedDB session, etc.)
-        await withTimeout(ready, 12_000, 'readyPromise');
-        console.log('[siwx] readyPromise resolved');
+        try {
+          await withTimeout(ready, 12_000, 'readyPromise');
+          console.log('[siwx] readyPromise resolved');
+        } catch (err) {
+          // Non-fatal: factory SIWE link still works via linkFactoryWalletSession
+          // after signalSiweAppReady(); AppKit social init may catch up later.
+          console.warn(
+            '[siwx] readyPromise did not settle in time; continuing',
+            err instanceof Error ? err.message : err,
+          );
+        }
       } else {
         console.log('[siwx] no readyPromise found');
       }
     } catch (err) {
-      console.error('[siwx] error waiting for ready:', err);
+      console.warn('[siwx] error waiting for ready:', err instanceof Error ? err.message : err);
       // Fall through — short defer still re-applies social features.
     }
   }

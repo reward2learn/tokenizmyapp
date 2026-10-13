@@ -1,4 +1,4 @@
-import { createListenerMiddleware, isAnyOf } from '@reduxjs/toolkit';
+import { createListenerMiddleware } from '@reduxjs/toolkit';
 import {
   chatApi,
   type ChatAiOptionsData,
@@ -115,18 +115,17 @@ chatListener.startListening({
     const { warm, model } = shouldWarmStudio(nextState, options);
     if (warm && model) {
       dispatch(listenerApi)(warmStudioModelFlow({ model }));
-    } else if (!warm) {
+    } else if (!warm && nextState.studioWarmStatus !== 'idle') {
       listenerApi.dispatch(resetWarmState());
     }
   },
 });
 
-/** Re-evaluate Studio warm when model changes after options are cached. */
+/** Re-evaluate Studio warm when model changes after options are cached.
+ *  Do NOT match resetWarmState — dispatching it from this effect caused an
+ *  infinite listener loop (Maximum call stack size exceeded). */
 chatListener.startListening({
-  matcher: isAnyOf(
-    chatStreamSlice.actions.setSelectedModel,
-    chatStreamSlice.actions.resetWarmState,
-  ),
+  matcher: chatStreamSlice.actions.setSelectedModel.match,
   effect: (_action, listenerApi) => {
     const state = getState(listenerApi).chatStream;
     const cached = chatApi.endpoints.getChatAiOptions.select(undefined)(getState(listenerApi) as any);
@@ -136,7 +135,9 @@ chatListener.startListening({
     const { warm, model } = shouldWarmStudio(state, options);
     if (warm && model) {
       dispatch(listenerApi)(warmStudioModelFlow({ model }));
-    } else {
+      return;
+    }
+    if (state.studioWarmStatus !== 'idle') {
       listenerApi.dispatch(resetWarmState());
     }
   },
