@@ -199,6 +199,7 @@ export function createAppTheme(brand: BrandColors, mode: ResolvedThemeMode = 'li
   const n = NEUTRALS[mode];
 
   return createTheme({
+    modularCssLayers: true,
     palette: {
       mode,
       primary: { main: brand.primary, contrastText: contrastText(brand.primary) },

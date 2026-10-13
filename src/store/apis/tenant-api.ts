@@ -346,6 +346,23 @@ export const tenantApi = createApi({
       invalidatesTags: ['Tenants'],
     }),
 
+    generateTenantSeo: builder.mutation<
+      ApiEnvelope<{
+        seo?: { title?: string; description?: string };
+        useCase?: string;
+        goals?: string[];
+        benefits?: string[];
+        functionality?: string[];
+      }>,
+      { slug: string; displayName: string; template: string; description?: string }
+    >({
+      query: ({ slug, displayName, template, description }) => ({
+        url: `admin/tenants/${slug}/generate-seo`,
+        method: 'POST',
+        body: { displayName, template, description },
+      }),
+    }),
+
     migrateTenant: builder.mutation<
       ApiEnvelope<{
         migrated: boolean;
@@ -1179,6 +1196,7 @@ export const {
   useDeleteTenantUserMutation,
   useSeedTenantMutation,
   useGenerateTenantLegalDocsMutation,
+  useGenerateTenantSeoMutation,
   useMigrateTenantMutation,
   useDeployTenantMutation,
   useGetDeployStatusQuery,

@@ -21,7 +21,13 @@ import AutoAwesomeIcon from '@mui/icons-material/AutoAwesome';
 import Button from '@mui/material/Button';
 import TextField from '@mui/material/TextField';
 import { useGetAdminBrandConfigQuery, useGetSeedOverviewQuery } from '@/store/apis/admin-api';
-import { useGetTenantQuery, useUpdateTenantMutation, useUploadTenantFaviconMutation, useRemoveTenantFaviconMutation } from '@/store/apis/tenant-api';
+import {
+  useGetTenantQuery,
+  useUpdateTenantMutation,
+  useUploadTenantFaviconMutation,
+  useRemoveTenantFaviconMutation,
+  useGenerateTenantSeoMutation,
+} from '@/store/apis/tenant-api';
 import { getClientTenantConfig } from '@shared/lib/config/tenant';
 import { getTemplate } from '@/domain/tenant/template-catalog';
 
@@ -48,6 +54,7 @@ export function TenantInfoTab({ tenantSlug, appId }: TenantInfoTabProps = {}) {
   );
   const { data: tenantData } = useGetTenantQuery(tenantSlug || tenant.slug);
   const [updateTenant, { isLoading: updating }] = useUpdateTenantMutation();
+  const [generateTenantSeo] = useGenerateTenantSeoMutation();
 
   const brand = brandData?.data as
     | { tenantDisplayName?: string; tenantTemplate?: string; brandPrimaryColor?: string; brandSecondaryColor?: string }
@@ -141,19 +148,15 @@ export function TenantInfoTab({ tenantSlug, appId }: TenantInfoTabProps = {}) {
     setGeneratingSeo(true);
     setGenerateMessage(null);
     try {
-      const res = await fetch(`/api/admin/tenants/${tenant.slug}/generate-seo`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          displayName: displayName.trim() || tenant.displayName,
-          template: templateId,
-          description: metaDescription.trim() || undefined,
-        }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Generation failed');
+      const result = await generateTenantSeo({
+        slug: tenant.slug,
+        displayName: displayName.trim() || tenant.displayName,
+        template: templateId,
+        description: metaDescription.trim() || undefined,
+      }).unwrap();
+      if (!result.success) throw new Error(result.error || 'Generation failed');
 
-      const seo = data.data ?? data;
+      const seo = result.data ?? {};
       if (seo.seo?.title) setMetaTitle(seo.seo.title);
       if (seo.seo?.description) setMetaDescription(seo.seo.description);
       if (seo.useCase) setUseCase(seo.useCase);

@@ -4,7 +4,6 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import type { ReactNode } from 'react';
 import CssBaseline from '@mui/material/CssBaseline';
 import { ThemeProvider } from '@mui/material/styles';
-import { AppRouterCacheProvider } from '@mui/material-nextjs/v16-appRouter';
 import {
   DEFAULT_MODE,
   NEUTRALS,
@@ -128,13 +127,11 @@ export function ThemeRegistry({ children }: { children: ReactNode }) {
   const themeModeValue = useMemo(() => ({ themeMode, setThemeMode }), [themeMode, setThemeMode]);
 
   return (
-    <AppRouterCacheProvider>
-      <ThemeProvider theme={theme}>
-        <ThemeModeContext.Provider value={themeModeValue}>
-          <CssBaseline />
-          {children}
-        </ThemeModeContext.Provider>
-      </ThemeProvider>
-    </AppRouterCacheProvider>
+    <ThemeProvider theme={theme}>
+      <ThemeModeContext.Provider value={themeModeValue}>
+        <CssBaseline />
+        {children}
+      </ThemeModeContext.Provider>
+    </ThemeProvider>
   );
 }

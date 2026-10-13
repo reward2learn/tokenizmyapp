@@ -3,6 +3,7 @@ import type { ReactNode } from 'react';
 import { Geist, Geist_Mono } from 'next/font/google';
 import '../../style.css';
 import { AppProviders } from '@/components/providers/app-providers';
+import { MuiCacheProvider } from '@/theme/mui-cache-provider';
 import { ThemeRegistry } from '@/theme/theme-registry';
 import { AppShell } from '@/components/layout/app-shell';
 import { getTenantConfig } from '@/lib/tenant-config';
@@ -26,11 +27,13 @@ export default function RootLayout({ children }: { children: ReactNode }) {
   return (
     <html lang="en" suppressHydrationWarning className={`${geist.variable} ${geistMono.variable}`}>
       <body>
-        <AppProviders>
-          <ThemeRegistry>
-            <AppShell>{children}</AppShell>
-          </ThemeRegistry>
-        </AppProviders>
+        <MuiCacheProvider>
+          <AppProviders>
+            <ThemeRegistry>
+              <AppShell>{children}</AppShell>
+            </ThemeRegistry>
+          </AppProviders>
+        </MuiCacheProvider>
       </body>
     </html>
   );

@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useMemo, useRef, useState, type ChangeEvent } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent } from 'react';
 import { usePathname, useSearchParams } from 'next/navigation';
 import Box from '@mui/material/Box';
 import Button from '@mui/material/Button';
@@ -129,11 +129,13 @@ export function ChatPanel({
   const isDrawer = variant === 'drawer';
   const dispatch = useAppDispatch();
   const searchParams = useSearchParams();
-  const initRef = useRef(false);
-  if (!initRef.current) {
-    initRef.current = true;
-    dispatch(initChatPanel({ urlPrompt: searchParams.get('prompt') }));
-  }
+  const urlPrompt = searchParams.get('prompt');
+
+  // Must not dispatch during render — that updates Redux subscribers (e.g.
+  // BillingLockRedirect) while ChatPanel is still rendering.
+  useEffect(() => {
+    dispatch(initChatPanel({ urlPrompt }));
+  }, [dispatch, urlPrompt]);
 
   const { messages, isStreaming, error, studioWarmStatus, studioWarmModel } = useAppSelector((s) => s.chatStream);
   const input = useAppSelector(selectComposerInput);

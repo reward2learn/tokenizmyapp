@@ -1,5 +1,9 @@
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import withBundleAnalyzer from '@next/bundle-analyzer';
 import { withWorkflow } from 'workflow/next';
+
+const projectRoot = path.dirname(fileURLToPath(import.meta.url));
 
 const withBundleAnalyzerConfig = withBundleAnalyzer({
   enabled: process.env.ANALYZE === 'true',
@@ -7,6 +11,9 @@ const withBundleAnalyzerConfig = withBundleAnalyzer({
 
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+  turbopack: {
+    root: projectRoot,
+  },
   reactStrictMode: true,
   typedRoutes: false,
   typescript: {

@@ -761,6 +761,9 @@ export async function seedMissingNavigationFromCatalog(
   const tenantSlug = normalizeTenantSlug(scope?.tenantSlug) || null;
   const appId = normalizeAppId(scope?.appId);
 
+  // Path uniqueness is per (tenant, app); PK `id` is global. Load both so we
+  // do not try to INSERT an id that already exists under a different scope
+  // (or from a concurrent reconcile — common under parallel /api/navigation).
   const existing = await prisma.$queryRawUnsafe<{ id: string; path: string }[]>(
     `SELECT id, path FROM navigation_items
      WHERE COALESCE(app_id, '') = $1
@@ -772,6 +775,17 @@ export async function seedMissingNavigationFromCatalog(
   const existingPaths = new Set(existing.map((r) => r.path));
 
   const catalogItems = await deriveNavItemsFromCatalog();
+  const candidateIds = catalogItems.map((item) =>
+    tenantSlug || appId ? `${item.id}_${appId || tenantSlug}` : item.id,
+  );
+  if (candidateIds.length > 0) {
+    const byPk = await prisma.$queryRawUnsafe<{ id: string }[]>(
+      `SELECT id FROM navigation_items WHERE id = ANY($1::text[])`,
+      candidateIds,
+    );
+    for (const row of byPk) existingIds.add(row.id);
+  }
+
   let inserted = 0;
 
   const insertIfMissing = async (
@@ -786,9 +800,10 @@ export async function seedMissingNavigationFromCatalog(
       tenantSlug || appId ? `${id}_${appId || tenantSlug}` : id;
     if (existingIds.has(scopedId) || existingIds.has(id)) return;
     try {
-      await prisma.$executeRawUnsafe(
+      const rows = await prisma.$executeRawUnsafe(
         `INSERT INTO navigation_items (id, parent_id, sort_order, title, path, icon, auth_tier, required_groups, is_visible, is_dynamic, is_default, tenant_slug, app_id, updated_at)
-         VALUES ($1, NULL, $2, $3, $4, '', CAST($5 AS "AuthTier"), $6, TRUE, FALSE, $7, $8, $9, NOW())`,
+         VALUES ($1, NULL, $2, $3, $4, '', CAST($5 AS "AuthTier"), $6, TRUE, FALSE, $7, $8, $9, NOW())
+         ON CONFLICT (id) DO NOTHING`,
         scopedId,
         inserted,
         title,
@@ -801,8 +816,20 @@ export async function seedMissingNavigationFromCatalog(
       );
       existingIds.add(scopedId);
       existingPaths.add(path);
-      inserted++;
+      if (typeof rows === 'number' ? rows > 0 : Boolean(rows)) {
+        inserted++;
+      }
     } catch (err) {
+      const code =
+        err && typeof err === 'object' && 'meta' in err
+          ? (err as { meta?: { code?: string } }).meta?.code
+          : undefined;
+      // Concurrent seed — treat as already present.
+      if (code === '23505') {
+        existingIds.add(scopedId);
+        existingPaths.add(path);
+        return;
+      }
       console.error(`[navigation] Failed to seed item ${scopedId}:`, err);
     }
   };
